@@ -1,0 +1,97 @@
+package app.auloud.player.bundle
+
+import java.io.File
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+/** WP2: validator verifies for Slice 1 WP2 (MP3 existence, positive duration, required fields). */
+class BundleValidatorTest {
+
+    private fun fixtureDir(name: String): File {
+        val userDir = File(System.getProperty("user.dir") ?: ".")
+        val direct = File(userDir, "../../spec/fixtures/$name")
+        if (direct.isDirectory) return direct
+        var cur: File? = userDir
+        while (cur != null) {
+            val candidate = File(cur, "spec/fixtures/$name")
+            if (candidate.isDirectory) return candidate
+            cur = cur.parentFile
+        }
+        return direct
+    }
+
+    @Test
+    fun validBundle_passesValidation() {
+        val dir = fixtureDir("valid-bundle")
+        assertTrue("fixture missing: ${dir.path}", dir.isDirectory)
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        val errors = BundleValidator.validate(dir, manifest)
+        assertTrue("expected no errors, got: $errors", errors.isEmpty())
+    }
+
+    @Test
+    fun missingChapterMp3_failsWithNamedError() {
+        val dir = fixtureDir("missing-mp3")
+        assertTrue("fixture missing: ${dir.path}", dir.isDirectory)
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        val errors = BundleValidator.validate(dir, manifest)
+        assertTrue("expected missing-MP3 error, got: $errors", errors.isNotEmpty())
+        val joined = errors.joinToString("\n")
+        assertTrue("error must name manifest.json, got: $joined", joined.contains("manifest.json"))
+        assertTrue(
+            "error must name the missing file audio/ch002.mp3, got: $joined",
+            joined.contains("audio/ch002.mp3")
+        )
+    }
+
+    @Test
+    fun nonPositiveDuration_fails() {
+        val dir = fixtureDir("valid-bundle")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        val bad = manifest.copy(
+            chapters = listOf(manifest.chapters[0].copy(durationMs = 0))
+        )
+        val errors = BundleValidator.validate(dir, bad)
+        assertTrue("expected duration error, got: $errors", errors.isNotEmpty())
+        val joined = errors.joinToString("\n")
+        assertTrue("error must name manifest.json, got: $joined", joined.contains("manifest.json"))
+        assertTrue("error must mention duration_ms, got: $joined", joined.contains("duration_ms"))
+    }
+
+    @Test
+    fun blankRequiredField_isFlagged() {
+        val dir = fixtureDir("valid-bundle")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        val bad = manifest.copy(title = "  ")
+        val errors = BundleValidator.validate(dir, bad)
+        assertTrue("expected missing-title error, got: $errors", errors.isNotEmpty())
+        assertTrue(errors.joinToString().contains("manifest.json"))
+    }
+
+    @Test
+    fun existsSeam_matchesFileBasedVerdict() {
+        // The WP5 rescan path calls validate() with a storage-backed `exists`;
+        // both overloads must reach identical verdicts or the test fails.
+        for (name in listOf("valid-bundle", "missing-mp3")) {
+            val dir = fixtureDir(name)
+            assertTrue("fixture missing: ${dir.path}", dir.isDirectory)
+            val manifest = BundleParser.parse(dir).getOrThrow()
+            val viaFile = BundleValidator.validate(dir, manifest)
+            val present = manifest.chapters.map { it.audio }
+                .filter { File(dir, it).isFile }
+                .map { dir.path.trimEnd('/') + "/" + it.trimStart('/') }
+                .toSet()
+            val viaSeam = BundleValidator.validate(dir.path, manifest) { it in present }
+            assertEquals("validator paths diverged for $name", viaFile, viaSeam)
+        }
+    }
+
+    @Test
+    fun validateBundle_missingDir_reportsManifestFile() {        val errors = BundleValidator.validateBundle(File(fixtureDir("valid-bundle"), "does-not-exist"))
+        assertTrue(errors.isNotEmpty())
+        assertTrue(errors.joinToString().contains("manifest.json"))
+        // Keep the suite green even if the placeholder example test was removed.
+        assertEquals(1, errors.size)
+    }
+}

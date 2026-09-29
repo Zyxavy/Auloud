@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Slice 1 WP1: legacy storage + foreground playback on API 24.
+         WP3/WP5 refinement (user-approved): WRITE joins READ so first launch
+         can auto-create the shared-internal /Auloud default. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application
+        android:label="Auloud"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Auloud">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!-- WP6: foreground playback. API 24: started with plain
+             startService (no startForegroundService, API 26+), no
+             foregroundServiceType (API 29+), no notification channels
+             (API 26+; Media3's default provider handles the foreground
+             notification without them). -->
+        <service
+            android:name=".playback.PlaybackService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.media3.session.MediaSessionService" />
+            </intent-filter>
+        </service>
+    </application>
+</manifest>

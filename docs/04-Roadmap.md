@@ -50,18 +50,18 @@ Goal: everything ready so Slice 1 starts clean.
 
 Goal: play a bundle with the screen off.
 
-- [ ] Import a bundle folder via the folder picker; parse `manifest.json`
-- [ ] Library screen listing books with cover and title
-- [ ] Media3 `MediaSessionService` as a foreground service, chapters as a playlist
-- [ ] Play, pause, seek, next and previous chapter; notification and Bluetooth controls
-- [ ] Save and restore position (Room)
-- [ ] First-run battery-optimization prompt
+- [x] Import a bundle folder via the folder picker; parse `manifest.json`
+- [x] Library screen listing books with cover and title
+- [x] Media3 `MediaSessionService` as a foreground service, chapters as a playlist
+- [x] Play, pause, seek, next and previous chapter; notification and Bluetooth controls
+- [x] Save and restore position (Room)
+- [x] First-run battery-optimization prompt
 
 **Done when:**
 
-- The test bundle plays end to end with the screen off for 30+ minutes
-- Closing and reopening the app resumes at the same spot
-- Lock screen controls work
+- [x] The test bundle plays end to end with the screen off for 30+ minutes
+- [x] Closing and reopening the app resumes at the same spot
+- [x] Lock screen controls work
 
 ## Slice 2: Scribe, single voice (M)
 
