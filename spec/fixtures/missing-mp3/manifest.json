@@ -1,0 +1,13 @@
+{
+  "spec_version": "1.0",
+  "id": "8f0c6c1e-3a8f-4c6e-9d54-0b6a3f1a2b77",
+  "title": "Example Novel",
+  "author": "A. Author",
+  "language": "en",
+  "type": "epub",
+  "audio": { "format": "mp3", "channels": 1, "sample_rate": 24000, "bitrate_kbps": 64, "cbr": true },
+  "chapters": [
+    { "index": 1, "title": "Chapter One", "audio": "audio/ch001.mp3", "text": "text/ch001.json", "duration_ms": 1832400 },
+    { "index": 2, "title": "Chapter Two", "audio": "audio/ch002.mp3", "text": "text/ch002.json", "duration_ms": 1640100 }
+  ]
+}

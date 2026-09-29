@@ -1,0 +1,12 @@
+{
+  "spec_version": "1.0",
+  "chapter": 1,
+  "title": "Chapter One",
+  "duration_ms": 1832400,
+  "blocks": [
+    { "id": 1, "type": "heading", "level": 1, "text": "Chapter One" },
+    { "id": 2, "type": "para", "sentences": [
+      { "sid": 1, "speaker": "narrator", "start_ms": 0, "end_ms": 4200, "text": "The rain had not stopped for three days." }
+    ] }
+  ]
+}

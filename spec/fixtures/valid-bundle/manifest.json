@@ -1,0 +1,19 @@
+{
+  "spec_version": "1.0",
+  "id": "8f0c6c1e-3a8f-4c6e-9d54-0b6a3f1a2b77",
+  "title": "Example Novel",
+  "author": "A. Author",
+  "language": "en",
+  "type": "epub",
+  "source": { "file": "source/book.epub", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" },
+  "audio": { "format": "mp3", "channels": 1, "sample_rate": 24000, "bitrate_kbps": 64, "cbr": true },
+  "voices": {
+    "narrator": { "engine": "kokoro", "voice": "af_sarah", "speed": 1.0, "pitch": 1.0 }
+  },
+  "chapters": [
+    { "index": 1, "title": "Chapter One", "audio": "audio/ch001.mp3", "text": "text/ch001.json", "duration_ms": 1832400 },
+    { "index": 2, "title": "Chapter Two", "audio": "audio/ch002.mp3", "text": "text/ch002.json", "duration_ms": 1640100 }
+  ],
+  "created_at": "2026-09-29T10:00:00Z",
+  "generator": "scribe 0.1.0"
+}
