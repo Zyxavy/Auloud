@@ -7,8 +7,10 @@ import app.auloud.player.data.DataError
 import app.auloud.player.data.LibraryRepository
 import app.auloud.player.data.ProgressEntity
 import app.auloud.player.data.ProgressRepository
-import app.auloud.player.storage.BooksFolderStore
 import app.auloud.player.storage.BundleStorage
+import app.auloud.player.storage.WatchFolder
+import app.auloud.player.storage.WatchFolderStore
+import app.auloud.player.storage.WatchFolders
 import app.cash.turbine.test
 import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
@@ -37,7 +39,7 @@ class LibraryViewModelTest {
     private val manifestPath = "$novelDir/manifest.json"
 
     private lateinit var storage: FakeBundleStorage
-    private lateinit var folderStore: FakeBooksFolderStore
+    private lateinit var folderStore: FakeWatchFolderStore
     private lateinit var libraryRepo: FakeLibraryRepository
     private lateinit var progressRepo: FakeProgressRepository
     private var permissionGranted = true
@@ -47,7 +49,7 @@ class LibraryViewModelTest {
     @Before
     fun setUp() {
         storage = FakeBundleStorage()
-        folderStore = FakeBooksFolderStore(root)
+        folderStore = FakeWatchFolderStore(listOf(WatchFolder.FilePath(root)))
         libraryRepo = FakeLibraryRepository()
         progressRepo = FakeProgressRepository()
         permissionGranted = true
@@ -227,9 +229,92 @@ class LibraryViewModelTest {
         }
     }
 
-    private fun viewModel() = LibraryViewModel(
+    @Test
+    fun rescan_aggregatesFileAndSafFolders() = runBlocking {
+        val tree = "content://com.android.externalstorage.documents/tree/primary%3AAuloud"
+        val safDir = "$tree|saf-book"
+        folderStore.setWatchFolders(
+            listOf(WatchFolder.FilePath(root), WatchFolder.TreeUri(tree))
+        )
+        val routing = FakeRoutingStorage()
+        routing.file.dirsByRoot = mapOf(root to listOf(novelDir))
+        routing.file.texts = mapOf(manifestPath to manifestJson())
+        routing.file.existing = setOf(
+            manifestPath,
+            "$novelDir/audio/ch001.mp3",
+            "$novelDir/audio/ch002.mp3"
+        )
+        routing.saf = FakeSafBundleStorage(tree)
+        routing.saf!!.names = listOf("saf-book")
+        routing.saf!!.texts = mapOf(
+            "saf-book/manifest.json" to manifestJson(id = "saf-1", title = "SAF Book")
+        )
+        routing.saf!!.existing = setOf(
+            "saf-book/manifest.json",
+            "saf-book/audio/ch001.mp3",
+            "saf-book/audio/ch002.mp3"
+        )
+
+        val vm = viewModel(storage = routing)
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertEquals(2, state.books.size)
+            assertEquals(
+                listOf("Example Book", "SAF Book"),
+                state.books.map { it.title }.sorted()
+            )
+            assertTrue(state.errors.isEmpty())
+        }
+    }
+
+    @Test
+    fun rescan_folderListFailure_surfacesErrorButKeepsOtherFolder() = runBlocking {
+        val tree = "content://com.android.externalstorage.documents/tree/primary%3AAuloud"
+        folderStore.setWatchFolders(
+            listOf(WatchFolder.FilePath(root), WatchFolder.TreeUri(tree))
+        )
+        storage.dirs = listOf(novelDir)
+        storage.texts = mapOf(manifestPath to manifestJson())
+        storage.existing = setOf(
+            manifestPath,
+            "$novelDir/audio/ch001.mp3",
+            "$novelDir/audio/ch002.mp3"
+        )
+        storage.dirsByRoot = mapOf(root to listOf(novelDir))
+        storage.failRoots = setOf(tree)
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertEquals(1, state.books.size)
+            assertEquals(1, state.errors.size)
+            assertEquals(tree, state.errors[0].bundleDir)
+            assertTrue(state.errors[0].reason.contains("cannot list books folder"))
+        }
+    }
+
+    @Test
+    fun rescan_emptyWatchList_yieldsEmptyState() = runBlocking {
+        folderStore.setWatchFolders(emptyList())
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertTrue(state.hasPermission)
+            assertFalse(state.isScanning)
+            assertTrue(state.books.isEmpty())
+            assertTrue(state.errors.isEmpty())
+        }
+    }
+
+    private fun viewModel(
+        storage: BundleStorage = this.storage
+    ) = LibraryViewModel(
         storage = storage,
-        booksFolderStore = folderStore,
+        watchFolderStore = folderStore,
         libraryRepository = libraryRepo,
         progressRepository = progressRepo,
         isPermissionGranted = { permissionGranted },
@@ -263,10 +348,15 @@ class LibraryViewModelTest {
 
     private class FakeBundleStorage : BundleStorage {
         var dirs: List<String> = emptyList()
+        var dirsByRoot: Map<String, List<String>> = emptyMap()
+        var failRoots: Set<String> = emptySet()
         var texts: Map<String, String> = emptyMap()
         var existing: Set<String> = emptySet()
 
-        override fun listBundleDirs(root: String): List<String> = dirs
+        override fun listBundleDirs(root: String): List<String> {
+            if (root in failRoots) throw IOException("$root: cannot list books folder: denied")
+            return dirsByRoot[root] ?: dirs
+        }
         override fun readText(path: String): String =
             texts[path] ?: throw IOException("$path: file not found or not readable")
         override fun exists(path: String): Boolean = path in existing
@@ -274,10 +364,84 @@ class LibraryViewModelTest {
             throw UnsupportedOperationException("not used by the library")
     }
 
-    private class FakeBooksFolderStore(private var folder: String) : BooksFolderStore {
-        override fun getBooksFolder(): String = folder
-        override fun setBooksFolder(path: String) { folder = path }
-        override fun clearBooksFolder() { folder = "" }
+    /**
+     * Fake SAF storage mirroring [app.auloud.player.storage.SafBundleStorage]
+     * token shape (`<tree>|<rel>`) over an in-memory backend, so multi-folder
+     * aggregation covers a tree-URI folder without the framework.
+     */
+    private class FakeSafBundleStorage(val tree: String) : BundleStorage {
+        var names: List<String> = emptyList()
+        var texts: Map<String, String> = emptyMap()
+        var existing: Set<String> = emptySet()
+
+        override fun listBundleDirs(root: String): List<String> {
+            if (root != tree) return emptyList()
+            return names
+                .filter { "$it/manifest.json" in existing }
+                .map { "$tree|$it" }
+                .sorted()
+        }
+
+        override fun readText(path: String): String {
+            val rel = path.substringAfter("$tree|", "")
+            if (rel.isBlank()) throw IOException("$path: not a SAF bundle path")
+            return texts[rel] ?: throw IOException("$path: file not found or not readable")
+        }
+
+        override fun exists(path: String): Boolean {
+            val rel = path.substringAfter("$tree|", "")
+            return rel.isNotBlank() && rel in existing
+        }
+
+        override fun audioUri(bundleDir: String, relPath: String): Uri =
+            throw UnsupportedOperationException("not used by the library")
+    }
+
+    /** Routes `content://` roots to the SAF fake, the rest to the file fake. */
+    private class FakeRoutingStorage : BundleStorage {
+        val file = FakeBundleStorage()
+        var saf: FakeSafBundleStorage? = null
+
+        private fun isSaf(path: String) = path.startsWith("content://")
+
+        override fun listBundleDirs(root: String): List<String> =
+            if (isSaf(root)) {
+                saf?.listBundleDirs(root) ?: throw IOException("$root: no SAF backend")
+            } else {
+                file.listBundleDirs(root)
+            }
+
+        override fun readText(path: String): String =
+            if (isSaf(path)) {
+                saf?.readText(path) ?: throw IOException("$path: no SAF backend")
+            } else {
+                file.readText(path)
+            }
+
+        override fun exists(path: String): Boolean =
+            if (isSaf(path)) saf?.exists(path) ?: false else file.exists(path)
+
+        override fun audioUri(bundleDir: String, relPath: String): Uri =
+            throw UnsupportedOperationException("not used by the library")
+    }
+
+    private class FakeWatchFolderStore(initial: List<WatchFolder>) : WatchFolderStore {
+        private val folders = initial.toMutableList()
+
+        override fun getWatchFolders(): List<WatchFolder> = folders.toList()
+
+        override fun setWatchFolders(newFolders: List<WatchFolder>) {
+            folders.clear()
+            folders.addAll(newFolders)
+        }
+
+        override fun addFolder(folder: WatchFolder) {
+            if (folders.none { WatchFolders.same(it, folder) }) folders.add(folder)
+        }
+
+        override fun removeFolder(folder: WatchFolder) {
+            folders.removeAll { WatchFolders.same(it, folder) }
+        }
     }
 
     /** In-memory [LibraryRepository] mirroring the upsert-by-id + missing-flag semantics. */

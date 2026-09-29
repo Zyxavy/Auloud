@@ -22,6 +22,10 @@ import app.auloud.player.data.RoomLibraryRepository
 import app.auloud.player.data.RoomProgressRepository
 import app.auloud.player.storage.BundleStorage
 import app.auloud.player.storage.FileBundleStorage
+import app.auloud.player.storage.FrameworkSafBackend
+import app.auloud.player.storage.RoutingBundleStorage
+import app.auloud.player.storage.SafBundleStorage
+import app.auloud.player.storage.SafPaths
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -76,7 +80,15 @@ class PlaybackService : MediaSessionService() {
     private var ticker: Job? = null
 
     // Hand-built graph (no DI framework in Slice 1), mirroring MainActivity.
-    private val storage: BundleStorage by lazy { FileBundleStorage() }
+    // WP3/WP5 refinement: routing storage so books imported from SAF watch
+    // folders (bundle paths are `<treeUri>|<rel>` tokens) read manifests and
+    // resolve document-URI audio exactly like file-path books. No playback
+    // logic changes: queue building, progress saves and controls are as-is.
+    private val storage: BundleStorage by lazy {
+        RoutingBundleStorage(FileBundleStorage()) { treeUri ->
+            SafBundleStorage(treeUri, FrameworkSafBackend(contentResolver, treeUri))
+        }
+    }
     private val database: AuloudDatabase by lazy { AuloudDatabase.open(this) }
     private val libraryRepository: LibraryRepository by lazy {
         RoomLibraryRepository(database.bookDao(), storage)
@@ -270,7 +282,12 @@ class PlaybackService : MediaSessionService() {
             manifest = manifest,
             bundleDir = book.bundlePath,
             audioUriOf = { dir, rel -> storage.audioUri(dir, rel).toString() },
-            artworkUri = book.coverPath?.let { coverToUri(it).toString() }
+            // SAF covers stay tokens the notification art loader cannot read;
+            // fall back to no artwork (placeholder) rather than a bogus
+            // file:// URI. Follow-up: resolve SAF covers to document URIs.
+            artworkUri = book.coverPath
+                ?.takeIf { !SafPaths.isSafPath(it) }
+                ?.let { coverToUri(it).toString() }
         )
         if (items.isEmpty()) throw IllegalStateException("no chapters listed for $bookId")
         val mediaItems = items.map { item ->

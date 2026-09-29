@@ -1,8 +1,8 @@
 package app.auloud.player
 
-import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -28,30 +28,77 @@ import app.auloud.player.library.LibraryScreen
 import app.auloud.player.library.LibraryViewModel
 import app.auloud.player.playback.PlayerScreen
 import app.auloud.player.settings.SettingsScreen
-import app.auloud.player.storage.BooksFolderStore
+import app.auloud.player.storage.BooksRootResolver
 import app.auloud.player.storage.BundleStorage
+import app.auloud.player.storage.DefaultFolderEnsurer
 import app.auloud.player.storage.FileBundleStorage
-import app.auloud.player.storage.PrefsBooksFolderStore
+import app.auloud.player.storage.FrameworkSafBackend
+import app.auloud.player.storage.PrefsWatchFolderStore
+import app.auloud.player.storage.RoutingBundleStorage
+import app.auloud.player.storage.SafBundleStorage
+import app.auloud.player.storage.StoragePermissions
+import app.auloud.player.storage.WatchFolder
+import app.auloud.player.storage.WatchFolderIntents
+import app.auloud.player.storage.WatchFolderStore
+import java.io.File
 
 /** WP1 shell; WP5 wires the library screen. WP7 adds the player screen. */
 class MainActivity : ComponentActivity() {
 
-    // WP3 minimal hook: runtime prompt for READ_EXTERNAL_STORAGE (needed on
-    // Android 6+ to read bundles off the microSD card). WP5 forwards the
-    // result to the LibraryViewModel so the no-permission state can retry it.
-    private val storagePermission = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        Log.i(TAG, "READ_EXTERNAL_STORAGE granted=$granted")
+    // WP3/WP5 refinement: READ + WRITE together (shared-internal `/Auloud`
+    // needs WRITE on Android 6+). WP5 forwards the result to the
+    // LibraryViewModel so the no-permission state can retry it.
+    private val storagePermissions = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val granted = StoragePermissions.allGranted { grants[it] == true }
+        Log.i(TAG, "storage granted=$granted")
+        if (granted) {
+            ensureDefaultFolder()
+        }
         if (::libraryViewModel.isInitialized) {
             libraryViewModel.onPermissionResult(granted)
         }
     }
 
-    // WP3 books-folder setting (persisted; settings UI that edits it arrives in
-    // WP5). Lazy so it is only built if something reads it.
-    val booksFolderStore: BooksFolderStore by lazy {
-        PrefsBooksFolderStore.fromContext(applicationContext)
+    // WP3/WP5 refinement: system folder picker for watch folders (SD card
+    // included). The grant is persisted, then the tree URI string joins the
+    // watch list and triggers a rescan.
+    //
+    // DEVICE-TEST (user on the Tab E): pick internal `Auloud/`, the SD-card
+    // `Auloud/`, and a nested folder; abandon the picker; reboot and confirm
+    // the folders still list without re-picking.
+    private val folderPicker = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode != RESULT_OK) {
+            Log.i(TAG, "folder picker cancelled")
+            return@registerForActivityResult
+        }
+        val uri: Uri = result.data?.data ?: run {
+            Log.w(TAG, "folder picker returned no URI")
+            return@registerForActivityResult
+        }
+        onFolderPicked(uri)
+    }
+
+    // WP3/WP5 refinement: persisted watch-folder list. Default entry is the
+    // auto-created shared-internal `/Auloud`; the legacy single
+    // `books_folder` value migrates on first read.
+    val watchFolderStore: WatchFolderStore by lazy {
+        PrefsWatchFolderStore.fromContext(applicationContext)
+    }
+
+    // Routing storage shared by the ViewModel and the repositories: file
+    // paths via FileBundleStorage, picked trees via SafBundleStorage.
+    // `java.io.File` still never leaves the file branch.
+    val routingStorage: BundleStorage by lazy {
+        RoutingBundleStorage(FileBundleStorage()) { treeUri ->
+            SafBundleStorage(
+                treeUri,
+                FrameworkSafBackend(applicationContext.contentResolver, treeUri)
+            )
+        }
     }
 
     // WP5: single-activity graph built by hand (no navigation-compose in
@@ -64,21 +111,46 @@ class MainActivity : ComponentActivity() {
         libraryViewModel = ViewModelProvider(
             this, LibraryFactory(applicationContext)
         )[LibraryViewModel::class.java]
+        ensureDefaultFolder()
         requestStoragePermissionIfNeeded()
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val state by libraryViewModel.uiState.collectAsState()
-                    // WP8: minimal settings flag (battery entry only). Settings
-                    // sits above the library/player switch and returns via Back.
+                    // WP8: settings sits above the library/player switch and
+                    // returns via Back. WP3/WP5 refinement: Settings also
+                    // hosts the watch-folder list (add via picker, remove).
                     var showSettings by remember { mutableStateOf(false) }
+                    var watchFolders by remember {
+                        mutableStateOf(watchFolderStore.getWatchFolders())
+                    }
+                    fun refreshFolders() {
+                        try {
+                            watchFolders = watchFolderStore.getWatchFolders()
+                        } catch (e: Exception) {
+                            Log.w(TAG, "watch folders unreadable: ${e.message}")
+                        }
+                    }
                     // WP7: two-screen switch, no navigation library. A row tap
                     // sets selectedBookId (WP5 hook); the player screen takes
                     // over, back clears the selection. The service session
                     // survives the switch, so return reconnects to the spot.
                     val selectedBook = state.books.firstOrNull { it.id == state.selectedBookId }
                     if (showSettings) {
-                        SettingsScreen(onBack = { showSettings = false })
+                        SettingsScreen(
+                            onBack = { showSettings = false },
+                            folders = watchFolders,
+                            onAddFolder = ::launchFolderPicker,
+                            onRemoveFolder = { folder ->
+                                try {
+                                    watchFolderStore.removeFolder(folder)
+                                } catch (e: Exception) {
+                                    Log.w(TAG, "remove folder failed: ${e.message}")
+                                }
+                                refreshFolders()
+                                libraryViewModel.rescan()
+                            }
+                        )
                     } else if (state.selectedBookId != null && selectedBook != null) {
                         PlayerScreen(
                             book = selectedBook,
@@ -90,7 +162,10 @@ class MainActivity : ComponentActivity() {
                             onRescan = libraryViewModel::rescan,
                             onRetryPermission = libraryViewModel::onRetryPermission,
                             onBookSelected = libraryViewModel::onBookSelected,
-                            onOpenSettings = { showSettings = true }
+                            onOpenSettings = {
+                                refreshFolders()
+                                showSettings = true
+                            }
                         )
                     }
                 }
@@ -98,12 +173,66 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestStoragePermissionIfNeeded() {
-        if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-            storagePermission.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+    /**
+     * Auto-creates the shared-internal `/Auloud` default. A failed creation
+     * is logged and surfaced by rescan (missing folder), never a crash.
+     */
+    private fun ensureDefaultFolder() {
+        val defaultPath = try {
+            BooksRootResolver.defaultBooksRoot(applicationContext)
+        } catch (e: Exception) {
+            Log.w(TAG, "default books root unavailable: ${e.message}")
+            return
         }
+        val dir = File(defaultPath)
+        val result = DefaultFolderEnsurer.ensure(
+            exists = try {
+                dir.exists()
+            } catch (e: Exception) {
+                false
+            },
+            mkdirs = { dir.mkdirs() },
+            pathForMessage = defaultPath
+        )
+        if (result.isFailure) {
+            Log.w(TAG, "default folder unavailable: ${result.exceptionOrNull()?.message}")
+        }
+    }
+
+    private fun requestStoragePermissionIfNeeded() {
+        if (!StoragePermissions.allGranted { permission ->
+            checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+        }
+        ) {
+            storagePermissions.launch(StoragePermissions.required())
+        }
+    }
+
+    private fun launchFolderPicker() {
+        try {
+            folderPicker.launch(WatchFolderIntents.newIntent())
+        } catch (e: Exception) {
+            Log.w(TAG, "folder picker unavailable: ${e.message}")
+        }
+    }
+
+    private fun onFolderPicked(uri: Uri) {
+        try {
+            contentResolver.takePersistableUriPermission(
+                uri, WatchFolderIntents.persistFlags()
+            )
+        } catch (e: SecurityException) {
+            Log.w(TAG, "persistable grant failed for $uri: ${e.message}")
+        } catch (e: Exception) {
+            Log.w(TAG, "persistable grant failed for $uri: ${e.message}")
+        }
+        try {
+            watchFolderStore.addFolder(WatchFolder.TreeUri(uri.toString()))
+        } catch (e: Exception) {
+            Log.w(TAG, "watch folder not saved: ${e.message}")
+            return
+        }
+        libraryViewModel.rescan()
     }
 
     companion object {
@@ -120,7 +249,7 @@ class MainActivity : ComponentActivity() {
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            val storage: BundleStorage = FileBundleStorage()
+            val storage: BundleStorage = routingStorage
             val database = AuloudDatabase.open(appContext)
             val libraryRepository: LibraryRepository =
                 RoomLibraryRepository(database.bookDao(), storage)
@@ -128,15 +257,17 @@ class MainActivity : ComponentActivity() {
                 RoomProgressRepository(database.progressDao())
             return LibraryViewModel(
                 storage = storage,
-                booksFolderStore = booksFolderStore,
+                watchFolderStore = watchFolderStore,
                 libraryRepository = libraryRepository,
                 progressRepository = progressRepository,
                 isPermissionGranted = {
-                    checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) ==
-                        PackageManager.PERMISSION_GRANTED
+                    StoragePermissions.allGranted { permission ->
+                        checkSelfPermission(permission) ==
+                            PackageManager.PERMISSION_GRANTED
+                    }
                 },
                 requestPermission = {
-                    storagePermission.launch(Manifest.permission.READ_EXTERNAL_STORAGE)
+                    storagePermissions.launch(StoragePermissions.required())
                 }
             ) as T
         }

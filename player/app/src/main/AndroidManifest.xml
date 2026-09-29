@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Slice 1 WP1: legacy storage + foreground playback on API 24. -->
+    <!-- Slice 1 WP1: legacy storage + foreground playback on API 24.
+         WP3/WP5 refinement (user-approved): WRITE joins READ so first launch
+         can auto-create the shared-internal /Auloud default. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 

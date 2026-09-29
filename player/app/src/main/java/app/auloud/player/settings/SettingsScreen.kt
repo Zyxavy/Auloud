@@ -20,27 +20,34 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.auloud.player.battery.BatteryPromptDialog
 import app.auloud.player.battery.BatterySettingsIntents
 import app.auloud.player.battery.PrefsBatteryPromptStore
+import app.auloud.player.storage.WatchFolder
+import app.auloud.player.storage.WatchFolders
 
 /**
- * WP8: minimal settings UI. Scope is deliberately one entry only -- the
- * battery-optimization prompt reopened on demand ("Help" entry). A full
- * settings screen is out of scope.
+ * WP8 minimal settings UI plus the WP3/WP5 refinement watch-folder list.
  *
- * The on-demand dialog shows regardless of the shown-once flag (the user
- * asked for it); the automatic first-playback dialog in the player screen
- * still appears only once. Either dialog button marks the store so the
- * auto-dialog never nags afterwards.
+ * Battery entry is unchanged (one entry, on-demand dialog). Watch folders:
+ * the default shared-internal `/Auloud` plus user-picked folders (system
+ * folder picker, SAF persistable grants). Adding launches the picker via
+ * [onAddFolder]; removing drops the entry and rescans (host responsibility).
+ * State stays hoisted: [folders] + callbacks in, no store access here, so
+ * rows recompose narrowly on the slow Tab E.
  *
- * DEVICE-TEST (user on the Tab E): open this entry, follow the deep link,
- * and document the real Samsung settings screen/path here.
+ * DEVICE-TEST (user on the Tab E): add internal `Auloud/`, the SD-card
+ * `Auloud/`, and a nested folder; remove each; confirm rescan aggregates
+ * books across the rest and permission prompts behave.
  */
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
+    folders: List<WatchFolder> = emptyList(),
+    onAddFolder: () -> Unit = {},
+    onRemoveFolder: (WatchFolder) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -59,6 +66,12 @@ fun SettingsScreen(
             TextButton(onClick = onBack) { Text("Back") }
             Text(text = "Settings", style = MaterialTheme.typography.headlineSmall)
         }
+        WatchFoldersSection(
+            folders = folders,
+            onAddFolder = onAddFolder,
+            onRemoveFolder = onRemoveFolder,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        )
         BatteryOptimizationEntry(
             onClick = { showBatteryDialog = true },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
@@ -77,6 +90,73 @@ fun SettingsScreen(
                 showBatteryDialog = false
             }
         )
+    }
+}
+
+/** Watch-folder list: one narrow row per folder plus an add button. */
+@Composable
+private fun WatchFoldersSection(
+    folders: List<WatchFolder>,
+    onAddFolder: () -> Unit,
+    onRemoveFolder: (WatchFolder) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.padding(vertical = 8.dp)) {
+        Text(
+            text = "Book folders",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Auloud scans every folder below for book bundles.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(8.dp))
+        if (folders.isEmpty()) {
+            Text(
+                text = "No folders yet. Add one to get started.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(8.dp))
+        } else {
+            for (folder in folders) {
+                WatchFolderRow(
+                    folder = folder,
+                    onRemove = { onRemoveFolder(folder) }
+                )
+            }
+        }
+        Button(onClick = onAddFolder) { Text("Add folder") }
+    }
+}
+
+/** Single stable row: display name, full path/URI, and remove. */
+@Composable
+private fun WatchFolderRow(
+    folder: WatchFolder,
+    onRemove: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth().padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f).padding(end = 8.dp)) {
+            Text(
+                text = WatchFolders.displayName(folder),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = WatchFolders.rootString(folder),
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        TextButton(onClick = onRemove) { Text("Remove") }
     }
 }
 
