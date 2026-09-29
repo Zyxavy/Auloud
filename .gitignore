@@ -1,0 +1,7 @@
+.opencode
+
+# Android generated — never commit (WP1)
+.gradle/
+build/
+local.properties
+*.iml
