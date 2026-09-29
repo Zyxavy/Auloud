@@ -1,7 +1,21 @@
 .opencode
+logs/
 
 # Android generated — never commit (WP1)
 .gradle/
 build/
 local.properties
 *.iml
+
+# IDE and tooling (local-only)
+.idea/
+.vscode/
+.cxx/
+.kotlin/
+captures/
+*.hprof
+.DS_Store
+
+# Signing keys (never commit)
+*.jks
+*.keystore
