@@ -158,8 +158,15 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(info: MediaSession.ControllerInfo) = session
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // WP9: log every start so service restarts/kills are visible in
-        // logcat (Samsung debugging). Branching is unchanged.
+        // WP9: log EVERY start at entry -- a system restart after a
+        // Samsung kill arrives with a null intent (or no book extra), which
+        // is exactly the case this logging exists to diagnose. Branching
+        // below is unchanged.
+        Log.i(
+            TAG,
+            "onStartCommand action=${intent?.action} hasBookExtra=${intent?.hasExtra(EXTRA_BOOK_ID)} " +
+                "flags=$flags startId=$startId"
+        )
         val bookId = intent?.getStringExtra(EXTRA_BOOK_ID)?.takeIf { it.isNotBlank() }
         if (bookId != null) {
             if (bookId != currentBookId) {
@@ -308,7 +315,8 @@ class PlaybackService : MediaSessionService() {
     private fun launchSave(
         point: ProgressSavePolicy.SavePoint,
         reason: String,
-        context: CoroutineContext = EmptyCoroutineContext
+        context: CoroutineContext = EmptyCoroutineContext,
+        finished: Boolean = false
     ): Job {
         if (BuildConfig.DEBUG) DebugSaveTracker.recordSave(System.currentTimeMillis())
         return serviceScope.launch(context) {
@@ -317,7 +325,8 @@ class PlaybackService : MediaSessionService() {
                 Log.i(
                     SAVE_TAG,
                     "progress saved reason=$reason book=${point.bookId} " +
-                        "chapter=${point.chapterIndex} pos=${point.positionMs}"
+                        "chapter=${point.chapterIndex} pos=${point.positionMs}" +
+                        if (finished) " finished" else ""
                 )
             } else {
                 Log.w(SAVE_TAG, "progress save failed reason=$reason: ${result.exceptionOrNull()?.message}")
@@ -337,7 +346,7 @@ class PlaybackService : MediaSessionService() {
             bookId, count, chapterDurations.lastOrNull() ?: 0L
         )
         lastSaveUptimeMs = SystemClock.uptimeMillis()
-        launchSave(point, "end-of-book")
+        launchSave(point, "end-of-book", finished = true)
     }
 
     /**
