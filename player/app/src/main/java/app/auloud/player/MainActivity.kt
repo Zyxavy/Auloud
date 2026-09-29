@@ -23,12 +23,13 @@ import app.auloud.player.data.RoomLibraryRepository
 import app.auloud.player.data.RoomProgressRepository
 import app.auloud.player.library.LibraryScreen
 import app.auloud.player.library.LibraryViewModel
+import app.auloud.player.playback.PlayerScreen
 import app.auloud.player.storage.BooksFolderStore
 import app.auloud.player.storage.BundleStorage
 import app.auloud.player.storage.FileBundleStorage
 import app.auloud.player.storage.PrefsBooksFolderStore
 
-/** WP1 shell; WP5 wires the library screen. Player screen arrives in WP7. */
+/** WP1 shell; WP5 wires the library screen. WP7 adds the player screen. */
 class MainActivity : ComponentActivity() {
 
     // WP3 minimal hook: runtime prompt for READ_EXTERNAL_STORAGE (needed on
@@ -64,12 +65,24 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val state by libraryViewModel.uiState.collectAsState()
-                    LibraryScreen(
-                        state = state,
-                        onRescan = libraryViewModel::rescan,
-                        onRetryPermission = libraryViewModel::onRetryPermission,
-                        onBookSelected = libraryViewModel::onBookSelected
-                    )
+                    // WP7: two-screen switch, no navigation library. A row tap
+                    // sets selectedBookId (WP5 hook); the player screen takes
+                    // over, back clears the selection. The service session
+                    // survives the switch, so return reconnects to the spot.
+                    val selectedBook = state.books.firstOrNull { it.id == state.selectedBookId }
+                    if (state.selectedBookId != null && selectedBook != null) {
+                        PlayerScreen(
+                            book = selectedBook,
+                            onBack = libraryViewModel::clearSelection
+                        )
+                    } else {
+                        LibraryScreen(
+                            state = state,
+                            onRescan = libraryViewModel::rescan,
+                            onRetryPermission = libraryViewModel::onRetryPermission,
+                            onBookSelected = libraryViewModel::onBookSelected
+                        )
+                    }
                 }
             }
         }
