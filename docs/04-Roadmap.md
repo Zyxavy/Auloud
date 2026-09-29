@@ -1,0 +1,175 @@
+# Roadmap: Read-Along Audiobook Player
+
+Working doc. Update the status boxes as you go. Relates to `01-PRD.md`, `02-ArchitectureV1.md`, `03-BundleSpec.md`.
+
+Status key: `[ ]` not started, `[~]` in progress, `[x]` done. Size: S (a few evenings), M (a few weekends), L (longer).
+
+## Ground rules
+
+- Every slice ends with something you can run on the Tab E.
+- The bundle format (03) stays fixed across slices. If it must change, change the spec first and bump `spec_version`.
+- Do not start the next slice until the "done when" list of the current one is checked.
+- Log decisions in `DECISIONS.md` as they happen.
+
+## Slice 0: Foundations (S)
+
+Goal: everything ready so Slice 1 starts clean.
+
+**Tablet (Galaxy Tab E, Android 7.1.1)**
+
+- [ ] Developer options enabled (tap Build number 7 times); USB debugging on
+- [ ] Samsung USB driver installed on the laptop; data-capable USB cable
+- [ ] `adb devices` lists the tablet as `device` (not `unauthorized`); "always allow" accepted
+- [ ] Verified on the unit: Android 7.1.1, actual RAM, free internal storage, microSD present with enough free space (about 430 MB per 15-hour book)
+- [ ] Battery holds a charge for long tests; charger and Bluetooth headset available
+- [ ] Noted where Samsung's battery-optimization settings live (for WP8)
+- [ ] microSD read test: put a text file on the card and read it by file path from a test app (decides the WP3 approach)
+
+**Laptop**
+
+- [ ] Android Studio (latest stable, bundled JDK), Android SDK platform and platform tools
+- [ ] Git installed; private repo created; docs 01-09, README and DECISIONS copied into `docs/`
+- [ ] Python, `uv` and ffmpeg installed (`winget install ffmpeg`)
+
+**Project**
+
+- [ ] Repo layout created: `scribe/`, `player/`, `spec/`, `docs/`; `03-BundleSpec.md` copied to `spec/bundle.md`
+- [ ] Package name chosen (for example `app.auloud.player`)
+- [ ] Android Studio project created with `minSdk 24`
+- [ ] Empty app installed and launched on the Tab E
+
+**Test content**
+
+- [ ] Two 5-minute chapters from public-domain or self-made audio (no copyrighted audio)
+- [ ] Hand-made test bundle built per section 9 of the spec, MP3s encoded CBR
+- [ ] Test bundle copied to the microSD card
+
+**Done when:** a hello-world APK runs on the Tab E, the microSD read test has a known result, and the test bundle is on the card.
+
+## Slice 1: Player shell (M)
+
+Goal: play a bundle with the screen off.
+
+- [ ] Import a bundle folder via the folder picker; parse `manifest.json`
+- [ ] Library screen listing books with cover and title
+- [ ] Media3 `MediaSessionService` as a foreground service, chapters as a playlist
+- [ ] Play, pause, seek, next and previous chapter; notification and Bluetooth controls
+- [ ] Save and restore position (Room)
+- [ ] First-run battery-optimization prompt
+
+**Done when:**
+
+- The test bundle plays end to end with the screen off for 30+ minutes
+- Closing and reopening the app resumes at the same spot
+- Lock screen controls work
+
+## Slice 2: Scribe, single voice (M)
+
+Goal: a real EPUB becomes a valid bundle.
+
+- [ ] EPUB parse and text cleaning (chapters, headings, paragraphs, italics)
+- [ ] Sentence splitting
+- [ ] Single narrator voice synthesis (Kokoro or Piper), sentence by sentence
+- [ ] Timing collection from one continuous buffer per chapter
+- [ ] CBR MP3 encoding with ffmpeg; manifest and chapter JSON written
+- [ ] `scribe validate` implemented
+- [ ] `scribe build book.epub` works end to end
+
+**Done when:**
+
+- A short public-domain book converts without errors and passes validation
+- The bundle imports into the Player from Slice 1 and plays
+
+## Slice 3: Read-along (M)
+
+Goal: three modes with a synced highlight.
+
+- [ ] Reader view: blocks and sentences in a `LazyColumn`, headings and italics
+- [ ] Position ticker (about every 200 ms) mapping audio position to the current sentence
+- [ ] Highlight and auto-scroll in read + listen mode
+- [ ] Tap a sentence to seek audio
+- [ ] Manual scroll pauses auto-follow; "back to now" button
+- [ ] Mode switching (read only, listen only, read + listen) keeps one shared position
+- [ ] Speed control and sleep timer
+
+**Done when:**
+
+- Highlight stays within about 300 ms of the audio at start, middle and end of a long chapter
+- Switching modes never loses your place
+- Memory stays stable during a 1-hour session
+
+## Slice 4: Multi-voice (M to L)
+
+Goal: distinct narrator and character voices.
+
+- [ ] Dialogue detection (straight and curly quotes, multi-paragraph quotes)
+- [ ] Rule-based speaker attribution ("said X", nearest name, two-person alternation)
+- [ ] Draft `cast.yaml` generated, hand-editable, then used for rendering
+- [ ] Voice palette chosen (narrator plus 3-5 characters)
+- [ ] Per-character speed/pitch offsets
+- [ ] Manifest `voices` map filled in; speaker stored per sentence
+
+**Done when:**
+
+- A dialogue-heavy chapter sounds clearly different for narrator and characters
+- Mislabelled speakers can be fixed by editing `cast.yaml` and re-running, with no code changes
+
+## Slice 5: Complete pass (M)
+
+Goal: fit for a full novel and daily use.
+
+- [ ] PDF support: page view with page-level sync, or PDF to clean text on the PC
+- [ ] Chapter navigation screen
+- [ ] Error handling: bad chapter skipped with a message, missing files, low storage
+- [ ] Player-side validation on import
+- [ ] Battery whitelist flow tested on the Tab E
+- [ ] Full-novel soak test (see below)
+- [ ] README and setup instructions
+
+**Done when (v1 release criteria):** the soak test passes.
+
+### Soak test (v1 acceptance)
+
+- [ ] 10+ hour novel converted on the PC and copied to the tablet
+- [ ] Listened over several days, with long screen-off stretches, in all three modes
+- [ ] No app kills; no crashes
+- [ ] Resume is correct after every restart
+- [ ] Sync spot-checks pass in early, middle and late chapters
+- [ ] Battery drain during screen-off playback is acceptable
+
+## Backlog (v1.1)
+
+- LLM speaker attribution via Ollama for ambiguous lines
+- Real EPUB rendering with original layout
+- Wi-Fi transfer from PC to tablet
+- Bookmarks and highlights
+- Themes, font size and line spacing options
+- Auto-drafted cast from character frequency
+
+## v2
+
+Embed the EPUB/PDF in the app so the device runs its own TTS (Kokoro or Piper).
+
+- [ ] Benchmark spike first: measure real-time factor of Piper and Kokoro on target devices
+- [ ] Engine interface so voices are pluggable
+- [ ] On-device tagging with rules
+- [ ] Background render while charging; streaming synthesis for immediate listening
+- [ ] Decide licensing impact of bundling espeak-ng
+
+## v3
+
+Support later Android versions.
+
+- [ ] Update `targetSdk` and handle newer background-service and notification permission rules
+- [ ] Test on current Android versions and a range of devices
+- [ ] Revisit `minSdk` and the tablet-only assumptions
+
+## Risks to watch per slice
+
+| Slice | Watch for |
+| --- | --- |
+| 1 | Samsung killing the service; MP3 seek accuracy |
+| 2 | Timing drift; espeak/phonemizer install problems |
+| 3 | Highlight lag; RAM on long chapters |
+| 4 | Speaker misattribution; voice fatigue |
+| 5 | Messy PDFs; storage limits on the tablet |
