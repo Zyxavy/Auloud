@@ -25,12 +25,16 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 
 /**
  * WP6: foreground playback service, the core of Slice 1.
@@ -63,10 +67,10 @@ class PlaybackService : MediaSessionService() {
 
     // A Service is a lifecycle owner (like a ViewModel), so owning this
     // scope is the structured-concurrency exception to the "no stored
-    // scopes" rule: it dies with the service. Only the ticker Job is
-    // cancelled in onDestroy; one-shot saves are left to land so the final
-    // position survives (nothing static references the scope, so it is
-    // collected with the service once saves complete).
+    // scopes" rule: it is cancelled in onDestroy, completing the ownership.
+    // The final progress save is launched with NonCancellable BEFORE that
+    // cancel (see onDestroy), which detaches it from the scope's Job so
+    // teardown cannot kill it.
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var ticker: Job? = null
 
@@ -167,8 +171,27 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         Log.i(TAG, "onDestroy")
-        saveProgressNow("destroy")
+        // 1. Capture synchronously while the player is still alive.
+        val player = session?.player
+        val finalPoint = ProgressSavePolicy.pointOrNull(
+            currentBookId,
+            player?.currentMediaItemIndex ?: C.INDEX_UNSET,
+            (player?.currentPosition ?: 0L).coerceAtLeast(0L)
+        )
+        // 2. Stop the ticker so no periodic save can interleave with teardown.
         ticker?.cancel()
+        ticker = null
+        if (finalPoint != null) {
+            // 3. Launch BEFORE the scope cancel with NonCancellable: this
+            // detaches the write from the scope's Job, so cancel() below
+            // cannot kill it. Residual window: if the process itself is
+            // killed mid-write the save is lost; the 5 s cadence bounds
+            // that loss. Inherent to process kill, accepted for Slice 1.
+            lastSaveUptimeMs = SystemClock.uptimeMillis()
+            launchSave(finalPoint, "destroy", NonCancellable)
+        }
+        // 4. Complete scope ownership; then release per the Slice 1 plan.
+        serviceScope.cancel()
         session?.player?.release()
         session?.release()
         session = null
@@ -259,17 +282,28 @@ class PlaybackService : MediaSessionService() {
             player.currentPosition.coerceAtLeast(0L)
         ) ?: return
         lastSaveUptimeMs = SystemClock.uptimeMillis()
-        serviceScope.launch {
-            val result = progressRepository.save(point.bookId, point.chapterIndex, point.positionMs)
-            if (result.isSuccess) {
-                Log.i(
-                    TAG,
-                    "progress saved reason=$reason book=${point.bookId} " +
-                        "chapter=${point.chapterIndex} pos=${point.positionMs}"
-                )
-            } else {
-                Log.w(TAG, "progress save failed reason=$reason: ${result.exceptionOrNull()?.message}")
-            }
+        launchSave(point, reason)
+    }
+
+    /**
+     * Writes [point] in the service scope. [context] defaults to inheriting
+     * scope cancellation; callers that must survive teardown (onDestroy)
+     * pass [NonCancellable].
+     */
+    private fun launchSave(
+        point: ProgressSavePolicy.SavePoint,
+        reason: String,
+        context: CoroutineContext = EmptyCoroutineContext
+    ): Job = serviceScope.launch(context) {
+        val result = progressRepository.save(point.bookId, point.chapterIndex, point.positionMs)
+        if (result.isSuccess) {
+            Log.i(
+                TAG,
+                "progress saved reason=$reason book=${point.bookId} " +
+                    "chapter=${point.chapterIndex} pos=${point.positionMs}"
+            )
+        } else {
+            Log.w(TAG, "progress save failed reason=$reason: ${result.exceptionOrNull()?.message}")
         }
     }
 
