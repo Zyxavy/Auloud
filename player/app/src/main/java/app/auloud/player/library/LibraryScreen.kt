@@ -1,0 +1,196 @@
+package app.auloud.player.library
+
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.dp
+import app.auloud.player.R
+import coil.compose.AsyncImage
+
+/**
+ * WP5: library screen. Narrow recomposition scopes for the slow Tab E: rows
+ * take a stable [BookUiModel] plus a callback, and Lazy items are keyed by
+ * book id. Covers load through Coil [AsyncImage] with a placeholder/error
+ * drawable -- never `SubcomposeAsyncImage` in the scrolling list.
+ */
+@Composable
+fun LibraryScreen(
+    state: LibraryUiState,
+    onRescan: () -> Unit,
+    onRetryPermission: () -> Unit,
+    onBookSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (!state.hasPermission) {
+        NoPermissionState(onRetryPermission, modifier)
+        return
+    }
+    Column(modifier = modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text = "Library", style = MaterialTheme.typography.headlineSmall)
+            Button(onClick = onRescan, enabled = !state.isScanning) {
+                Text(if (state.isScanning) "Scanning…" else "Rescan")
+            }
+        }
+        if (state.isScanning && state.books.isEmpty() && state.errors.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                CircularProgressIndicator()
+                Spacer(Modifier.height(8.dp))
+                Text("Scanning books folder…")
+            }
+            return
+        }
+        if (state.books.isEmpty() && state.errors.isEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("No books yet.")
+                Spacer(Modifier.height(8.dp))
+                Text("Copy a bundle into the books folder, then rescan.")
+            }
+            return
+        }
+        LibraryList(state, onBookSelected, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun LibraryList(
+    state: LibraryUiState,
+    onBookSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(modifier = modifier.fillMaxSize()) {
+        items(state.books, key = { it.id }) { book ->
+            BookRow(book, onBookSelected)
+        }
+        if (state.errors.isNotEmpty()) {
+            item(key = "skipped-header") {
+                Text(
+                    text = "Skipped bundles",
+                    style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)
+                )
+            }
+            items(state.errors, key = { "error:${it.bundleDir}" }) { error ->
+                ImportErrorRow(error)
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookRow(
+    book: BookUiModel,
+    onBookSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onBookSelected(book.id) }
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        BookCover(coverPath = book.coverPath, title = book.title)
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(text = book.title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = book.author ?: "Unknown author",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            if (book.isMissing) {
+                Text(
+                    text = "Unavailable — folder not found",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error
+                )
+            } else {
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(progress = { book.progressFraction })
+            }
+        }
+    }
+}
+
+@Composable
+private fun BookCover(coverPath: String?, title: String, modifier: Modifier = Modifier) {
+    val coverModifier = modifier.size(56.dp)
+    val placeholder = painterResource(R.drawable.ic_book_placeholder)
+    if (coverPath != null) {
+        AsyncImage(
+            model = coverPath,
+            contentDescription = "Cover of $title",
+            modifier = coverModifier,
+            placeholder = placeholder,
+            error = placeholder
+        )
+    } else {
+        Image(
+            painter = placeholder,
+            contentDescription = "No cover for $title",
+            modifier = coverModifier
+        )
+    }
+}
+
+@Composable
+private fun ImportErrorRow(error: ImportError, modifier: Modifier = Modifier) {
+    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Text(
+            text = error.bundleDir,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Text(
+            text = error.reason,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error
+        )
+    }
+}
+
+@Composable
+private fun NoPermissionState(onRetryPermission: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("Auloud needs storage access to find your books.")
+        Spacer(Modifier.height(16.dp))
+        Button(onClick = onRetryPermission) {
+            Text("Grant access")
+        }
+    }
+}
