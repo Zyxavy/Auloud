@@ -19,6 +19,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +40,7 @@ fun LibraryScreen(
     onRescan: () -> Unit,
     onRetryPermission: () -> Unit,
     onBookSelected: (String) -> Unit,
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (!state.hasPermission) {
@@ -52,8 +54,15 @@ fun LibraryScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(text = "Library", style = MaterialTheme.typography.headlineSmall)
-            Button(onClick = onRescan, enabled = !state.isScanning) {
-                Text(if (state.isScanning) "Scanning…" else "Rescan")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // WP8: minimal settings affordance (battery-optimization entry
+                // only; a full settings screen is out of scope).
+                TextButton(onClick = onOpenSettings) {
+                    Text("Settings")
+                }
+                Button(onClick = onRescan, enabled = !state.isScanning) {
+                    Text(if (state.isScanning) "Scanning…" else "Rescan")
+                }
             }
         }
         if (state.isScanning && state.books.isEmpty() && state.errors.isEmpty()) {

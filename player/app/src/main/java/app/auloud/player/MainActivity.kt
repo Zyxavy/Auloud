@@ -13,6 +13,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -24,6 +27,7 @@ import app.auloud.player.data.RoomProgressRepository
 import app.auloud.player.library.LibraryScreen
 import app.auloud.player.library.LibraryViewModel
 import app.auloud.player.playback.PlayerScreen
+import app.auloud.player.settings.SettingsScreen
 import app.auloud.player.storage.BooksFolderStore
 import app.auloud.player.storage.BundleStorage
 import app.auloud.player.storage.FileBundleStorage
@@ -65,12 +69,17 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val state by libraryViewModel.uiState.collectAsState()
+                    // WP8: minimal settings flag (battery entry only). Settings
+                    // sits above the library/player switch and returns via Back.
+                    var showSettings by remember { mutableStateOf(false) }
                     // WP7: two-screen switch, no navigation library. A row tap
                     // sets selectedBookId (WP5 hook); the player screen takes
                     // over, back clears the selection. The service session
                     // survives the switch, so return reconnects to the spot.
                     val selectedBook = state.books.firstOrNull { it.id == state.selectedBookId }
-                    if (state.selectedBookId != null && selectedBook != null) {
+                    if (showSettings) {
+                        SettingsScreen(onBack = { showSettings = false })
+                    } else if (state.selectedBookId != null && selectedBook != null) {
                         PlayerScreen(
                             book = selectedBook,
                             onBack = libraryViewModel::clearSelection
@@ -80,7 +89,8 @@ class MainActivity : ComponentActivity() {
                             state = state,
                             onRescan = libraryViewModel::rescan,
                             onRetryPermission = libraryViewModel::onRetryPermission,
-                            onBookSelected = libraryViewModel::onBookSelected
+                            onBookSelected = libraryViewModel::onBookSelected,
+                            onOpenSettings = { showSettings = true }
                         )
                     }
                 }

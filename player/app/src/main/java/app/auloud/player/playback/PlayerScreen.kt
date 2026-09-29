@@ -32,6 +32,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import app.auloud.player.R
+import app.auloud.player.battery.BatteryPromptDialog
+import app.auloud.player.battery.BatteryPromptLogic
+import app.auloud.player.battery.BatterySettingsIntents
+import app.auloud.player.battery.PrefsBatteryPromptStore
 import app.auloud.player.library.BookUiModel
 import coil.compose.AsyncImage
 
@@ -70,6 +74,19 @@ fun PlayerScreen(
     val controller = remember(book.id) { PlaybackController(appContext, scope) }
     val state by controller.state.collectAsState()
 
+    // WP8: first-playback battery prompt. Fires once, on the tap that starts
+    // playback, and only when the exemption is not already granted (the
+    // settings screen reopens the same dialog on demand). Either dialog
+    // button marks the store so the auto-dialog never repeats. Playback still
+    // starts underneath the dialog.
+    //
+    // DEVICE-TEST (user on the Tab E): confirm the dialog appears on the
+    // first Play tap only, and that "Open settings" lands on a real Samsung
+    // battery screen -- dialog-once behavior and Samsung menus cannot be
+    // verified without the device.
+    val batteryStore = remember(appContext) { PrefsBatteryPromptStore.fromContext(appContext) }
+    var showBatteryDialog by remember(book.id) { mutableStateOf(false) }
+
     BackHandler { onBack() }
 
     LaunchedEffect(book.id) {
@@ -85,13 +102,37 @@ fun PlayerScreen(
     PlayerContent(
         book = book,
         state = state,
-        onPlayPause = controller::togglePlayPause,
+        onPlayPause = {
+            if (!state.isPlaying &&
+                BatteryPromptLogic.shouldShowPrompt(
+                    batteryStore.wasShown(),
+                    BatterySettingsIntents.isExemptionGranted(appContext)
+                )
+            ) {
+                showBatteryDialog = true
+            }
+            controller.togglePlayPause()
+        },
         onSeek = controller::seekTo,
         onNext = controller::nextChapter,
         onPrevious = controller::previousChapter,
         onBack = onBack,
         modifier = modifier
     )
+
+    if (showBatteryDialog) {
+        BatteryPromptDialog(
+            onOpenSettings = {
+                batteryStore.markShown()
+                showBatteryDialog = false
+                BatterySettingsIntents.openBatterySettings(appContext)
+            },
+            onDismiss = {
+                batteryStore.markShown()
+                showBatteryDialog = false
+            }
+        )
+    }
 }
 
 @Composable
