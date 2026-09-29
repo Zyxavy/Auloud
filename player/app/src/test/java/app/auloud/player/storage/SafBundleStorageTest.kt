@@ -94,6 +94,23 @@ class SafBundleStorageTest {
     }
 
     @Test
+    fun readText_dotDotEscape_rejected() {
+        try {
+            storage.readText("$tree|book1/../../evil.txt")
+            throw AssertionError("expected IOException")
+        } catch (e: IOException) {
+            assertTrue(e.message!!.contains("escapes watch folder"))
+        }
+    }
+
+    @Test
+    fun exists_dotDotEscape_isFalse() {
+        backend.files = setOf("evil.txt")
+
+        assertFalse(storage.exists("$tree|book1/../../evil.txt"))
+    }
+
+    @Test
     fun audioUri_returnsBackendDocumentUri() {
         backend.files = setOf("book1/audio/ch001.mp3")
         mockkStatic(Uri::class)

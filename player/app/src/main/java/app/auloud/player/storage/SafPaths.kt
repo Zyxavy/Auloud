@@ -92,6 +92,42 @@ object SafPaths {
     }
 
     /**
+     * Normalizes a tree-relative path (`book1`, `book1/manifest.json`):
+     * drops blank/`.` segments and resolves inner `..` against the stack.
+     *
+     * This is the ONE containment check for every SAF entry point
+     * ([SafBundleStorage.readText]/`exists`/`audioUri` all funnel through it,
+     * directly or via [requireRelInTree]/[resolveInBundle]): a `..` that
+     * would escape the tree root, or a result with nothing left, throws
+     * identically everywhere. [ownerForMessage] must already be
+     * display-safe (a rel or folder label, never a raw token).
+     *
+     * @throws IllegalArgumentException on blank input or root escape.
+     */
+    fun sanitizeTreeRel(relPath: String, ownerForMessage: String): String {
+        require(relPath.isNotBlank()) { "$ownerForMessage: blank path" }
+        val stack = ArrayDeque<String>()
+        for (seg in relPath.split('/')) {
+            when {
+                seg.isBlank() || seg == "." -> Unit
+                seg == ".." -> {
+                    if (stack.isEmpty()) {
+                        throw IllegalArgumentException(
+                            "$ownerForMessage: path escapes watch folder: $relPath"
+                        )
+                    }
+                    stack.removeLast()
+                }
+                else -> stack.addLast(seg)
+            }
+        }
+        if (stack.isEmpty()) {
+            throw IllegalArgumentException("$ownerForMessage: blank path")
+        }
+        return stack.joinToString("/")
+    }
+
+    /**
      * Document ID for [relPath] below the tree ([treeDocId] is the
      * `DocumentsContract.getTreeDocumentId` value, e.g. `primary:Auloud`).
      * Empty [relPath] is the tree itself.
@@ -101,16 +137,30 @@ object SafPaths {
         return if (rel.isBlank()) treeDocId else "$treeDocId/$rel"
     }
 
-    /** Requires [token] to belong to [treeUri]; returns its rel half. */
+    /**
+     * Requires [token] to belong to [treeUri]; returns its sanitized rel
+     * half (see [sanitizeTreeRel]). Messages use the rel and the folder
+     * label only — raw tokens never leak into user-visible errors.
+     */
     fun requireRelInTree(token: String, treeUri: String): String {
         val split = splitToken(token)
             ?: throw IOException("$token: not a SAF bundle path")
         if (split.first != treeUri) {
-            throw IOException("$token: not in this watch folder")
+            val rel = split.second.ifBlank { "<root>" }
+            throw IOException(
+                "$rel: not in this watch folder " +
+                    WatchFolders.treeDocumentLabel(treeUri)
+            )
         }
         if (split.second.isBlank()) {
-            throw IOException("$token: no bundle path")
+            throw IOException(
+                "${WatchFolders.treeDocumentLabel(treeUri)}: empty bundle path"
+            )
         }
-        return split.second
+        try {
+            return sanitizeTreeRel(split.second, split.second)
+        } catch (e: IllegalArgumentException) {
+            throw IOException("${split.second}: path escapes watch folder", e)
+        }
     }
 }

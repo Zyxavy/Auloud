@@ -53,8 +53,10 @@ class SafBundleStorage(
             .sorted()
     }
 
-    /** UTF-8 manifest/file text via the backend. Failures propagate with the rel in the message. */
+    /** UTF-8 manifest/file text via the backend. Failures propagate; messages never carry raw tokens. */
     override fun readText(path: String): String {
+        // requireRelInTree enforces the shared containment check and returns
+        // the sanitized rel, so `..` escapes are rejected exactly like audioUri.
         val rel = SafPaths.requireRelInTree(path, treeUri)
         return backend.readText(rel)
     }
@@ -62,8 +64,13 @@ class SafBundleStorage(
     override fun exists(path: String): Boolean {
         val split = SafPaths.splitToken(path) ?: return false
         if (split.first != treeUri || split.second.isBlank()) return false
+        val rel = try {
+            SafPaths.sanitizeTreeRel(split.second, "bundle path")
+        } catch (e: IllegalArgumentException) {
+            return false
+        }
         return try {
-            backend.exists(split.second)
+            backend.exists(rel)
         } catch (e: Exception) {
             false
         }
@@ -71,19 +78,32 @@ class SafBundleStorage(
 
     /**
      * Document `Uri` for [relPath] under [bundleDir].
-     * @throws IllegalArgumentException if [relPath] is blank or escapes the
-     * bundle dir via `..` (same containment rule as `FileBundleStorage`).
+     * @throws IllegalArgumentException if [bundleDir] is not a bundle token
+     * of this tree, or [relPath] is blank or escapes the bundle dir via `..`
+     * (same containment rule as `FileBundleStorage`; messages use rels and
+     * folder labels, never raw tokens).
      */
     override fun audioUri(bundleDir: String, relPath: String): Uri {
         val split = SafPaths.splitToken(bundleDir)
             ?: throw IllegalArgumentException("$bundleDir: not a SAF bundle path")
         if (split.first != treeUri) {
-            throw IllegalArgumentException("$bundleDir: not in this watch folder")
+            val rel = split.second.ifBlank { "<root>" }
+            throw IllegalArgumentException(
+                "$rel: not in this watch folder " +
+                    WatchFolders.treeDocumentLabel(treeUri)
+            )
         }
         if (split.second.isBlank()) {
-            throw IllegalArgumentException("$bundleDir: blank audio path")
+            throw IllegalArgumentException(
+                "${WatchFolders.treeDocumentLabel(treeUri)}: empty bundle path"
+            )
         }
-        val fullRel = SafPaths.resolveInBundle(split.second, relPath)
+        val bundleRel = try {
+            SafPaths.sanitizeTreeRel(split.second, "bundle path")
+        } catch (e: IllegalArgumentException) {
+            throw IllegalArgumentException("${split.second}: path escapes watch folder", e)
+        }
+        val fullRel = SafPaths.resolveInBundle(bundleRel, relPath)
         return Uri.parse(backend.documentUri(fullRel))
     }
 

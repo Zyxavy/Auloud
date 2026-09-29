@@ -282,9 +282,13 @@ class PlaybackService : MediaSessionService() {
             manifest = manifest,
             bundleDir = book.bundlePath,
             audioUriOf = { dir, rel -> storage.audioUri(dir, rel).toString() },
-            // SAF covers stay tokens the notification art loader cannot read;
-            // fall back to no artwork (placeholder) rather than a bogus
-            // file:// URI. Follow-up: resolve SAF covers to document URIs.
+            // EXPLICIT cover policy for SAF books: their `coverPath` is an
+            // opaque `<tree>|<rel>` token no art loader can resolve, so
+            // artwork is intentionally null (system placeholder) rather than
+            // a bogus file:// URI. Documented limitation, not a silent
+            // failure — follow-up: resolve SAF covers to document URIs
+            // (needs a `BundleStorage.coverUri` seam plus storing the
+            // resolved URI at import time; deliberately out of this slice).
             artworkUri = book.coverPath
                 ?.takeIf { !SafPaths.isSafPath(it) }
                 ?.let { coverToUri(it).toString() }

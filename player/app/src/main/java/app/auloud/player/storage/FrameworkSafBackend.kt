@@ -19,12 +19,20 @@ import java.io.IOException
  *
  * Errors: [children] and [readText] throw `IOException` (permission loss
  * included) so rescan surfaces them; [exists] returns false instead — a
- * missing manifest/cover is a validation message, never a crash.
+ * missing manifest/cover is a validation message, never a crash. Messages
+ * use the decoded folder label, never the raw tree URI, so they are safe
+ * for user-visible error rows.
  */
 class FrameworkSafBackend(
     private val resolver: ContentResolver,
     private val treeUriString: String
 ) : SafBackend {
+
+    // Display-safe folder label for logs and user-visible errors: decoded
+    // document id (`primary:Auloud`), never the raw tree URI/token.
+    private val folderLabel: String by lazy {
+        WatchFolders.treeDocumentLabel(treeUriString)
+    }
 
     private fun treeUri(): Uri = Uri.parse(treeUriString)
 
@@ -52,32 +60,34 @@ class FrameworkSafBackend(
                     DocumentsContract.Document.COLUMN_MIME_TYPE
                 ),
                 null, null, null
-            ) ?: throw IOException("$treeUriString: cannot list $parentRel")
+            ) ?: throw IOException("$folderLabel: cannot list $parentRel")
         } catch (e: IOException) {
             throw e
         } catch (e: SecurityException) {
-            throw IOException("$treeUriString: permission lost for $parentRel: ${e.message}", e)
+            throw IOException("$folderLabel: permission lost for $parentRel: ${e.message}", e)
         } catch (e: Exception) {
-            throw IOException("$treeUriString: cannot list $parentRel: ${e.message}", e)
+            throw IOException("$folderLabel: cannot list $parentRel: ${e.message}", e)
         }
         cursor.use { c ->
             val nameCol =
                 c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
             val mimeCol =
                 c.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            val dirMime = DocumentsContract.Document.MIME_TYPE_DIR
             while (c.moveToNext()) {
                 val name = try {
                     c.getString(nameCol)
                 } catch (e: Exception) {
                     Log.w(TAG, "child name unreadable: ${e.message}")
                     null
-                } ?: continue
+                }
                 val mime = try {
                     c.getString(mimeCol)
                 } catch (e: Exception) {
                     null
                 }
-                out.add(SafChild(name, mime == DocumentsContract.Document.MIME_TYPE_DIR))
+                // Pure mapping (blank names skipped); unit-tested via SafCursor.
+                SafCursor.parseRow(name, mime, dirMime)?.let { out.add(it) }
             }
         }
         return out
@@ -98,7 +108,7 @@ class FrameworkSafBackend(
 
     override fun readText(relPath: String): String {
         if (relPath.isBlank()) {
-            throw IOException("$treeUriString: blank document path")
+            throw IOException("$folderLabel: blank document path")
         }
         val uri = docUriFor(relPath)
         try {

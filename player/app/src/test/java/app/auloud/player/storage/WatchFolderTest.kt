@@ -162,4 +162,62 @@ class WatchFolderTest {
             )
         )
     }
+
+    @Test
+    fun percentDecode_decodesHexAndUtf8() {
+        assertEquals("Auloud", WatchFolders.percentDecode("Auloud"))
+        assertEquals("primary:Auloud", WatchFolders.percentDecode("primary%3AAuloud"))
+        assertEquals("a/b c", WatchFolders.percentDecode("a%2Fb%20c"))
+        assertEquals("a+b", WatchFolders.percentDecode("a+b"))
+        // Multi-byte UTF-8 (U+2019 RIGHT SINGLE QUOTATION MARK).
+        assertEquals("\u2019", WatchFolders.percentDecode("%E2%80%99"))
+        // Malformed sequences pass through literally.
+        assertEquals("a%2", WatchFolders.percentDecode("a%2"))
+        assertEquals("a%zz", WatchFolders.percentDecode("a%zz"))
+    }
+
+    @Test
+    fun treeDocumentLabel_decodesWholeGrant() {
+        assertEquals(
+            "primary:Auloud",
+            WatchFolders.treeDocumentLabel(
+                "content://com.android.externalstorage.documents/tree/primary%3AAuloud"
+            )
+        )
+        assertEquals(
+            "primary:Auloud/Books",
+            WatchFolders.treeDocumentLabel(
+                "content://com.android.externalstorage.documents/tree/primary%3AAuloud%2FBooks"
+            )
+        )
+    }
+
+    @Test
+    fun displayPath_collapsesTokens() {
+        val tree = "content://com.android.externalstorage.documents/tree/primary%3AAuloud"
+        assertEquals("saf-book", WatchFolders.displayPath("$tree|saf-book"))
+        assertEquals(
+            "saf-book/manifest.json",
+            WatchFolders.displayPath("$tree|saf-book/manifest.json")
+        )
+        assertEquals("primary:Auloud", WatchFolders.displayPath(tree))
+        assertEquals("/books/novel", WatchFolders.displayPath("/books/novel"))
+    }
+
+    @Test
+    fun sanitizeUiText_rewritesTokensAndBareTrees() {
+        val tree = "content://com.android.externalstorage.documents/tree/primary%3AAuloud"
+        assertEquals(
+            "saf-book: cannot list books folder",
+            WatchFolders.sanitizeUiText("$tree|saf-book: cannot list books folder")
+        )
+        assertEquals(
+            "primary:Auloud permission lost",
+            WatchFolders.sanitizeUiText("$tree permission lost")
+        )
+        assertEquals(
+            "/books/novel: plain paths untouched",
+            WatchFolders.sanitizeUiText("/books/novel: plain paths untouched")
+        )
+    }
 }

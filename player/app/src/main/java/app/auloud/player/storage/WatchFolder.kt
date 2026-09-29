@@ -99,12 +99,94 @@ object WatchFolders {
      */
     fun displayNameForTreeUri(uriString: String): String {
         val tail = uriString.substringAfterLast("/tree/", "")
-            .ifBlank { uriString.substringAfterLast('/') }
+            .ifBlank { uriString.substringAfterLast('/', "") }
         if (tail.isBlank()) return uriString
-        val decoded = tail.replace("%3A", ":").replace("%3a", ":")
-            .replace("%2F", "/").replace("%2f", "/")
+        val decoded = percentDecode(tail)
         val last = decoded.substringAfterLast('/').substringAfterLast(':')
         return last.ifBlank { uriString }
+    }
+
+    /**
+     * Human label for a whole tree grant, e.g.
+     * `content://.../tree/primary%3AAuloud%2FBooks` ->
+     * `primary:Auloud/Books`. Used anywhere a raw tree URI would otherwise
+     * reach the UI (Settings subtitles, error reasons). Falls back to the
+     * raw URI when nothing parseable is found.
+     */
+    fun treeDocumentLabel(uriString: String): String {
+        val tail = uriString.substringAfter("/tree/", "")
+            .ifBlank { uriString.substringAfterLast('/', "") }
+        if (tail.isBlank()) return uriString
+        return percentDecode(tail)
+    }
+
+    /**
+     * Display-safe form of any rescan path for user-visible UI: SAF tokens
+     * (`<tree>|<rel>`) collapse to their bundle rel (`book1`), bare tree
+     * roots to their [treeDocumentLabel], file paths pass through untouched.
+     * Raw `<tree>|<rel>` tokens must never render in the UI.
+     */
+    fun displayPath(path: String): String {
+        val split = SafPaths.splitToken(path) ?: return path
+        if (split.second.isBlank()) return treeDocumentLabel(split.first)
+        return try {
+            SafPaths.sanitizeTreeRel(split.second, "bundle path")
+        } catch (e: IllegalArgumentException) {
+            split.second
+        }
+    }
+
+    private val TOKEN_REGEX = Regex("content://[^\\s|]*\\|[^\\s]*")
+    private val TREE_REGEX = Regex("content://[^\\s|]*")
+
+    /**
+     * Last line of defense against token leakage: rewrites every embedded
+     * SAF token in free text (e.g. storage exception messages) to its
+     * [displayPath], and every bare tree URI to its [treeDocumentLabel].
+     * File paths and plain text pass through untouched. Callers apply this
+     * to error dirs AND reasons before they reach the UI.
+     */
+    fun sanitizeUiText(text: String): String {
+        if ("content://" !in text) return text
+        var out = TOKEN_REGEX.replace(text) { match -> displayPath(match.value) }
+        out = TREE_REGEX.replace(out) { match -> treeDocumentLabel(match.value) }
+        return out
+    }
+
+    /**
+     * Full percent-decoding (`%XX` hex, multi-byte UTF-8 aware; `+` stays
+     * `+`; malformed `%` passes through literally). Pure Kotlin so it runs
+     * identically on-device and on plain-JVM tests — no `Uri.decode`
+     * framework call needed.
+     */
+    fun percentDecode(s: String): String {
+        if ('%' !in s) return s
+        val out = StringBuilder(s.length)
+        val bytes = mutableListOf<Byte>()
+        fun flush() {
+            if (bytes.isNotEmpty()) {
+                out.append(bytes.toByteArray().toString(Charsets.UTF_8))
+                bytes.clear()
+            }
+        }
+        var i = 0
+        while (i < s.length) {
+            val c = s[i]
+            if (c == '%' && i + 2 <= s.lastIndex) {
+                val hex = s.substring(i + 1, i + 3)
+                val byte = hex.toIntOrNull(16)
+                if (byte != null) {
+                    bytes.add(byte.toByte())
+                    i += 3
+                    continue
+                }
+            }
+            flush()
+            out.append(c)
+            i++
+        }
+        flush()
+        return out.toString()
     }
 
     /** Structural equality across encodings (file slash-insensitive, tree exact). */

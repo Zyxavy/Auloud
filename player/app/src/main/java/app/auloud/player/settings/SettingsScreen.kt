@@ -130,7 +130,7 @@ private fun WatchFoldersSection(
     }
 }
 
-/** Single stable row: display name, full path/URI, and remove. */
+/** Single stable row: display name, decoded detail, and remove. */
 @Composable
 private fun WatchFolderRow(
     folder: WatchFolder,
@@ -149,8 +149,15 @@ private fun WatchFolderRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+            // Decoded detail (`/storage/...` path or `primary:Auloud/...`
+            // grant label): raw `content://` URIs and `<tree>|<rel>` tokens
+            // must never render here.
             Text(
-                text = WatchFolders.rootString(folder),
+                text = when (folder) {
+                    is WatchFolder.FilePath -> folder.path
+                    is WatchFolder.TreeUri ->
+                        WatchFolders.treeDocumentLabel(folder.uriString)
+                },
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis

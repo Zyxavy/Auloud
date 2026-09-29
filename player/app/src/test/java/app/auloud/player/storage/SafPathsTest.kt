@@ -133,4 +133,52 @@ class SafPathsTest {
     fun requireRelInTree_wrongTree_throws() {
         SafPaths.requireRelInTree("$tree|book1", "$tree%2FBooks")
     }
+
+    @Test
+    fun requireRelInTree_messagesNeverCarryRawTokens() {
+        try {
+            SafPaths.requireRelInTree("$tree|book1", "$tree%2FBooks")
+            throw AssertionError("expected IOException")
+        } catch (e: java.io.IOException) {
+            assertFalse(
+                "reason must not leak tokens, was: ${e.message}",
+                e.message!!.contains("content://")
+            )
+        }
+    }
+
+    @Test
+    fun sanitizeTreeRel_normalizes() {
+        assertEquals(
+            "book1/audio/ch001.mp3",
+            SafPaths.sanitizeTreeRel("book1//audio/./ch001.mp3", "t")
+        )
+        assertEquals("book1", SafPaths.sanitizeTreeRel("book1/", "t"))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun sanitizeTreeRel_escapeAboveRoot_throws() {
+        SafPaths.sanitizeTreeRel("book1/../../evil.mp3", "t")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun sanitizeTreeRel_bareDotDot_throws() {
+        SafPaths.sanitizeTreeRel("../evil", "t")
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun sanitizeTreeRel_blank_throws() {
+        SafPaths.sanitizeTreeRel("  ", "t")
+    }
+
+    @Test
+    fun requireRelInTree_dotDotEscape_throws() {
+        try {
+            SafPaths.requireRelInTree("$tree|book1/../../evil.mp3", tree)
+            throw AssertionError("expected IOException")
+        } catch (e: java.io.IOException) {
+            assertTrue(e.message!!.contains("escapes watch folder"))
+            assertFalse(e.message!!.contains("content://"))
+        }
+    }
 }

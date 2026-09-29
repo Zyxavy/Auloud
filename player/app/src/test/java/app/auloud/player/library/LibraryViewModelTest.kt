@@ -96,6 +96,7 @@ class LibraryViewModelTest {
             val state = awaitItem()
             assertTrue(state.books.isEmpty())
             assertEquals(1, state.errors.size)
+            // File paths render in full; SAF tokens collapse to bundle names.
             assertEquals(novelDir, state.errors[0].bundleDir)
             assertTrue(
                 "reason names file+rule, was: ${state.errors[0].reason}",
@@ -269,7 +270,7 @@ class LibraryViewModelTest {
     }
 
     @Test
-    fun rescan_folderListFailure_surfacesErrorButKeepsOtherFolder() = runBlocking {
+    fun rescan_folderListFailure_surfacesDisplayLabel_notRawToken() = runBlocking {
         val tree = "content://com.android.externalstorage.documents/tree/primary%3AAuloud"
         folderStore.setWatchFolders(
             listOf(WatchFolder.FilePath(root), WatchFolder.TreeUri(tree))
@@ -290,8 +291,70 @@ class LibraryViewModelTest {
             val state = awaitItem()
             assertEquals(1, state.books.size)
             assertEquals(1, state.errors.size)
-            assertEquals(tree, state.errors[0].bundleDir)
+            // Decoded display label, never the raw tree URI/token.
+            assertEquals("Auloud", state.errors[0].bundleDir)
             assertTrue(state.errors[0].reason.contains("cannot list books folder"))
+            assertFalse(
+                "no raw token in UI, was: ${state.errors[0]}",
+                state.errors[0].toString().contains("content://")
+            )
+        }
+    }
+
+    @Test
+    fun rescan_safBundleError_usesBundleName_notToken() = runBlocking {
+        val tree = "content://com.android.externalstorage.documents/tree/primary%3AAuloud"
+        val safDir = "$tree|saf-book"
+        folderStore.setWatchFolders(listOf(WatchFolder.TreeUri(tree)))
+        // Manifest text present but ch002.mp3 missing: validation failure
+        // must label the bundle by name, not by token.
+        storage.dirsByRoot = mapOf(tree to listOf(safDir))
+        storage.texts = mapOf("$safDir/manifest.json" to manifestJson(id = "saf-1"))
+        storage.existing = setOf("$safDir/manifest.json", "$safDir/audio/ch001.mp3")
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertTrue(state.books.isEmpty())
+            assertEquals(1, state.errors.size)
+            assertEquals("saf-book", state.errors[0].bundleDir)
+            assertTrue(state.errors[0].reason.contains("audio file missing"))
+        }
+    }
+
+    @Test
+    fun addNotice_surfacesInErrors_withoutRescan() = runBlocking {
+        storage.dirs = emptyList()
+
+        val vm = viewModel()
+        vm.addNotice("Auloud", "Auloud: folder permission was lost — please re-add it in Settings.")
+        // Exact duplicates are ignored.
+        vm.addNotice("Auloud", "Auloud: folder permission was lost — please re-add it in Settings.")
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertEquals(1, state.errors.size)
+            assertEquals("Auloud", state.errors[0].bundleDir)
+            assertTrue(state.errors[0].reason.contains("permission was lost"))
+        }
+    }
+
+    @Test
+    fun rescan_preservesNotices_alongsideScanFailures() = runBlocking {
+        storage.dirs = listOf(novelDir)
+        storage.texts = mapOf(manifestPath to manifestJson())
+        // Invalid bundle AND a host notice: both must be visible, notices first.
+        storage.existing = setOf(manifestPath, "$novelDir/audio/ch001.mp3")
+
+        val vm = viewModel()
+        vm.addNotice("Book folders", "The folder picker is unavailable on this device.")
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertEquals(2, state.errors.size)
+            assertEquals("Book folders", state.errors[0].bundleDir)
+            assertEquals(novelDir, state.errors[1].bundleDir)
         }
     }
 

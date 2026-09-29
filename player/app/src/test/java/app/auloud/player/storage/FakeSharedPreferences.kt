@@ -3,7 +3,7 @@ package app.auloud.player.storage
 import android.content.SharedPreferences
 
 /**
- * WP3 test fake: in-memory `SharedPreferences` so [PrefsBooksFolderStore] is
+ * WP3 test fake: in-memory `SharedPreferences` so [PrefsWatchFolderStore] is
  * exercised on plain JVM unit tests without Robolectric. Implements the
  * framework interface directly; no Android framework code ever runs.
  */

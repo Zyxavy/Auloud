@@ -34,7 +34,12 @@ data class BookUiModel(
     val id: String,
     val title: String,
     val author: String?,
-    /** Absolute cover path, or null when the bundle has no readable cover. */
+    /**
+     * Absolute cover path, or null when the bundle has no readable cover.
+     * SAF books may carry an opaque `<tree>|<rel>` token here; the library
+     * cover composable explicitly falls back to the placeholder for those
+     * (documented limitation, see `BookCover`).
+     */
     val coverPath: String?,
     val durationMs: Long,
     val progressFraction: Float,
@@ -42,9 +47,11 @@ data class BookUiModel(
 )
 
 /**
- * WP5: a bundle folder that was skipped during rescan. [reason] always names
- * the file and the rule broken (WP2 validation message format, e.g.
- * `manifest.json: chapter 1 audio file missing audio/ch001.mp3`).
+ * WP5: a bundle folder that was skipped during rescan. [bundleDir] is a
+ * DISPLAY label (file paths pass through; SAF `<tree>|<rel>` tokens collapse
+ * to their bundle rel, e.g. `my-book`) — raw tokens never reach the UI.
+ * [reason] always names the file and the rule broken (WP2 validation message
+ * format, e.g. `manifest.json: chapter 1 audio file missing audio/ch001.mp3`).
  */
 data class ImportError(val bundleDir: String, val reason: String)
 
@@ -99,13 +106,21 @@ class LibraryViewModel(
         libraryRepository.books().stateIn(scope, SharingStarted.Eagerly, emptyList())
     }
     private val progressPositions = MutableStateFlow<Map<String, Long>>(emptyMap())
-    private val errors = MutableStateFlow<List<ImportError>>(emptyList())
+    // Scan failures (rewritten by every rescan) plus host notices (folder
+    // grants lost, /Auloud creation failed, picker problems) that must
+    // survive rescans. Split so a rescan can never wipe a notice; the UI
+    // sees notices first, then scan failures.
+    private val scanErrors = MutableStateFlow<List<ImportError>>(emptyList())
+    private val notices = MutableStateFlow<List<ImportError>>(emptyList())
     private val isScanning = MutableStateFlow(false)
     private val hasPermission = MutableStateFlow(false)
     private val selectedBookId = MutableStateFlow<String?>(null)
 
     val uiState: StateFlow<LibraryUiState> by lazy {
-        val booksPart = combine(books, progressPositions, errors) { bookList, positions, errorList ->
+        val errorsAll = combine(notices, scanErrors) { noticeList, scanList ->
+            noticeList + scanList
+        }
+        val booksPart = combine(books, progressPositions, errorsAll) { bookList, positions, errorList ->
             Triple(bookList, positions, errorList)
         }
         val flagsPart =
@@ -170,9 +185,9 @@ class LibraryViewModel(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    errors.value = listOf(
-                        ImportError(
-                            "<watch-folders>",
+                    scanErrors.value = listOf(
+                        err(
+                            "Book folders",
                             "watch folders: cannot read folder list: ${e.message}"
                         )
                     )
@@ -182,36 +197,44 @@ class LibraryViewModel(
                 val allDirs = mutableListOf<String>()
                 for (folder in folders) {
                     val root = WatchFolders.rootString(folder)
+                    // User-visible folder label: decoded display name, never
+                    // a raw tree URI.
+                    val folderLabel = WatchFolders.displayName(folder)
                     val dirs = try {
                         storage.listBundleDirs(root)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
-                        failures += ImportError(
-                            root, "$root: cannot list books folder: ${e.message}"
+                        failures += err(
+                            folderLabel,
+                            "$folderLabel: cannot list books folder: ${e.message}"
                         )
                         continue
                     }
                     for (dir in dirs) {
+                        // Bundle label: SAF tokens collapse to the bundle
+                        // name; file paths pass through.
+                        val dirLabel = WatchFolders.displayPath(dir)
                         try {
                             val text = storage.readText(join(dir, MANIFEST_FILE))
                             val manifest = BundleParser.parseText(text).getOrElse { throw it }
                             val problems = BundleValidator.validate(dir, manifest, storage::exists)
                             if (problems.isNotEmpty()) {
-                                failures += ImportError(dir, problems.joinToString("; "))
+                                failures += err(dirLabel, problems.joinToString("; "))
                                 continue
                             }
                             val imported = libraryRepository.importBundle(dir, manifest)
                             if (imported.isFailure) {
                                 val reason = imported.exceptionOrNull()?.message
-                                    ?: "$dir: manifest.json: import failed"
-                                failures += ImportError(dir, reason)
+                                    ?: "$dirLabel: manifest.json: import failed"
+                                failures += err(dirLabel, reason)
                             }
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
-                            failures += ImportError(
-                                dir, e.message ?: "$dir: manifest.json: import failed"
+                            failures += err(
+                                dirLabel,
+                                e.message ?: "$dirLabel: manifest.json: import failed"
                             )
                         }
                     }
@@ -220,8 +243,8 @@ class LibraryViewModel(
                 try {
                     val missing = libraryRepository.refreshMissing(allDirs)
                     if (missing.isFailure) {
-                        failures += ImportError(
-                            "<watch-folders>",
+                        failures += err(
+                            "Book folders",
                             missing.exceptionOrNull()?.message
                                 ?: "could not refresh missing books"
                         )
@@ -229,12 +252,12 @@ class LibraryViewModel(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    failures += ImportError(
-                        "<watch-folders>",
+                    failures += err(
+                        "Book folders",
                         e.message ?: "could not refresh missing books"
                     )
                 }
-                errors.value = failures
+                scanErrors.value = failures
             } finally {
                 isScanning.value = false
             }
@@ -251,6 +274,19 @@ class LibraryViewModel(
         hasPermission.value = granted
         if (granted) {
             rescan()
+        }
+    }
+
+    /**
+     * Host-driven notice (lost folder grant, `/Auloud` creation failure,
+     * picker problems): shown in the library error list ahead of scan
+     * failures and kept across rescans. Exact duplicates are ignored.
+     * Plain state op — safe from any thread, unit-tested on plain JVM.
+     */
+    fun addNotice(dir: String, reason: String) {
+        val notice = err(dir, reason)
+        if (notices.value.none { it == notice }) {
+            notices.value = notices.value + notice
         }
     }
 
@@ -287,6 +323,14 @@ class LibraryViewModel(
 
     private fun join(dir: String, rel: String): String =
         dir.trimEnd('/') + '/' + rel.trimStart('/')
+
+    /**
+     * Builds a UI-safe [ImportError]: dir and reason pass through
+     * [WatchFolders.sanitizeUiText] so embedded SAF tokens (e.g. inside
+     * storage exception messages) collapse to bundle names/labels.
+     */
+    private fun err(dir: String, reason: String): ImportError =
+        ImportError(WatchFolders.sanitizeUiText(dir), WatchFolders.sanitizeUiText(reason))
 
     companion object {
         private const val MANIFEST_FILE = "manifest.json"

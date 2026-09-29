@@ -5,7 +5,7 @@ import android.content.SharedPreferences
 
 /**
  * WP8: [BatteryPromptStore] backed by framework `SharedPreferences` (no new
- * dependency), following the WP3 [PrefsBooksFolderStore] pattern. Shares the
+ * dependency), following the WP3 `PrefsWatchFolderStore` pattern. Shares the
  * same prefs file (`auloud_settings`) under its own key.
  *
  * API 24 safe: `SharedPreferences` only.

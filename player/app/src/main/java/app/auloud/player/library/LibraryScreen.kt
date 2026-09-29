@@ -111,8 +111,10 @@ private fun LibraryList(
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)
                 )
             }
-            items(state.errors, key = { "error:${it.bundleDir}" }) { error ->
-                ImportErrorRow(error)
+            // Index keys: error labels are display names (two folders can
+            // share a tail like "Auloud"), so the dir alone is not unique.
+            items(state.errors.size, key = { index -> "error:$index" }) { index ->
+                ImportErrorRow(state.errors[index])
             }
         }
     }
@@ -157,7 +159,16 @@ private fun BookRow(
 private fun BookCover(coverPath: String?, title: String, modifier: Modifier = Modifier) {
     val coverModifier = modifier.size(56.dp)
     val placeholder = painterResource(R.drawable.ic_book_placeholder)
-    if (coverPath != null) {
+    // EXPLICIT cover policy: file-path covers load through Coil; SAF books
+    // store `<tree>|<rel>` tokens that no image loader can resolve, so they
+    // intentionally fall back to the placeholder (same as the playback
+    // service, which maps SAF covers to null artwork). This is a documented
+    // limitation, not a silent failure — follow-up: resolve SAF covers to
+    // document URIs (needs a `BundleStorage.coverUri` seam plus storing the
+    // resolved URI at import time).
+    // A SAF-token guard lives here (not just at import) so tokens written by
+    // older builds can never reach the image loader either.
+    if (coverPath != null && !coverPath.startsWith("content://")) {
         AsyncImage(
             model = coverPath,
             contentDescription = "Cover of $title",
