@@ -1,7 +1,7 @@
 .opencode
 logs/
 
-# Android generated — never commit (WP1)
+# Android generated: never commit (WP1)
 .gradle/
 build/
 local.properties
