@@ -13,6 +13,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import app.auloud.player.BuildConfig
 import app.auloud.player.bundle.BundleParser
 import app.auloud.player.data.AuloudDatabase
 import app.auloud.player.data.LibraryRepository
@@ -157,8 +158,16 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(info: MediaSession.ControllerInfo) = session
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        intent?.getStringExtra(EXTRA_BOOK_ID)?.takeIf { it.isNotBlank() }?.let { bookId ->
-            if (bookId != currentBookId) loadBook(bookId)
+        // WP9: log every start so service restarts/kills are visible in
+        // logcat (Samsung debugging). Branching is unchanged.
+        val bookId = intent?.getStringExtra(EXTRA_BOOK_ID)?.takeIf { it.isNotBlank() }
+        if (bookId != null) {
+            if (bookId != currentBookId) {
+                Log.i(TAG, "onStartCommand loading bookId=$bookId")
+                loadBook(bookId)
+            } else {
+                Log.i(TAG, "onStartCommand already loaded bookId=$bookId")
+            }
         }
         return super.onStartCommand(intent, flags, startId)
     }
@@ -289,21 +298,30 @@ class PlaybackService : MediaSessionService() {
      * Writes [point] in the service scope. [context] defaults to inheriting
      * scope cancellation; callers that must survive teardown (onDestroy)
      * pass [NonCancellable].
+     *
+     * WP9: the single choke point for ALL save initiations (periodic, pause,
+     * chapter-change, task-removed, destroy, end-of-book), so every save
+     * point logs in one consistent format under [SAVE_TAG] and records the
+     * wall-clock time for the debug overlay. The tracker write is gated by
+     * `BuildConfig.DEBUG`, so release behavior is unchanged.
      */
     private fun launchSave(
         point: ProgressSavePolicy.SavePoint,
         reason: String,
         context: CoroutineContext = EmptyCoroutineContext
-    ): Job = serviceScope.launch(context) {
-        val result = progressRepository.save(point.bookId, point.chapterIndex, point.positionMs)
-        if (result.isSuccess) {
-            Log.i(
-                TAG,
-                "progress saved reason=$reason book=${point.bookId} " +
-                    "chapter=${point.chapterIndex} pos=${point.positionMs}"
-            )
-        } else {
-            Log.w(TAG, "progress save failed reason=$reason: ${result.exceptionOrNull()?.message}")
+    ): Job {
+        if (BuildConfig.DEBUG) DebugSaveTracker.recordSave(System.currentTimeMillis())
+        return serviceScope.launch(context) {
+            val result = progressRepository.save(point.bookId, point.chapterIndex, point.positionMs)
+            if (result.isSuccess) {
+                Log.i(
+                    SAVE_TAG,
+                    "progress saved reason=$reason book=${point.bookId} " +
+                        "chapter=${point.chapterIndex} pos=${point.positionMs}"
+                )
+            } else {
+                Log.w(SAVE_TAG, "progress save failed reason=$reason: ${result.exceptionOrNull()?.message}")
+            }
         }
     }
 
@@ -319,18 +337,7 @@ class PlaybackService : MediaSessionService() {
             bookId, count, chapterDurations.lastOrNull() ?: 0L
         )
         lastSaveUptimeMs = SystemClock.uptimeMillis()
-        serviceScope.launch {
-            val result = progressRepository.save(point.bookId, point.chapterIndex, point.positionMs)
-            if (result.isSuccess) {
-                Log.i(
-                    TAG,
-                    "progress saved reason=end-of-book book=${point.bookId} " +
-                        "chapter=${point.chapterIndex} pos=${point.positionMs} finished"
-                )
-            } else {
-                Log.w(TAG, "progress save failed reason=end-of-book: ${result.exceptionOrNull()?.message}")
-            }
-        }
+        launchSave(point, "end-of-book")
     }
 
     /**
@@ -357,5 +364,14 @@ class PlaybackService : MediaSessionService() {
         private const val MANIFEST_FILE = "manifest.json"
 
         private const val TAG = "AuloudPlayback"
+
+        /**
+         * WP9: progress-save log tag (log-tag convention: `Auloud*`, <= 23
+         * chars). Lifecycle (create/destroy/task-removed/load) stays on
+         * [TAG] so service kills filter separately from save cadence.
+         * Filter both with:
+         * `adb logcat -s AuloudPlayback:V AuloudProgress:V`
+         */
+        private const val SAVE_TAG = "AuloudProgress"
     }
 }

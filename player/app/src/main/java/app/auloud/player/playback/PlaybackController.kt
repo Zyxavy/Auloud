@@ -9,6 +9,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import app.auloud.player.BuildConfig
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CoroutineScope
@@ -199,7 +200,12 @@ class PlaybackController(
                 positionMs = c.currentPosition.coerceAtLeast(0L),
                 durationMs = chapterDurationOf(c),
                 chapterCount = c.mediaItemCount.coerceAtLeast(0),
-                isConnected = true
+                isConnected = true,
+                // WP9: the overlay's save time comes from the service's
+                // saver, never the UI clock. Gated so release behavior is
+                // unchanged (stays 0, overlay absent); a volatile read,
+                // no allocation on the ticker path.
+                lastSaveWallMs = if (BuildConfig.DEBUG) DebugSaveTracker.lastSaveWallMs else 0L
             )
         )
     }

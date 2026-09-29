@@ -21,7 +21,9 @@ data class ControllerSnapshot(
     val positionMs: Long,
     val durationMs: Long,
     val chapterCount: Int,
-    val isConnected: Boolean
+    val isConnected: Boolean,
+    /** WP9: service-recorded save time; 0 in release. Defaults keep old call sites compiling. */
+    val lastSaveWallMs: Long = 0L
 )
 
 /**
@@ -44,7 +46,8 @@ fun ControllerSnapshot.toPlaybackState(): PlaybackState {
         positionMs = position,
         durationMs = duration,
         chapterCount = count,
-        isConnected = isConnected
+        isConnected = isConnected,
+        lastSaveWallMs = lastSaveWallMs.coerceAtLeast(0L)
     )
 }
 
@@ -132,6 +135,7 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
         val position = snapshot.positionMs.coerceIn(0L, duration)
         val chapterTitle = snapshot.chapterTitle?.takeIf { it.isNotBlank() } ?: ""
         val bookTitle = snapshot.bookTitle?.takeIf { it.isNotBlank() } ?: ""
+        val lastSave = snapshot.lastSaveWallMs.coerceAtLeast(0L)
         if (snapshot.isPlaying == cur.isPlaying &&
             index == cur.chapterIndex &&
             chapterTitle == cur.chapterTitle &&
@@ -139,7 +143,8 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
             position == cur.positionMs &&
             duration == cur.durationMs &&
             count == cur.chapterCount &&
-            snapshot.isConnected == cur.isConnected
+            snapshot.isConnected == cur.isConnected &&
+            lastSave == cur.lastSaveWallMs
         ) {
             return
         }
@@ -151,7 +156,8 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
             positionMs = position,
             durationMs = duration,
             chapterCount = count,
-            isConnected = snapshot.isConnected
+            isConnected = snapshot.isConnected,
+            lastSaveWallMs = lastSave
         )
     }
 

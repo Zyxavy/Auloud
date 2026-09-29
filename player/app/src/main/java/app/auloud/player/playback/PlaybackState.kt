@@ -8,6 +8,11 @@ package app.auloud.player.playback
  * playlist position = ExoPlayer item index = `ProgressEntity.chapterIndex`.
  * Finished = last chapter at full duration (see [ProgressSavePolicy]).
  *
+ * [lastSaveWallMs] is WP9 debug-only: wall-clock time of the last progress
+ * save as recorded by the service ([DebugSaveTracker]). Always 0 in release
+ * builds (the controller only copies the tracker under `BuildConfig.DEBUG`);
+ * the debug overlay shows "never" for 0.
+ *
  * API 24 safe: pure Kotlin.
  */
 data class PlaybackState(
@@ -18,5 +23,6 @@ data class PlaybackState(
     val positionMs: Long = 0L,
     val durationMs: Long = 0L,
     val chapterCount: Int = 0,
-    val isConnected: Boolean = false
+    val isConnected: Boolean = false,
+    val lastSaveWallMs: Long = 0L
 )

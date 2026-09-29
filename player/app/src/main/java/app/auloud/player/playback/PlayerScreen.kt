@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
+import app.auloud.player.BuildConfig
 import app.auloud.player.R
 import app.auloud.player.battery.BatteryPromptDialog
 import app.auloud.player.battery.BatteryPromptLogic
@@ -185,6 +186,24 @@ private fun PlayerContent(
         if (!state.isConnected) {
             Spacer(Modifier.height(16.dp))
             Text("Connecting…", style = MaterialTheme.typography.bodySmall)
+        }
+        // WP9: debug-build-only overlay (chapter, positionMs, player state,
+        // service-recorded last save time). Gated by the BuildConfig.DEBUG
+        // constant so release builds never execute this path. Primitive
+        // slices only, so it recomposes independently of the rest.
+        //
+        // DEVICE-TEST (user on the Tab E): overlay rendering and
+        // overlay-matches-audio cannot be verified without the device.
+        if (BuildConfig.DEBUG) {
+            Spacer(Modifier.height(8.dp))
+            DebugOverlay(
+                chapterIndex = state.chapterIndex,
+                chapterCount = state.chapterCount,
+                positionMs = state.positionMs,
+                isPlaying = state.isPlaying,
+                isConnected = state.isConnected,
+                lastSaveWallMs = state.lastSaveWallMs
+            )
         }
     }
 }
