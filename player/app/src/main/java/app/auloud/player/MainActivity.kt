@@ -14,6 +14,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import app.auloud.player.storage.BooksFolderStore
+import app.auloud.player.storage.PrefsBooksFolderStore
 
 /** WP1 placeholder: proves the app installs and launches. Player UI arrives in WP5/WP7. */
 class MainActivity : ComponentActivity() {
@@ -25,6 +27,12 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         Log.i(TAG, "READ_EXTERNAL_STORAGE granted=$granted")
+    }
+
+    // WP3 books-folder setting (persisted; settings UI that edits it arrives in
+    // WP5). Lazy so it is only built if something reads it.
+    val booksFolderStore: BooksFolderStore by lazy {
+        PrefsBooksFolderStore.fromContext(applicationContext)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
