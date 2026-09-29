@@ -156,3 +156,18 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: The user is the only user for now; risk is in text, timing and audio, not the interface; the review step is the only place a GUI adds real value.
 - Alternatives considered: a full desktop app (PySide6 or Tauri) now; a web UI in v1.
 - Consequences: Use `uv` or `pipx` for install on Windows; print the real-time factor on build; the sentence cache keeps long builds resumable. Revisit when the project is released to non-technical users.
+
+### D-021: Watch folders via SAF picker, internal storage default
+
+- Date: 2026-09-29
+- Status: Accepted
+- Decision: The Player watches user-chosen folders (system folder picker, SAF persistable grants) instead of one fixed folder; the auto-created default is shared internal `/Auloud` (added `WRITE_EXTERNAL_STORAGE`); no SD preference since the Tab E has none. SAF covers show the placeholder (follow-up: `coverUri` seam).
+- Why: Zero-setup default plus reading books where they already live; requested by the user after the SD-based design failed on their unit.
+- Consequences: Pulled part of the v3 SAF plan forward; the `BundleStorage` abstraction absorbed it. Test on device: picker UI, grant survival across reboot, permission prompts.
+
+### D-022: Slice 1 device-verified and tagged
+
+- Date: 2026-09-29
+- Status: Accepted
+- Decision: Slice 1 "done when" verified on the Tab E (30-min and 2-h screen-off, resume after restart/reboot, lock-screen controls, all C1–C12 pass, nothing odd); tagged `slice-1`. Battery prompt leads to app > optimize battery usage on Samsung 7.1.1.
+- Why: Biggest slice risk (Samsung service kills) retired by direct test.
