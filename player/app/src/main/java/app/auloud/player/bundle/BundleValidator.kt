@@ -14,10 +14,22 @@ import java.io.File
  * never crash import or playback (enforced by callers in WP5).
  *
  * API 24 safe: uses `java.io.File` only.
+ *
+ * The audio-existence check is a seam so callers that must not touch files
+ * (WP5 `LibraryViewModel`, which sees storage only through `BundleStorage`)
+ * run the SAME rules: pass e.g. `storage::exists`. The default keeps the
+ * direct `File` check used by `validateBundle` and the WP2 tests.
  */
 object BundleValidator {
 
-    fun validate(bundleDir: File, manifest: Manifest): List<String> {
+    fun validate(bundleDir: File, manifest: Manifest): List<String> =
+        validate(bundleDir.path, manifest)
+
+    fun validate(
+        bundleDirPath: String,
+        manifest: Manifest,
+        exists: (String) -> Boolean = { File(it).isFile }
+    ): List<String> {
         val errors = mutableListOf<String>()
         if (manifest.specVersion.isBlank()) {
             errors.add("manifest.json: missing required field spec_version")
@@ -51,14 +63,17 @@ object BundleValidator {
                 )
             }
             if (chapter.audio.isNotBlank()) {
-                val audioFile = File(bundleDir, chapter.audio)
-                if (!audioFile.isFile) {
+                val audioPath = joinPath(bundleDirPath, chapter.audio)
+                if (!exists(audioPath)) {
                     errors.add("manifest.json: $label audio file missing ${chapter.audio}")
                 }
             }
         }
         return errors
     }
+
+    private fun joinPath(dir: String, rel: String): String =
+        dir.trimEnd('/') + '/' + rel.trimStart('/')
 
     /**
      * Parses `manifest.json` in [bundleDir] then validates it.

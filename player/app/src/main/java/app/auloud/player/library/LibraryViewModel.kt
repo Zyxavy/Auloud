@@ -3,7 +3,7 @@ package app.auloud.player.library
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.auloud.player.bundle.BundleParser
-import app.auloud.player.bundle.Manifest
+import app.auloud.player.bundle.BundleValidator
 import app.auloud.player.data.BookEntity
 import app.auloud.player.data.LibraryRepository
 import app.auloud.player.data.ProgressRepository
@@ -64,10 +64,10 @@ data class LibraryUiState(
  * Depends on WP3 ([BundleStorage], [BooksFolderStore]) and WP4
  * ([LibraryRepository], [ProgressRepository]) as-is. The ViewModel performs
  * no file I/O itself and never touches `java.io.File`: manifest text comes
- * from [BundleStorage.readText], parsing from WP2 [BundleParser], and the
- * existence checks below mirror WP2 `BundleValidator` rules/messages through
- * [BundleStorage.exists] (kept in sync by hand so the storage layer stays the
- * only place that knows about files, and so tests can use pure fakes).
+ * from [BundleStorage.readText], parsing from WP2 [BundleParser], and
+ * validation from WP2 [BundleValidator] with the existence-check seam wired
+ * to [BundleStorage.exists] — one rule implementation, so the messages can
+ * never drift from WP2.
  *
  * API 24 safe: string path joins, no `java.time`. (No `android.util.Log`
  * here on purpose: the ViewModel stays plain-JVM-testable; lifecycle and
@@ -174,7 +174,7 @@ class LibraryViewModel(
                     try {
                         val text = storage.readText(join(dir, MANIFEST_FILE))
                         val manifest = BundleParser.parseText(text).getOrElse { throw it }
-                        val problems = validateManifest(dir, manifest)
+                        val problems = BundleValidator.validate(dir, manifest, storage::exists)
                         if (problems.isNotEmpty()) {
                             failures += ImportError(dir, problems.joinToString("; "))
                             continue
@@ -258,53 +258,6 @@ class LibraryViewModel(
             }
         }
         progressPositions.value = positions
-    }
-
-    /**
-     * WP2 `BundleValidator` rules and message formats, with existence checks
-     * through [BundleStorage] instead of `java.io.File`. Keep the strings in
-     * sync with `BundleValidator.validate`.
-     */
-    private fun validateManifest(bundleDir: String, manifest: Manifest): List<String> {
-        val problems = mutableListOf<String>()
-        if (manifest.specVersion.isBlank()) {
-            problems.add("manifest.json: missing required field spec_version")
-        }
-        if (manifest.id.isBlank()) {
-            problems.add("manifest.json: missing required field id")
-        }
-        if (manifest.title.isBlank()) {
-            problems.add("manifest.json: missing required field title")
-        }
-        if (manifest.type.isBlank()) {
-            problems.add("manifest.json: missing required field type")
-        }
-        if (manifest.chapters.isEmpty()) {
-            problems.add("manifest.json: no chapters listed")
-        }
-        for (chapter in manifest.chapters) {
-            val label = "chapter ${chapter.index}"
-            if (chapter.title.isBlank()) {
-                problems.add("manifest.json: $label missing required field title")
-            }
-            if (chapter.audio.isBlank()) {
-                problems.add("manifest.json: $label missing required field audio")
-            }
-            if (chapter.text.isBlank()) {
-                problems.add("manifest.json: $label missing required field text")
-            }
-            if (chapter.durationMs <= 0) {
-                problems.add(
-                    "manifest.json: $label has non-positive duration_ms ${chapter.durationMs}"
-                )
-            }
-            if (chapter.audio.isNotBlank() &&
-                !storage.exists(join(bundleDir, chapter.audio))
-            ) {
-                problems.add("manifest.json: $label audio file missing ${chapter.audio}")
-            }
-        }
-        return problems
     }
 
     private fun join(dir: String, rel: String): String =

@@ -70,8 +70,25 @@ class BundleValidatorTest {
     }
 
     @Test
-    fun validateBundle_missingDir_reportsManifestFile() {
-        val errors = BundleValidator.validateBundle(File(fixtureDir("valid-bundle"), "does-not-exist"))
+    fun existsSeam_matchesFileBasedVerdict() {
+        // The WP5 rescan path calls validate() with a storage-backed `exists`;
+        // both overloads must reach identical verdicts or the test fails.
+        for (name in listOf("valid-bundle", "missing-mp3")) {
+            val dir = fixtureDir(name)
+            assertTrue("fixture missing: ${dir.path}", dir.isDirectory)
+            val manifest = BundleParser.parse(dir).getOrThrow()
+            val viaFile = BundleValidator.validate(dir, manifest)
+            val present = manifest.chapters.map { it.audio }
+                .filter { File(dir, it).isFile }
+                .map { dir.path.trimEnd('/') + "/" + it.trimStart('/') }
+                .toSet()
+            val viaSeam = BundleValidator.validate(dir.path, manifest) { it in present }
+            assertEquals("validator paths diverged for $name", viaFile, viaSeam)
+        }
+    }
+
+    @Test
+    fun validateBundle_missingDir_reportsManifestFile() {        val errors = BundleValidator.validateBundle(File(fixtureDir("valid-bundle"), "does-not-exist"))
         assertTrue(errors.isNotEmpty())
         assertTrue(errors.joinToString().contains("manifest.json"))
         // Keep the suite green even if the placeholder example test was removed.
