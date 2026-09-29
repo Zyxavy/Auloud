@@ -3,6 +3,7 @@
 # Room 2.6.1: minSdk 21 at this version, Apache-2.0.
 # Coil 2.6.0: minSdk 21, Apache-2.0/MIT.
 # Compose BOM 2024.09.00, coroutines 1.9.0, serialization 1.7.3: Apache-2.0.
+# androidx.test runner + junit-ext (WP4, user-approved): Apache-2.0, test-only.
 [versions]
 agp = "8.7.3"
 kotlin = "2.0.21"
@@ -20,6 +21,8 @@ activityCompose = "1.9.3"
 junit = "4.13.2"
 turbine = "1.2.1"
 mockk = "1.13.12"
+test-runner = "1.6.2"
+test-junit-ext = "1.2.1"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -38,6 +41,8 @@ coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutin
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+test-runner = { group = "androidx.test", name = "runner", version.ref = "test-runner" }
+test-junit-ext = { group = "androidx.test.ext", name = "junit", version.ref = "test-junit-ext" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
