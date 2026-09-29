@@ -1,6 +1,6 @@
 # Auloud
 
-Turn your ebooks into multi-voice audiobooks, then read along or just listen on your Android tablet.
+Turn your ebooks into multi-voice audiobooks, then read along or just listens
 
 > Status: in design. The interfaces below are the planned v1 and may change as slices are built. See `04-Roadmap.md`.
 
