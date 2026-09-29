@@ -67,12 +67,45 @@ fun clampSeekRequest(requestedMs: Long, durationMs: Long): Long {
  * load it. The screen itself never computes this: [PlaybackService] reads the
  * entity when it receives its book-id extra; this wrapper exists so WP7
  * unit tests pin the contract without touching the service.
+ *
+ * Finished-book behavior (current, deliberate): a book saved at the last
+ * chapter's full duration reopens staying at the end, paused. Whether
+ * reopening a finished book should restart from the beginning instead is a
+ * deferred product decision, not made here.
  */
 fun restoreStart(
     progress: ProgressEntity?,
     chapterCount: Int,
     durations: List<Long> = emptyList()
 ): StartPosition = PlaybackQueue.startFrom(progress, chapterCount, durations)
+
+/**
+ * WP7: monotonic generation guard for the async `MediaController` connect.
+ *
+ * `buildAsync()` resolves later; if [PlaybackController.release] runs first
+ * (screen disposed), the late listener must not resurrect the controller or
+ * start the ticker. The controller captures `beginConnect()`'s token and the
+ * listener only proceeds while `shouldResolve(token)` holds; `release()`
+ * invalidates every pending token. Pure Kotlin so plain-JVM tests pin the
+ * contract without Media3.
+ */
+class ConnectGuard {
+    private var generation = 0
+
+    /** A new connect attempt; the caller holds the returned token for its listener. */
+    fun beginConnect(): Int {
+        generation += 1
+        return generation
+    }
+
+    /** Invalidates all pending connect tokens; late resolutions become no-ops. */
+    fun release() {
+        generation += 1
+    }
+
+    /** True only if no `release()` (or newer connect) superseded [token]. */
+    fun shouldResolve(token: Int): Boolean = token == generation
+}
 
 /**
  * WP7: pure holder for [PlaybackState].

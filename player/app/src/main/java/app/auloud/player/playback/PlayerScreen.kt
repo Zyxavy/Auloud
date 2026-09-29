@@ -46,9 +46,17 @@ import coil.compose.AsyncImage
  * the service session survives, so leaving and returning reconnects to the
  * same spot. System back returns to the library (no navigation library).
  *
+ * A finished book reopens staying at the end, paused (the service prepares
+ * the saved finished spot as-is); whether that should restart instead is a
+ * deferred product decision.
+ *
  * Narrow recompositions for the slow Tab E: [PlayerContent] passes only
  * primitive slices to children, so the 500 ms position ticker recomposes just
  * the seek bar + position text; cover and titles skip while unchanged.
+ *
+ * Controls stay disabled until the controller connects: pre-connect taps
+ * would otherwise vanish silently. Manual verification of play/seek/chapter
+ * buttons assumes a connected session (the "Connecting…" row is gone).
  */
 @Composable
 fun PlayerScreen(
@@ -126,6 +134,7 @@ private fun PlayerContent(
         Spacer(Modifier.height(16.dp))
         PlayerControls(
             isPlaying = state.isPlaying,
+            controlsEnabled = state.isConnected,
             canPrevious = state.chapterCount > 0 && state.chapterIndex > 0,
             canNext = state.chapterCount > 0 && state.chapterIndex < state.chapterCount - 1,
             onPlayPause = onPlayPause,
@@ -225,6 +234,7 @@ private fun PlayerPositionText(positionMs: Long, durationMs: Long, modifier: Mod
 @Composable
 private fun PlayerControls(
     isPlaying: Boolean,
+    controlsEnabled: Boolean,
     canPrevious: Boolean,
     canNext: Boolean,
     onPlayPause: () -> Unit,
@@ -237,9 +247,11 @@ private fun PlayerControls(
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Button(onClick = onPrevious, enabled = canPrevious) { Text("Prev") }
-        Button(onClick = onPlayPause) { Text(if (isPlaying) "Pause" else "Play") }
-        Button(onClick = onNext, enabled = canNext) { Text("Next") }
+        Button(onClick = onPrevious, enabled = controlsEnabled && canPrevious) { Text("Prev") }
+        Button(onClick = onPlayPause, enabled = controlsEnabled) {
+            Text(if (isPlaying) "Pause" else "Play")
+        }
+        Button(onClick = onNext, enabled = controlsEnabled && canNext) { Text("Next") }
     }
 }
 

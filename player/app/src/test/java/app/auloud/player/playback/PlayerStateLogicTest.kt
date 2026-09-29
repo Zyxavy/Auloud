@@ -202,6 +202,40 @@ class PlayerStateLogicTest {
         assertEquals(StartPosition(0, 0), restoreStart(saved, 0))
     }
 
+    // Connect-guard (generation) semantics.
+
+    @Test
+    fun connectGuard_lateResolveAfterRelease_startsNothing() {
+        val guard = ConnectGuard()
+        val token = guard.beginConnect()
+
+        // Screen disposed before buildAsync() resolves.
+        guard.release()
+
+        assertFalse(
+            "late-resolving connect after release must be a no-op",
+            guard.shouldResolve(token)
+        )
+    }
+
+    @Test
+    fun connectGuard_resolveWithoutRelease_isCurrent() {
+        val guard = ConnectGuard()
+        val token = guard.beginConnect()
+
+        assertTrue(guard.shouldResolve(token))
+    }
+
+    @Test
+    fun connectGuard_newerConnect_supersedesPending() {
+        val guard = ConnectGuard()
+        val first = guard.beginConnect()
+        val second = guard.beginConnect()
+
+        assertFalse(guard.shouldResolve(first))
+        assertTrue(guard.shouldResolve(second))
+    }
+
     // Holder flow (Turbine + fakes).
 
     @Test
