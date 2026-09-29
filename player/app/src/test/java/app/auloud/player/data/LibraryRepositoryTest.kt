@@ -124,6 +124,28 @@ class LibraryRepositoryTest {
     }
 
     @Test
+    fun refreshMissing_storedTrailingSlash_matchesListedPath() = runBlocking {
+        repo.importBundle("$bundleDir/", manifest()).getOrThrow()
+
+        repo.refreshMissing(listOf(bundleDir)).getOrThrow()
+
+        val books = repo.books().first()
+        assertEquals(1, books.size)
+        assertFalse(books.single().isMissing)
+    }
+
+    @Test
+    fun refreshMissing_listedTrailingSlash_matchesStoredPath() = runBlocking {
+        repo.importBundle(bundleDir, manifest()).getOrThrow()
+
+        repo.refreshMissing(listOf("$bundleDir/")).getOrThrow()
+
+        val books = repo.books().first()
+        assertEquals(1, books.size)
+        assertFalse(books.single().isMissing)
+    }
+
+    @Test
     fun reimport_clearsMissingFlag() = runBlocking {
         repo.importBundle(bundleDir, manifest()).getOrThrow()
         repo.refreshMissing(emptyList()).getOrThrow()

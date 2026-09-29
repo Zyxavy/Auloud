@@ -59,9 +59,12 @@ class RoomLibraryRepository(
 
     override suspend fun refreshMissing(presentBundleDirs: Collection<String>): Result<Unit> =
         runBoundary {
-            val present = presentBundleDirs.toSet()
+            // Stored paths and listBundleDirs output may differ by a trailing
+            // slash; comparing them raw would flip missing flags, so both
+            // sides are normalized first.
+            val present = presentBundleDirs.map { it.trimEnd('/') }.toSet()
             for (book in bookDao.getAll()) {
-                val missing = book.bundlePath !in present
+                val missing = book.bundlePath.trimEnd('/') !in present
                 if (book.isMissing != missing) {
                     bookDao.setMissing(book.id, missing)
                 }

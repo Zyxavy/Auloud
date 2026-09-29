@@ -27,7 +27,8 @@ interface LibraryRepository {
      * Marks every stored book whose [BookEntity.bundlePath] is absent from
      * [presentBundleDirs] as missing (and clears the flag for the rest).
      * Missing rows are kept, never deleted. Pass the paths from the same
-     * `BundleStorage.listBundleDirs` listing used for imports.
+     * `BundleStorage.listBundleDirs` listing used for imports; trailing-slash
+     * variance between stored and listed paths is ignored.
      */
     suspend fun refreshMissing(presentBundleDirs: Collection<String>): Result<Unit>
 }

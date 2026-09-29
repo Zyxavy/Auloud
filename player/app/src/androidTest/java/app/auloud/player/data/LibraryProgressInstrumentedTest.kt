@@ -13,14 +13,18 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
  * WP4 slice-1 verify on an API 24+ device: real Room (in-memory), real
- * repositories, real upsert SQL — import twice leaves one book row, and
- * progress round-trips.
+ * repositories, real upsert SQL — import twice leaves one book row with the
+ * original `addedAt`, updated title, summed `durationMs` and resolved
+ * `coverPath`; progress round-trips per book with overwrite; a vanished
+ * folder flags the book missing without deleting it.
  *
  * Self-contained on purpose: the manifest is built inline (same shape as
  * `spec/fixtures/valid-bundle/manifest.json`) and storage is faked as
@@ -34,6 +38,7 @@ import org.junit.runner.RunWith
 class LibraryProgressInstrumentedTest {
 
     private val bundleDir = "/storage/1234-ABCD/Auloud/example-novel"
+    private var clockMs = 1_000L
 
     private lateinit var db: AuloudDatabase
     private lateinit var library: LibraryRepository
@@ -45,8 +50,8 @@ class LibraryProgressInstrumentedTest {
         db = Room.inMemoryDatabaseBuilder(context, AuloudDatabase::class.java)
             .allowMainThreadQueries()
             .build()
-        library = RoomLibraryRepository(db.bookDao(), EverythingExistsStorage())
-        progress = RoomProgressRepository(db.progressDao())
+        library = RoomLibraryRepository(db.bookDao(), EverythingExistsStorage(), now = { clockMs })
+        progress = RoomProgressRepository(db.progressDao(), now = { clockMs })
     }
 
     @After
@@ -57,12 +62,16 @@ class LibraryProgressInstrumentedTest {
     @Test
     fun importTwice_leavesOneRow() = runBlocking {
         library.importBundle(bundleDir, manifest()).getOrThrow()
-        library.importBundle(bundleDir, manifest()).getOrThrow()
+        clockMs = 9_999L
+        library.importBundle(bundleDir, manifest(title = "Example Novel (revised)")).getOrThrow()
 
         val books = library.books().first()
 
         assertEquals(1, books.size)
-        assertEquals("Example Novel", books[0].title)
+        assertEquals("Example Novel (revised)", books[0].title)
+        assertEquals(1_000L, books[0].addedAt)
+        assertEquals(1832400L + 1640100L, books[0].durationMs)
+        assertEquals("$bundleDir/cover.jpg", books[0].coverPath)
         assertFalse(books[0].isMissing)
     }
 
@@ -76,12 +85,39 @@ class LibraryProgressInstrumentedTest {
         assertEquals(id, loaded?.bookId)
         assertEquals(2, loaded?.chapterIndex)
         assertEquals(61_000L, loaded?.positionMs)
+        assertEquals(1_000L, loaded?.updatedAt)
+
+        clockMs = 2_000L
+        progress.save(id, 1, 5_000L).getOrThrow()
+        val overwritten = progress.load(id).getOrThrow()
+        assertEquals(1, overwritten?.chapterIndex)
+        assertEquals(5_000L, overwritten?.positionMs)
+        assertEquals(2_000L, overwritten?.updatedAt)
+
+        progress.save("other-book", 3, 7_000L).getOrThrow()
+        assertEquals(1, progress.load(id).getOrThrow()?.chapterIndex)
+        assertEquals(3, progress.load("other-book").getOrThrow()?.chapterIndex)
+        assertNull(progress.load("never-saved").getOrThrow())
     }
 
-    private fun manifest() = Manifest(
+    @Test
+    fun missingBundle_flaggedNotDeleted() = runBlocking {
+        library.importBundle(bundleDir, manifest()).getOrThrow()
+
+        library.refreshMissing(emptyList()).getOrThrow()
+
+        val books = library.books().first()
+        assertEquals(1, books.size)
+        assertTrue(books[0].isMissing)
+
+        library.refreshMissing(listOf(bundleDir)).getOrThrow()
+        assertFalse(library.books().first().single().isMissing)
+    }
+
+    private fun manifest(title: String = "Example Novel") = Manifest(
         specVersion = "1.0",
         id = "8f0c6c1e-3a8f-4c6e-9d54-0b6a3f1a2b77",
-        title = "Example Novel",
+        title = title,
         type = "epub",
         audio = AudioInfo(),
         chapters = listOf(
