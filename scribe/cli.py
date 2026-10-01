@@ -17,10 +17,10 @@
 """Auloud Scribe command line interface (thin typer wrapper, no logic).
 
 Feature code lives in the library subpackages (``extract/``, ``text/``,
-``tts/``, ``audio/``, ``bundle/``, ``draft.py``); this module only parses
-arguments, runs environment checks, and delegates. SW1 ships ``doctor`` (plus
-``version``); ``draft`` arrives in SW5, ``build``/``validate``/``inspect``
-in later work packages.
+``tts/``, ``audio/``, ``bundle/``, ``draft.py``, ``build.py``); this module
+only parses arguments, runs environment checks, and delegates. SW1 ships
+``doctor`` (plus ``version``); ``draft`` arrived in SW5, ``build`` and
+``inspect`` in SW9.
 """
 
 from __future__ import annotations
@@ -327,6 +327,84 @@ def draft(
     typer.echo(f"chapters: {len(result.chapters)}  sentences: {result.total_sentences}")
     typer.echo(f"words: {result.total_words}  drops: {len(result.drops)}")
     typer.echo(f"work folder: {result.work_dir}")
+
+
+@app.command()
+def build(
+    book: Path = typer.Argument(
+        ...,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="EPUB file to build from.",
+    ),
+    work_dir: Path = typer.Option(
+        Path(".scribe"),
+        "--work-dir",
+        help="Work folder root; reads/writes <work-dir>/<book-id>/.",
+    ),
+    out_dir: Path | None = typer.Option(
+        None,
+        "--out-dir",
+        help="Bundle output dir (default bundles/<book-id>).",
+    ),
+    models_dir: Path = typer.Option(
+        Path("models"),
+        "--models-dir",
+        help="Directory holding kokoro-v1.0.onnx + voices-v1.0.bin.",
+    ),
+    strict: bool = typer.Option(
+        False,
+        "--strict",
+        help="Abort the whole build on the first chapter error.",
+    ),
+    no_progress: bool = typer.Option(
+        False,
+        "--no-progress",
+        help="Disable the rich progress bar.",
+    ),
+) -> None:
+    """Render audio chapter by chapter (resumable) and write the bundle."""
+    from build import BuildError, format_summary, run_build
+    from bundle.writer import BundleWriteError
+    from draft import DraftError
+
+    try:
+        result = run_build(
+            book,
+            work_root=work_dir,
+            out_dir=out_dir,
+            models_dir=models_dir,
+            strict=strict,
+            show_progress=not no_progress,
+        )
+    except (BuildError, DraftError, BundleWriteError) as exc:
+        typer.echo(f"build failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"book id: {result.book_id}")
+    typer.echo(f"title: {result.title}")
+    typer.echo(format_summary(result))
+
+
+@app.command()
+def inspect(
+    bundle: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=False,
+        readable=True,
+        help="Bundle directory to inspect.",
+    ),
+) -> None:
+    """Print chapters, speakers and sample sentences of a bundle."""
+    from bundle.inspect import InspectError, format_inspect, inspect_bundle
+
+    try:
+        result = inspect_bundle(bundle)
+    except InspectError as exc:
+        typer.echo(f"inspect failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(format_inspect(result))
 
 
 @app.command()

@@ -38,6 +38,7 @@ dependencies = [
     { name = "onnxruntime" },
     { name = "pysbd" },
     { name = "pyyaml" },
+    { name = "rich" },
     { name = "soundfile" },
     { name = "typer" },
 ]
@@ -58,6 +59,7 @@ requires-dist = [
     { name = "onnxruntime", specifier = ">=1.30.0" },
     { name = "pysbd" },
     { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "rich", specifier = ">=15.0.0" },
     { name = "soundfile", specifier = ">=0.14.0" },
     { name = "typer" },
 ]
