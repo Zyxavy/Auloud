@@ -16,7 +16,7 @@ import kotlinx.serialization.json.Json
  */
 object BundleParser {
 
-    private val json = Json {
+    internal val json = Json {
         ignoreUnknownKeys = true
         explicitNulls = false
     }
