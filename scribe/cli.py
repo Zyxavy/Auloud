@@ -17,9 +17,10 @@
 """Auloud Scribe command line interface (thin typer wrapper, no logic).
 
 Feature code lives in the library subpackages (``extract/``, ``text/``,
-``tts/``, ``audio/``, ``bundle/``); this module only parses arguments,
-runs environment checks, and delegates. SW1 ships just ``doctor`` (plus
-``version``); ``draft``/``build``/``validate``/``inspect`` arrive in SW5+.
+``tts/``, ``audio/``, ``bundle/``, ``draft.py``); this module only parses
+arguments, runs environment checks, and delegates. SW1 ships ``doctor`` (plus
+``version``); ``draft`` arrives in SW5, ``build``/``validate``/``inspect``
+in later work packages.
 """
 
 from __future__ import annotations
@@ -33,6 +34,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import typer
+
+# Library modules use flat top-level imports (``from bundle.models import``),
+# which resolve in dev via ``pythonpath=["."]``. The installed console script
+# has no CWD on sys.path, so add this file's own directory: it mirrors the
+# flat tree (draft.py, extract/, text/, ...) both in the source tree and in
+# the installed ``scribe/`` package. Harmless duplicate entry in dev.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 __version__ = "0.1.0"
 
@@ -289,6 +297,36 @@ def doctor(
     for result in failures:
         typer.echo(f"\n[{result.name}] {result.detail}\n{result.hint}")
     raise typer.Exit(code=1)
+
+
+@app.command()
+def draft(
+    book: Path = typer.Argument(
+        ...,
+        exists=True,
+        dir_okay=False,
+        readable=True,
+        help="EPUB file to draft from.",
+    ),
+    work_dir: Path = typer.Option(
+        Path(".scribe"),
+        "--work-dir",
+        help="Work folder root; writes <work-dir>/<book-id>/ under it.",
+    ),
+) -> None:
+    """Parse, split, and write the work folder (script, cast, report)."""
+    from draft import DraftError, run_draft
+
+    try:
+        result = run_draft(book, work_root=work_dir)
+    except DraftError as exc:
+        typer.echo(f"draft failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"book id: {result.book_id}")
+    typer.echo(f"title: {result.title}")
+    typer.echo(f"chapters: {len(result.chapters)}  sentences: {result.total_sentences}")
+    typer.echo(f"words: {result.total_words}  drops: {len(result.drops)}")
+    typer.echo(f"work folder: {result.work_dir}")
 
 
 @app.command()

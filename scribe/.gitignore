@@ -6,3 +6,5 @@ __pycache__/
 .ruff_cache/
 # Kokoro model binaries live here via `scribe doctor --models-dir`; never commit them.
 models/
+# SW5 work folders (`scribe draft` writes .scribe/<book-id>/); never commit them.
+.scribe/

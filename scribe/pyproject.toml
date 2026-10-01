@@ -10,6 +10,7 @@ dependencies = [
     "beautifulsoup4",
     "lxml",
     "pysbd",
+    "pyyaml>=6.0.3",
 ]
 
 [project.scripts]
@@ -34,6 +35,7 @@ packages = []
 
 [tool.hatch.build.targets.wheel.force-include]
 "cli.py" = "scribe/cli.py"
+"draft.py" = "scribe/draft.py"
 "extract" = "scribe/extract"
 "text" = "scribe/text"
 "tts" = "scribe/tts"
