@@ -3,9 +3,12 @@ name = "auloud-scribe"
 version = "0.1.0"
 description = "Auloud Scribe: turn ebooks into multi-voice audiobooks (PC tool)"
 requires-python = ">=3.11"
-license = { text = "GPL-3.0-or-later" }
+license = { text = "AGPL-3.0-or-later" }
 dependencies = [
     "typer",
+    "ebooklib",
+    "beautifulsoup4",
+    "lxml",
 ]
 
 [project.scripts]

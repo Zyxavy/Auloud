@@ -5,7 +5,7 @@
 | Component | Proposed license | Why |
 | --- | --- | --- |
 | Player (Android app) | Apache-2.0 (or MIT) | Permissive, patent grant, compatible with the AndroidX/Media3 libraries it uses |
-| Scribe (PC tool) | GPL-3.0 | Piper and its phonemizer espeak-ng are GPL, so a tool that bundles or wraps them fits GPL |
+| Scribe (PC tool) | AGPL-3.0 | ebooklib is AGPL-3.0 (METADATA: GNU Affero General Public License, AGPLv3+), so Scribe which imports it is AGPL-3.0; also covers hosted-service use via the network clause (see D-024) |
 | Bundle spec (`03-BundleSpec.md`) | CC0 or Apache-2.0 | So anyone can write compatible tools |
 
 The Player only plays audio and shows text, so no GPL code ships in the app. If v2 adds on-device TTS with Piper/espeak-ng, revisit the Player's license (see section 5).
@@ -29,7 +29,7 @@ In-app: add a "Licenses" screen listing these (a Gradle license plugin can gener
 
 | Library | License (as I understand it) | Notes | Verified |
 | --- | --- | --- | --- |
-| EbookLib | AGPL-3.0 | Strong copyleft. Fine inside an open-source GPL/AGPL tool; if you offer Scribe as a hosted service, AGPL's network clause means users must be able to get the source. Consider licensing Scribe as AGPL-3.0 in that case. | \[ \] |
+| EbookLib | AGPL-3.0 | Strong copyleft. Fine inside an open-source GPL/AGPL tool; if you offer Scribe as a hosted service, AGPL's network clause means users must be able to get the source. Consider licensing Scribe as AGPL-3.0 in that case. | \[x\] |
 | PyMuPDF | AGPL-3.0 (commercial license available) | Same AGPL consideration. Alternative: `pypdf`/`pdfminer.six` (permissive) if you want to avoid it. | \[ \] |
 | beautifulsoup4, lxml | MIT, BSD-3 |  | \[ \] |
 | pysbd | MIT |  | \[ \] |
