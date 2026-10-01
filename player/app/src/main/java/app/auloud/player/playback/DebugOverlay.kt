@@ -1,5 +1,7 @@
 package app.auloud.player.playback
 
+import android.app.ActivityManager
+import android.content.Context
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -52,4 +54,51 @@ fun DebugOverlay(
         style = MaterialTheme.typography.bodySmall,
         modifier = modifier
     )
+}
+
+/**
+ * RA9: reader sync section (same debug-only gating as [DebugOverlay];
+ * shown in the reader session, not the Listen player).
+ *
+ * One `Text`, strings built inside `remember` keyed on exactly the values
+ * shown: `sid` (current sentence), `lagAvgMs`/`lagMaxMs` (highlight lag
+ * over the last window, null until the first change), `pssMb` (total PSS,
+ * -1 when unreadable).
+ */
+@Composable
+fun ReaderDebugOverlay(
+    sid: Int?,
+    lagAvgMs: Long?,
+    lagMaxMs: Long?,
+    pssMb: Int,
+    modifier: Modifier = Modifier
+) {
+    val line = remember(sid, lagAvgMs, lagMaxMs, pssMb) {
+        buildString {
+            append("RDG sid ${sid ?: "-"}")
+            if (lagAvgMs != null && lagMaxMs != null) {
+                append(" lag avg ${lagAvgMs}ms max ${lagMaxMs}ms")
+            } else {
+                append(" lag -/-")
+            }
+            append(if (pssMb >= 0) " PSS ${pssMb}MB" else " PSS -")
+        }
+    }
+    Text(
+        text = line,
+        style = MaterialTheme.typography.bodySmall,
+        modifier = modifier
+    )
+}
+
+/** Total PSS in MB (-1 when unreadable). Call off the composition path. */
+fun readTotalPssMb(context: Context): Int {
+    return try {
+        val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        val infos = manager.getProcessMemoryInfo(intArrayOf(android.os.Process.myPid()))
+        val kb = infos.firstOrNull()?.totalPss ?: -1
+        if (kb < 0) -1 else kb / 1024
+    } catch (_: Exception) {
+        -1
+    }
 }

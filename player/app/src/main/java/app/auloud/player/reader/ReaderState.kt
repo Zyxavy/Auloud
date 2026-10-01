@@ -37,7 +37,14 @@ data class ReaderState(
     val positionMs: Long = 0L,
     val isPlaying: Boolean = false,
     val isTextLoading: Boolean = false,
-    val textError: String? = null
+    val textError: String? = null,
+    /**
+     * RA9: highlight lag (position at change minus sentence start), average
+     * and max over the last [LagTracker.LAG_WINDOW] changes. Null until the
+     * first change after a chapter load. Debug overlay only.
+     */
+    val lagAvgMs: Long? = null,
+    val lagMaxMs: Long? = null
 )
 
 /** Follow-state machine inputs (RA5 owns the scroll source; RA6 the jump). */

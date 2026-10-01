@@ -15,6 +15,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -24,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import app.auloud.player.BuildConfig
 import app.auloud.player.battery.BatteryPromptDialog
 import app.auloud.player.battery.BatteryPromptLogic
 import app.auloud.player.battery.BatterySettingsIntents
@@ -33,16 +35,19 @@ import app.auloud.player.library.BookUiModel
 import app.auloud.player.playback.PlaybackController
 import app.auloud.player.playback.PlaybackService
 import app.auloud.player.playback.PlayerScreen
+import app.auloud.player.playback.ReaderDebugOverlay
 import app.auloud.player.playback.SleepOption
 import app.auloud.player.playback.SleepTimerButton
 import app.auloud.player.playback.SpeedButton
 import app.auloud.player.playback.cycleSleepOption
 import app.auloud.player.playback.nextSpeed
+import app.auloud.player.playback.readTotalPssMb
 import app.auloud.player.playback.sendSleepOption
 import app.auloud.player.settings.PrefsReaderModeStore
 import app.auloud.player.settings.ReaderModeStore
 import app.auloud.player.storage.BundleStorage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
@@ -189,6 +194,23 @@ private fun ReaderSession(
             onTopVisibleSentence = viewModel::onTopVisibleSid,
             modifier = Modifier.weight(1f)
         )
+        // RA9: debug-build-only sync section (sid, highlight lag, PSS).
+        // Gated like PlayerScreen's overlay: unreachable in release builds.
+        if (BuildConfig.DEBUG) {
+            var pssMb by remember(book.id) { mutableIntStateOf(-1) }
+            LaunchedEffect(book.id) {
+                while (true) {
+                    pssMb = readTotalPssMb(appContext)
+                    delay(3_000L)
+                }
+            }
+            ReaderDebugOverlay(
+                sid = readerState.currentSid,
+                lagAvgMs = readerState.lagAvgMs,
+                lagMaxMs = readerState.lagMaxMs,
+                pssMb = pssMb
+            )
+        }
         ModeBar(
             mode = mode,
             isPlaying = playbackState.isPlaying,

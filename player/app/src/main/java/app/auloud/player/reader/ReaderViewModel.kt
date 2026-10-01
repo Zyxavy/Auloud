@@ -63,6 +63,7 @@ class ReaderViewModel(
     private var loadStartedFor: Int? = null
     private var loadJob: Job? = null
     private var settleJob: Job? = null
+    private val lagTracker = LagTracker()
 
     init {
         scope.launch { playback.collect { onPlayback(it) } }
@@ -143,12 +144,32 @@ class ReaderViewModel(
         } else {
             current.currentSid
         }
-        val next = current.copy(
+        val base = current.copy(
             positionMs = snapshot.positionMs,
-            isPlaying = snapshot.isPlaying,
-            currentSid = sid
+            isPlaying = snapshot.isPlaying
         )
+        val next = applySid(base, sid, snapshot.positionMs)
         if (next != current) _state.value = next
+    }
+
+    /**
+     * RA9: single point where the highlight moves (ticker + playback
+     * paths). Records the lag sample and carries the running
+     * average/maximum; unchanged sids return the state untouched so the
+     * flow stays silent between sentence changes.
+     */
+    private fun applySid(state: ReaderState, sid: Int?, positionMs: Long): ReaderState {
+        if (sid == state.currentSid) return state
+        if (sid != null) {
+            index?.startMsOf(sid)?.let { startMs ->
+                lagTracker.record(positionMs - startMs)
+            }
+        }
+        return state.copy(
+            currentSid = sid,
+            lagAvgMs = lagTracker.averageMs,
+            lagMaxMs = lagTracker.maxMs
+        )
     }
 
     /**
@@ -161,10 +182,8 @@ class ReaderViewModel(
         val chapterIndex = index ?: return
         if (!current.isPlaying || current.chapter == null) return
         val position = playback.value.positionMs
-        val sid = chapterIndex.currentSid(position)
-        if (sid != current.currentSid) {
-            _state.value = current.copy(currentSid = sid, positionMs = position)
-        }
+        val next = applySid(current, chapterIndex.currentSid(position), position)
+        if (next != current) _state.value = next
     }
 
     /**
@@ -178,10 +197,11 @@ class ReaderViewModel(
         loadStartedFor = null
         startLoad(chapterIndex, playback.value.positionMs)
     }
-
-    private fun startLoad(chapterIndex: Int, positionMs: Long) {        loadStartedFor = chapterIndex
+    private fun startLoad(chapterIndex: Int, positionMs: Long) {
+        loadStartedFor = chapterIndex
         loadJob?.cancel()
         index = null
+        lagTracker.reset()
         _state.value = _state.value.copy(
             chapterIndex = chapterIndex,
             chapter = null,
@@ -189,7 +209,9 @@ class ReaderViewModel(
             currentSid = null,
             positionMs = positionMs,
             isTextLoading = true,
-            textError = null
+            textError = null,
+            lagAvgMs = null,
+            lagMaxMs = null
         )
         loadJob = scope.launch {
             val path = textPathForChapter(chapterIndex)
@@ -215,7 +237,9 @@ class ReaderViewModel(
                         currentSid = built.currentSid(position),
                         positionMs = position,
                         isTextLoading = false,
-                        textError = null
+                        textError = null,
+                        lagAvgMs = null,
+                        lagMaxMs = null
                     )
                 },
                 onFailure = { error ->

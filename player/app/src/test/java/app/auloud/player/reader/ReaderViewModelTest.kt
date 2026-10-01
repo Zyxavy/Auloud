@@ -34,7 +34,8 @@ class ReaderViewModelTest {
             "duration_ms": 3000,
             "blocks": [{"id": 1, "type": "para", "sentences": [
             {"sid": 1, "speaker": "narrator", "start_ms": 0, "end_ms": 1000, "text": "One. "},
-            {"sid": 2, "speaker": "narrator", "start_ms": $secondStart, "end_ms": 2500, "text": "Two. "}]}]}"""
+            {"sid": 2, "speaker": "narrator", "start_ms": $secondStart, "end_ms": 2500, "text": "Two. "},
+            {"sid": 3, "speaker": "narrator", "start_ms": 2600, "end_ms": 2900, "text": "Three. "}]}]}"""
     }
 
     private fun viewModel(
@@ -109,6 +110,57 @@ class ReaderViewModelTest {
             state = awaitItem()
             while (state.currentSid != 2) state = awaitItem()
             assertEquals(2, state.currentSid)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun highlightChange_recordsLagAverageAndMax() = runBlocking {
+        val flow = playback(positionMs = 100L)
+        val vm = viewModel(flow, mapOf("text/ch001.json" to chapterPayload("Ch 1")))
+        vm.collectTest {
+            var state = awaitItem()
+            while (state.chapter == null) state = awaitItem()
+            // Fresh load: no change yet, no samples.
+            assertEquals(null, state.lagAvgMs)
+            assertEquals(null, state.lagMaxMs)
+            // 1700 -> sid 2 (start 1500): lag 200.
+            flow.value = flow.value.copy(positionMs = 1700L)
+            state = awaitItem()
+            while (state.currentSid != 2) state = awaitItem()
+            assertEquals(200L, state.lagAvgMs)
+            assertEquals(200L, state.lagMaxMs)
+            // 2700 -> sid 3 (start 2600): lag 100; avg 150, max 200.
+            flow.value = flow.value.copy(positionMs = 2700L)
+            state = awaitItem()
+            while (state.currentSid != 3) state = awaitItem()
+            assertEquals(150L, state.lagAvgMs)
+            assertEquals(200L, state.lagMaxMs)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun chapterChange_resetsLag() = runBlocking {
+        val files = mapOf(
+            "text/ch001.json" to chapterPayload("Ch 1"),
+            "text/ch002.json" to chapterPayload("Ch 2")
+        )
+        val flow = playback(chapterIndex = 0, positionMs = 100L)
+        val vm = viewModel(flow, files, pathFor = { "text/ch00${it + 1}.json" })
+        vm.collectTest {
+            var state = awaitItem()
+            while (state.chapter == null) state = awaitItem()
+            // One recorded change before the chapter flips.
+            flow.value = flow.value.copy(positionMs = 1700L)
+            state = awaitItem()
+            while (state.currentSid != 2) state = awaitItem()
+            assertEquals(200L, state.lagAvgMs)
+            flow.value = flow.value.copy(chapterIndex = 1, positionMs = 100L)
+            state = awaitItem()
+            while (state.chapter?.title != "Ch 2") state = awaitItem()
+            assertEquals(null, state.lagAvgMs)
+            assertEquals(null, state.lagMaxMs)
             cancelAndIgnoreRemainingEvents()
         }
     }
