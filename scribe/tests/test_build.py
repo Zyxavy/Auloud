@@ -493,3 +493,246 @@ def test_compare_bundles_ignores_created_at_only(tmp_path: Path) -> None:
     (second / "extra.txt").write_text("hi", encoding="utf-8")
     diffs = compare_bundles(first, second)
     assert len(diffs) == 1 and "extra.txt" in diffs[0]
+
+
+# ---------------------------------------------------------------------------
+# (f) resume fingerprint: title-only edits and ASSEMBLY_VERSION bumps re-render
+# ---------------------------------------------------------------------------
+
+
+def test_title_only_edit_rerenders_that_chapter(tmp_path: Path) -> None:
+    """Same sentences but a new chapter title must re-render that chapter.
+
+    The title flows into the shipped JSON (and the manifest), so the render
+    fingerprint covers it: editing only ``script.json`` chapter 1's title
+    re-renders chapter 1 and skips chapter 2.
+    """
+    _needs_ffmpeg()
+    epub_path = _make_epub(tmp_path / "book.epub", ["Chapter One", "Chapter Two"])
+    work_root = tmp_path / "work"
+    out = tmp_path / "out"
+    first = run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    assert (first.rendered, first.skipped) == (2, 0)
+
+    book_id, _ = book_id_for_file(epub_path)
+    script_path = work_root / book_id / SCRIPT_FILENAME
+    data = json.loads(script_path.read_text(encoding="utf-8"))
+    assert data["chapters"][0]["title"] == "Chapter One"
+    data["chapters"][0]["title"] = "Chapter One (Renamed)"
+    script_path.write_text(json.dumps(data, sort_keys=True) + "\n", encoding="utf-8")
+
+    second = run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    assert (second.rendered, second.skipped) == (1, 1)
+
+    render_data = json.loads(
+        (work_root / book_id / "render" / "text" / "ch001.json").read_text(encoding="utf-8")
+    )
+    assert render_data["title"] == "Chapter One (Renamed)"
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["chapters"][0]["title"] == "Chapter One (Renamed)"
+    assert validate_bundle(out).ok
+
+
+def test_assembly_version_bump_rerenders_all(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bumping ASSEMBLY_VERSION re-renders every chapter once.
+
+    The constant covers pause/loudness/encode settings and buffer
+    construction: forgetting a bump would silently reuse stale audio, so
+    the fingerprint bakes it in and any bump invalidates all renders.
+    """
+    _needs_ffmpeg()
+    import build as build_module
+
+    epub_path = _make_epub(tmp_path / "book.epub", ["Chapter One", "Chapter Two"])
+    work_root = tmp_path / "work"
+    out = tmp_path / "out"
+    first = run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    assert (first.rendered, first.skipped) == (2, 0)
+
+    # Rerun without a bump skips everything (sanity: fingerprint is stable).
+    steady = run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    assert (steady.rendered, steady.skipped) == (0, 2)
+
+    monkeypatch.setattr(
+        build_module, "ASSEMBLY_VERSION", build_module.ASSEMBLY_VERSION + 1
+    )
+    bumped = run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    assert (bumped.rendered, bumped.skipped) == (2, 0)
+    assert validate_bundle(out).ok
+
+
+# ---------------------------------------------------------------------------
+# (g) torn-file resume: truncated MP3, missing JSON, corrupt JSON, half bundle
+# ---------------------------------------------------------------------------
+
+
+def test_truncated_mp3_rerenders(tmp_path: Path) -> None:
+    """A kill mid-encode leaves a short MP3: ffprobe drift forces re-render."""
+    _needs_ffmpeg()
+    epub_path = _make_epub(tmp_path / "book.epub", ["Chapter One", "Chapter Two"])
+    work_root = tmp_path / "work"
+    out = tmp_path / "out"
+    run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    book_id, _ = book_id_for_file(epub_path)
+    mp3 = work_root / book_id / "render" / "audio" / "ch001.mp3"
+    raw = mp3.read_bytes()
+    assert len(raw) > 2048  # real MP3, so halving moves duration well past 50 ms
+    mp3.write_bytes(raw[: len(raw) // 2])
+
+    second = run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    assert (second.rendered, second.skipped) == (1, 1)
+    assert validate_bundle(out).ok
+
+
+def test_mp3_without_json_rerenders(tmp_path: Path) -> None:
+    """MP3 present but its chapter JSON missing (kill between files): re-render."""
+    _needs_ffmpeg()
+    epub_path = _make_epub(tmp_path / "book.epub", ["Chapter One", "Chapter Two"])
+    work_root = tmp_path / "work"
+    out = tmp_path / "out"
+    run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    book_id, _ = book_id_for_file(epub_path)
+    missing = work_root / book_id / "render" / "text" / "ch001.json"
+    assert missing.is_file()
+    assert (work_root / book_id / "render" / "audio" / "ch001.mp3").is_file()
+    missing.unlink()
+
+    second = run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    assert (second.rendered, second.skipped) == (1, 1)
+    assert missing.is_file()
+    assert validate_bundle(out).ok
+
+
+def test_corrupt_chapter_json_rerenders(tmp_path: Path) -> None:
+    """Half-written render JSON (truncated bytes): parse fails, re-render."""
+    _needs_ffmpeg()
+    epub_path = _make_epub(tmp_path / "book.epub", ["Chapter One", "Chapter Two"])
+    work_root = tmp_path / "work"
+    out = tmp_path / "out"
+    run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    book_id, _ = book_id_for_file(epub_path)
+    torn = work_root / book_id / "render" / "text" / "ch001.json"
+    torn.write_text("{ half-written", encoding="utf-8")
+
+    second = run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    assert (second.rendered, second.skipped) == (1, 1)
+    assert validate_bundle(out).ok
+
+
+def test_half_written_bundle_from_aborted_run_repairs(tmp_path: Path) -> None:
+    """Abort via fail_after, plant torn bundle files, resume rewrites valid bundle.
+
+    The aborted run writes no manifest; the planted half-written bundle
+    (truncated audio + unparseable manifest, as a kill during write_bundle
+    could leave) must be fully overwritten by the resume, matching an
+    uninterrupted reference build except manifest.created_at.
+    """
+    _needs_ffmpeg()
+    epub_path = _make_epub(tmp_path / "book.epub", ["Chapter One", "Chapter Two"])
+    work_kill = tmp_path / "work-kill"
+    out_kill = tmp_path / "out-kill"
+    with pytest.raises(BuildError, match="simulated failure"):
+        run_build(
+            epub_path,
+            work_root=work_kill,
+            out_dir=out_kill,
+            engine=FakeEngine(),
+            fail_after=1,
+            show_progress=False,
+        )
+    assert not (out_kill / "manifest.json").exists()
+
+    # Simulate a kill mid-write: partial audio plus a torn manifest.
+    (out_kill / "audio").mkdir(parents=True, exist_ok=True)
+    (out_kill / "text").mkdir(parents=True, exist_ok=True)
+    (out_kill / "audio" / "ch001.mp3").write_bytes(b"half-written")
+    (out_kill / "manifest.json").write_text("{ half-written", encoding="utf-8")
+
+    resumed = run_build(
+        epub_path,
+        work_root=work_kill,
+        out_dir=out_kill,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    assert resumed.failed == []
+    assert (resumed.skipped, resumed.rendered) == (1, 1)
+    assert validate_bundle(out_kill).ok
+
+    out_ref = tmp_path / "out-ref"
+    run_build(
+        epub_path,
+        work_root=tmp_path / "work-ref",
+        out_dir=out_ref,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    assert compare_bundles(out_ref, out_kill) == []

@@ -32,14 +32,18 @@ Resume: each chapter's encoded MP3 plus its timed chapter JSON live under
 ``<work-dir>/<book-id>/render/`` (``audio/chNNN.mp3``,
 ``text/chNNN.json``). A chapter is skipped when :func:`chapter_up_to_date`
 finds a valid MP3 plus matching timings already on disk: same sentence
-``(sid, speaker, text, spans)`` sequence as the script, same render
-fingerprint (cast voices/speeds, pitch, engine version), and an MP3 whose
-ffprobe duration agrees within 50 ms. Skipped chapters are never
+``(sid, speaker, text, spans)`` sequence as the script, same chapter title
+and block structure (break blocks carry pauses but no sentences), same
+cast voices/speeds, pitch and engine version, and the same
+:data:`ASSEMBLY_VERSION` (bumped whenever pause/loudness/encode constants
+or buffer construction change), plus an MP3 whose ffprobe duration agrees
+within 50 ms and whose frames are intact CBR. Skipped chapters are never
 re-synthesized, re-assembled, or re-encoded — finished files are untouched,
 and sentence-audio cache hits make even re-rendered chapters cheap.
 Render files are only written after a successful encode, so a kill
-mid-chapter can only leave a duration-mismatched MP3 (re-rendered) or a
-missing JSON (re-rendered), never a silently stale chapter.
+mid-chapter can only leave a torn MP3 (duration drift or broken CBR frames,
+re-rendered) or a missing/corrupt JSON (re-rendered), never a silently
+stale chapter.
 
 Strictness: ``--strict`` aborts the whole build on the first chapter error
 (no bundle is written). Non-strict renders every remaining chapter, then
@@ -48,12 +52,14 @@ the SW8 writer requires contiguous 1..N chapters, so a bundle with gaps
 cannot be represented — the failure is recorded in ``scribe.log`` and in
 the exception message instead).
 
-Orphan cleanup: reruns never leave orphaned chapters. After rendering,
+Orphan cleanup: reruns never leave orphaned chapters.
 :func:`remove_stale_chapter_files` deletes ``chNNN`` audio/text files whose
 index exceeds the current chapter count, in both the render dir and the
 output bundle dir (reusing one output dir for a shorter book is the usual
 trigger; a per-book render dir can only go stale if extraction rules
-change under the same source bytes).
+change under the same source bytes). Render cleanup runs before the
+render loop, so it holds on abort paths too; bundle cleanup runs after
+the writer succeeds.
 
 Identical-bundle definition: killing a build and rerunning it produces a
 bundle that is byte-identical to an uninterrupted build EXCEPT
@@ -114,13 +120,24 @@ RENDER_DIRNAME = "render"
 LOG_FILENAME = "scribe.log"
 
 #: Extra top-level key in render text JSON holding the render fingerprint
-#: (cast voices/speeds, pitch, engine version). Never reaches the bundle:
+#: (per-chapter: title, block structure, cast voices/speeds, pitch,
+#: engine version, assembly version). Never reaches the bundle:
 #: render JSON is re-parsed with :meth:`ChapterFile.from_dict` (which
 #: ignores unknown keys) and the bundle is written from those objects.
 RENDER_FINGERPRINT_KEY = "render"
 
 #: ``chNNN`` file stems, with numeric index (any width, e.g. ch001/ch1000).
 _CHAPTER_STEM_RE = re.compile(r"^ch(\d+)$")
+
+#: Version of the chapter assembly pipeline baked into the render
+#: fingerprint. Bump this integer whenever anything that can change a
+#: rendered chapter changes: the pause lengths (PAUSE_*_MS in
+#: audio.assemble), the loudness target (PEAK_TARGET_DBFS), the encode
+#: settings (BITRATE_KBPS / codec flags in audio.encode), or the
+#: buffer/timing construction itself (assemble_chapter, _with_timings
+#: here). A bump re-renders every chapter once; forgetting a bump silently
+#: reuses stale audio, so bump first and ask questions later.
+ASSEMBLY_VERSION = 1
 
 
 class BuildError(ValueError):
@@ -253,18 +270,31 @@ def _narrator_voice(cast_path: Path) -> tuple[str, float]:
     return voice, speed
 
 
-def _fingerprint(cast: dict[str, Any], engine: TTSEngine) -> dict[str, Any]:
-    """Render fingerprint: everything (besides sentence text) that can
-    change the audio. A cast edit re-renders; unchanged chapters skip."""
+def _fingerprint(
+    cast: dict[str, Any], engine: TTSEngine, chapter: ChapterFile
+) -> dict[str, Any]:
+    """Render fingerprint for one chapter: everything (besides sentence
+    text) that can change its audio or its shipped JSON. A cast edit
+    re-renders; a chapter-title or block-structure edit (breaks carry
+    pauses but no sentences) re-renders that chapter; an
+    :data:`ASSEMBLY_VERSION` bump re-renders everything. Unchanged chapters
+    skip."""
     voices = {
         speaker: {"voice": entry.get("voice"), "speed": entry.get("speed")}
         for speaker, entry in cast.items()
         if isinstance(entry, dict)
     }
+    blocks = [
+        [block.id, block.type, block.level, block.text]
+        for block in chapter.blocks or []
+    ]
     return {
         "cast": voices,
         "pitch": VOICE_PITCH,
         "engine_version": engine.engine_version,
+        "assembly": ASSEMBLY_VERSION,
+        "title": chapter.title,
+        "blocks": blocks,
     }
 
 
@@ -285,10 +315,13 @@ def chapter_up_to_date(
 
     Fresh means: the render JSON parses with the same chapter number, the
     same sentence sequence (sid/speaker/text/spans) as ``script_chapter``,
-    a positive duration, and the stored fingerprint equals ``fingerprint``;
-    plus the render MP3 exists with an ffprobe duration within 50 ms of the
-    stored duration. ANY deviation (missing/corrupt files, text or cast
-    edits, engine change, duration drift) returns ``None`` -> re-render.
+    a positive duration, and the stored fingerprint equals ``fingerprint``
+    (per-chapter: title, block structure, cast voices/speeds, pitch,
+    engine version, assembly version); plus the render MP3 exists with an
+    ffprobe duration within 50 ms of the stored duration and intact
+    constant-bitrate frames. ANY deviation (missing/corrupt files,
+    title/text/cast/engine/assembly edits, duration drift, torn MP3 with
+    broken CBR frames) returns ``None`` -> re-render.
     """
     json_path, mp3_path = Path(render_json), Path(render_mp3)
     if not (json_path.is_file() and mp3_path.is_file()):
@@ -313,6 +346,10 @@ def chapter_up_to_date(
     except (AudioProbeError, OSError):
         return None
     if probe.duration_ms is None:
+        return None
+    if not probe.cbr_frames:
+        # Truncated/torn MP3s keep the header duration but break frame
+        # uniformity (the bundle validator rejects them for the same reason).
         return None
     if abs(probe.duration_ms - chapter.duration_ms) > DURATION_TOLERANCE_MS:
         return None
@@ -508,7 +545,6 @@ def run_build(
     voice, speed = _narrator_voice(cast_path)
 
     tts = engine if engine is not None else create_engine(models_dir)
-    fingerprint = _fingerprint(cast, tts)
     cache_dir = work_dir / CACHE_DIRNAME
     render_audio = work_dir / RENDER_DIRNAME / "audio"
     render_text = work_dir / RENDER_DIRNAME / "text"
@@ -516,6 +552,11 @@ def run_build(
     render_text.mkdir(parents=True, exist_ok=True)
 
     width = 4 if len(chapters) > 999 else 3
+
+    # Render orphan cleanup up front (not after the loop): a shorter script
+    # must not leave stale chNNN files behind even when this run aborts.
+    stale_render = remove_stale_chapter_files(render_audio, len(chapters), ".mp3")
+    stale_render += remove_stale_chapter_files(render_text, len(chapters), ".json")
 
     def _synth_fn(chapter_index: int) -> Callable[[Sentence], np.ndarray]:
         def _synth(sentence: Sentence) -> np.ndarray:
@@ -573,6 +614,7 @@ def run_build(
             )
             mp3_path = render_audio / f"{stem}.mp3"
             json_path = render_text / f"{stem}.json"
+            fingerprint = _fingerprint(cast, tts, chapter)
             hit = chapter_up_to_date(chapter, json_path, mp3_path, fingerprint)
             if hit is not None:
                 timed[index] = hit
@@ -642,10 +684,6 @@ def run_build(
         raise BuildError(
             f"{len(failed)} chapter(s) failed, no bundle written: {details}"
         )
-
-    stale_render = remove_stale_chapter_files(render_audio, len(chapters), ".mp3")
-    stale_render += remove_stale_chapter_files(render_text, len(chapters), ".json")
-
     ordered_timed = [timed[i] for i in range(1, len(chapters) + 1)]
     ordered_audio = [audio_paths[i] for i in range(1, len(chapters) + 1)]
     bundle_dir = Path(out_dir) if out_dir is not None else Path("bundles") / script.book_id
