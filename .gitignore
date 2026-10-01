@@ -1,5 +1,7 @@
 .opencode
 logs/
+scratch/
+scratch/
 
 # Android generated: never commit (WP1)
 .gradle/
