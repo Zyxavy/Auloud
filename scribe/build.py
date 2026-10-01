@@ -34,10 +34,11 @@ Resume: each chapter's encoded MP3 plus its timed chapter JSON live under
 finds a valid MP3 plus matching timings already on disk: same sentence
 ``(sid, speaker, text, spans)`` sequence as the script, same chapter title
 and block structure (break blocks carry pauses but no sentences), same
-cast voices/speeds, pitch and engine version, and the same
-:data:`ASSEMBLY_VERSION` (bumped whenever pause/loudness/encode constants
-or buffer construction change), plus an MP3 whose ffprobe duration agrees
-within 50 ms and whose frames are intact CBR. Skipped chapters are never
+cast voices/speeds, pitch and engine version, and the same assembly
+fingerprint (:func:`_assembly_fingerprint` — pause/loudness/encode
+constant values read live from their modules plus manual
+:data:`BUFFER_VERSION` for construction-code changes), plus an MP3 whose
+ffprobe duration agrees within 50 ms and whose frames are intact CBR. Skipped chapters are never
 re-synthesized, re-assembled, or re-encoded — finished files are untouched,
 and sentence-audio cache hits make even re-rendered chapters cheap.
 Render files are only written after a successful encode, so a kill
@@ -100,6 +101,8 @@ from rich.progress import (
 
 from audio.assemble import AssembledChapter, apply_loudness_gain, assemble_chapter
 from audio.encode import encode_assembled_chapter
+import audio.assemble as assemble_mod
+import audio.encode as encode_mod
 from bundle.models import Block, ChapterFile, Sentence
 from bundle.validate import AudioProbeError, DURATION_TOLERANCE_MS, probe_audio_ffprobe
 from bundle.writer import VOICE_PITCH, write_bundle
@@ -129,15 +132,45 @@ RENDER_FINGERPRINT_KEY = "render"
 #: ``chNNN`` file stems, with numeric index (any width, e.g. ch001/ch1000).
 _CHAPTER_STEM_RE = re.compile(r"^ch(\d+)$")
 
-#: Version of the chapter assembly pipeline baked into the render
-#: fingerprint. Bump this integer whenever anything that can change a
-#: rendered chapter changes: the pause lengths (PAUSE_*_MS in
-#: audio.assemble), the loudness target (PEAK_TARGET_DBFS), the encode
-#: settings (BITRATE_KBPS / codec flags in audio.encode), or the
-#: buffer/timing construction itself (assemble_chapter, _with_timings
-#: here). A bump re-renders every chapter once; forgetting a bump silently
-#: reuses stale audio, so bump first and ask questions later.
-ASSEMBLY_VERSION = 1
+#: Manual version for chapter-buffer/timing construction baked into the
+#: render fingerprint. Bump this integer ONLY when you change how the PCM
+#: buffer or sentence timings are built in a way no fingerprinted constant
+#: captures — e.g. the concatenation/silence-skipping order in
+#: ``audio.assemble.assemble_chapter``, the timing math
+#: (``ms_for_samples``/``samples_for_ms`` usage), the loudness-gain
+#: application order in ``run_build``, or ``_with_timings`` here.
+#: Do NOT bump for pause lengths, loudness target, or encode settings
+#: (those are fingerprinted automatically from their constants — see
+#: :func:`_assembly_fingerprint`), nor for cast/engine/script edits (those
+#: are separate fingerprint fields). A bump re-renders every chapter once.
+BUFFER_VERSION = 1
+
+
+def _assembly_fingerprint() -> dict[str, Any]:
+    """Assembly fingerprint from the ACTUAL constant values (no hand bump).
+
+    Reads pause lengths (``PAUSE_*_MS``), the loudness target
+    (``PEAK_TARGET_DBFS``/``PEAK_TARGET``) via ``audio.assemble``, and the
+    encode settings (``AUDIO_CODEC``/``BITRATE_KBPS``) via ``audio.encode``
+    — imported live from those modules (never duplicated here), so any
+    constant edit invalidates renders automatically. ``BUFFER_VERSION``
+    covers only construction-code changes constants cannot capture.
+    """
+    return {
+        "pauses_ms": {
+            "sentence": assemble_mod.PAUSE_SENTENCE_MS,
+            "para": assemble_mod.PAUSE_PARA_MS,
+            "heading": assemble_mod.PAUSE_HEADING_MS,
+            "break": assemble_mod.PAUSE_BREAK_MS,
+        },
+        "peak_target_dbfs": assemble_mod.PEAK_TARGET_DBFS,
+        "peak_target": assemble_mod.PEAK_TARGET,
+        "encode": {
+            "codec": encode_mod.AUDIO_CODEC,
+            "bitrate_kbps": encode_mod.BITRATE_KBPS,
+        },
+        "buffer": BUFFER_VERSION,
+    }
 
 
 class BuildError(ValueError):
@@ -276,9 +309,10 @@ def _fingerprint(
     """Render fingerprint for one chapter: everything (besides sentence
     text) that can change its audio or its shipped JSON. A cast edit
     re-renders; a chapter-title or block-structure edit (breaks carry
-    pauses but no sentences) re-renders that chapter; an
-    :data:`ASSEMBLY_VERSION` bump re-renders everything. Unchanged chapters
-    skip."""
+    pauses but no sentences) re-renders that chapter; any pause/loudness/
+    encode constant edit or :data:`BUFFER_VERSION` bump (see
+    :func:`_assembly_fingerprint`) re-renders everything. Unchanged
+    chapters skip."""
     voices = {
         speaker: {"voice": entry.get("voice"), "speed": entry.get("speed")}
         for speaker, entry in cast.items()
@@ -292,7 +326,7 @@ def _fingerprint(
         "cast": voices,
         "pitch": VOICE_PITCH,
         "engine_version": engine.engine_version,
-        "assembly": ASSEMBLY_VERSION,
+        "assembly": _assembly_fingerprint(),
         "title": chapter.title,
         "blocks": blocks,
     }
@@ -347,9 +381,11 @@ def chapter_up_to_date(
         return None
     if probe.duration_ms is None:
         return None
-    if not probe.cbr_frames:
+    if not getattr(probe, "cbr_frames", None):
         # Truncated/torn MP3s keep the header duration but break frame
         # uniformity (the bundle validator rejects them for the same reason).
+        # A missing/None attribute (e.g. an older probe object without the
+        # gate) also means "not known-CBR" -> re-render, never abort.
         return None
     if abs(probe.duration_ms - chapter.duration_ms) > DURATION_TOLERANCE_MS:
         return None

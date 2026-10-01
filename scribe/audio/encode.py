@@ -52,6 +52,8 @@ from audio.assemble import AssembledChapter, ms_for_samples
 from bundle.validate import AudioProbeError, probe_audio_ffprobe
 from tts.base import SAMPLE_RATE
 
+#: MP3 encoder codec (spec: CBR via libmp3lame).
+AUDIO_CODEC = "libmp3lame"
 #: MP3 bitrate (spec: 64 kbps CBR).
 BITRATE_KBPS = 64
 #: Post-encode tolerance (spec section 6 rule 4; mirrors the validator).
@@ -142,7 +144,7 @@ def encode_chapter_pcm(
         "-i",
         "pipe:0",
         "-codec:a",
-        "libmp3lame",
+        AUDIO_CODEC,
         "-b:a",
         f"{BITRATE_KBPS}k",
         str(out),

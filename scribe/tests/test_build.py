@@ -496,7 +496,7 @@ def test_compare_bundles_ignores_created_at_only(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# (f) resume fingerprint: title-only edits and ASSEMBLY_VERSION bumps re-render
+# (f) resume fingerprint: title edits, pause-constant edits, BUFFER_VERSION
 # ---------------------------------------------------------------------------
 
 
@@ -545,14 +545,15 @@ def test_title_only_edit_rerenders_that_chapter(tmp_path: Path) -> None:
     assert validate_bundle(out).ok
 
 
-def test_assembly_version_bump_rerenders_all(
+def test_buffer_version_bump_rerenders_all(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Bumping ASSEMBLY_VERSION re-renders every chapter once.
+    """Bumping BUFFER_VERSION re-renders every chapter once.
 
-    The constant covers pause/loudness/encode settings and buffer
-    construction: forgetting a bump would silently reuse stale audio, so
-    the fingerprint bakes it in and any bump invalidates all renders.
+    The manual version covers only buffer/timing-construction changes that
+    constants cannot capture; pause/loudness/encode edits are fingerprinted
+    automatically (see the pause-constant test below). Any bump invalidates
+    all renders.
     """
     _needs_ffmpeg()
     import build as build_module
@@ -580,7 +581,7 @@ def test_assembly_version_bump_rerenders_all(
     assert (steady.rendered, steady.skipped) == (0, 2)
 
     monkeypatch.setattr(
-        build_module, "ASSEMBLY_VERSION", build_module.ASSEMBLY_VERSION + 1
+        build_module, "BUFFER_VERSION", build_module.BUFFER_VERSION + 1
     )
     bumped = run_build(
         epub_path,
@@ -590,6 +591,53 @@ def test_assembly_version_bump_rerenders_all(
         show_progress=False,
     )
     assert (bumped.rendered, bumped.skipped) == (2, 0)
+    assert validate_bundle(out).ok
+
+
+def test_pause_constant_change_rerenders_all(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Changing a pause constant value re-renders every chapter once.
+
+    The fingerprint reads the ACTUAL ``audio.assemble`` pause values (no
+    hand-bumped int), so editing a pause length invalidates renders
+    automatically — forgetting a bump cannot silently reuse stale audio.
+    """
+    _needs_ffmpeg()
+    import audio.assemble as assemble_module
+
+    epub_path = _make_epub(tmp_path / "book.epub", ["Chapter One", "Chapter Two"])
+    work_root = tmp_path / "work"
+    out = tmp_path / "out"
+    first = run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    assert (first.rendered, first.skipped) == (2, 0)
+
+    steady = run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    assert (steady.rendered, steady.skipped) == (0, 2)
+
+    monkeypatch.setattr(
+        assemble_module, "PAUSE_SENTENCE_MS", assemble_module.PAUSE_SENTENCE_MS + 50
+    )
+    changed = run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    assert (changed.rendered, changed.skipped) == (2, 0)
     assert validate_bundle(out).ok
 
 
@@ -736,3 +784,72 @@ def test_half_written_bundle_from_aborted_run_repairs(tmp_path: Path) -> None:
         show_progress=False,
     )
     assert compare_bundles(out_ref, out_kill) == []
+
+
+# ---------------------------------------------------------------------------
+# (h) guarded CBR gate: probe without cbr_frames re-renders, never aborts
+# ---------------------------------------------------------------------------
+
+
+def test_missing_cbr_attribute_rerenders(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A probe object lacking ``cbr_frames`` must re-render, not raise.
+
+    The gate lives outside the per-chapter try in ``run_build``, so an
+    unguarded ``probe.cbr_frames`` access would abort the whole build with
+    ``AttributeError``. Missing/None counts as "not known-CBR" -> ``None``.
+    """
+    import types
+
+    import build as build_module
+    from bundle.models import Block, ChapterFile, Sentence
+
+    sentence = Sentence(
+        sid=1, speaker="narrator", start_ms=0, end_ms=100,
+        text="Hello world.", spans=[],
+    )
+    block = Block(id=1, type="para", level=None, text=None, sentences=[sentence])
+    script_chapter = ChapterFile(
+        spec_version="1.0", chapter=1, title="Chapter One",
+        duration_ms=600, blocks=[block],
+    )
+    cast = {"narrator": {"voice": "v", "speed": 1.0}}
+    engine = FakeEngine()
+    fingerprint = build_module._fingerprint(cast, engine, script_chapter)
+
+    json_path = tmp_path / "ch001.json"
+    mp3_path = tmp_path / "ch001.mp3"
+    payload = dict(script_chapter.to_dict())
+    payload[build_module.RENDER_FINGERPRINT_KEY] = fingerprint
+    json_path.write_text(json.dumps(payload, sort_keys=True) + "\n", encoding="utf-8")
+    mp3_path.write_bytes(b"\xff\xfb" * 100)
+
+    # No cbr_frames attribute at all -> re-render, not AttributeError.
+    bare = types.SimpleNamespace(duration_ms=600)
+    assert not hasattr(bare, "cbr_frames")
+    monkeypatch.setattr(build_module, "probe_audio_ffprobe", lambda _p: bare)
+    assert (
+        build_module.chapter_up_to_date(
+            script_chapter, json_path, mp3_path, fingerprint
+        )
+        is None
+    )
+
+    # Explicit None -> also re-render.
+    none_cbr = types.SimpleNamespace(duration_ms=600, cbr_frames=None)
+    monkeypatch.setattr(build_module, "probe_audio_ffprobe", lambda _p: none_cbr)
+    assert (
+        build_module.chapter_up_to_date(
+            script_chapter, json_path, mp3_path, fingerprint
+        )
+        is None
+    )
+
+    # Sanity: intact CBR probe still hits.
+    good = types.SimpleNamespace(duration_ms=600, cbr_frames=True)
+    monkeypatch.setattr(build_module, "probe_audio_ffprobe", lambda _p: good)
+    hit = build_module.chapter_up_to_date(
+        script_chapter, json_path, mp3_path, fingerprint
+    )
+    assert hit is not None and hit.title == "Chapter One"
