@@ -22,12 +22,18 @@ Pipeline for one paragraph (:func:`split_paragraph`):
 2. Post-fix merges glue back pieces pysbd over-split:
 
    - title abbreviations (``Mr.``/``Mrs.``/``Ms.``/``Dr.``/``St.``/``Sr.``/
-     ``Jr.``/``Prof.``/``Rev.``) and single-capital initials (``J. K.``),
-   - ellipses (``...`` and ``…``) — an ellipsis never ends a sentence here.
-   - ``No.`` is deliberately *not* in the abbreviation set: when pysbd
-     splits after it (``The answer was No. He left.``) it is the
-     sentence-final word "no", not the number abbreviation (which pysbd
-     already keeps together, as in ``No. 12``).
+     ``Jr.``/``Prof.``/``Rev.``/``Vs.``) and Latin ``e.g.``/``i.e.`` (which
+     by meaning never end a sentence), plus single-capital initials
+     (``J. K.``). The anchor also matches after opening quotes/parens, so
+     quote-first dialogue (``"Mr.`` / ``“J.``) merges too.
+   - ellipses (``...`` and ``…``) — a bare ellipsis never ends a sentence
+     here. An ellipsis plus closing quote(s) (``..."``) merges only when the
+     next piece visibly continues (lowercase start, e.g. ``"Wait..." she
+     whispered``); a closed quote followed by a new capitalised sentence
+     (``He said "Wait..." Then he left.``) stays split.
+   - Deliberately excluded: ``No.`` (sentence-final "no" is a real ending;
+     the number form ``No. 12`` pysbd already keeps together) and ``etc.``
+     (routinely ends sentences: ``apples, pears, etc. She left.``).
    - Known limitation: ``St.`` (Saint vs Street) and single letters that
      genuinely end a sentence (a grade ``A.``) still merge; rare in books
      and harmless for TTS continuity.
@@ -36,9 +42,11 @@ Pipeline for one paragraph (:func:`split_paragraph`):
    dialogue splitting proper is Slice 4). A quoted region holding more than
    three sentences is split inside so TTS chunks stay small; any other
    quoted region is never split and stays attached to the surrounding
-   narration. Unbalanced quotes are logged and the paragraph is split as
-   plain narration (multi-paragraph dialogue looks unbalanced per
-   paragraph, which is normal, not an error).
+   narration. Unbalanced quotes: unpaired strays (a lone inch-mark, one
+   half of multi-paragraph dialogue) are ignored while intact pairs are
+   still honored; a paragraph with no intact pair at all splits as plain
+   narration. Either way this is logged, not an error. Same-type nesting
+   collapses to the outer region.
 4. Headings are not split at all: one sentence each, read aloud as-is.
 
 Round-trip preservation: sentence ``text`` keeps its original spacing — the
@@ -84,8 +92,14 @@ NARRATOR = "narrator"  # Default speaker; mirrors extract.clean.NARRATOR for SW3
 
 _SEGMENTER = pysbd.Segmenter(language="en", clean=False)
 
-_ABBREV_RE = re.compile(r"(?:^|\s)(?:Mr|Mrs|Ms|Dr|St|Sr|Jr|Prof|Rev)\.$")
-_INITIAL_RE = re.compile(r"(?:^|\s)[A-Z]\.$")
+_ABBREV_RE = re.compile(
+    r"(?:^|[\s\"'(\[{‘“])(?:Mr|Mrs|Ms|Dr|St|Sr|Jr|Prof|Rev|[Vv]s|e\.g\.|i\.e\.)\.$",
+    re.IGNORECASE,
+)
+_INITIAL_RE = re.compile(r"(?:^|[\s\"'(\[{‘“])[A-Z]\.$")
+
+# Closing quotes stripped before the ellipsis check (``..."`` / ``…”``).
+_QUOTE_TAIL = "\"'“”‘’"
 
 _MAX_QUOTE_SENTENCES = 3  # A quotation with more sentences than this is split inside.
 
@@ -95,6 +109,21 @@ def _needs_merge(piece: str) -> bool:
     if piece.endswith("...") or piece.endswith("…"):
         return True
     return _ABBREV_RE.search(piece) is not None or _INITIAL_RE.search(piece) is not None
+
+
+def _continues_ellipsis_quote(prev: str, next_piece: str) -> bool:
+    """True when ``prev`` ends with ellipsis plus closing quote(s) and the
+    next piece visibly continues the same breath (lowercase start, e.g. a
+    dialogue tag in ``"Wait..." she whispered``).
+
+    A closed quote followed by a capitalised sentence (``He said "Wait..."
+    Then he left.``) stays split: the quoted unit ended.
+    """
+    core = prev.rstrip(_QUOTE_TAIL)
+    if core == prev or not (core.endswith("...") or core.endswith("…")):
+        return False
+    stripped = next_piece.strip()
+    return bool(stripped) and "a" <= stripped[0] <= "z"
 
 
 def _locate_contents(text: str, raws: Sequence[str]) -> list[tuple[int, int]] | None:
@@ -126,7 +155,9 @@ def _merge_contents(text: str, spans: list[tuple[int, int]]) -> list[tuple[int, 
     """Drop boundaries after abbreviation/initial/ellipsis pieces (chains re-check)."""
     merged: list[list[int]] = [[spans[0][0], spans[0][1]]]
     for start, end in spans[1:]:
-        if _needs_merge(text[merged[-1][0] : merged[-1][1]].strip()):
+        prev_text = text[merged[-1][0] : merged[-1][1]].strip()
+        next_text = text[start:end].strip()
+        if _needs_merge(prev_text) or _continues_ellipsis_quote(prev_text, next_text):
             merged[-1][1] = end
         else:
             merged.append([start, end])
@@ -147,7 +178,8 @@ def _quote_regions(text: str) -> tuple[list[tuple[int, int]], bool]:
     Straight quotes pair sequentially; curly quotes pair each opener with
     the next closer (same-type nesting collapses to the outer region).
     The flag is False when quotes are left over (odd straights, unmatched
-    curlies) — the caller still splits the paragraph as plain narration.
+    curlies) — intact regions are still returned and honored; only the
+    strays are ignored.
     """
     regions: list[tuple[int, int]] = []
     balanced = True
@@ -220,7 +252,7 @@ def split_paragraph(
         boundaries.add(start)
     regions, balanced = _quote_regions(text)
     if not balanced:
-        logger.info("unbalanced quotes; splitting as narration: %r", text[:60])
+        logger.info("unbalanced quotes; intact pairs still honored: %r", text[:60])
     for open_i, close_i in regions:
         inner = _plain_spans(text[open_i + 1 : close_i - 1])
         if inner is None or len(inner) <= _MAX_QUOTE_SENTENCES:

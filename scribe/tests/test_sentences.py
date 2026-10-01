@@ -267,3 +267,119 @@ def test_span_across_long_quote_split() -> None:
         offset += len(sent.text)
     assert out[4].spans == []
     assert "".join(_texts(out)) == text
+
+
+# ---------------------------------------------------------------------------
+# Quote-first abbreviations and initials (anchor after opening punctuation)
+# ---------------------------------------------------------------------------
+
+
+def test_quoted_abbrev_not_split() -> None:
+    out = split_paragraph('"Dr. Smith is here." He smiled.')
+    assert _texts(out) == ['"Dr. Smith is here." ', "He smiled."]
+
+
+def test_quoted_initial_not_split() -> None:
+    out = split_paragraph('"A. B. Smith came." She smiled.')
+    assert len(out) == 2
+    assert '"A. B. Smith' in out[0].text
+
+
+def test_curly_quoted_abbrev_and_initial() -> None:
+    out = split_paragraph("“Mr. Smith went home.” He slept.")
+    assert _texts(out) == ["“Mr. Smith went home.” ", "He slept."]
+    out = split_paragraph("“J. K. Rowling arrived.” She smiled.")
+    assert len(out) == 2
+    assert "J. K. Rowling" in out[0].text
+
+
+# ---------------------------------------------------------------------------
+# Ellipsis plus closing quote
+# ---------------------------------------------------------------------------
+
+
+def test_ellipsis_quote_continuation_merges() -> None:
+    text = '"Wait..." she whispered... and left.'
+    assert _texts(split_paragraph(text)) == [text]
+
+
+def test_ellipsis_quote_closed_stays_split() -> None:
+    out = split_paragraph('He said "Wait..." Then he left.')
+    assert _texts(out) == ['He said "Wait..." ', "Then he left."]
+
+
+def test_curly_ellipsis_quote_continuation() -> None:
+    out = split_paragraph("“Wait…” she sighed. He left.")
+    assert _texts(out) == ["“Wait…” she sighed. ", "He left."]
+
+
+# ---------------------------------------------------------------------------
+# No. / vs. / e.g. / i.e. / etc.
+# ---------------------------------------------------------------------------
+
+
+def test_sentence_final_no_stays_split() -> None:
+    out = split_paragraph("The answer was No. He left anyway.")
+    assert _texts(out) == ["The answer was No. ", "He left anyway."]
+
+
+def test_inner_no_number_stays_merged() -> None:
+    out = split_paragraph("He paid No. 12. She watched.")
+    assert len(out) == 2
+    assert "No. 12." in out[0].text
+
+
+def test_vs_not_split() -> None:
+    out = split_paragraph("It was Ali vs. Liston. He won.")
+    assert len(out) == 2
+    assert "vs. Liston." in out[0].text
+
+
+def test_eg_ie_not_split() -> None:
+    out = split_paragraph("He likes fruit, e.g. apples. She left.")
+    assert len(out) == 2
+    assert "e.g. apples." in out[0].text
+    out = split_paragraph("He left, i.e. he fled. She stayed.")
+    assert len(out) == 2
+    assert "i.e. he fled." in out[0].text
+
+
+def test_etc_can_end_sentence() -> None:
+    out = split_paragraph("He bought apples, pears, etc. She watched.")
+    assert _texts(out) == ["He bought apples, pears, etc. ", "She watched."]
+
+
+# ---------------------------------------------------------------------------
+# Partially-unbalanced quotes and curly/nested/single quotes
+# ---------------------------------------------------------------------------
+
+
+def test_partially_unbalanced_keeps_intact_pair() -> None:
+    text = '"Hi. Bye." She waved. He bought a 5" nail. It hurt.'
+    out = split_paragraph(text)
+    assert _texts(out) == ['"Hi. Bye." ', "She waved. ", 'He bought a 5" nail. ', "It hurt."]
+    assert "".join(_texts(out)) == text
+
+
+def test_curly_quote_short_attached() -> None:
+    out = split_paragraph("“I am tired. Let us rest.” Then they slept.")
+    assert _texts(out) == ["“I am tired. Let us rest.” ", "Then they slept."]
+
+
+def test_curly_quote_long_splits() -> None:
+    text = "“One. Two. Three. Four.” They left."
+    out = split_paragraph(text)
+    assert _texts(out) == ["“One. ", "Two. ", "Three. ", "Four.” ", "They left."]
+    assert "".join(_texts(out)) == text
+
+
+def test_nested_curly_collapses_to_outer() -> None:
+    text = "“She shouted “stop. Wait.” loudly. He ran.”"
+    assert _texts(split_paragraph(text)) == [text]
+
+
+def test_single_quotes_ignored() -> None:
+    # Unlike a 4-sentence double-quoted region (which splits), singles never
+    # form regions: the whole quoted chunk stays attached.
+    out = split_paragraph("'One. Two. Three. Four.' He left.")
+    assert _texts(out) == ["'One. Two. Three. Four.' ", "He left."]
