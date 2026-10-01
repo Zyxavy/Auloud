@@ -1,0 +1,130 @@
+# Auloud Scribe — turns ebooks into multi-voice audiobooks (PC tool).
+# Copyright (C) 2026 Zyxavy
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+"""SW1 smoke tests: CLI wiring and `doctor` check helpers.
+
+Environment-dependent rows (ffmpeg, GPU, ...) are covered through mocks;
+only the Python-version check asserts against the real interpreter, which
+`requires-python >= 3.11` guarantees.
+"""
+
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+import cli
+from typer.testing import CliRunner
+
+
+def test_version_command_prints_version() -> None:
+    result = CliRunner().invoke(cli.app, ["version"])
+    assert result.exit_code == 0
+    assert cli.__version__ in result.output
+
+
+def test_doctor_runs_and_prints_table(tmp_path: Path) -> None:
+    # Exit code depends on the machine (missing engine/models -> 1), so the
+    # smoke test asserts the table shape, not the code.
+    result = CliRunner().invoke(cli.app, ["doctor", "--models-dir", str(tmp_path)])
+    assert result.exit_code in (0, 1)
+    assert "CHECK" in result.output and "STATUS" in result.output
+    for row in ("python", "ffmpeg", "ffprobe", "espeak-ng", "tts-engine", "models", "gpu"):
+        assert row in result.output
+
+
+def test_python_check_passes_on_supported_interpreter() -> None:
+    result = cli.check_python()
+    assert result.status == cli.PASS
+
+
+def test_python_check_fails_below_minimum() -> None:
+    result = cli.check_python(min_version=(99, 0))
+    assert result.status == cli.FAIL
+    assert result.hint
+
+
+def test_missing_tool_reports_fail_with_install_help(
+    monkeypatch: object,
+) -> None:
+    # `monkeypatch` is typed loosely to avoid importing pytest here.
+    mp = monkeypatch  # type: ignore[union-attr]
+    mp.setattr(cli.shutil, "which", lambda _name: None)
+    result = cli.check_tool("ffmpeg", ["-version"], cli.FFMPEG_HELP)
+    assert result.status == cli.FAIL
+    assert "winget install ffmpeg" in result.hint
+
+
+def test_tool_that_does_not_respond_is_fail(monkeypatch: object) -> None:
+    mp = monkeypatch  # type: ignore[union-attr]
+    mp.setattr(cli.shutil, "which", lambda _name: r"C:\fake\ffmpeg.exe")
+
+    def _boom(*args: object, **kwargs: object) -> object:
+        raise FileNotFoundError("gone")
+
+    mp.setattr(cli.subprocess, "run", _boom)
+    result = cli.check_tool("ffmpeg", ["-version"], cli.FFMPEG_HELP)
+    assert result.status == cli.FAIL
+
+
+def test_engine_missing_is_graceful_not_an_exception(monkeypatch: object) -> None:
+    mp = monkeypatch  # type: ignore[union-attr]
+    mp.setattr(cli.importlib.util, "find_spec", lambda _name: None)
+    result = cli.check_engine()
+    assert result.status == cli.FAIL
+    assert "kokoro-onnx" in result.detail
+    assert result.hint  # exact install help, no traceback
+
+
+def test_models_missing_names_each_file(tmp_path: Path) -> None:
+    result = cli.check_models(tmp_path)
+    assert result.status == cli.FAIL
+    for name in cli.MODEL_FILES:
+        assert name in result.detail
+
+
+def test_models_present_when_both_files_exist(tmp_path: Path) -> None:
+    for name in cli.MODEL_FILES:
+        (tmp_path / name).write_bytes(b"fake")
+    result = cli.check_models(tmp_path)
+    assert result.status == cli.PASS
+
+
+def test_espeak_ng_found_on_path(monkeypatch: object) -> None:
+    mp = monkeypatch  # type: ignore[union-attr]
+    mp.setattr(cli.shutil, "which", lambda _name: r"C:\tools\espeak-ng.exe")
+    fake = subprocess.CompletedProcess(
+        args=["espeak-ng", "--version"], returncode=0, stdout="eSpeak NG 1.52.0\n", stderr=""
+    )
+    mp.setattr(cli.subprocess, "run", lambda *args, **kwargs: fake)
+    result = cli.check_espeak_ng(msi_path=Path(r"C:\nonexistent\espeak-ng.exe"))
+    assert result.status == cli.PASS
+    assert "1.52.0" in result.detail
+
+
+def test_espeak_ng_missing_reports_install_help(monkeypatch: object, tmp_path: Path) -> None:
+    mp = monkeypatch  # type: ignore[union-attr]
+    mp.setattr(cli.shutil, "which", lambda _name: None)
+    result = cli.check_espeak_ng(msi_path=tmp_path / "espeak-ng.exe")
+    assert result.status == cli.FAIL
+    assert "espeak-ng" in result.hint
+
+
+def test_gpu_absent_is_info_not_fail(monkeypatch: object) -> None:
+    mp = monkeypatch  # type: ignore[union-attr]
+    mp.setattr(cli.shutil, "which", lambda _name: None)
+    result = cli.check_gpu()
+    assert result.status == cli.INFO
