@@ -73,6 +73,11 @@ class DraftError(ValueError):
     """``scribe draft`` cannot proceed (missing file, empty book, ...)."""
 
 
+def _reason(exc: OSError) -> str:
+    """Human-readable cause for an :class:`OSError` (prefers strerror)."""
+    return str(exc.strerror or exc)
+
+
 def sha256_of_file(path: Path | str) -> str:
     """Lowercase hex sha256 of a file's bytes (streamed, EPUBs can be big)."""
     digest = hashlib.sha256()
@@ -263,38 +268,36 @@ def run_draft(
 ) -> DraftResult:
     """Parse, split, and write ``<work_root>/<book-id>/``; return the result.
 
-    Raises :class:`DraftError` when the source is missing or yields no
-    chapters. Writing is deterministic: same input bytes produce
+    Every foreseeable failure (missing/unreadable source, unparsable EPUB,
+    uncreatable/unwritable work folder) raises :class:`DraftError` with a
+    file+reason message, so the thin CLI renders it cleanly without a
+    traceback. Writing is deterministic: same input bytes produce
     byte-identical ``script.json``, ``cast.yaml`` and ``draft_report.md``.
     """
     source = Path(epub_path)
     if not source.is_file():
         raise DraftError(f"EPUB not found: {source}")
 
-    book_id, sha = book_id_for_file(source)
+    try:
+        book_id, sha = book_id_for_file(source)
+    except OSError as exc:
+        raise DraftError(f"{source}: cannot read source file: {_reason(exc)}") from exc
     title, author = read_book_metadata(source)
 
-    extracted = extract_epub_chapters(source)
-    chapters = [split_chapter(c) for c in extracted.chapters]
+    try:
+        extracted = extract_epub_chapters(source)
+        chapters = [split_chapter(c) for c in extracted.chapters]
+    except DraftError:
+        raise
+    except Exception as exc:
+        raise DraftError(f"{source.name}: cannot parse EPUB: {exc}") from exc
     if not chapters:
         raise DraftError(f"{source.name}: no chapters survived extraction")
 
     work_dir = Path(work_root) / book_id
-    work_dir.mkdir(parents=True, exist_ok=True)
     script_path = work_dir / SCRIPT_FILENAME
     cast_path = work_dir / CAST_FILENAME
     report_path = work_dir / REPORT_FILENAME
-
-    _write_script(
-        script_path,
-        book_id=book_id,
-        title=title,
-        author=author,
-        source_file=source.name,
-        source_sha256=sha,
-        chapters=chapters,
-    )
-    write_cast(cast_path)
 
     per_chapter: list[tuple[int, str, int, int, float]] = []
     total_sentences = total_words = total_chars = 0
@@ -323,5 +326,22 @@ def run_draft(
         total_chars=total_chars,
         estimated_seconds=estimated,
     )
-    _write_report(report_path, result=result, source_name=source.name, per_chapter=per_chapter)
+    try:
+        work_dir.mkdir(parents=True, exist_ok=True)
+        _write_script(
+            script_path,
+            book_id=book_id,
+            title=title,
+            author=author,
+            source_file=source.name,
+            source_sha256=sha,
+            chapters=chapters,
+        )
+        write_cast(cast_path)
+        _write_report(
+            report_path, result=result, source_name=source.name, per_chapter=per_chapter
+        )
+    except OSError as exc:
+        where = str(exc.filename or work_dir)
+        raise DraftError(f"{where}: cannot write work folder: {_reason(exc)}") from exc
     return result

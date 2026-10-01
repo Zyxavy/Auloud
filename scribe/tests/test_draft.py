@@ -25,8 +25,10 @@ from __future__ import annotations
 
 import json
 import uuid
+import zipfile
 from pathlib import Path
 
+import pytest
 import yaml
 from ebooklib import epub
 from typer.testing import CliRunner
@@ -194,3 +196,61 @@ def test_cli_draft_defaults_to_cwd_scribe(tmp_path: Path, monkeypatch: object) -
     assert invoked.exit_code == 0, invoked.output
     assert (tmp_path / ".scribe").is_dir()
     assert len(list((tmp_path / ".scribe").iterdir())) == 1
+
+
+def test_malformed_epub_truncated_zip_raises(tmp_path: Path) -> None:
+    valid = _make_draft_epub(tmp_path / "mini.epub")
+    broken = tmp_path / "broken.epub"
+    broken.write_bytes(valid.read_bytes()[:120])
+    with pytest.raises(DraftError, match="cannot parse EPUB") as excinfo:
+        run_draft(broken, work_root=tmp_path / ".scribe")
+    assert "broken.epub" in str(excinfo.value)
+
+
+def test_malformed_epub_bad_xml_raises(tmp_path: Path) -> None:
+    valid = _make_draft_epub(tmp_path / "mini.epub")
+    with zipfile.ZipFile(valid, "r") as zin:
+        blobs = {name: zin.read(name) for name in zin.namelist()}
+    blobs["EPUB/content.opf"] = b"<broken><unclosed>"
+    bad = tmp_path / "badxml.epub"
+    with zipfile.ZipFile(bad, mode="w", compression=zipfile.ZIP_DEFLATED) as zout:
+        for name, data in blobs.items():
+            zout.writestr(name, data)
+    with pytest.raises(DraftError, match="cannot parse EPUB") as excinfo:
+        run_draft(bad, work_root=tmp_path / ".scribe")
+    assert "badxml.epub" in str(excinfo.value)
+
+
+def test_unreadable_source_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    epub_path = _make_draft_epub(tmp_path / "mini.epub")
+
+    def _boom(path: object) -> str:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr("draft.sha256_of_file", _boom)
+    with pytest.raises(DraftError, match="cannot read source file") as excinfo:
+        run_draft(epub_path, work_root=tmp_path / ".scribe")
+    assert "mini.epub" in str(excinfo.value)
+
+
+def test_unwritable_work_dir_raises(tmp_path: Path) -> None:
+    epub_path = _make_draft_epub(tmp_path / "mini.epub")
+    blocker = tmp_path / "blocker"
+    blocker.write_text("i am a file, not a directory", encoding="utf-8")
+    with pytest.raises(DraftError, match="cannot write work folder") as excinfo:
+        run_draft(epub_path, work_root=blocker)
+    assert "blocker" in str(excinfo.value)
+
+
+def test_cli_draft_malformed_epub_clean_failure(tmp_path: Path) -> None:
+    broken = tmp_path / "broken.epub"
+    broken.write_bytes(b"not an EPUB, just text")
+    invoked = CliRunner().invoke(
+        cli.app, ["draft", str(broken), "--work-dir", str(tmp_path / "work")]
+    )
+    assert invoked.exit_code == 1, invoked.output
+    combined = (invoked.output or "") + (getattr(invoked, "stderr", "") or "")
+    assert "draft failed" in combined.lower()
+    assert "cannot parse EPUB" in combined
+    assert "Traceback" not in combined
+    assert isinstance(invoked.exception, SystemExit)
