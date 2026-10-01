@@ -23,8 +23,10 @@ breaks, and ``em``/``i`` plus ``strong``/``b`` to :class:`Span` ranges
 (character offsets into the cleaned text).
 
 Footnote markers (``sup`` elements and short footnote links) are stripped
-here (each removal is logged); empty paragraphs, boilerplate, nav/TOC and
-image-only pages are dropped later in :mod:`clean` (which logs each drop).
+here and reported as notices, so :mod:`clean` can record each strip in
+``ExtractionResult.drops`` (which SW5's draft report reads). Empty
+paragraphs, boilerplate, nav/TOC and image-only pages are dropped later
+in :mod:`clean` (which logs each drop).
 
 No network access at runtime; all parsing is local.
 """
@@ -117,8 +119,12 @@ def _is_break_text(text: str) -> bool:
     return any(mark in stripped for mark in _DIVIDER_MUST_CONTAIN)
 
 
-def _strip_footnotes(body: Tag, source: str) -> int:
-    """Remove footnote markers (sup + short footnote links); return count."""
+def _strip_footnotes(body: Tag) -> int:
+    """Remove footnote markers (sup + short footnote links); return count.
+
+    The caller turns the count into a drop notice so every strip lands in
+    ``ExtractionResult.drops`` instead of only the log.
+    """
     removed = 0
     for sup in body.find_all("sup"):
         sup.decompose()
@@ -131,8 +137,6 @@ def _strip_footnotes(body: Tag, source: str) -> int:
         ):
             link.decompose()
             removed += 1
-    if removed:
-        logger.info("%s: stripped %d footnote marker(s)", source, removed)
     return removed
 
 
@@ -217,13 +221,17 @@ def _text_and_spans(element: Tag) -> tuple[str, list[Span]]:
     return text, spans
 
 
-def parse_html_blocks(html: bytes | str, source: str = "") -> list[ParsedBlock]:
-    """Parse one spine document's HTML into blocks in document order."""
+def parse_html_blocks(html: bytes | str, source: str = "") -> tuple[list[ParsedBlock], int]:
+    """Parse one spine document's HTML into blocks in document order.
+
+    Returns ``(blocks, footnotes_removed)``; the caller reports the
+    footnote count as a drop notice.
+    """
     soup = _soup(html)
     body = soup.body if soup.body is not None else soup
     for tag in body(["script", "style"]):
         tag.decompose()
-    _strip_footnotes(body, source or "<html>")
+    footnotes_removed = _strip_footnotes(body)
 
     blocks: list[ParsedBlock] = []
     for elem in body.descendants:
@@ -285,11 +293,16 @@ def parse_html_blocks(html: bytes | str, source: str = "") -> list[ParsedBlock]:
                 blocks.append(ParsedBlock(kind="break"))
                 continue
             blocks.append(ParsedBlock(kind="para", text=text, spans=spans))
-    return blocks
+    return blocks, footnotes_removed
 
 
 def _is_nav_item(item: Any, href: str) -> bool:
-    """True for nav/TOC documents (EpubNav, nav type, or nav-ish filename)."""
+    """True for nav/TOC documents (EpubNav, nav type, exact nav filename).
+
+    The filename fallback matches only exact well-known stems (``nav``,
+    ``toc``, ``ncx``): a substring test would wrongly drop real chapters
+    such as ``naval-history.xhtml``.
+    """
     cls_name = type(item).__name__
     if cls_name == "EpubNav":
         return True
@@ -303,7 +316,7 @@ def _is_nav_item(item: Any, href: str) -> bool:
     lowered = href.lower()
     base = lowered.rsplit("/", 1)[-1].split("?", 1)[0]
     stem = base.rsplit(".", 1)[0] if "." in base else base
-    return stem in ("nav", "toc", "ncx") or "nav" in stem or stem.endswith("toc")
+    return stem in ("nav", "toc", "ncx")
 
 
 def toc_title_map(book: Any) -> dict[str, str]:
@@ -343,8 +356,26 @@ def toc_title_map(book: Any) -> dict[str, str]:
     return mapping
 
 
-def read_spine_documents(epub_path: Path) -> list[SpineDocument]:
-    """Read the EPUB spine in order; parse each document's HTML blocks."""
+@dataclass
+class SpineReadResult:
+    """Spine documents in order plus notices for every skipped/strip event.
+
+    ``notices`` carries the non-linear skips, spine-missing skips,
+    unreadable-item skips, parse failures and footnote strips so the caller
+    can record each one in ``ExtractionResult.drops`` (single channel).
+    """
+
+    documents: list[SpineDocument] = field(default_factory=list)
+    notices: list[str] = field(default_factory=list)
+
+
+def read_spine_documents(epub_path: Path) -> SpineReadResult:
+    """Read the EPUB spine in order; parse each document's HTML blocks.
+
+    Non-linear spine items (``linear="no"``, e.g. covers) are skipped with
+    a notice; every skip/strip is returned in ``notices`` for the caller to
+    record.
+    """
     from ebooklib import epub as ebooklib_epub
 
     path = Path(epub_path)
@@ -353,11 +384,16 @@ def read_spine_documents(epub_path: Path) -> list[SpineDocument]:
     book = ebooklib_epub.read_epub(str(path))
     titles = toc_title_map(book)
 
-    documents: list[SpineDocument] = []
+    result = SpineReadResult()
     for idref, linear in list(getattr(book, "spine", [])):
+        if str(linear).strip().lower() != "yes":
+            result.notices.append(
+                f"{path.name}:{idref}: skipped non-linear spine item (linear='{linear}')"
+            )
+            continue
         item = book.get_item_with_id(idref)
         if item is None:
-            logger.info("%s: spine idref '%s' has no item; skipped", path.name, idref)
+            result.notices.append(f"{path.name}: spine idref '{idref}' has no item; skipped")
             continue
         get_content = getattr(item, "get_content", None)
         if get_content is None:
@@ -366,7 +402,7 @@ def read_spine_documents(epub_path: Path) -> list[SpineDocument]:
         try:
             raw = item.get_content()
         except Exception as exc:
-            logger.info("%s: could not read '%s': %s", path.name, href, exc)
+            result.notices.append(f"{path.name}:{href}: could not read item: {exc}")
             continue
         html = raw if isinstance(raw, (bytes, str)) else bytes(raw)
         has_images = (
@@ -376,11 +412,14 @@ def read_spine_documents(epub_path: Path) -> list[SpineDocument]:
         toc_title = titles.get(base)
         source = f"{path.name}:{href}"
         try:
-            blocks = parse_html_blocks(html, source=source)
+            blocks, footnotes_removed = parse_html_blocks(html, source=source)
         except Exception as exc:
-            logger.info("%s: failed to parse '%s': %s", path.name, href, exc)
+            result.notices.append(f"{source}: failed to parse item: {exc}")
             blocks = []
-        documents.append(
+            footnotes_removed = 0
+        if footnotes_removed:
+            result.notices.append(f"{source}: stripped {footnotes_removed} footnote marker(s)")
+        result.documents.append(
             SpineDocument(
                 item_id=str(item.get_id()),
                 href=href,
@@ -391,4 +430,4 @@ def read_spine_documents(epub_path: Path) -> list[SpineDocument]:
                 blocks=blocks,
             )
         )
-    return documents
+    return result

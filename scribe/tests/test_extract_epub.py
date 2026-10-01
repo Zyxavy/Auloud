@@ -92,6 +92,51 @@ def _sentences(chapter: ChapterFile) -> list:
     return [s for b in (chapter.blocks or []) for s in b.sentences]
 
 
+def _make_non_linear_epub(path: Path) -> Path:
+    """EPUB with a non-linear spine item (synthetic text only)."""
+    book = epub.EpubBook()
+    book.set_identifier("test-non-linear")
+    book.set_title("Test Non Linear")
+    book.set_language("en")
+
+    ch1 = epub.EpubHtml(title="Chapter One", file_name="ch1.xhtml", lang="en")
+    ch1.content = f"<h1>Chapter One</h1><p>{_long_para('alder', 25)}</p>"
+    hidden = epub.EpubHtml(title="Hidden Cover", file_name="cover-page.xhtml", lang="en")
+    hidden.content = f"<h1>Hidden Cover Text</h1><p>{_long_para('hidden', 25)}</p>"
+    ch2 = epub.EpubHtml(title="Chapter Two", file_name="ch2.xhtml", lang="en")
+    ch2.content = f"<h1>Chapter Two</h1><p>{_long_para('bracken', 25)}</p>"
+
+    for item in (ch1, hidden, ch2):
+        book.add_item(item)
+    book.toc = [
+        epub.Link("ch1.xhtml", "Chapter One", "ch1"),
+        epub.Link("ch2.xhtml", "Chapter Two", "ch2"),
+    ]
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    book.spine = [ch1, (hidden, "no"), ch2]
+    epub.write_epub(str(path), book)
+    return path
+
+
+def _make_naval_epub(path: Path) -> Path:
+    """EPUB with a real chapter whose filename contains 'nav' (synthetic)."""
+    book = epub.EpubBook()
+    book.set_identifier("test-naval")
+    book.set_title("Test Naval")
+    book.set_language("en")
+
+    naval = epub.EpubHtml(title="Naval History", file_name="naval-history.xhtml", lang="en")
+    naval.content = f"<h1>Naval History</h1><p>{_long_para('harbor', 25)}</p>"
+    book.add_item(naval)
+    book.toc = [epub.Link("naval-history.xhtml", "Naval History", "naval")]
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    book.spine = ["nav", naval]
+    epub.write_epub(str(path), book)
+    return path
+
+
 def test_mini_epub_chapters_blocks_spans(tmp_path: Path) -> None:
     epub_path = _make_mini_epub(tmp_path / "mini.epub")
     result = extract_epub_chapters(epub_path)
@@ -154,6 +199,29 @@ def test_mini_epub_chapters_blocks_spans(tmp_path: Path) -> None:
     assert "empty paragraph" in joined
     assert "boilerplate" in joined
     assert "merged tiny" in joined.lower() or "merged trailing" in joined.lower()
+
+
+def test_non_linear_spine_items_skipped(tmp_path: Path) -> None:
+    result = extract_epub_chapters(_make_non_linear_epub(tmp_path / "nonlinear.epub"))
+    assert [c.title for c in result.chapters] == ["Chapter One", "Chapter Two"]
+    all_text = " ".join(
+        [(b.text or "") for c in result.chapters for b in (c.blocks or [])]
+        + [s.text for c in result.chapters for b in (c.blocks or []) for s in b.sentences]
+    )
+    assert "Hidden Cover Text" not in all_text
+    assert any("non-linear" in d for d in result.drops)
+
+
+def test_naval_history_chapter_survives(tmp_path: Path) -> None:
+    result = extract_epub_chapters(_make_naval_epub(tmp_path / "naval.epub"))
+    assert len(result.chapters) == 1
+    assert result.chapters[0].title == "Naval History"
+    assert not any("naval-history" in d and "nav/TOC" in d for d in result.drops)
+
+
+def test_drops_include_footnote_strips(tmp_path: Path) -> None:
+    result = extract_epub_chapters(_make_mini_epub(tmp_path / "mini.epub"))
+    assert any("footnote" in d for d in result.drops)
 
 
 def test_normalize_keeps_curly_quotes() -> None:

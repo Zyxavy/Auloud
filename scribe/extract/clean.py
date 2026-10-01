@@ -276,10 +276,14 @@ def extract_epub_chapters(
     epub_path: Path | str, *, tiny_threshold: int = TINY_CHAPTER_WORDS
 ) -> ExtractionResult:
     """Extract and clean an EPUB into ChapterFile blocks (SW3 entry point)."""
-    documents = read_spine_documents(Path(epub_path))
+    read = read_spine_documents(Path(epub_path))
     drops: list[str] = []
+    # Single channel: every spine-level skip/strip lands in drops (SW5's
+    # draft report reads this list, so logger-only drops would go missing).
+    for notice in read.notices:
+        _record(drops, notice)
     raw_chapters: list[RawChapter] = []
-    for doc in documents:
+    for doc in read.documents:
         raw = _clean_document(doc, drops)
         if raw is not None:
             raw_chapters.append(raw)
