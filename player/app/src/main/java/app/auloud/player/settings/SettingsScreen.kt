@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.auloud.player.BuildConfig
 import app.auloud.player.battery.BatteryPromptDialog
 import app.auloud.player.battery.BatterySettingsIntents
 import app.auloud.player.battery.PrefsBatteryPromptStore
@@ -48,6 +49,7 @@ fun SettingsScreen(
     folders: List<WatchFolder> = emptyList(),
     onAddFolder: () -> Unit = {},
     onRemoveFolder: (WatchFolder) -> Unit = {},
+    onOpenSpike: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -76,6 +78,13 @@ fun SettingsScreen(
             onClick = { showBatteryDialog = true },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         )
+        // RA0 throwaway: debug builds only, deleted with the spike screen.
+        if (BuildConfig.DEBUG) {
+            SpikeEntry(
+                onClick = onOpenSpike,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            )
+        }
     }
 
     if (showBatteryDialog) {
@@ -167,6 +176,26 @@ private fun WatchFolderRow(
     }
 }
 
+/** RA0 throwaway entry: opens the reader rendering spike (debug only). */
+@Composable
+private fun SpikeEntry(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.padding(vertical = 8.dp)) {
+        Text(
+            text = "Reader spike (RA0)",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Throwaway 5,000-sentence scroll test. Deleted after the RA0 decision.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = onClick) { Text("Open spike") }
+    }
+}
 /** Single WP8 entry: narrow scope passes only a click callback. */
 @Composable
 private fun BatteryOptimizationEntry(

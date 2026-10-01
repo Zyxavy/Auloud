@@ -27,6 +27,7 @@ import app.auloud.player.data.RoomProgressRepository
 import app.auloud.player.library.LibraryScreen
 import app.auloud.player.library.LibraryViewModel
 import app.auloud.player.playback.PlayerScreen
+import app.auloud.player.reader.ReaderSpikeScreen
 import app.auloud.player.settings.SettingsScreen
 import app.auloud.player.storage.BooksRootResolver
 import app.auloud.player.storage.BundleStorage
@@ -152,6 +153,9 @@ class MainActivity : ComponentActivity() {
                     // returns via Back. WP3/WP5 refinement: Settings also
                     // hosts the watch-folder list (add via picker, remove).
                     var showSettings by remember { mutableStateOf(false) }
+                    // RA0 throwaway: spike screen above everything, deleted
+                    // with the spike once the RA0 decision is logged.
+                    var showSpike by remember { mutableStateOf(false) }
                     // Hoisted activity state (see folderState): narrow reads
                     // keep recompositions cheap on the Tab E.
                     val watchFolders by folderState
@@ -160,12 +164,15 @@ class MainActivity : ComponentActivity() {
                     // over, back clears the selection. The service session
                     // survives the switch, so return reconnects to the spot.
                     val selectedBook = state.books.firstOrNull { it.id == state.selectedBookId }
-                    if (showSettings) {
+                    if (showSpike) {
+                        ReaderSpikeScreen(onBack = { showSpike = false })
+                    } else if (showSettings) {
                         SettingsScreen(
                             onBack = { showSettings = false },
                             folders = watchFolders,
                             onAddFolder = ::launchFolderPicker,
-                            onRemoveFolder = ::removeWatchFolder
+                            onRemoveFolder = ::removeWatchFolder,
+                            onOpenSpike = { showSpike = true }
                         )
                     } else if (state.selectedBookId != null && selectedBook != null) {
                         PlayerScreen(
