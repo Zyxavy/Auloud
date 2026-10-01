@@ -94,6 +94,10 @@ fun ReaderPreviewScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
         onBack = onBack,
         onUserScroll = { follow = FollowState.Detached },
         onBackToNow = { follow = FollowState.Following },
+        onSentenceTap = { tapped ->
+            currentSid = tapped
+            follow = FollowState.Following
+        },
         modifier = modifier
     )
 }

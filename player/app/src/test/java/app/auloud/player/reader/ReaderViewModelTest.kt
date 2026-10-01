@@ -39,14 +39,16 @@ class ReaderViewModelTest {
     private fun viewModel(
         playback: MutableStateFlow<PlaybackState>,
         files: Map<String, String>,
-        pathFor: (Int) -> String? = { "text/ch001.json" }
+        pathFor: (Int) -> String? = { "text/ch001.json" },
+        onSeekTo: (Long) -> Unit = {}
     ): ReaderViewModel {
         return ReaderViewModel(
             playback = playback,
             storage = FakeStorage(files),
             textPathForChapter = pathFor,
             dispatcher = Dispatchers.Unconfined,
-            tickerMs = 25L
+            tickerMs = 25L,
+            onSeekTo = onSeekTo
         )
     }
 
@@ -175,6 +177,44 @@ class ReaderViewModelTest {
             assertEquals(sid, state.currentSid)
             assertEquals(pos, state.positionMs)
             assertNotNull(state.chapter)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun sentenceTap_seeksToStartAndReattaches() = runBlocking {
+        val sought = ArrayList<Long>()
+        val vm = viewModel(
+            playback(positionMs = 100L),
+            mapOf("text/ch001.json" to chapterPayload("Ch 1")),
+            onSeekTo = { sought.add(it) }
+        )
+        vm.collectTest {
+            var state = awaitItem()
+            while (state.chapter == null) state = awaitItem()
+            vm.onUserScrolled()
+            assertEquals(FollowState.Detached, awaitItem().follow)
+            vm.onSentenceTap(2)
+            assertEquals(listOf(1500L), sought)
+            assertEquals(FollowState.Following, awaitItem().follow)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun sentenceTap_unknownSid_ignored() = runBlocking {
+        val sought = ArrayList<Long>()
+        val vm = viewModel(
+            playback(positionMs = 100L),
+            mapOf("text/ch001.json" to chapterPayload("Ch 1")),
+            onSeekTo = { sought.add(it) }
+        )
+        vm.collectTest {
+            var state = awaitItem()
+            while (state.chapter == null) state = awaitItem()
+            vm.onSentenceTap(99)
+            assertTrue(sought.isEmpty())
+            expectNoEvents()
             cancelAndIgnoreRemainingEvents()
         }
     }

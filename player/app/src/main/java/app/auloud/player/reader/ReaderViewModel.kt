@@ -22,7 +22,9 @@ import kotlinx.coroutines.launch
  * Inputs are constructor-injected so tests drive a fake playback flow and
  * fake storage (no Media3, no Android): [playback] is the controller's
  * state, [textPathForChapter] resolves a 0-based chapter index to its
- * `text/chNNN.json` path (null when the manifest lists none).
+ * `text/chNNN.json` path (null when the manifest lists none), and
+ * [onSeekTo] performs the audio seek (wired to the controller in RA7;
+ * read-only position setting also lands there).
  *
  * Behavior:
  *
@@ -48,7 +50,8 @@ class ReaderViewModel(
     private val storage: BundleStorage,
     private val textPathForChapter: (Int) -> String?,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
-    private val tickerMs: Long = READER_TICK_MS
+    private val tickerMs: Long = READER_TICK_MS,
+    private val onSeekTo: (Long) -> Unit = {}
 ) {
 
     private val _state = MutableStateFlow(ReaderState())
@@ -83,6 +86,17 @@ class ReaderViewModel(
     /** "Back to now" re-attaches (RA5 performs the scroll to [currentSid]). */
     fun onBackToNow() {
         _state.value = _state.value.let { it.copy(follow = reduceFollow(it.follow, FollowEvent.BackToNow)) }
+    }
+
+    /**
+     * Tap-to-jump (RA6): seek the audio to the tapped sentence's start and
+     * re-attach. Unknown sids are ignored. Read-only position setting (no
+     * audio) is RA7's mode wiring on this same path.
+     */
+    fun onSentenceTap(sid: Int) {
+        val startMs = index?.startMsOf(sid) ?: return
+        onSeekTo(startMs)
+        _state.value = _state.value.let { it.copy(follow = reduceFollow(it.follow, FollowEvent.TextJump)) }
     }
 
     /** Mode switch never loses the place: chapter/sid/position are untouched. */

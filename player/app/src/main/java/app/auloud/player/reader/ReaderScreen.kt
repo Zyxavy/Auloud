@@ -1,5 +1,6 @@
 package app.auloud.player.reader
 
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
@@ -71,7 +73,8 @@ fun ReaderScreen(
     modifier: Modifier = Modifier,
     fontSize: ReaderFontSize = ReaderFontSize.Medium,
     onUserScroll: () -> Unit = {},
-    onBackToNow: () -> Unit = {}
+    onBackToNow: () -> Unit = {},
+    onSentenceTap: (Int) -> Unit = {}
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -105,6 +108,7 @@ fun ReaderScreen(
                     fontSize = fontSize,
                     onUserScroll = onUserScroll,
                     onBackToNow = onBackToNow,
+                    onSentenceTap = onSentenceTap,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -118,6 +122,7 @@ private fun ChapterContent(
     fontSize: ReaderFontSize,
     onUserScroll: () -> Unit,
     onBackToNow: () -> Unit,
+    onSentenceTap: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val chapter = state.chapter ?: return
@@ -201,7 +206,8 @@ private fun ChapterContent(
                         highlightColor = highlightColor,
                         indented = block.type == "quote",
                         fontSize = fontSize,
-                        onTextLayout = { layoutResults[block.id] = it }
+                        onTextLayout = { layoutResults[block.id] = it },
+                        onSentenceTap = onSentenceTap
                     )
                     else -> BreakBlock()
                 }
@@ -243,9 +249,13 @@ private fun ParagraphBlock(
     indented: Boolean,
     fontSize: ReaderFontSize,
     onTextLayout: (TextLayoutResult) -> Unit,
+    onSentenceTap: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     if (layout.text.isBlank()) return
+    // Retained for tap hit-testing (the auto-scroll keeps its own copy in
+    // the results map; this one never triggers recomposition on write).
+    var hitLayout by remember(block) { mutableStateOf<TextLayoutResult?>(null) }
     val highlightRange by remember(block) {
         derivedStateOf {
             val sid = highlightSid.value
@@ -269,9 +279,13 @@ private fun ParagraphBlock(
     Text(
         text = annotated,
         fontSize = fontSize.bodySp.sp,
-        onTextLayout = onTextLayout,
+        onTextLayout = {
+            hitLayout = it
+            onTextLayout(it)
+        },
         modifier = modifier
             .fillMaxWidth()
+            .tapToSentence(layout = layout, layoutResult = { hitLayout }, onSentenceTap = onSentenceTap)
             .padding(
                 start = if (indented) 16.dp else 0.dp,
                 top = 2.dp,
@@ -283,6 +297,26 @@ private fun ParagraphBlock(
 @Composable
 private fun BreakBlock(modifier: Modifier = Modifier) {
     HorizontalDivider(modifier = modifier.fillMaxWidth().padding(vertical = 10.dp))
+}
+
+/** Tap-to-jump (RA6): tap position to character offset to sentence. */
+private fun Modifier.tapToSentence(
+    layout: ParagraphLayout,
+    layoutResult: () -> TextLayoutResult?,
+    onSentenceTap: (Int) -> Unit
+): Modifier {
+    return pointerInput(layout, onSentenceTap) {
+        detectTapGestures { position ->
+            val result = layoutResult() ?: return@detectTapGestures
+            val offset = try {
+                result.getOffsetForPosition(position)
+            } catch (_: Exception) {
+                return@detectTapGestures
+            }
+            val sid = sidAtOffset(layout.sentences, offset) ?: return@detectTapGestures
+            onSentenceTap(sid)
+        }
+    }
 }
 
 private val ReaderFontSize.bodySp: Float
