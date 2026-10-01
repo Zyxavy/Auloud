@@ -1,7 +1,8 @@
 .opencode
 logs/
+scratch
 
-# Android generated — never commit (WP1)
+# Android generated: never commit (WP1)
 .gradle/
 build/
 local.properties
@@ -19,3 +20,9 @@ captures/
 # Signing keys (never commit)
 *.jks
 *.keystore
+
+# Scribe generated: never commit (SW11) — bundles, work folders, models.
+# Yellow Wallpaper stress-test artifacts live here locally, untracked.
+bundles/
+.scribe/
+models/

@@ -1,0 +1,63 @@
+[project]
+name = "auloud-scribe"
+version = "0.1.0"
+description = "Auloud Scribe: turn ebooks into multi-voice audiobooks (PC tool)"
+requires-python = ">=3.11"
+license = { text = "AGPL-3.0-or-later" }
+dependencies = [
+    "typer",
+    "ebooklib",
+    "beautifulsoup4",
+    "lxml",
+    "pysbd",
+    "pyyaml>=6.0.3",
+    "kokoro-onnx>=0.6.1",
+    "onnxruntime>=1.30.0",
+    "numpy>=2.4.6",
+    "soundfile>=0.14.0",
+    "rich>=15.0.0",
+]
+
+[project.scripts]
+scribe = "scribe.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# Flat source tree (per 05-ScribeDesign.md) is remapped into the `scribe`
+# namespace on install, so generic names (extract/text/...) never land as
+# top-level site-packages. No directory moves; dev (`uv run`) keeps working
+# from the source tree.
+packages = []
+
+[tool.hatch.build.targets.wheel.force-include]
+"cli.py" = "scribe/cli.py"
+"draft.py" = "scribe/draft.py"
+"build.py" = "scribe/build.py"
+"extract" = "scribe/extract"
+"text" = "scribe/text"
+"tts" = "scribe/tts"
+"audio" = "scribe/audio"
+"bundle" = "scribe/bundle"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "slow: needs real Kokoro models (deselect with '-m \"not slow\"')",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F"]
