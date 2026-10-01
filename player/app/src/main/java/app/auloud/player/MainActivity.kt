@@ -26,7 +26,7 @@ import app.auloud.player.data.RoomLibraryRepository
 import app.auloud.player.data.RoomProgressRepository
 import app.auloud.player.library.LibraryScreen
 import app.auloud.player.library.LibraryViewModel
-import app.auloud.player.playback.PlayerScreen
+import app.auloud.player.reader.BookScreen
 import app.auloud.player.reader.ReaderPreviewScreen
 import app.auloud.player.settings.SettingsScreen
 import app.auloud.player.storage.BooksRootResolver
@@ -175,8 +175,11 @@ class MainActivity : ComponentActivity() {
                             onOpenSpike = { showSpike = true }
                         )
                     } else if (state.selectedBookId != null && selectedBook != null) {
-                        PlayerScreen(
+                        // RA7: one book screen across all modes (Listen shows
+                        // the Slice 1 player, Read/ReadListen the reader).
+                        BookScreen(
                             book = selectedBook,
+                            storage = routingStorage,
                             onBack = libraryViewModel::clearSelection
                         )
                     } else {

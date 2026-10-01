@@ -51,7 +51,8 @@ class ReaderViewModel(
     private val textPathForChapter: (Int) -> String?,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val tickerMs: Long = READER_TICK_MS,
-    private val onSeekTo: (Long) -> Unit = {}
+    private val onSeekTo: (Long) -> Unit = {},
+    private val debounceMs: Long = READ_SETTLE_MS
 ) {
 
     private val _state = MutableStateFlow(ReaderState())
@@ -61,6 +62,7 @@ class ReaderViewModel(
     private var index: SentenceIndex? = null
     private var loadStartedFor: Int? = null
     private var loadJob: Job? = null
+    private var settleJob: Job? = null
 
     init {
         scope.launch { playback.collect { onPlayback(it) } }
@@ -97,6 +99,31 @@ class ReaderViewModel(
         val startMs = index?.startMsOf(sid) ?: return
         onSeekTo(startMs)
         _state.value = _state.value.let { it.copy(follow = reduceFollow(it.follow, FollowEvent.TextJump)) }
+    }
+
+    /**
+     * Read-mode position (RA7): the screen reports the top visible sentence
+     * on every scroll; when scrolling goes idle (debounced) that sentence
+     * becomes the saved position via a paused seek (the service's usual
+     * save follows the seek). Ignored outside Read mode, where the audio
+     * owns the position. Rapid scrolls keep only the last report.
+     */
+    fun onTopVisibleSid(sid: Int) {
+        if (_state.value.mode != ReaderMode.Read) return
+        settleJob?.cancel()
+        settleJob = scope.launch {
+            delay(debounceMs)
+            settleReadingPosition(sid)
+        }
+    }
+
+    private fun settleReadingPosition(sid: Int) {
+        val current = _state.value
+        if (current.mode != ReaderMode.Read || current.chapter == null) return
+        val startMs = index?.startMsOf(sid) ?: return
+        onSeekTo(startMs)
+        val updated = _state.value
+        if (updated.currentSid != sid) _state.value = updated.copy(currentSid = sid)
     }
 
     /** Mode switch never loses the place: chapter/sid/position are untouched. */
@@ -140,8 +167,19 @@ class ReaderViewModel(
         }
     }
 
-    private fun startLoad(chapterIndex: Int, positionMs: Long) {
-        loadStartedFor = chapterIndex
+    /**
+     * RA7: the manifest (hence text paths) arrives after the first load
+     * attempt, which fails as "no text listed". Retry the current chapter
+     * once paths may exist; a loaded chapter makes this a no-op.
+     */
+    fun retryCurrentChapter() {
+        if (_state.value.chapter != null) return
+        val chapterIndex = _state.value.chapterIndex
+        loadStartedFor = null
+        startLoad(chapterIndex, playback.value.positionMs)
+    }
+
+    private fun startLoad(chapterIndex: Int, positionMs: Long) {        loadStartedFor = chapterIndex
         loadJob?.cancel()
         index = null
         _state.value = _state.value.copy(
@@ -196,5 +234,8 @@ class ReaderViewModel(
 
     companion object {
         const val READER_TICK_MS = 200L
+
+        /** Scroll-idle delay before the top sentence becomes the position. */
+        const val READ_SETTLE_MS = 750L
     }
 }

@@ -71,16 +71,27 @@ fun clampSeekRequest(requestedMs: Long, durationMs: Long): Long {
  * entity when it receives its book-id extra; this wrapper exists so WP7
  * unit tests pin the contract without touching the service.
  *
- * Finished-book behavior (current, deliberate): a book saved at the last
- * chapter's full duration reopens staying at the end, paused. Whether
- * reopening a finished book should restart from the beginning instead is a
- * deferred product decision, not made here.
+ * Finished-book behavior (D-028, decided in RA7): a book saved at the last
+ * chapter's full duration reopens staying at the end, paused — and Play
+ * restarts it from chapter 1 ([isFinishedBook],
+ * [PlaybackController.playOrRestart]).
  */
 fun restoreStart(
     progress: ProgressEntity?,
     chapterCount: Int,
     durations: List<Long> = emptyList()
 ): StartPosition = PlaybackQueue.startFrom(progress, chapterCount, durations)
+
+/**
+ * RA7 (D-028): a finished book is the last chapter at (or past) its full
+ * duration. Play on such a book restarts from chapter 1
+ * ([PlaybackController.restartBook]) instead of resuming the end. Pure.
+ */
+fun isFinishedBook(state: PlaybackState): Boolean {
+    if (state.chapterCount <= 0 || state.durationMs <= 0) return false
+    return state.chapterIndex >= state.chapterCount - 1 &&
+        state.positionMs >= state.durationMs
+}
 
 /**
  * WP7: monotonic generation guard for the async `MediaController` connect.

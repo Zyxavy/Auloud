@@ -5,6 +5,7 @@ import app.auloud.player.playback.PlaybackState
 import app.auloud.player.storage.BundleStorage
 import app.cash.turbine.test
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -40,7 +41,8 @@ class ReaderViewModelTest {
         playback: MutableStateFlow<PlaybackState>,
         files: Map<String, String>,
         pathFor: (Int) -> String? = { "text/ch001.json" },
-        onSeekTo: (Long) -> Unit = {}
+        onSeekTo: (Long) -> Unit = {},
+        debounceMs: Long = 25L
     ): ReaderViewModel {
         return ReaderViewModel(
             playback = playback,
@@ -48,7 +50,8 @@ class ReaderViewModelTest {
             textPathForChapter = pathFor,
             dispatcher = Dispatchers.Unconfined,
             tickerMs = 25L,
-            onSeekTo = onSeekTo
+            onSeekTo = onSeekTo,
+            debounceMs = debounceMs
         )
     }
 
@@ -85,11 +88,12 @@ class ReaderViewModelTest {
     fun tickStaysSilentWhileSidUnchanged() = runBlocking {
         val vm = viewModel(playback(positionMs = 100L), mapOf("text/ch001.json" to chapterPayload("Ch 1")))
         vm.collectTest {
-            var state = awaitItem()
-            while (state.chapter == null) state = awaitItem()
-            // Several 25 ms ticks pass with the highlight on sid 1: nothing new.
-            expectNoEvents()
-            cancelAndIgnoreRemainingEvents()
+                var state = awaitItem()
+                while (state.chapter == null) state = awaitItem()
+                // Several 25 ms ticks pass with the highlight on sid 1: nothing new.
+                delay(100L)
+                expectNoEvents()
+                cancelAndIgnoreRemainingEvents()
         }
     }
 
@@ -215,6 +219,97 @@ class ReaderViewModelTest {
             vm.onSentenceTap(99)
             assertTrue(sought.isEmpty())
             expectNoEvents()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun setMode_everyTransition_preservesPlace() = runBlocking {
+        val vm = viewModel(playback(positionMs = 1600L), mapOf("text/ch001.json" to chapterPayload("Ch 1")))
+        vm.collectTest {
+            var state = awaitItem()
+            while (state.chapter == null) state = awaitItem()
+            val sid = state.currentSid
+            val pos = state.positionMs
+            val chapter = state.chapter
+            ReaderMode.entries.forEach { from ->
+                vm.setMode(from)
+                if (state.mode != from) state = awaitItem()
+                ReaderMode.entries.forEach { to ->
+                    vm.setMode(to)
+                    if (state.mode != to) state = awaitItem()
+                    assertEquals(to, state.mode)
+                    assertEquals(sid, state.currentSid)
+                    assertEquals(pos, state.positionMs)
+                    assertEquals(chapter, state.chapter)
+                }
+            }
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun topVisible_ignoredOutsideReadMode() = runBlocking {
+        val sought = ArrayList<Long>()
+        val vm = viewModel(
+            playback(positionMs = 100L),
+            mapOf("text/ch001.json" to chapterPayload("Ch 1")),
+            onSeekTo = { sought.add(it) }
+        )
+        vm.collectTest {
+            var state = awaitItem()
+            while (state.chapter == null) state = awaitItem()
+            // Default mode is ReadListen: scroll reports change nothing.
+            vm.onTopVisibleSid(2)
+            expectNoEvents()
+            assertTrue(sought.isEmpty())
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun topVisible_inReadMode_settlesOnLastReport() = runBlocking {
+        val sought = ArrayList<Long>()
+        val vm = viewModel(
+            playback(positionMs = 100L),
+            mapOf("text/ch001.json" to chapterPayload("Ch 1")),
+            onSeekTo = { sought.add(it) },
+            debounceMs = 100L
+        )
+        vm.collectTest {
+            var state = awaitItem()
+            while (state.chapter == null) state = awaitItem()
+            vm.setMode(ReaderMode.Read)
+            assertEquals(ReaderMode.Read, awaitItem().mode)
+            // Rapid scrolls: only the last report settles.
+            vm.onTopVisibleSid(1)
+            vm.onTopVisibleSid(2)
+            state = awaitItem()
+            while (state.currentSid != 2) state = awaitItem()
+            assertEquals(listOf(1500L), sought)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun topVisible_unknownSid_ignored() = runBlocking {
+        val sought = ArrayList<Long>()
+        val vm = viewModel(
+            playback(positionMs = 100L),
+            mapOf("text/ch001.json" to chapterPayload("Ch 1")),
+            onSeekTo = { sought.add(it) },
+            debounceMs = 50L
+        )
+        vm.collectTest {
+            var state = awaitItem()
+            while (state.chapter == null) state = awaitItem()
+            vm.setMode(ReaderMode.Read)
+            assertEquals(ReaderMode.Read, awaitItem().mode)
+            vm.onTopVisibleSid(99)
+            // Outlast the 50 ms debounce: the settle must fire and do nothing.
+            delay(150L)
+            expectNoEvents()
+            assertTrue(sought.isEmpty())
             cancelAndIgnoreRemainingEvents()
         }
     }

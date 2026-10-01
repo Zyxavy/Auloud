@@ -107,6 +107,18 @@ class PlaybackService : MediaSessionService() {
             saveProgressNow("chapter-change")
         }
 
+        override fun onPositionDiscontinuity(
+            oldPosition: Player.PositionInfo,
+            newPosition: Player.PositionInfo,
+            reason: Int
+        ) {
+            // RA7: a seek (tap-to-jump, slider, Read-mode settle) persists
+            // immediately — a paused seek has no other save trigger.
+            if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                saveProgressNow("seek")
+            }
+        }
+
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             val player = session?.player ?: return
             // Pause (not end-of-playlist): persist the spot immediately.

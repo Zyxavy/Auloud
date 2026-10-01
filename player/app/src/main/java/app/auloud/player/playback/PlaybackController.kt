@@ -170,6 +170,30 @@ class PlaybackController(
         if (c.hasNextMediaItem()) c.seekToNextMediaItem()
     }
 
+    /**
+     * RA7 (D-028): Play on a finished book restarts from chapter 1 instead
+     * of resuming the end. The seek persists via the service's seek save;
+     * playback starts immediately.
+     */
+    fun restartBook() {
+        val c = controller ?: return
+        if (c.mediaItemCount <= 0) return
+        c.seekTo(0, 0L)
+        c.play()
+    }
+
+    /**
+     * RA7: the single Play/Pause entry for every screen. Finished books
+     * restart ([restartBook]); otherwise this toggles like before.
+     */
+    fun playOrRestart(state: PlaybackState) {
+        if (isFinishedBook(state)) {
+            restartBook()
+        } else {
+            togglePlayPause()
+        }
+    }
+
     fun previousChapter() {
         val c = controller ?: return
         if (c.hasPreviousMediaItem()) c.seekToPreviousMediaItem()

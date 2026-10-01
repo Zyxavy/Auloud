@@ -22,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -74,7 +75,8 @@ fun ReaderScreen(
     fontSize: ReaderFontSize = ReaderFontSize.Medium,
     onUserScroll: () -> Unit = {},
     onBackToNow: () -> Unit = {},
-    onSentenceTap: (Int) -> Unit = {}
+    onSentenceTap: (Int) -> Unit = {},
+    onTopVisibleSentence: (Int) -> Unit = {}
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -103,14 +105,18 @@ fun ReaderScreen(
                 )
             }
             else -> {
-                ChapterContent(
-                    state = state,
-                    fontSize = fontSize,
-                    onUserScroll = onUserScroll,
-                    onBackToNow = onBackToNow,
-                    onSentenceTap = onSentenceTap,
-                    modifier = Modifier.fillMaxSize()
-                )
+                // Fresh list state per chapter (scroll, results, visibility).
+                key(state.chapter) {
+                    ChapterContent(
+                        state = state,
+                        fontSize = fontSize,
+                        onUserScroll = onUserScroll,
+                        onBackToNow = onBackToNow,
+                        onSentenceTap = onSentenceTap,
+                        onTopVisibleSentence = onTopVisibleSentence,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
         }
     }
@@ -123,6 +129,7 @@ private fun ChapterContent(
     onUserScroll: () -> Unit,
     onBackToNow: () -> Unit,
     onSentenceTap: (Int) -> Unit,
+    onTopVisibleSentence: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val chapter = state.chapter ?: return
@@ -138,13 +145,36 @@ private fun ChapterContent(
     // Latest text-layout result per block id. Written from onTextLayout
     // (layout phase, never composition), read by the auto-scroll only.
     val layoutResults = remember(chapter) { mutableMapOf<Int, TextLayoutResult>() }
-    // Visible block range, tracked off the composition path.
+    // Visible block range, tracked off the composition path. The same flow
+    // also reports the top visible sentence (RA7 Read-mode position): the
+    // layout hit test at the top edge resolves the sentence, so long
+    // paragraphs report their actual top sentence, not the block start.
     var visibleBlocks by remember { mutableStateOf(0..0) }
     LaunchedEffect(listState) {
         snapshotFlow {
             listState.firstVisibleItemIndex to listState.layoutInfo.visibleItemsInfo.size
         }.collect { (first, count) ->
             visibleBlocks = first until first + count
+        }
+    }
+    LaunchedEffect(listState, chapter) {
+        snapshotFlow {
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+        }.collect { (blockIndex, scrollPx) ->
+            val block = chapter.blocks.getOrNull(blockIndex) ?: return@collect
+            val layout = layouts.getOrNull(blockIndex) ?: return@collect
+            if (block.type != "para" && block.type != "quote") {
+                block.sentences.firstOrNull()?.let { onTopVisibleSentence(it.sid) }
+                return@collect
+            }
+            val offset = layoutResults[block.id]?.let { result ->
+                try {
+                    result.getOffsetForPosition(Offset(100f, scrollPx + 4f))
+                } catch (_: Exception) {
+                    0
+                }
+            } ?: 0
+            sidAtOffset(layout.sentences, offset)?.let { onTopVisibleSentence(it) }
         }
     }
     // Drag source only: finger drags detach, programmatic auto-scrolls never

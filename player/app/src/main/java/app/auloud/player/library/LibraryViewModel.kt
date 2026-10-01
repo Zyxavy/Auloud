@@ -43,7 +43,13 @@ data class BookUiModel(
     val coverPath: String?,
     val durationMs: Long,
     val progressFraction: Float,
-    val isMissing: Boolean
+    val isMissing: Boolean,
+    /**
+     * RA7: bundle directory token for this book (file path or SAF
+     * `<tree>|<rel>` token, as listed). The reader resolves chapter text
+     * paths against it; never displayed (labels come from [WatchFolders]).
+     */
+    val bundleDir: String
 )
 
 /**
@@ -143,7 +149,8 @@ class LibraryViewModel(
                         progressFraction = progressFraction(
                             book.durationMs, positions[book.id]
                         ),
-                        isMissing = book.isMissing
+                        isMissing = book.isMissing,
+                        bundleDir = book.bundlePath
                     )
                 },
                 errors = errorList,

@@ -52,8 +52,8 @@ import coil.compose.AsyncImage
  * same spot. System back returns to the library (no navigation library).
  *
  * A finished book reopens staying at the end, paused (the service prepares
- * the saved finished spot as-is); whether that should restart instead is a
- * deferred product decision.
+ * the saved finished spot as-is); Play restarts it from chapter 1 (D-028,
+ * decided in RA7).
  *
  * Narrow recompositions for the slow Tab E: [PlayerContent] passes only
  * primitive slices to children, so the 500 ms position ticker recomposes just
@@ -112,7 +112,7 @@ fun PlayerScreen(
             ) {
                 showBatteryDialog = true
             }
-            controller.togglePlayPause()
+            controller.playOrRestart(state)
         },
         onSeek = controller::seekTo,
         onNext = controller::nextChapter,
