@@ -214,7 +214,8 @@ def assemble_chapter(
         encode and whose ``timings`` satisfy the SW2 validator rules
         (ordered, non-overlapping, ``end_ms`` excludes the trailing pause).
     :raises ValueError: empty chapter (no audio at all), empty/non-finite
-        sentence audio, non-24 kHz rate, or sids out of order.
+        sentence audio, non-24 kHz rate, sids out of order, or degenerate
+        timings (e.g. sub-millisecond audio rounding to start_ms == end_ms).
     """
     if int(sample_rate) != SAMPLE_RATE:
         raise ValueError(
@@ -263,22 +264,19 @@ def assemble_chapter(
             f"chapter {chapter.chapter}: sids out of order: {seen_sids[:8]}"
             f"{'...' if len(seen_sids) > 8 else ''} (need 1..{len(seen_sids)})."
         )
-    # Ordered and non-overlapping (validator rules); gaps are the pauses.
+    # Ordered and non-overlapping (spec section 6 rule 3 allows gaps, so a
+    # leading break block may shift the first sentence's start past 0).
+    # Violations raise ValueError (catchable) rather than AssertionError.
     prev_end: int | None = None
     prev_sid = 0
     for timing in timings:
         if timing.start_ms < 0 or not timing.start_ms < timing.end_ms <= duration_ms:
-            raise AssertionError(
+            raise ValueError(
                 f"chapter {chapter.chapter}: sentence {timing.sid} timing "
                 f"[{timing.start_ms}, {timing.end_ms}] outside duration {duration_ms}."
             )
-        if prev_end is None and timing.start_ms != 0:
-            raise AssertionError(
-                f"chapter {chapter.chapter}: first sentence starts at "
-                f"{timing.start_ms}, need 0."
-            )
         if prev_end is not None and timing.start_ms < prev_end:
-            raise AssertionError(
+            raise ValueError(
                 f"chapter {chapter.chapter}: sentence {timing.sid} overlaps "
                 f"sentence {prev_sid}."
             )

@@ -139,6 +139,29 @@ def test_empty_sentence_audio_rejected() -> None:
         assemble_chapter(chapter, synth)
 
 
+def test_leading_break_shifts_first_start_past_0() -> None:
+    """Leading silence is legal: a break block shifts the first start past 0."""
+    chapter = _chapter(
+        [
+            Block(id=1, type="break"),
+            Block(id=2, type="para", sentences=[_sentence(1, "One.")]),
+        ]
+    )
+    synth, _ = make_synth({1: 2400})  # 100 ms of audio
+    out = assemble_chapter(chapter, synth)  # internal checks pass: no raise
+    assert out.timings[0].start_ms == PAUSE_BREAK_MS
+    assert out.timings[0].end_ms == PAUSE_BREAK_MS + 100
+    assert out.duration_ms == PAUSE_BREAK_MS + 100 + PAUSE_PARA_MS
+
+
+def test_degenerate_timing_raises_value_error_not_assertion() -> None:
+    """1-sample audio rounds to start_ms == end_ms: must be ValueError."""
+    chapter = _chapter([Block(id=1, type="para", sentences=[_sentence(1, "Hi.")])])
+    synth, _ = make_synth({1: 1})
+    with pytest.raises(ValueError, match="outside duration"):
+        assemble_chapter(chapter, synth)
+
+
 # ---------------------------------------------------------------------------
 # (b) pause-length matrix
 # ---------------------------------------------------------------------------
