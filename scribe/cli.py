@@ -142,12 +142,12 @@ def check_tool(name: str, version_args: list[str], help_text: str) -> CheckResul
     if found is None:
         return CheckResult(name=name, status=FAIL, detail="not found on PATH", hint=help_text)
     version = _run_version([found, *version_args])
-    if version is None:
+    if not version:
         return CheckResult(
             name=name,
             status=FAIL,
             detail=f"found at {found} but did not respond",
-            hint=help_text,
+            hint="It may be broken; reinstall it, then re-run `scribe doctor`.\n" + help_text,
         )
     short = version if len(version) <= 80 else version[:77] + "..."
     return CheckResult(name=name, status=PASS, detail=f"{short} [{found}]")
@@ -158,12 +158,24 @@ def check_espeak_ng(msi_path: Path = ESPEAK_MSI_PATH) -> CheckResult:
     on_path = shutil.which("espeak-ng")
     if on_path is not None:
         version = _run_version([on_path, "--version"])
-        detail = version if version else "found on PATH"
-        return CheckResult(name="espeak-ng", status=PASS, detail=f"{detail} [{on_path}]")
+        if not version:
+            return CheckResult(
+                name="espeak-ng",
+                status=FAIL,
+                detail=f"found at {on_path} but did not respond",
+                hint="It may be broken; reinstall it, then re-run `scribe doctor`.\n" + ESPEAK_HELP,
+            )
+        return CheckResult(name="espeak-ng", status=PASS, detail=f"{version} [{on_path}]")
     if msi_path.is_file():
         version = _run_version([str(msi_path), "--version"])
-        detail = version if version else f"found at {msi_path}"
-        return CheckResult(name="espeak-ng", status=PASS, detail=detail)
+        if not version:
+            return CheckResult(
+                name="espeak-ng",
+                status=FAIL,
+                detail=f"found at {msi_path} but did not respond",
+                hint="It may be broken; reinstall it, then re-run `scribe doctor`.\n" + ESPEAK_HELP,
+            )
+        return CheckResult(name="espeak-ng", status=PASS, detail=version)
     return CheckResult(
         name="espeak-ng",
         status=FAIL,
@@ -224,7 +236,7 @@ def check_gpu() -> CheckResult:
             "CPU-only build works — SW0 measured RTF 1.38 on CPU",
         )
     line = _run_version([nvidia_smi, "-L"])
-    if line is None:
+    if not line:
         return CheckResult(
             name="gpu",
             status=INFO,

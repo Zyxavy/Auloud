@@ -128,3 +128,39 @@ def test_gpu_absent_is_info_not_fail(monkeypatch: object) -> None:
     mp.setattr(cli.shutil, "which", lambda _name: None)
     result = cli.check_gpu()
     assert result.status == cli.INFO
+
+
+def test_tool_with_empty_version_output_is_fail(monkeypatch: object) -> None:
+    mp = monkeypatch  # type: ignore[union-attr]
+    mp.setattr(cli.shutil, "which", lambda _name: r"C:\fake\ffmpeg.exe")
+    fake = subprocess.CompletedProcess(
+        args=["ffmpeg", "-version"], returncode=0, stdout="\n", stderr=""
+    )
+    mp.setattr(cli.subprocess, "run", lambda *args, **kwargs: fake)
+    result = cli.check_tool("ffmpeg", ["-version"], cli.FFMPEG_HELP)
+    assert result.status == cli.FAIL
+    assert "did not respond" in result.detail
+    assert "reinstall" in result.hint
+
+
+def test_espeak_ng_with_empty_version_output_is_fail(monkeypatch: object) -> None:
+    mp = monkeypatch  # type: ignore[union-attr]
+    mp.setattr(cli.shutil, "which", lambda _name: r"C:\tools\espeak-ng.exe")
+    fake = subprocess.CompletedProcess(
+        args=["espeak-ng", "--version"], returncode=0, stdout="", stderr=""
+    )
+    mp.setattr(cli.subprocess, "run", lambda *args, **kwargs: fake)
+    result = cli.check_espeak_ng(msi_path=Path(r"C:\nonexistent\espeak-ng.exe"))
+    assert result.status == cli.FAIL
+    assert "reinstall" in result.hint
+
+
+def test_gpu_with_empty_output_stays_info(monkeypatch: object) -> None:
+    mp = monkeypatch  # type: ignore[union-attr]
+    mp.setattr(cli.shutil, "which", lambda _name: r"C:\fake\nvidia-smi.exe")
+    fake = subprocess.CompletedProcess(
+        args=["nvidia-smi", "-L"], returncode=0, stdout="", stderr=""
+    )
+    mp.setattr(cli.subprocess, "run", lambda *args, **kwargs: fake)
+    result = cli.check_gpu()
+    assert result.status == cli.INFO
