@@ -12,6 +12,11 @@ Result: pass | fail | needs retest
 ```
 
 ---
+## SW0 engine spike (2026-10-01, laptop CPU, RTX 4050 present but unused)
+
+- Kokoro-82M via kokoro-onnx 0.6.1 + onnxruntime 1.23.2, voice af_heart: 23.3 s audio in 16.8 s wall over 5 varied sentences (narration, dialogue, abbreviations, ellipses, long) -> **RTF 1.38** (model load excluded).
+- Install pain: official `kokoro==0.9.4` uninstallable (tokenizers 0.10.3 sdist, no cp310/cp314 Windows wheels, needs Rust); kokoro-onnx installed cleanly (21 wheels). espeak-ng 1.52.0 via .msi, no issues. Model kokoro-v1.0.onnx + voices-v1.0.bin from thewh1teagle releases.
+- Subjective: voice good enough; Piper comparison skipped. Choice: Kokoro/af_heart (see D-023).
 ## Slice 1 device verification (user run, 2026-09-29, Tab E Android 7.1.1)
 
 Build: debug APK from `slice-1` (HEAD f77bbc6 + watch-folders). Bundle: hand-made TestBook (2 tone chapters) + TestBook-Bad (missing ch002.mp3).
