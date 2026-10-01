@@ -43,4 +43,21 @@ class PrefsReaderModeStoreTest {
         store.setKeepScreenOn(true)
         assertTrue(store.keepScreenOn())
     }
+
+    @Test
+    fun speed_defaultsClampsAndRoundTrips() {
+        val store = PrefsReaderModeStore(FakeSharedPreferences())
+        assertEquals(1.0f, store.playbackSpeed(), 0f)
+        store.setPlaybackSpeed(1.5f)
+        assertEquals(1.5f, store.playbackSpeed(), 0f)
+        store.setPlaybackSpeed(9.0f)
+        assertEquals(2.0f, store.playbackSpeed(), 0f)
+    }
+
+    @Test
+    fun speed_insaneStoredValue_sanitized() {
+        val prefs = FakeSharedPreferences()
+        prefs.edit().putFloat(PrefsReaderModeStore.KEY_SPEED, Float.NaN).apply()
+        assertEquals(1.0f, PrefsReaderModeStore(prefs).playbackSpeed(), 0f)
+    }
 }

@@ -2,6 +2,8 @@ package app.auloud.player.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import app.auloud.player.playback.DEFAULT_SPEED
+import app.auloud.player.playback.clampSpeed
 import app.auloud.player.reader.ReaderMode
 
 /**
@@ -32,10 +34,18 @@ class PrefsReaderModeStore(
         prefs.edit().putBoolean(KEY_KEEP_SCREEN_ON, keepOn).apply()
     }
 
+    override fun playbackSpeed(): Float =
+        clampSpeed(prefs.getFloat(KEY_SPEED, DEFAULT_SPEED))
+
+    override fun setPlaybackSpeed(speed: Float) {
+        prefs.edit().putFloat(KEY_SPEED, clampSpeed(speed)).apply()
+    }
+
     companion object {
         const val PREFS_NAME = "auloud_settings"
         const val KEY_MODE = "reader_mode"
         const val KEY_KEEP_SCREEN_ON = "reader_keep_screen_on"
+        const val KEY_SPEED = "playback_speed"
 
         fun fromContext(context: Context): PrefsReaderModeStore =
             PrefsReaderModeStore(

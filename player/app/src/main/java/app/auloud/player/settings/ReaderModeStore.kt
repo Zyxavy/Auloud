@@ -15,4 +15,8 @@ interface ReaderModeStore {
     fun setMode(mode: ReaderMode)
     fun keepScreenOn(): Boolean
     fun setKeepScreenOn(keepOn: Boolean)
+
+    /** RA8: global playback speed (0.75x-2.0x). */
+    fun playbackSpeed(): Float
+    fun setPlaybackSpeed(speed: Float)
 }
