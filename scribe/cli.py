@@ -408,6 +408,32 @@ def inspect(
 
 
 @app.command()
+def validate(
+    bundle: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=False,
+        readable=True,
+        help="Bundle directory to validate.",
+    ),
+) -> None:
+    """Run the spec's checks over a bundle (fails loudly, no traceback)."""
+    from bundle.validate import validate_bundle
+
+    try:
+        result = validate_bundle(bundle)
+    except Exception as exc:  # noqa: BLE001 — validate must never traceback
+        typer.echo(f"validate failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    if result.ok:
+        typer.echo(f"valid: {bundle}")
+        return
+    for error in result.errors:
+        typer.echo(f"error: {error}", err=True)
+    raise typer.Exit(code=1)
+
+
+@app.command()
 def version() -> None:
     """Print the Scribe version."""
     typer.echo(__version__)
