@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -73,6 +74,7 @@ private fun buildPreviewChapter(): ChapterText {
 fun ReaderPreviewScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
     val chapter = remember { buildPreviewChapter() }
     var currentSid by remember { mutableIntStateOf(1) }
+    var follow by remember { mutableStateOf(FollowState.Following) }
     LaunchedEffect(Unit) {
         while (true) {
             delay(PREVIEW_TICK_MS)
@@ -84,12 +86,14 @@ fun ReaderPreviewScreen(onBack: () -> Unit, modifier: Modifier = Modifier) {
             chapterIndex = 0,
             chapter = chapter,
             mode = ReaderMode.ReadListen,
-            follow = FollowState.Following,
+            follow = follow,
             currentSid = currentSid,
             positionMs = 0L,
             isPlaying = true
         ),
         onBack = onBack,
+        onUserScroll = { follow = FollowState.Detached },
+        onBackToNow = { follow = FollowState.Following },
         modifier = modifier
     )
 }
