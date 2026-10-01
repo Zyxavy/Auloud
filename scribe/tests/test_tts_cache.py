@@ -31,9 +31,14 @@ import numpy as np
 import pytest
 
 from tts.base import TTSEngine
-from tts.cache import MAX_SYNTH_CHARS, cache_key, get_or_synth, split_long_sentence
+from tts.cache import (
+    MAX_SYNTH_CHARS,
+    cache_key,
+    cache_path,
+    get_or_synth,
+    split_long_sentence,
+)
 
-SCRATCH_MODELS = Path(r"D:\PROGRAMS\Websites\Auloud\scratch\temp")
 MODEL_FILES: tuple[str, str] = ("kokoro-v1.0.onnx", "voices-v1.0.bin")
 
 
@@ -56,6 +61,20 @@ class FakeEngine(TTSEngine):
     def synth(self, text: str, voice: str, speed: float) -> np.ndarray:
         self.calls.append((text, voice, float(speed)))
         return np.full((len(text) * 10,), 0.5, dtype=np.float32)
+
+
+class SineEngine(FakeEngine):
+    """Realistic float data: dual sine, irrational sample values."""
+
+    def __init__(self) -> None:
+        super().__init__(version="sine-1")
+
+    def synth(self, text: str, voice: str, speed: float) -> np.ndarray:
+        self.calls.append((text, voice, float(speed)))
+        n = len(text) * 10
+        t = np.arange(n, dtype=np.float64) / 24_000
+        wave = 0.7 * np.sin(2 * np.pi * 440 * t) + 0.1 * np.sin(2 * np.pi * 1320 * t)
+        return wave.astype(np.float32)
 
 
 def _cached_files(cache_dir: Path) -> list[Path]:
@@ -145,15 +164,105 @@ def test_short_sentence_takes_single_synth_call(tmp_path: Path) -> None:
     assert len(audio) == len("A normal sentence.") * 10
 
 
+@pytest.mark.parametrize("payload", [b"not-a-flac-at-all", b"", b"\x00" * 64])
+def test_corrupt_cache_file_resynthesizes(tmp_path: Path, payload: bytes) -> None:
+    """A torn write is a miss, never valid audio: re-synth and repair."""
+    engine = FakeEngine()
+    key = cache_key("Hello world.", "af_heart", 1.0, 1.0, engine.engine_version)
+    poisoned = cache_path(tmp_path, key)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    poisoned.write_bytes(payload)
+
+    audio = get_or_synth(engine, "Hello world.", "af_heart", 1.0, 1.0, tmp_path)
+    assert len(engine.calls) == 1  # corrupt hit ignored, engine ran
+    assert len(audio) == len("Hello world.") * 10
+
+    # The repaired file is now a real hit: no more synth, identical audio.
+    again = get_or_synth(engine, "Hello world.", "af_heart", 1.0, 1.0, tmp_path)
+    assert len(engine.calls) == 1
+    assert np.array_equal(audio, again)
+
+
+def test_hit_output_deterministic_on_realistic_data(tmp_path: Path) -> None:
+    """Every hit decodes identically; cache stays within ~1e-6 of float32."""
+    engine = SineEngine()
+    original = get_or_synth(engine, "Hello world.", "af_heart", 1.0, 1.0, tmp_path)
+    hit1 = get_or_synth(engine, "Hello world.", "af_heart", 1.0, 1.0, tmp_path)
+    hit2 = get_or_synth(engine, "Hello world.", "af_heart", 1.0, 1.0, tmp_path)
+    assert len(engine.calls) == 1
+    assert np.array_equal(hit1, hit2)  # resume determinism: hits never differ
+    assert float(np.max(np.abs(original - hit1))) < 1e-6  # PCM_24, not PCM_16
+
+
+@pytest.mark.parametrize(
+    "speed,pitch",
+    [
+        (float("nan"), 1.0),
+        (float("inf"), 1.0),
+        (float("-inf"), 1.0),
+        (1.0, float("nan")),
+        (1.0, float("inf")),
+        (1.0, float("-inf")),
+    ],
+)
+def test_non_finite_speed_pitch_rejected(
+    tmp_path: Path, speed: float, pitch: float
+) -> None:
+    engine = FakeEngine()
+    with pytest.raises(ValueError):
+        get_or_synth(engine, "Hello world.", "af_heart", speed, pitch, tmp_path)
+    assert engine.calls == []
+    assert _cached_files(tmp_path) == []
+
+
+class _StubKokoro:
+    """Stands in for ``kokoro_onnx.Kokoro``: named voices, records creates."""
+
+    def __init__(self) -> None:
+        self.voices: dict[str, np.ndarray] = {
+            "af_heart": np.zeros(3, dtype=np.float32)
+        }
+        self.seen: list[tuple[str, str, float]] = []
+
+    def create(
+        self, text: str, voice: str, speed: float, lang: str
+    ) -> tuple[np.ndarray, int]:
+        self.seen.append((text, voice, speed))
+        return np.zeros(240, dtype=np.float32), 24_000
+
+
+def _kokoro_with_stub() -> tuple[object, _StubKokoro]:
+    from tts.kokoro import KokoroEngine
+
+    engine = KokoroEngine.__new__(KokoroEngine)
+    stub = _StubKokoro()
+    engine._kokoro = stub  # type: ignore[attr-defined]
+    return engine, stub
+
+
+def test_unknown_voice_raises_clean_error() -> None:
+    engine, stub = _kokoro_with_stub()
+    with pytest.raises(ValueError, match="no_such_voice") as exc_info:
+        engine.synth("Hello.", "no_such_voice", 1.0)  # type: ignore[attr-defined]
+    assert len(str(exc_info.value)) < 200  # names the voice, dumps no list
+    assert stub.seen == []  # rejected before any synthesis work
+
+
+def test_known_voice_passes_through() -> None:
+    engine, stub = _kokoro_with_stub()
+    audio = engine.synth("Hello.", "af_heart", 1.0)  # type: ignore[attr-defined]
+    assert len(stub.seen) == 1
+    assert audio.dtype == np.float32
+
+
 def _find_model_files() -> tuple[Path | None, Path | None, list[str]]:
-    """Search canonical, override, and scratch locations for both files."""
+    """Search the env override then the canonical models dirs for both files."""
     candidates: list[Path] = []
     override = os.environ.get("AULOUD_KOKORO_MODELS", "").strip()
     if override:
         candidates.append(Path(override))
     candidates.append(Path("models"))
     candidates.append(Path(__file__).resolve().parent.parent / "models")
-    candidates.append(SCRATCH_MODELS)
     searched: list[str] = []
     for directory in candidates:
         searched.append(str(directory))

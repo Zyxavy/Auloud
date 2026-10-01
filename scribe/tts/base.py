@@ -35,6 +35,26 @@ import numpy as np
 SAMPLE_RATE = 24_000
 
 
+def resample_mono(audio: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
+    """Minimal linear-interp resample for mono float audio (no scipy dep).
+
+    Engine-agnostic safety net shared by the Kokoro wrapper (native
+    24 kHz, so that path should never trigger) and the cache (a stored
+    file whose rate ever disagrees with the engine). It exists so an
+    unexpected rate still yields spec-correct audio instead of silently
+    drifting timings.
+    """
+    if src_rate == dst_rate:
+        return np.asarray(audio, dtype=np.float32)
+    src = np.asarray(audio, dtype=np.float64).ravel()
+    if src.size == 0:
+        return np.zeros(0, dtype=np.float32)
+    dst_len = int(round(src.size * dst_rate / src_rate))
+    old_idx = np.linspace(0.0, float(src.size - 1), num=src.size)
+    new_idx = np.linspace(0.0, float(src.size - 1), num=max(dst_len, 1))
+    return np.interp(new_idx, old_idx, src).astype(np.float32)
+
+
 class TTSEngine(ABC):
     """Interface every TTS engine implements (D-023 names Kokoro-82M).
 

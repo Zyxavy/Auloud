@@ -38,7 +38,7 @@ from typing import Any
 
 import numpy as np
 
-from tts.base import SAMPLE_RATE, TTSEngine
+from tts.base import SAMPLE_RATE, TTSEngine, resample_mono
 
 #: Narrator voice chosen in D-023 (American English).
 DEFAULT_VOICE = "af_heart"
@@ -66,24 +66,6 @@ def resolve_model_paths(models_dir: Path | str = DEFAULT_MODEL_DIR) -> tuple[Pat
             + f" (expected {', '.join(MODEL_FILES)} in {directory})."
         )
     return model_path, voices_path
-
-
-def resample_mono(audio: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
-    """Minimal linear-interp resample for mono float audio (no scipy dep).
-
-    Only a safety net: Kokoro is native 24 kHz, so this path should never
-    trigger. It exists so a future model export reporting another rate
-    still yields spec-correct audio instead of silently drifting timings.
-    """
-    if src_rate == dst_rate:
-        return np.asarray(audio, dtype=np.float32)
-    src = np.asarray(audio, dtype=np.float64).ravel()
-    if src.size == 0:
-        return np.zeros(0, dtype=np.float32)
-    dst_len = int(round(src.size * dst_rate / src_rate))
-    old_idx = np.linspace(0.0, float(src.size - 1), num=src.size)
-    new_idx = np.linspace(0.0, float(src.size - 1), num=max(dst_len, 1))
-    return np.interp(new_idx, old_idx, src).astype(np.float32)
 
 
 class KokoroEngine(TTSEngine):
@@ -121,6 +103,10 @@ class KokoroEngine(TTSEngine):
         if not text.strip():
             raise ValueError("KokoroEngine.synth needs non-empty text; "
                              "use cache.get_or_synth for empty sentences.")
+        if voice not in self._kokoro.voices:
+            raise ValueError(
+                f"Unknown Kokoro voice {voice!r} for this voices file."
+            )
         audio, reported_rate = self._kokoro.create(text, voice, float(speed), LANG)
         mono = np.asarray(audio, dtype=np.float32).ravel()
         if int(reported_rate) != SAMPLE_RATE:

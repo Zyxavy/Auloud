@@ -21,6 +21,21 @@ per key under the cache dir (``<key>.flac``). A hit returns the stored
 audio without touching the engine, so cast edits re-render only changed
 lines and crashed builds resume.
 
+Crash safety: writes go to a temp file in the same directory and are
+atomically renamed into place, so a kill mid-write (SW9 kills builds on
+purpose) can only ever leave a hidden ``.<key>.tmp-<pid>.flac`` behind —
+never a truncated ``<key>.flac``. And a hit that fails to decode (torn
+file from an older version, foreign bytes, 0-byte file) is deleted and
+treated as a miss: re-synthesized, never returned partial.
+
+Determinism contract: what resume requires is that every HIT decodes
+identically — the same ``<key>.flac`` bytes give the same samples on
+every read, so resumed builds produce identical bundles. The stored
+format is FLAC with an explicit ``PCM_24`` subtype (libsndfile's default
+is 16-bit, which would quantize harder); 24-bit keeps the cached audio
+within ~1e-6 of the engine's float32 output. Float bit-exactness between
+the pre-write array and the decoded hit is NOT promised and NOT needed.
+
 Notes:
 
 - ``pitch`` is key-only in v1 (Slice 4 applies it with ``pyrubberband``);
@@ -32,18 +47,21 @@ Notes:
   re-run ``scribe doctor``.
 - Follow-up (not this slice): no size cap or eviction yet — a whole book
   is a few thousand small FLACs, fine for v1; add LRU pruning if the
-  cache dir ever matters on disk.
+  cache dir ever matters on disk. Stale ``.tmp-*.flac`` files from killed
+  builds are ignored by readers (only ``<key>.flac`` is ever read).
 """
 
 from __future__ import annotations
 
 import hashlib
+import math
+import os
 import re
 from pathlib import Path
 
 import numpy as np
 
-from tts.base import TTSEngine
+from tts.base import TTSEngine, resample_mono
 
 #: Sentences longer than this fall back to comma/semicolon splitting.
 #: Why this value: ordinary prose sentences are ~100-300 characters, so
@@ -95,10 +113,36 @@ def _read_flac(path: Path, sample_rate: int) -> np.ndarray:
         mono = mono.mean(axis=1).astype(np.float32)
     mono = mono.ravel().astype(np.float32, copy=False)
     if int(file_rate) != int(sample_rate):
-        from tts.kokoro import resample_mono
-
         mono = resample_mono(mono, int(file_rate), int(sample_rate))
     return mono
+
+
+def _check_finite(name: str, value: float) -> None:
+    """Reject NaN/inf at the cache boundary (they'd key but never synth)."""
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a number, got {value!r}.") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"{name} must be finite, got {value!r}.")
+
+
+def _write_flac_atomic(path: Path, audio: np.ndarray, sample_rate: int) -> None:
+    """Write ``audio`` to ``path`` atomically (temp file + rename).
+
+    ``os.replace`` within one directory is atomic, so readers only ever
+    see the complete file or nothing. A failed write removes the temp
+    file and re-raises; stale temps from killed builds are ignored.
+    """
+    import soundfile as sf
+
+    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}.flac")
+    try:
+        sf.write(str(tmp), audio, sample_rate, format="FLAC", subtype="PCM_24")
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def get_or_synth(
@@ -115,9 +159,14 @@ def get_or_synth(
     touching the engine (or the cache). Over-long sentences split via
     :func:`split_long_sentence` and each clause is cached individually,
     so a resumed build reuses the clauses it already rendered.
+    Non-finite ``speed``/``pitch`` raise ``ValueError`` before any key
+    is built. A present-but-undecodable file is deleted and treated as
+    a miss, never returned.
     """
     if not text.strip():
         return np.zeros(0, dtype=np.float32)
+    _check_finite("speed", speed)
+    _check_finite("pitch", pitch)
 
     if len(text) > MAX_SYNTH_CHARS:
         parts = split_long_sentence(text)
@@ -134,13 +183,17 @@ def get_or_synth(
     key = cache_key(text, voice, speed, pitch, engine.engine_version)
     path = cache_path(cache_dir, key)
     if path.is_file():
-        return _read_flac(path, engine.sample_rate)
-
-    import soundfile as sf
+        try:
+            return _read_flac(path, engine.sample_rate)
+        except Exception:
+            # Torn write, foreign bytes, 0-byte file: drop it and
+            # re-synthesize below. Broad catch is deliberate — any
+            # decode failure means "not a valid hit".
+            path.unlink(missing_ok=True)
 
     audio = np.asarray(engine.synth(text, voice, speed), dtype=np.float32).ravel()
     audio = audio.astype(np.float32, copy=False)
     directory = Path(cache_dir)
     directory.mkdir(parents=True, exist_ok=True)
-    sf.write(str(path), audio, engine.sample_rate, format="FLAC")
+    _write_flac_atomic(path, audio, engine.sample_rate)
     return audio
