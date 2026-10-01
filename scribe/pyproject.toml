@@ -41,6 +41,7 @@ packages = []
 [tool.hatch.build.targets.wheel.force-include]
 "cli.py" = "scribe/cli.py"
 "draft.py" = "scribe/draft.py"
+"build.py" = "scribe/build.py"
 "extract" = "scribe/extract"
 "text" = "scribe/text"
 "tts" = "scribe/tts"
