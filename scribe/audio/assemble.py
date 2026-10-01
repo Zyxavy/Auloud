@@ -27,12 +27,20 @@ Pauses (source: ``docs/05-ScribeDesign.md`` section 9, which governs over
 - inside a paragraph/quote, between sentences: 250 ms (sentence pause)
 - after the last sentence of a para/quote block: 500 ms (paragraph pause)
 - after each sentence of a heading block: 800 ms (heading pause)
-- for a break block (scene divider, no sentences): 1000 ms of silence
+- for a break block (scene divider, no sentences): 1000 ms of silence,
+  except before the first sentence (see below)
 
 ``quote`` blocks are treated like ``para``: the design doc names only
 sentence/paragraph/heading/break, and a block quote is paragraph-level
 prose for pause purposes. A sentence's ``end_ms`` EXCLUDES its trailing
 pause. The chapter ``duration_ms`` INCLUDES the final trailing pause.
+
+Spec section 6 rule 1 requires the first sentence's ``start_ms`` to be 0,
+so no audio (not even break silence) may precede the first sentence: a
+``break`` block before any sentence contributes NOTHING to the buffer
+(the block itself still exists in the text JSON downstream; only its
+pre-first-sentence silence is skipped). Mid- and trailing breaks keep
+their 1000 ms.
 
 Loudness (:func:`apply_loudness_gain`): one deterministic numpy scalar gain
 per chapter to a peak target of -1 dBFS (``PEAK_TARGET``). Gain ONLY — no
@@ -231,6 +239,11 @@ def assemble_chapter(
 
     for block in chapter.blocks:
         if block.type == "break":
+            if not timings:
+                # Spec section 6 rule 1: the first sentence starts at 0,
+                # so pre-first-sentence break silence is dropped from the
+                # audio (the block stays in the text JSON downstream).
+                continue
             pause = np.zeros(samples_for_ms(PAUSE_BREAK_MS, sample_rate), dtype=np.float32)
             parts.append(pause)
             offset += pause.size

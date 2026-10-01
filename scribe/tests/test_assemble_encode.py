@@ -46,7 +46,7 @@ from audio.assemble import (
 )
 from audio.encode import encode_assembled_chapter
 from bundle.models import Block, ChapterFile, Sentence
-from bundle.validate import probe_audio_ffprobe, validate_bundle
+from bundle.validate import AudioProbe, probe_audio_ffprobe, validate_bundle
 from tts.base import SAMPLE_RATE
 
 SR = SAMPLE_RATE
@@ -139,8 +139,9 @@ def test_empty_sentence_audio_rejected() -> None:
         assemble_chapter(chapter, synth)
 
 
-def test_leading_break_shifts_first_start_past_0() -> None:
-    """Leading silence is legal: a break block shifts the first start past 0."""
+def test_leading_break_silence_dropped_first_starts_at_0() -> None:
+    """Spec rule 1: nothing precedes the first sentence, so a leading break's
+    silence is dropped from the audio (first start stays 0)."""
     chapter = _chapter(
         [
             Block(id=1, type="break"),
@@ -148,10 +149,72 @@ def test_leading_break_shifts_first_start_past_0() -> None:
         ]
     )
     synth, _ = make_synth({1: 2400})  # 100 ms of audio
-    out = assemble_chapter(chapter, synth)  # internal checks pass: no raise
-    assert out.timings[0].start_ms == PAUSE_BREAK_MS
-    assert out.timings[0].end_ms == PAUSE_BREAK_MS + 100
-    assert out.duration_ms == PAUSE_BREAK_MS + 100 + PAUSE_PARA_MS
+    out = assemble_chapter(chapter, synth)
+    assert out.timings[0].start_ms == 0
+    assert out.timings[0].end_ms == 100
+    # The dropped 1000 ms break pause is excluded; only 100 ms + para-final.
+    assert out.duration_ms == 100 + PAUSE_PARA_MS
+
+
+def test_leading_break_chapter_passes_sw2_validator(tmp_path: Path) -> None:
+    """A leading-break chapter (silence dropped) validates clean under SW2."""
+    chapter = _chapter(
+        [
+            Block(id=1, type="break"),
+            Block(
+                id=2,
+                type="para",
+                sentences=[_sentence(1, "One."), _sentence(2, "Two.")],
+            ),
+        ],
+        index=1,
+    )
+    synth, _ = make_synth({1: 2400, 2: 2400})
+    assembled = assemble_chapter(chapter, synth)
+
+    bundle = tmp_path / "bundle"
+    (bundle / "audio").mkdir(parents=True)
+    (bundle / "text").mkdir(parents=True)
+    (bundle / "audio" / "ch001.mp3").write_bytes(b"")  # content stubbed below
+    (bundle / "text" / "ch001.json").write_text(
+        json.dumps(_with_timings(chapter, assembled).to_dict(), ensure_ascii=False)
+        + "\n",
+        encoding="utf-8",
+    )
+    (bundle / "manifest.json").write_text(
+        json.dumps({
+            "spec_version": "1.0",
+            "id": "8f0c6c1e-3a8f-4c6e-9d54-0b6a3f1a2b77",
+            "title": "Leading Break",
+            "type": "epub",
+            "audio": {"format": "mp3", "channels": 1, "sample_rate": 24000,
+                      "bitrate_kbps": 64, "cbr": True},
+            "voices": {"narrator": {"engine": "kokoro", "voice": "af_heart",
+                                    "speed": 1.0, "pitch": 1.0}},
+            "chapters": [{
+                "index": 1,
+                "title": "Chapter 1",
+                "audio": "audio/ch001.mp3",
+                "text": "text/ch001.json",
+                "duration_ms": assembled.duration_ms,
+            }],
+        }, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    def _stub_probe(path: Path) -> AudioProbe:
+        return AudioProbe(
+            codec="mp3",
+            channels=1,
+            sample_rate=24000,
+            bit_rate_bps=64000,
+            bit_rate_from_stream=True,
+            duration_ms=assembled.duration_ms,
+            cbr_frames=True,
+        )
+
+    result = validate_bundle(bundle, probe=_stub_probe)
+    assert result.ok, result.errors
 
 
 def test_degenerate_timing_raises_value_error_not_assertion() -> None:
