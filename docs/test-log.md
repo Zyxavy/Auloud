@@ -12,6 +12,11 @@ Result: pass | fail | needs retest
 ```
 
 ---
+## SW11 acceptance (2026-10-01)
+
+- C&P sample (67 sentences, fragment): `scribe build` → 1 chapter, 7:20 audio in 105.9 s wall (**RTF 4.16x**); `scribe validate` valid; `scribe inspect` correct; imports into Slice 1 Player and **plays on the Tab E, user-confirmed** (listen-only; read-along is Slice 3).
+- Yellow Wallpaper stress (local-only, 6621 words): 2 chapters, 36:00 audio in 700.6 s wall (**RTF 3.08x**); 0 skipped, 0 failed; cover extracted; bundle validates.
+- Real-time factors recorded for slice close-out.
 ## SW0 engine spike (2026-10-01, laptop CPU, RTX 4050 present but unused)
 
 - Kokoro-82M via kokoro-onnx 0.6.1 + onnxruntime 1.23.2, voice af_heart: 23.3 s audio in 16.8 s wall over 5 varied sentences (narration, dialogue, abbreviations, ellipses, long) -> **RTF 1.38** (model load excluded).

@@ -67,18 +67,18 @@ Goal: play a bundle with the screen off.
 
 Goal: a real EPUB becomes a valid bundle.
 
-- [ ] EPUB parse and text cleaning (chapters, headings, paragraphs, italics)
-- [ ] Sentence splitting
-- [ ] Single narrator voice synthesis (Kokoro or Piper), sentence by sentence
-- [ ] Timing collection from one continuous buffer per chapter
-- [ ] CBR MP3 encoding with ffmpeg; manifest and chapter JSON written
-- [ ] `scribe validate` implemented
-- [ ] `scribe build book.epub` works end to end
+- [x] EPUB parse and text cleaning (chapters, headings, paragraphs, italics)
+- [x] Sentence splitting
+- [x] Single narrator voice synthesis (Kokoro or Piper), sentence by sentence
+- [x] Timing collection from one continuous buffer per chapter
+- [x] CBR MP3 encoding with ffmpeg; manifest and chapter JSON written
+- [x] `scribe validate` implemented
+- [x] `scribe build book.epub` works end to end
 
 **Done when:**
 
-- A short public-domain book converts without errors and passes validation
-- The bundle imports into the Player from Slice 1 and plays
+- [x] A short public-domain book converts without errors and passes validation
+- [x] The bundle imports into the Player from Slice 1 and plays
 
 ## Slice 3: Read-along (M)
 
