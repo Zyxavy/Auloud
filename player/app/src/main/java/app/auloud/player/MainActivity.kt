@@ -27,7 +27,7 @@ import app.auloud.player.data.RoomProgressRepository
 import app.auloud.player.library.LibraryScreen
 import app.auloud.player.library.LibraryViewModel
 import app.auloud.player.playback.PlayerScreen
-import app.auloud.player.reader.ReaderSpikeScreen
+import app.auloud.player.reader.ReaderPreviewScreen
 import app.auloud.player.settings.SettingsScreen
 import app.auloud.player.storage.BooksRootResolver
 import app.auloud.player.storage.BundleStorage
@@ -165,7 +165,7 @@ class MainActivity : ComponentActivity() {
                     // survives the switch, so return reconnects to the spot.
                     val selectedBook = state.books.firstOrNull { it.id == state.selectedBookId }
                     if (showSpike) {
-                        ReaderSpikeScreen(onBack = { showSpike = false })
+                        ReaderPreviewScreen(onBack = { showSpike = false })
                     } else if (showSettings) {
                         SettingsScreen(
                             onBack = { showSettings = false },

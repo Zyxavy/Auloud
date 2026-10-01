@@ -176,7 +176,7 @@ private fun WatchFolderRow(
     }
 }
 
-/** RA0 throwaway entry: opens the reader rendering spike (debug only). */
+/** RA4 temporary entry: previews the real reader screen (debug only). */
 @Composable
 private fun SpikeEntry(
     onClick: () -> Unit,
@@ -184,16 +184,16 @@ private fun SpikeEntry(
 ) {
     Column(modifier = modifier.padding(vertical = 8.dp)) {
         Text(
-            text = "Reader spike (RA0)",
+            text = "Reader preview (RA4)",
             style = MaterialTheme.typography.titleMedium
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            text = "Throwaway 5,000-sentence scroll test. Deleted after the RA0 decision.",
+            text = "Temporary look-check of the real reader. Wired to playback in RA7.",
             style = MaterialTheme.typography.bodyMedium
         )
         Spacer(Modifier.height(8.dp))
-        Button(onClick = onClick) { Text("Open spike") }
+        Button(onClick = onClick) { Text("Open preview") }
     }
 }
 /** Single WP8 entry: narrow scope passes only a click callback. */
