@@ -14,4 +14,133 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Sentence-audio cache keyed by hash (SW6). Stub: no feature code yet."""
+"""Sentence-audio cache: compressed files keyed by the full synth hash (SW6).
+
+Key = sha256(text, voice, speed, pitch, engine version); one FLAC file
+per key under the cache dir (``<key>.flac``). A hit returns the stored
+audio without touching the engine, so cast edits re-render only changed
+lines and crashed builds resume.
+
+Notes:
+
+- ``pitch`` is key-only in v1 (Slice 4 applies it with ``pyrubberband``);
+  changing it still invalidates, which is exactly what a later pitch-aware
+  build needs.
+- ``soundfile`` (BSD-3) needs system libsndfile; the bundled wheels ship
+  it (verified libsndfile 1.2.2 on Windows), so no separate install step.
+  If ``import soundfile`` ever fails, install the wheel's requirements and
+  re-run ``scribe doctor``.
+- Follow-up (not this slice): no size cap or eviction yet — a whole book
+  is a few thousand small FLACs, fine for v1; add LRU pruning if the
+  cache dir ever matters on disk.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from pathlib import Path
+
+import numpy as np
+
+from tts.base import TTSEngine
+
+#: Sentences longer than this fall back to comma/semicolon splitting.
+#: Why this value: ordinary prose sentences are ~100-300 characters, so
+#: 1000 chars (≈150-200 words, ≈1 min of audio) only ever catches run-on
+#: outliers; it keeps a single cache entry small and avoids one gigantic
+#: phonemize/ONNX call, while Kokoro's own 510-phoneme window still
+#: handles anything shorter internally. Documented, not tuned.
+MAX_SYNTH_CHARS = 1000
+
+_SPLIT_RE = re.compile(r"(?<=[,;])")
+
+
+def cache_key(
+    text: str, voice: str, speed: float, pitch: float, engine_version: str
+) -> str:
+    """Full-hash key over every input that can change the audio."""
+    canonical = "|".join(
+        [text, voice, repr(float(speed)), repr(float(pitch)), engine_version]
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def cache_path(cache_dir: Path | str, key: str) -> Path:
+    """File holding one cached sentence (compressed FLAC, lossless)."""
+    return Path(cache_dir) / f"{key}.flac"
+
+
+def split_long_sentence(text: str) -> list[str]:
+    """Split an over-long sentence on commas/semicolons (fallback).
+
+    Delimiters stay attached to the preceding clause; parts are stripped
+    and empties dropped. If there is no comma/semicolon to split on, the
+    text is returned whole — the engine's own phoneme chunker then owns
+    the length problem rather than this layer inventing word splits.
+    """
+    parts = [p.strip() for p in _SPLIT_RE.split(text)]
+    parts = [p for p in parts if p]
+    if len(parts) <= 1:
+        return [text]
+    return parts
+
+
+def _read_flac(path: Path, sample_rate: int) -> np.ndarray:
+    import soundfile as sf
+
+    data, file_rate = sf.read(str(path), dtype="float32", always_2d=False)
+    mono = np.asarray(data, dtype=np.float32)
+    if mono.ndim > 1:
+        mono = mono.mean(axis=1).astype(np.float32)
+    mono = mono.ravel().astype(np.float32, copy=False)
+    if int(file_rate) != int(sample_rate):
+        from tts.kokoro import resample_mono
+
+        mono = resample_mono(mono, int(file_rate), int(sample_rate))
+    return mono
+
+
+def get_or_synth(
+    engine: TTSEngine,
+    text: str,
+    voice: str,
+    speed: float,
+    pitch: float,
+    cache_dir: Path | str,
+) -> np.ndarray:
+    """Return sentence audio, synthesizing only on cache miss.
+
+    Empty/whitespace-only sentences return zero-length audio without
+    touching the engine (or the cache). Over-long sentences split via
+    :func:`split_long_sentence` and each clause is cached individually,
+    so a resumed build reuses the clauses it already rendered.
+    """
+    if not text.strip():
+        return np.zeros(0, dtype=np.float32)
+
+    if len(text) > MAX_SYNTH_CHARS:
+        parts = split_long_sentence(text)
+        if len(parts) > 1:
+            chunks = [
+                get_or_synth(engine, part, voice, speed, pitch, cache_dir)
+                for part in parts
+                if part.strip()
+            ]
+            if not chunks:
+                return np.zeros(0, dtype=np.float32)
+            return np.concatenate(chunks).astype(np.float32, copy=False)
+
+    key = cache_key(text, voice, speed, pitch, engine.engine_version)
+    path = cache_path(cache_dir, key)
+    if path.is_file():
+        return _read_flac(path, engine.sample_rate)
+
+    import soundfile as sf
+
+    audio = np.asarray(engine.synth(text, voice, speed), dtype=np.float32).ravel()
+    audio = audio.astype(np.float32, copy=False)
+    directory = Path(cache_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    sf.write(str(path), audio, engine.sample_rate, format="FLAC")
+    return audio
