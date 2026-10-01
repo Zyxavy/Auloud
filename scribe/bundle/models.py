@@ -14,4 +14,468 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Manifest/chapter/sentence dataclasses (SW2). Stub: no feature code yet."""
+"""Bundle dataclasses (SW2): manifest, chapter file, sentence, block, span.
+
+Shapes follow ``docs/03-BundleSpec.md`` sections 3-5. JSON keys are
+snake_case exactly as in the spec. Unknown JSON keys are ignored on parse
+(Player parity: ``ignoreUnknownKeys``), while missing required fields and
+wrong JSON types raise :class:`BundleError`.
+
+Semantic rules (speakers, sids, timings, audio, hashes) live in
+``bundle/validate.py``; this module only checks shape.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+
+class BundleError(ValueError):
+    """A bundle JSON file has invalid shape (missing field, wrong type)."""
+
+
+# ---------------------------------------------------------------------------
+# Small parsing helpers (shape only, no semantic rules)
+# ---------------------------------------------------------------------------
+
+
+def _require_str(data: dict[str, Any], key: str) -> str:
+    value = data.get(key)
+    if not isinstance(value, str):
+        raise BundleError(f"missing or invalid required field '{key}' (need string)")
+    return value
+
+
+def _require_int(data: dict[str, Any], key: str) -> int:
+    value = data.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise BundleError(f"missing or invalid required field '{key}' (need integer)")
+    return value
+
+
+def _optional_str(data: dict[str, Any], key: str) -> str | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise BundleError(f"invalid field '{key}' (need string)")
+    return value
+
+
+def _optional_int(data: dict[str, Any], key: str) -> int | None:
+    value = data.get(key)
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise BundleError(f"invalid field '{key}' (need integer)")
+    return value
+
+
+def _optional_float(data: dict[str, Any], key: str, default: float) -> float:
+    value = data.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise BundleError(f"invalid field '{key}' (need number)")
+    return float(value)
+
+
+def _optional_bool(data: dict[str, Any], key: str, default: bool) -> bool:
+    value = data.get(key, default)
+    if not isinstance(value, bool):
+        raise BundleError(f"invalid field '{key}' (need boolean)")
+    return value
+
+
+def _require_list(data: dict[str, Any], key: str) -> list[Any]:
+    value = data.get(key)
+    if not isinstance(value, list):
+        raise BundleError(f"missing or invalid required field '{key}' (need list)")
+    return value
+
+
+# ---------------------------------------------------------------------------
+# Manifest (spec section 3)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class AudioSpec:
+    """``manifest.audio``: fixed MP3 description (spec section 2)."""
+
+    format: str = "mp3"
+    channels: int = 1
+    sample_rate: int = 24000
+    bitrate_kbps: int = 64
+    cbr: bool = True
+
+    @classmethod
+    def from_dict(cls, data: Any) -> AudioSpec:
+        if not isinstance(data, dict):
+            raise BundleError("invalid field 'audio' (need object)")
+        audio = cls()
+        if "format" in data:
+            audio.format = _require_str(data, "format")
+        if "channels" in data:
+            audio.channels = _require_int(data, "channels")
+        if "sample_rate" in data:
+            audio.sample_rate = _require_int(data, "sample_rate")
+        if "bitrate_kbps" in data:
+            audio.bitrate_kbps = _require_int(data, "bitrate_kbps")
+        if "cbr" in data:
+            audio.cbr = _optional_bool(data, "cbr", True)
+        return audio
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "format": self.format,
+            "channels": self.channels,
+            "sample_rate": self.sample_rate,
+            "bitrate_kbps": self.bitrate_kbps,
+            "cbr": self.cbr,
+        }
+
+
+@dataclass
+class Voice:
+    """One entry of ``manifest.voices`` (speaker name -> engine voice)."""
+
+    engine: str = ""
+    voice: str = ""
+    speed: float = 1.0
+    pitch: float = 1.0
+
+    @classmethod
+    def from_dict(cls, data: Any) -> Voice:
+        if not isinstance(data, dict):
+            raise BundleError("invalid voice entry (need object)")
+        return cls(
+            engine=_optional_str(data, "engine") or "",
+            voice=_optional_str(data, "voice") or "",
+            speed=_optional_float(data, "speed", 1.0),
+            pitch=_optional_float(data, "pitch", 1.0),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "engine": self.engine,
+            "voice": self.voice,
+            "speed": self.speed,
+            "pitch": self.pitch,
+        }
+
+
+@dataclass
+class SourceInfo:
+    """``manifest.source``: original ebook file and its sha256."""
+
+    file: str | None = None
+    sha256: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: Any) -> SourceInfo:
+        if not isinstance(data, dict):
+            raise BundleError("invalid field 'source' (need object)")
+        return cls(file=_optional_str(data, "file"), sha256=_optional_str(data, "sha256"))
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if self.file is not None:
+            out["file"] = self.file
+        if self.sha256 is not None:
+            out["sha256"] = self.sha256
+        return out
+
+
+@dataclass
+class ChapterEntry:
+    """One entry of ``manifest.chapters`` (all fields required)."""
+
+    index: int
+    title: str
+    audio: str
+    text: str
+    duration_ms: int
+
+    @classmethod
+    def from_dict(cls, data: Any) -> ChapterEntry:
+        if not isinstance(data, dict):
+            raise BundleError("invalid chapter entry (need object)")
+        return cls(
+            index=_require_int(data, "index"),
+            title=_require_str(data, "title"),
+            audio=_require_str(data, "audio"),
+            text=_require_str(data, "text"),
+            duration_ms=_require_int(data, "duration_ms"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "index": self.index,
+            "title": self.title,
+            "audio": self.audio,
+            "text": self.text,
+            "duration_ms": self.duration_ms,
+        }
+
+
+@dataclass
+class Manifest:
+    """``manifest.json``. Required: spec_version, id, title, type, audio,
+    chapters. Everything else is optional (spec section 3)."""
+
+    spec_version: str
+    id: str
+    title: str
+    type: str
+    audio: AudioSpec
+    chapters: list[ChapterEntry] = field(default_factory=list)
+    author: str | None = None
+    language: str | None = None
+    source: SourceInfo | None = None
+    cover: str | None = None
+    voices: dict[str, Voice] = field(default_factory=dict)
+    created_at: str | None = None
+    generator: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: Any) -> Manifest:
+        if not isinstance(data, dict):
+            raise BundleError("manifest must be a JSON object")
+        audio_raw = data.get("audio")
+        if not isinstance(audio_raw, dict):
+            raise BundleError("missing or invalid required field 'audio' (need object)")
+        chapters_raw = _require_list(data, "chapters")
+        voices_raw = data.get("voices", {})
+        if not isinstance(voices_raw, dict):
+            raise BundleError("invalid field 'voices' (need object)")
+        voices: dict[str, Voice] = {}
+        for name, voice_raw in voices_raw.items():
+            voices[name] = Voice.from_dict(voice_raw)
+        source_raw = data.get("source")
+        return cls(
+            spec_version=_require_str(data, "spec_version"),
+            id=_require_str(data, "id"),
+            title=_require_str(data, "title"),
+            type=_require_str(data, "type"),
+            audio=AudioSpec.from_dict(audio_raw),
+            chapters=[ChapterEntry.from_dict(c) for c in chapters_raw],
+            author=_optional_str(data, "author"),
+            language=_optional_str(data, "language"),
+            source=SourceInfo.from_dict(source_raw) if source_raw is not None else None,
+            cover=_optional_str(data, "cover"),
+            voices=voices,
+            created_at=_optional_str(data, "created_at"),
+            generator=_optional_str(data, "generator"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "spec_version": self.spec_version,
+            "id": self.id,
+            "title": self.title,
+            "type": self.type,
+            "audio": self.audio.to_dict(),
+            "chapters": [c.to_dict() for c in self.chapters],
+        }
+        if self.author is not None:
+            out["author"] = self.author
+        if self.language is not None:
+            out["language"] = self.language
+        if self.source is not None:
+            out["source"] = self.source.to_dict()
+        if self.cover is not None:
+            out["cover"] = self.cover
+        if self.voices:
+            out["voices"] = {name: voice.to_dict() for name, voice in self.voices.items()}
+        if self.created_at is not None:
+            out["created_at"] = self.created_at
+        if self.generator is not None:
+            out["generator"] = self.generator
+        return out
+
+
+# ---------------------------------------------------------------------------
+# Chapter file (spec sections 4-5)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class Span:
+    """Inline formatting range: character offsets into the sentence text."""
+
+    start: int
+    end: int
+    style: str
+
+    @classmethod
+    def from_dict(cls, data: Any) -> Span:
+        if not isinstance(data, dict):
+            raise BundleError("invalid span entry (need object)")
+        return cls(
+            start=_require_int(data, "start"),
+            end=_require_int(data, "end"),
+            style=_require_str(data, "style"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"start": self.start, "end": self.end, "style": self.style}
+
+
+@dataclass
+class Sentence:
+    """One read-aloud sentence with its MP3 offsets (integer milliseconds)."""
+
+    sid: int
+    speaker: str
+    start_ms: int
+    end_ms: int
+    text: str
+    spans: list[Span] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: Any) -> Sentence:
+        if not isinstance(data, dict):
+            raise BundleError("invalid sentence entry (need object)")
+        spans_raw = data.get("spans", [])
+        if not isinstance(spans_raw, list):
+            raise BundleError("invalid field 'spans' (need list)")
+        return cls(
+            sid=_require_int(data, "sid"),
+            speaker=_require_str(data, "speaker"),
+            start_ms=_require_int(data, "start_ms"),
+            end_ms=_require_int(data, "end_ms"),
+            text=_require_str(data, "text"),
+            spans=[Span.from_dict(s) for s in spans_raw],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "sid": self.sid,
+            "speaker": self.speaker,
+            "start_ms": self.start_ms,
+            "end_ms": self.end_ms,
+            "text": self.text,
+        }
+        if self.spans:
+            out["spans"] = [s.to_dict() for s in self.spans]
+        return out
+
+
+BLOCK_TYPES = ("heading", "para", "quote", "break")
+
+
+@dataclass
+class Block:
+    """One chapter block (spec section 4 table)."""
+
+    id: int
+    type: str
+    level: int | None = None
+    text: str | None = None
+    sentences: list[Sentence] = field(default_factory=list)
+
+    @classmethod
+    def from_dict(cls, data: Any) -> Block:
+        if not isinstance(data, dict):
+            raise BundleError("invalid block entry (need object)")
+        block_type = _require_str(data, "type")
+        if block_type not in BLOCK_TYPES:
+            raise BundleError(f"invalid block type '{block_type}' (need one of {BLOCK_TYPES})")
+        sentences_raw = data.get("sentences", [])
+        if not isinstance(sentences_raw, list):
+            raise BundleError("invalid field 'sentences' (need list)")
+        return cls(
+            id=_require_int(data, "id"),
+            type=block_type,
+            level=_optional_int(data, "level"),
+            text=_optional_str(data, "text"),
+            sentences=[Sentence.from_dict(s) for s in sentences_raw],
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"id": self.id, "type": self.type}
+        if self.level is not None:
+            out["level"] = self.level
+        if self.text is not None:
+            out["text"] = self.text
+        if self.sentences:
+            out["sentences"] = [s.to_dict() for s in self.sentences]
+        return out
+
+
+@dataclass
+class PageEntry:
+    """One entry of a PDF page-sync chapter file (spec section 5)."""
+
+    page: int
+    start_ms: int
+
+    @classmethod
+    def from_dict(cls, data: Any) -> PageEntry:
+        if not isinstance(data, dict):
+            raise BundleError("invalid page entry (need object)")
+        return cls(page=_require_int(data, "page"), start_ms=_require_int(data, "start_ms"))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"page": self.page, "start_ms": self.start_ms}
+
+
+@dataclass
+class ChapterFile:
+    """``text/chNNN.json``: EPUB form (``blocks``) or PDF page-sync (``pages``)."""
+
+    spec_version: str
+    chapter: int
+    title: str
+    duration_ms: int
+    blocks: list[Block] | None = None
+    pages: list[PageEntry] | None = None
+
+    @classmethod
+    def from_dict(cls, data: Any) -> ChapterFile:
+        if not isinstance(data, dict):
+            raise BundleError("chapter file must be a JSON object")
+        blocks_raw = data.get("blocks")
+        pages_raw = data.get("pages")
+        if blocks_raw is None and pages_raw is None:
+            raise BundleError("chapter file needs 'blocks' (EPUB) or 'pages' (PDF sync)")
+        if blocks_raw is not None and pages_raw is not None:
+            raise BundleError("chapter file must not have both 'blocks' and 'pages'")
+        blocks = None
+        if blocks_raw is not None:
+            if not isinstance(blocks_raw, list):
+                raise BundleError("invalid field 'blocks' (need list)")
+            blocks = [Block.from_dict(b) for b in blocks_raw]
+        pages = None
+        if pages_raw is not None:
+            if not isinstance(pages_raw, list):
+                raise BundleError("invalid field 'pages' (need list)")
+            pages = [PageEntry.from_dict(p) for p in pages_raw]
+        return cls(
+            spec_version=_require_str(data, "spec_version"),
+            chapter=_require_int(data, "chapter"),
+            title=_require_str(data, "title"),
+            duration_ms=_require_int(data, "duration_ms"),
+            blocks=blocks,
+            pages=pages,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {
+            "spec_version": self.spec_version,
+            "chapter": self.chapter,
+            "title": self.title,
+            "duration_ms": self.duration_ms,
+        }
+        if self.blocks is not None:
+            out["blocks"] = [b.to_dict() for b in self.blocks]
+        if self.pages is not None:
+            out["pages"] = [p.to_dict() for p in self.pages]
+        return out
+
+    def sentences_in_order(self) -> list[Sentence]:
+        """All sentences in document order (across blocks)."""
+        ordered: list[Sentence] = []
+        for block in self.blocks or []:
+            ordered.extend(block.sentences)
+        return ordered
