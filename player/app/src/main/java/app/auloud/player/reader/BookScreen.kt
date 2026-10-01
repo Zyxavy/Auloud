@@ -33,6 +33,12 @@ import app.auloud.player.library.BookUiModel
 import app.auloud.player.playback.PlaybackController
 import app.auloud.player.playback.PlaybackService
 import app.auloud.player.playback.PlayerScreen
+import app.auloud.player.playback.SleepOption
+import app.auloud.player.playback.SleepTimerButton
+import app.auloud.player.playback.SpeedButton
+import app.auloud.player.playback.cycleSleepOption
+import app.auloud.player.playback.nextSpeed
+import app.auloud.player.playback.sendSleepOption
 import app.auloud.player.settings.PrefsReaderModeStore
 import app.auloud.player.settings.ReaderModeStore
 import app.auloud.player.storage.BundleStorage
@@ -108,6 +114,10 @@ private fun ReaderSession(
     val readerState by viewModel.state.collectAsState()
     val batteryStore = remember(appContext) { PrefsBatteryPromptStore.fromContext(appContext) }
     var showBatteryDialog by remember(book.id) { mutableStateOf(false) }
+    // RA8: speed + sleep timer (same controls as the Listen player).
+    val speedStore = remember(appContext) { PrefsReaderModeStore.fromContext(appContext) }
+    var speed by remember(book.id) { mutableStateOf(speedStore.playbackSpeed()) }
+    var sleepOption by remember(book.id) { mutableStateOf(SleepOption.Off) }
 
     LaunchedEffect(book.id) {
         val intent = Intent(appContext, PlaybackService::class.java)
@@ -193,6 +203,17 @@ private fun ReaderSession(
                     showBatteryDialog = true
                 }
                 controller.playOrRestart(playbackState)
+            },
+            speed = speed,
+            onSpeed = {
+                val next = nextSpeed(speed)
+                controller.setSpeed(next)
+                speed = next
+            },
+            sleepRemainingMs = playbackState.sleepRemainingMs,
+            onSleep = {
+                sleepOption = cycleSleepOption(sleepOption)
+                sendSleepOption(appContext, sleepOption)
             }
         )
     }
@@ -225,24 +246,38 @@ private fun resumePlayback(
     play()
 }
 
-/** Mode switcher + Play/Pause (compact; the reader keeps text maximal). */
+/** Mode switcher + Play/Pause + speed + sleep (compact; text stays maximal). */
 @Composable
 private fun ModeBar(
     mode: ReaderMode,
     isPlaying: Boolean,
     onMode: (ReaderMode) -> Unit,
     onPlayPause: () -> Unit,
+    speed: Float,
+    onSpeed: () -> Unit,
+    sleepRemainingMs: Long?,
+    onSleep: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth().padding(8.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Button(onClick = onPlayPause) { Text(if (isPlaying) "Pause" else "Play") }
-        ModeButton(label = "Read", selected = mode == ReaderMode.Read, onClick = { onMode(ReaderMode.Read) })
-        ModeButton(label = "Listen", selected = mode == ReaderMode.Listen, onClick = { onMode(ReaderMode.Listen) })
-        ModeButton(label = "Read + listen", selected = mode == ReaderMode.ReadListen, onClick = { onMode(ReaderMode.ReadListen) })
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(onClick = onPlayPause) { Text(if (isPlaying) "Pause" else "Play") }
+            SpeedButton(speed = speed, onClick = onSpeed)
+            SleepTimerButton(remainingMs = sleepRemainingMs, onClick = onSleep)
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ModeButton(label = "Read", selected = mode == ReaderMode.Read, onClick = { onMode(ReaderMode.Read) })
+            ModeButton(label = "Listen", selected = mode == ReaderMode.Listen, onClick = { onMode(ReaderMode.Listen) })
+            ModeButton(label = "Read + listen", selected = mode == ReaderMode.ReadListen, onClick = { onMode(ReaderMode.ReadListen) })
+        }
     }
 }
 

@@ -24,5 +24,7 @@ data class PlaybackState(
     val durationMs: Long = 0L,
     val chapterCount: Int = 0,
     val isConnected: Boolean = false,
-    val lastSaveWallMs: Long = 0L
+    val lastSaveWallMs: Long = 0L,
+    /** RA8: sleep timer remaining ms (null = off). Copied from the service snapshot. */
+    val sleepRemainingMs: Long? = null
 )

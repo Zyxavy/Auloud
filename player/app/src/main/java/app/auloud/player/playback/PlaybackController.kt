@@ -5,11 +5,13 @@ import android.content.Context
 import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import app.auloud.player.BuildConfig
+import app.auloud.player.settings.PrefsReaderModeStore
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CoroutineScope
@@ -106,6 +108,7 @@ class PlaybackController(
                 }
                 controller = resolved
                 resolved.addListener(listener)
+                syncSpeed()
                 refresh("connect")
                 startTicker()
             },
@@ -171,6 +174,32 @@ class PlaybackController(
     }
 
     /**
+     * RA8: playback speed (0.75x-2.0x, pitch preserved). Clamped, applied
+     * to the player when connected, and persisted globally; [connect]
+     * re-applies the saved speed because a fresh player starts at 1x.
+     */
+    fun setSpeed(speed: Float) {
+        val clamped = clampSpeed(speed)
+        PrefsReaderModeStore.fromContext(appContext).setPlaybackSpeed(clamped)
+        try {
+            controller?.setPlaybackParameters(
+                PlaybackParameters(clamped, 1.0f)
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "setSpeed apply: ${e.message}")
+        }
+    }
+
+    private fun syncSpeed() {
+        val saved = PrefsReaderModeStore.fromContext(appContext).playbackSpeed()
+        try {
+            controller?.setPlaybackParameters(PlaybackParameters(saved, 1.0f))
+        } catch (e: Exception) {
+            Log.w(TAG, "syncSpeed: ${e.message}")
+        }
+    }
+
+    /**
      * RA7 (D-028): Play on a finished book restarts from chapter 1 instead
      * of resuming the end. The seek persists via the service's seek save;
      * playback starts immediately.
@@ -208,7 +237,9 @@ class PlaybackController(
                 val c = controller ?: continue
                 // Cheap read; holder drops the update when nothing changed,
                 // so a paused screen costs no allocations/recompositions.
-                if (c.isPlaying) refresh("tick")
+                // An active sleep timer keeps ticking while paused so the
+                // remaining display stays live (one volatile read).
+                if (c.isPlaying || SleepTimerMonitor.active) refresh("tick")
             }
         }
     }
@@ -225,6 +256,8 @@ class PlaybackController(
                 durationMs = chapterDurationOf(c),
                 chapterCount = c.mediaItemCount.coerceAtLeast(0),
                 isConnected = true,
+                // RA8: sleep countdown copied from the service snapshot.
+                sleepRemainingMs = SleepTimerMonitor.remainingMs,
                 // WP9: the overlay's save time comes from the service's
                 // saver, never the UI clock. Gated so release behavior is
                 // unchanged (stays 0, overlay absent); a volatile read,

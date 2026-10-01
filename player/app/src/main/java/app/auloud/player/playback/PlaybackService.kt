@@ -102,6 +102,10 @@ class PlaybackService : MediaSessionService() {
     private var chapterDurations: List<Long> = emptyList()
     private var lastSaveUptimeMs: Long = 0L
 
+    /** RA8: sleep countdown (service-owned, survives UI closes). */
+    private val sleepTimer = SleepTimer()
+    private var sleepJob: Job? = null
+
     private val listener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             saveProgressNow("chapter-change")
@@ -200,6 +204,9 @@ class PlaybackService : MediaSessionService() {
                 Log.i(TAG, "onStartCommand already loaded bookId=$bookId")
             }
         }
+        // RA8: sleep timer command (independent of the book extra, so the
+        // timer can be set/cancelled without touching playback).
+        intent?.getStringExtra(EXTRA_SLEEP_OPTION)?.let { applySleepOption(it) }
         return super.onStartCommand(intent, flags, startId)
     }
 
@@ -367,6 +374,63 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    /**
+     * RA8: sleep timer command from the UI (`EXTRA_SLEEP_OPTION`, a
+     * [SleepOption] name). Runs a 1 s countdown job: fades the volume over
+     * the last seconds, then pauses and saves. Cancelling restores full
+     * volume. Survives UI closes (service-owned); the remaining time is
+     * published via [SleepTimerMonitor] for the controller to copy.
+     */
+    private fun applySleepOption(name: String) {
+        val option = try {
+            SleepOption.valueOf(name)
+        } catch (_: Exception) {
+            Log.w(TAG, "sleep timer: unknown option $name")
+            return
+        }
+        sleepJob?.cancel()
+        sleepJob = null
+        val player = session?.player
+        player?.volume = 1f
+        if (option == SleepOption.Off || player == null) {
+            sleepTimer.cancel()
+            SleepTimerMonitor.publish(active = false, remainingMs = null)
+            Log.i(TAG, "sleep timer: off")
+            return
+        }
+        sleepTimer.start(option, SystemClock.uptimeMillis())
+        Log.i(TAG, "sleep timer: $name")
+        sleepJob = serviceScope.launch {
+            while (isActive) {
+                delay(1_000L)
+                val current = session?.player ?: break
+                val chapter = current.currentMediaItemIndex
+                val duration = chapterDurations.getOrElse(chapter) { 0L }
+                val position = current.currentPosition.coerceAtLeast(0L)
+                val now = SystemClock.uptimeMillis()
+                if (sleepTimer.isExpired(now, position, duration)) {
+                    current.volume = 1f
+                    try {
+                        current.pause()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "sleep timer pause: ${e.message}")
+                    }
+                    saveProgressNow("sleep-timer")
+                    sleepTimer.cancel()
+                    SleepTimerMonitor.publish(active = false, remainingMs = null)
+                    Log.i(TAG, "sleep timer: expired, paused")
+                    break
+                }
+                current.volume = sleepTimer.fadeVolume(now, position, duration)
+                SleepTimerMonitor.publish(
+                    active = true,
+                    remainingMs = sleepTimer.remainingMs(now, position, duration)
+                )
+            }
+            sleepJob = null
+        }
+    }
+
     /** At the end of the final chapter: mark finished (last chapter, full duration). */
     private fun saveFinishedNow() {
         val player = session?.player ?: return
@@ -402,6 +466,9 @@ class PlaybackService : MediaSessionService() {
     companion object {
         /** `startService()` extra: manifest `id` of the book to load. */
         const val EXTRA_BOOK_ID = "app.auloud.player.extra.BOOK_ID"
+
+        /** RA8: `startService()` extra: a [SleepOption] name (timer command). */
+        const val EXTRA_SLEEP_OPTION = "app.auloud.player.extra.SLEEP_OPTION"
 
         private const val MANIFEST_FILE = "manifest.json"
 

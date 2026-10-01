@@ -38,6 +38,7 @@ import app.auloud.player.battery.BatteryPromptLogic
 import app.auloud.player.battery.BatterySettingsIntents
 import app.auloud.player.battery.PrefsBatteryPromptStore
 import app.auloud.player.library.BookUiModel
+import app.auloud.player.settings.PrefsReaderModeStore
 import coil.compose.AsyncImage
 
 /**
@@ -87,6 +88,11 @@ fun PlayerScreen(
     // verified without the device.
     val batteryStore = remember(appContext) { PrefsBatteryPromptStore.fromContext(appContext) }
     var showBatteryDialog by remember(book.id) { mutableStateOf(false) }
+    // RA8: speed + sleep timer (persisted speed, local timer cycle; the
+    // countdown lives in the service, its remaining arrives via state).
+    val speedStore = remember(appContext) { PrefsReaderModeStore.fromContext(appContext) }
+    var speed by remember(book.id) { mutableStateOf(speedStore.playbackSpeed()) }
+    var sleepOption by remember(book.id) { mutableStateOf(SleepOption.Off) }
 
     BackHandler { onBack() }
 
@@ -117,6 +123,17 @@ fun PlayerScreen(
         onSeek = controller::seekTo,
         onNext = controller::nextChapter,
         onPrevious = controller::previousChapter,
+        speed = speed,
+        onSpeed = {
+            val next = nextSpeed(speed)
+            controller.setSpeed(next)
+            speed = next
+        },
+        sleepRemainingMs = state.sleepRemainingMs,
+        onSleep = {
+            sleepOption = cycleSleepOption(sleepOption)
+            sendSleepOption(appContext, sleepOption)
+        },
         onBack = onBack,
         modifier = modifier
     )
@@ -144,6 +161,10 @@ private fun PlayerContent(
     onSeek: (Long) -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
+    speed: Float,
+    onSpeed: () -> Unit,
+    sleepRemainingMs: Long?,
+    onSleep: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -183,6 +204,15 @@ private fun PlayerContent(
             onNext = onNext,
             onPrevious = onPrevious
         )
+        // RA8: speed + sleep timer row (timings are media time: no sync impact).
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SpeedButton(speed = speed, onClick = onSpeed)
+            SleepTimerButton(remainingMs = sleepRemainingMs, onClick = onSleep)
+        }
         if (!state.isConnected) {
             Spacer(Modifier.height(16.dp))
             Text("Connecting…", style = MaterialTheme.typography.bodySmall)

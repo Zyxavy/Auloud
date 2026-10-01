@@ -23,7 +23,9 @@ data class ControllerSnapshot(
     val chapterCount: Int,
     val isConnected: Boolean,
     /** WP9: service-recorded save time; 0 in release. Defaults keep old call sites compiling. */
-    val lastSaveWallMs: Long = 0L
+    val lastSaveWallMs: Long = 0L,
+    /** RA8: sleep timer remaining ms (null = off). Copied, never computed, here. */
+    val sleepRemainingMs: Long? = null
 )
 
 /**
@@ -47,7 +49,8 @@ fun ControllerSnapshot.toPlaybackState(): PlaybackState {
         durationMs = duration,
         chapterCount = count,
         isConnected = isConnected,
-        lastSaveWallMs = lastSaveWallMs.coerceAtLeast(0L)
+        lastSaveWallMs = lastSaveWallMs.coerceAtLeast(0L),
+        sleepRemainingMs = sleepRemainingMs?.coerceAtLeast(0L)
     )
 }
 
@@ -147,6 +150,7 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
         val chapterTitle = snapshot.chapterTitle?.takeIf { it.isNotBlank() } ?: ""
         val bookTitle = snapshot.bookTitle?.takeIf { it.isNotBlank() } ?: ""
         val lastSave = snapshot.lastSaveWallMs.coerceAtLeast(0L)
+        val sleepRemaining = snapshot.sleepRemainingMs?.coerceAtLeast(0L)
         if (snapshot.isPlaying == cur.isPlaying &&
             index == cur.chapterIndex &&
             chapterTitle == cur.chapterTitle &&
@@ -155,7 +159,8 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
             duration == cur.durationMs &&
             count == cur.chapterCount &&
             snapshot.isConnected == cur.isConnected &&
-            lastSave == cur.lastSaveWallMs
+            lastSave == cur.lastSaveWallMs &&
+            sleepRemaining == cur.sleepRemainingMs
         ) {
             return
         }
@@ -168,7 +173,8 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
             durationMs = duration,
             chapterCount = count,
             isConnected = snapshot.isConnected,
-            lastSaveWallMs = lastSave
+            lastSaveWallMs = lastSave,
+            sleepRemainingMs = sleepRemaining
         )
     }
 
