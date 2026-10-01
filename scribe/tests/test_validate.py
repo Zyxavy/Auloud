@@ -20,7 +20,12 @@ Strategy: the shared ``spec/fixtures/`` bundles cover parse-level cases
 (valid manifest + chapters, bad JSON, missing field, missing MP3). The
 fixtures' MP3s are 0-byte placeholders, so audio probing is injected via
 the ``probe`` seam there; dedicated tests below exercise the real ffprobe
-path on MP3s generated with ffmpeg (skipped when ffmpeg is absent).
+path on MP3s generated with ffmpeg, plus stubbed-subprocess tests for the
+ffprobe output-parser branches (no real ffmpeg needed).
+
+An explicit environment test fails when ffmpeg/ffprobe are absent, so the
+per-test skips on the real-probe cases can never silently hide lost
+coverage.
 """
 
 from __future__ import annotations
@@ -305,6 +310,15 @@ def test_missing_audio_and_text_files_named(tmp_path: Path) -> None:
     joined = "\n".join(result.errors)
     assert "audio file missing audio/ch001.mp3" in joined
     assert "text file missing text/ch001.json" in joined
+
+
+def test_blank_audio_and_text_paths_rejected(tmp_path: Path) -> None:
+    root = write_ok_bundle(tmp_path)
+    _rewrite_manifest(root, lambda m: m["chapters"][0].update({"audio": "", "text": ""}))
+    result = validate_bundle(root, probe=make_probe())
+    joined = "\n".join(result.errors)
+    assert "missing required field 'audio' (blank)" in joined
+    assert "missing required field 'text' (blank)" in joined
 
 
 def test_cover_listed_but_missing(tmp_path: Path) -> None:
@@ -630,10 +644,126 @@ def test_probe_failure_is_an_error_not_a_crash(tmp_path: Path) -> None:
     root = write_ok_bundle(tmp_path)
 
     def _boom(path: Path) -> AudioProbe:
-        raise AudioProbeError("no audio stream found")
+        raise AudioProbeError("ffprobe failed: simulated outage")
 
     result = validate_bundle(root, probe=_boom)
     assert any("ffprobe failed" in e for e in result.errors)
+
+
+# ---------------------------------------------------------------------------
+# ffprobe output parsing (stubbed subprocess: no real ffmpeg needed)
+# ---------------------------------------------------------------------------
+
+
+def _stub_ffprobe(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    info: str,
+    packets: str | None = None,
+    timeout_on: str | None = None,
+) -> list[list[str]]:
+    """Fake ffprobe: stub which() and subprocess.run; return captured argv."""
+    monkeypatch.setattr(shutil, "which", lambda _name: r"C:\fake\ffprobe.exe")
+    calls: list[list[str]] = []
+
+    def _fake_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append(list(cmd))
+        is_packets = "packet=size" in " ".join(cmd)
+        if (timeout_on == "packets") == is_packets and timeout_on is not None:
+            raise subprocess.TimeoutExpired(cmd, 60)
+        if is_packets:
+            payload = packets if packets is not None else json.dumps(
+                {"packets": [{"size": "192"}] * 8}
+            )
+        else:
+            payload = info
+        return subprocess.CompletedProcess(
+            args=cmd, returncode=0, stdout=payload, stderr=""
+        )
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    return calls
+
+
+def _info_stdout(stream: dict[str, Any], fmt: dict[str, Any]) -> str:
+    return json.dumps({"streams": [stream], "format": fmt})
+
+
+def test_probe_falls_back_to_format_bitrate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    info = _info_stdout(
+        {"codec_name": "mp3", "channels": 1, "sample_rate": "24000"},
+        {"duration": "3.000000", "bit_rate": "65653"},
+    )
+    _stub_ffprobe(monkeypatch, info=info)
+    probe = probe_audio_ffprobe(Path("audio/ch001.mp3"))
+    assert probe.bit_rate_bps == 65653
+    assert probe.bit_rate_from_stream is False
+    assert probe.duration_ms == 3000
+
+
+@pytest.mark.parametrize("duration", ["N/A", None])
+def test_probe_missing_duration_is_none(
+    monkeypatch: pytest.MonkeyPatch, duration: str | None
+) -> None:
+    fmt: dict[str, Any] = {"bit_rate": "64000"}
+    if duration is not None:
+        fmt["duration"] = duration
+    info = _info_stdout(
+        {"codec_name": "mp3", "channels": 1, "sample_rate": "24000", "bit_rate": "64000"},
+        fmt,
+    )
+    _stub_ffprobe(monkeypatch, info=info)
+    assert probe_audio_ffprobe(Path("audio/ch001.mp3")).duration_ms is None
+
+
+def test_probe_missing_channels_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    info = _info_stdout(
+        {"codec_name": "mp3", "sample_rate": "24000", "bit_rate": "64000"},
+        {"duration": "3.0", "bit_rate": "64000"},
+    )
+    _stub_ffprobe(monkeypatch, info=info)
+    with pytest.raises(AudioProbeError, match="channels"):
+        probe_audio_ffprobe(Path("audio/ch001.mp3"))
+
+
+def test_probe_no_audio_stream_with_rc0_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _stub_ffprobe(monkeypatch, info=json.dumps({"streams": [], "format": {}}))
+    with pytest.raises(AudioProbeError, match="no audio stream"):
+        probe_audio_ffprobe(Path("audio/ch001.mp3"))
+
+
+@pytest.mark.parametrize("timeout_on", ["info", "packets"])
+def test_probe_timeout_has_install_help(
+    monkeypatch: pytest.MonkeyPatch, timeout_on: str
+) -> None:
+    info = _info_stdout(
+        {"codec_name": "mp3", "channels": 1, "sample_rate": "24000", "bit_rate": "64000"},
+        {"duration": "3.0", "bit_rate": "64000"},
+    )
+    _stub_ffprobe(monkeypatch, info=info, timeout_on=timeout_on)
+    with pytest.raises(AudioProbeError) as excinfo:
+        probe_audio_ffprobe(Path("audio/ch001.mp3"))
+    assert "timed out" in str(excinfo.value)
+    assert "winget install ffmpeg" in str(excinfo.value)
+
+
+def test_unknown_mp3_duration_is_an_error(tmp_path: Path) -> None:
+    root = write_ok_bundle(tmp_path)
+    unknown = AudioProbe(
+        codec="mp3",
+        channels=1,
+        sample_rate=24000,
+        bit_rate_bps=64000,
+        bit_rate_from_stream=True,
+        duration_ms=None,
+        cbr_frames=True,
+    )
+    result = validate_bundle(root, probe=lambda _path: unknown)
+    assert any("could not determine MP3 duration" in e for e in result.errors)
 
 
 def test_garbage_mp3_fails_with_real_ffprobe(tmp_path: Path) -> None:
@@ -650,7 +780,26 @@ def test_garbage_mp3_fails_with_real_ffprobe(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _encode_mp3(out: Path, *, seconds: int = 3, args: list[str] | None = None) -> None:
+def test_ffmpeg_and_ffprobe_are_on_path() -> None:
+    """Environment precondition: fail (do not skip) when binaries are absent.
+
+    The real-probe tests below skip individually without ffmpeg/ffprobe;
+    this test makes that loss of coverage loud instead of silent.
+    """
+    missing = [name for name in ("ffmpeg", "ffprobe") if shutil.which(name) is None]
+    assert not missing, (
+        f"missing on PATH: {', '.join(missing)} — install with "
+        "'winget install ffmpeg'; real-probe tests would silently skip without them"
+    )
+
+
+def _encode_mp3(
+    out: Path,
+    *,
+    seconds: int = 3,
+    src: str = "anullsrc=r=24000:cl=mono",
+    args: list[str] | None = None,
+) -> None:
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         pytest.skip("ffmpeg not on PATH")
@@ -662,7 +811,7 @@ def _encode_mp3(out: Path, *, seconds: int = 3, args: list[str] | None = None) -
         "-f",
         "lavfi",
         "-i",
-        "anullsrc=r=24000:cl=mono",
+        src,
         "-t",
         str(seconds),
         "-c:a",
@@ -703,12 +852,16 @@ def test_real_stereo_mp3_fails_channels(tmp_path: Path) -> None:
     assert any("channels 2" in e for e in result.errors)
 
 
-def test_real_vbr_mp3_fails_bitrate(tmp_path: Path) -> None:
+def test_real_vbr_mp3_fails_bitrate_and_cbr_frames(tmp_path: Path) -> None:
     mp3 = tmp_path / "ch001.mp3"
-    _encode_mp3(mp3, args=["-q:a", "4"])
+    # A tone (not silence) under VBR varies frame sizes, tripping the
+    # frame-constancy check as well as the average-bitrate check.
+    _encode_mp3(mp3, src="sine=frequency=440:sample_rate=24000", args=["-q:a", "4"])
+    assert probe_audio_ffprobe(mp3).cbr_frames is False
     root = tmp_path / "bundle"
     write_ok_bundle(root)
     (root / "audio" / "ch001.mp3").write_bytes(mp3.read_bytes())
     result = validate_bundle(root)  # real ffprobe, no stub
     joined = "\n".join(result.errors)
-    assert "bitrate" in joined or "CBR" in joined, joined
+    assert "average bitrate" in joined, joined
+    assert "MP3 frames vary in size" in joined, joined

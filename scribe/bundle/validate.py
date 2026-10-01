@@ -76,7 +76,30 @@ class AudioProbe:
 
 
 class AudioProbeError(Exception):
-    """ffprobe is missing, the file is unreadable, or has no audio stream."""
+    """ffprobe is missing, the file is unreadable, or has no audio stream.
+
+    Every message starts with ``ffprobe`` so callers can report it bare
+    (``<file>: <message>``) with a single unified prefix.
+    """
+
+
+def _run_ffprobe(ffprobe: str, args: list[str], timeout_s: int) -> subprocess.CompletedProcess[str]:
+    """Run one ffprobe command; map OS/timeout failures to AudioProbeError."""
+    try:
+        return subprocess.run(
+            [ffprobe, *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        # TimeoutExpired is not an OSError, so it needs its own handler.
+        raise AudioProbeError(
+            f"ffprobe failed: timed out after {timeout_s}s ({FFPROBE_HELP})"
+        ) from exc
+    except OSError as exc:
+        raise AudioProbeError(f"ffprobe failed: could not run ffprobe: {exc}") from exc
 
 
 def probe_audio_ffprobe(path: Path) -> AudioProbe:
@@ -84,29 +107,23 @@ def probe_audio_ffprobe(path: Path) -> AudioProbe:
     ffprobe = shutil.which("ffprobe")
     if ffprobe is None:
         raise AudioProbeError(f"ffprobe not found on PATH ({FFPROBE_HELP})")
-    try:
-        info_raw = subprocess.run(
-            [
-                ffprobe,
-                "-v",
-                "error",
-                "-select_streams",
-                "a:0",
-                "-show_entries",
-                "stream=codec_name,channels,sample_rate,bit_rate",
-                "-show_entries",
-                "format=duration,bit_rate",
-                "-of",
-                "json",
-                str(path),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-            check=False,
-        )
-    except OSError as exc:
-        raise AudioProbeError(f"could not run ffprobe: {exc}") from exc
+    info_raw = _run_ffprobe(
+        ffprobe,
+        [
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "stream=codec_name,channels,sample_rate,bit_rate",
+            "-show_entries",
+            "format=duration,bit_rate",
+            "-of",
+            "json",
+            str(path),
+        ],
+        60,
+    )
     if info_raw.returncode != 0:
         detail = (info_raw.stderr or "").strip().splitlines()
         raise AudioProbeError(f"ffprobe failed: {detail[0] if detail else 'unknown error'}")
@@ -116,14 +133,14 @@ def probe_audio_ffprobe(path: Path) -> AudioProbe:
         raise AudioProbeError(f"ffprobe output not JSON: {exc}") from exc
     streams = info.get("streams", [])
     if not streams:
-        raise AudioProbeError("no audio stream found")
+        raise AudioProbeError("ffprobe found no audio stream")
     stream = streams[0]
     fmt = info.get("format", {})
     try:
         channels = int(stream["channels"])
         sample_rate = int(stream["sample_rate"])
     except (KeyError, TypeError, ValueError) as exc:
-        raise AudioProbeError(f"unreadable stream info: {exc}") from exc
+        raise AudioProbeError(f"ffprobe stream info unreadable: {exc}") from exc
     bit_rate: int | None = None
     from_stream = False
     for source, is_stream in ((stream.get("bit_rate"), True), (fmt.get("bit_rate"), False)):
@@ -158,29 +175,23 @@ def _check_cbr_frames(ffprobe: str, path: Path) -> bool:
     frames vary widely. Raises :class:`AudioProbeError` when sizes cannot
     be read at all.
     """
-    try:
-        packets_raw = subprocess.run(
-            [
-                ffprobe,
-                "-v",
-                "error",
-                "-select_streams",
-                "a:0",
-                "-show_entries",
-                "packet=size",
-                "-of",
-                "json",
-                str(path),
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
-            check=False,
-        )
-    except OSError as exc:
-        raise AudioProbeError(f"could not run ffprobe: {exc}") from exc
+    packets_raw = _run_ffprobe(
+        ffprobe,
+        [
+            "-v",
+            "error",
+            "-select_streams",
+            "a:0",
+            "-show_entries",
+            "packet=size",
+            "-of",
+            "json",
+            str(path),
+        ],
+        120,
+    )
     if packets_raw.returncode != 0:
-        raise AudioProbeError("ffprobe could not read audio packets")
+        raise AudioProbeError("ffprobe failed: could not read audio packets")
     try:
         packets = json.loads(packets_raw.stdout).get("packets", [])
         sizes = [int(p["size"]) for p in packets]
@@ -302,6 +313,14 @@ def _validate_manifest_declarations(manifest: Manifest, result: ValidationResult
         if not entry.title.strip():
             result.errors.append(
                 f"manifest.json: chapter {entry.index} missing required field 'title' (blank)"
+            )
+        if not entry.audio.strip():
+            result.errors.append(
+                f"manifest.json: chapter {entry.index} missing required field 'audio' (blank)"
+            )
+        if not entry.text.strip():
+            result.errors.append(
+                f"manifest.json: chapter {entry.index} missing required field 'text' (blank)"
             )
         if entry.duration_ms <= 0:
             result.errors.append(
@@ -544,7 +563,8 @@ def _validate_audio(
     try:
         probe = probe_fn(path)
     except AudioProbeError as exc:
-        result.errors.append(f"{label}: ffprobe failed: {exc}")
+        # AudioProbeError messages already start with "ffprobe"; report bare.
+        result.errors.append(f"{label}: {exc}")
         return
     except Exception as exc:  # test stubs must not crash validation
         result.errors.append(f"{label}: audio probe failed: {exc}")
