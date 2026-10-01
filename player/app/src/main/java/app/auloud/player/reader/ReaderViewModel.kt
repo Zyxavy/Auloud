@@ -1,6 +1,7 @@
 package app.auloud.player.reader
 
 import app.auloud.player.bundle.ChapterTextLoader
+import app.auloud.player.bundle.ChapterTextPdfForm
 import app.auloud.player.bundle.ChapterTextUnavailable
 import app.auloud.player.playback.PlaybackState
 import app.auloud.player.storage.BundleStorage
@@ -210,6 +211,7 @@ class ReaderViewModel(
             positionMs = positionMs,
             isTextLoading = true,
             textError = null,
+            textKind = null,
             lagAvgMs = null,
             lagMaxMs = null
         )
@@ -238,6 +240,7 @@ class ReaderViewModel(
                         positionMs = position,
                         isTextLoading = false,
                         textError = null,
+                        textKind = null,
                         lagAvgMs = null,
                         lagMaxMs = null
                     )
@@ -249,7 +252,12 @@ class ReaderViewModel(
                         chapter = null,
                         currentSid = null,
                         isTextLoading = false,
-                        textError = error.message ?: "text unavailable"
+                        textError = error.message ?: "text unavailable",
+                        textKind = when (error) {
+                            is ChapterTextPdfForm -> TextKind.PdfForm
+                            is ChapterTextUnavailable -> TextKind.Missing
+                            else -> TextKind.Corrupt
+                        }
                     )
                 }
             )

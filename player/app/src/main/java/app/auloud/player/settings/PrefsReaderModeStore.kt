@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import app.auloud.player.playback.DEFAULT_SPEED
 import app.auloud.player.playback.clampSpeed
+import app.auloud.player.reader.ReaderFontSize
 import app.auloud.player.reader.ReaderMode
 
 /**
@@ -41,11 +42,24 @@ class PrefsReaderModeStore(
         prefs.edit().putFloat(KEY_SPEED, clampSpeed(speed)).apply()
     }
 
+    override fun fontSize(): ReaderFontSize {
+        return try {
+            ReaderFontSize.valueOf(prefs.getString(KEY_FONT_SIZE, null) ?: "")
+        } catch (_: Exception) {
+            ReaderFontSize.Medium
+        }
+    }
+
+    override fun setFontSize(size: ReaderFontSize) {
+        prefs.edit().putString(KEY_FONT_SIZE, size.name).apply()
+    }
+
     companion object {
         const val PREFS_NAME = "auloud_settings"
         const val KEY_MODE = "reader_mode"
         const val KEY_KEEP_SCREEN_ON = "reader_keep_screen_on"
         const val KEY_SPEED = "playback_speed"
+        const val KEY_FONT_SIZE = "reader_font_size"
 
         fun fromContext(context: Context): PrefsReaderModeStore =
             PrefsReaderModeStore(

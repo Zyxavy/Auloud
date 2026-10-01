@@ -99,7 +99,11 @@ fun ReaderScreen(
             }
             state.textError != null -> {
                 Text(
-                    text = "Text unavailable for this chapter",
+                    text = if (state.textKind == TextKind.PdfForm) {
+                        "Reading arrives later — listening still works"
+                    } else {
+                        "Text unavailable for this chapter"
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.padding(16.dp)
                 )

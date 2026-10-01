@@ -82,4 +82,16 @@ class ParagraphLayoutTest {
         assertTrue(layout.sentences.isEmpty())
         assertTrue(layout.italics.isEmpty())
     }
+
+    @Test
+    fun whitespaceOnlySentences_joinWithoutCrashing() {
+        val block = Block(1, "para", sentences = listOf(
+            sentence(1, "   "),
+            sentence(2, "Words. ")
+        ))
+        val layout = layoutParagraph(block)
+        assertEquals("   Words. ", layout.text)
+        assertEquals(2, layout.sentences.size)
+        assertEquals(SentenceRange(1, 0, 3), layout.sentences[0])
+    }
 }

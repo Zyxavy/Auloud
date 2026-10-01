@@ -1,5 +1,6 @@
 package app.auloud.player.settings
 
+import app.auloud.player.reader.ReaderFontSize
 import app.auloud.player.reader.ReaderMode
 import app.auloud.player.storage.FakeSharedPreferences
 import org.junit.Assert.assertEquals
@@ -59,5 +60,18 @@ class PrefsReaderModeStoreTest {
         val prefs = FakeSharedPreferences()
         prefs.edit().putFloat(PrefsReaderModeStore.KEY_SPEED, Float.NaN).apply()
         assertEquals(1.0f, PrefsReaderModeStore(prefs).playbackSpeed(), 0f)
+    }
+
+    @Test
+    fun fontSize_defaultsRoundTripsAndFallsBack() {
+        val store = PrefsReaderModeStore(FakeSharedPreferences())
+        assertEquals(ReaderFontSize.Medium, store.fontSize())
+        ReaderFontSize.entries.forEach { size ->
+            store.setFontSize(size)
+            assertEquals(size, store.fontSize())
+        }
+        val prefs = FakeSharedPreferences()
+        prefs.edit().putString(PrefsReaderModeStore.KEY_FONT_SIZE, "Huge").apply()
+        assertEquals(ReaderFontSize.Medium, PrefsReaderModeStore(prefs).fontSize())
     }
 }

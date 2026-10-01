@@ -117,6 +117,9 @@ private fun ReaderSession(
         )
     }
     val readerState by viewModel.state.collectAsState()
+    // RA10: font size is a persisted setting, read once per session (the
+    // session remounts when returning from Settings, so changes apply).
+    val fontSize = remember(book.id) { modeStore.fontSize() }
     val batteryStore = remember(appContext) { PrefsBatteryPromptStore.fromContext(appContext) }
     var showBatteryDialog by remember(book.id) { mutableStateOf(false) }
     // RA8: speed + sleep timer (same controls as the Listen player).
@@ -188,6 +191,7 @@ private fun ReaderSession(
         ReaderScreen(
             state = readerState,
             onBack = onBack,
+            fontSize = fontSize,
             onUserScroll = viewModel::onUserScrolled,
             onBackToNow = viewModel::onBackToNow,
             onSentenceTap = viewModel::onSentenceTap,

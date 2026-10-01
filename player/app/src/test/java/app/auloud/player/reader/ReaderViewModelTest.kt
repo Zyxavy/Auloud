@@ -196,9 +196,52 @@ class ReaderViewModelTest {
             while (state.textError == null) state = awaitItem()
             assertNull(state.chapter)
             assertNull(state.currentSid)
+            assertEquals(TextKind.Missing, state.textKind)
             assertTrue(state.textError?.contains("ch001") == true)
             vm.setMode(ReaderMode.Read)
             assertEquals(ReaderMode.Read, awaitItem().mode)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun loadFailurePdf_reportsPdfForm() = runBlocking {
+        val payload = """{"spec_version": "1.0", "chapter": 1, "title": "P",
+            "duration_ms": 1000, "pages": [{"page": 1, "start_ms": 0}]}"""
+        val vm = viewModel(playback(), mapOf("text/ch001.json" to payload))
+        vm.collectTest {
+            var state = awaitItem()
+            while (state.textError == null) state = awaitItem()
+            assertEquals(TextKind.PdfForm, state.textKind)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun loadFailureCorrupt_reportsCorrupt() = runBlocking {
+        val vm = viewModel(playback(), mapOf("text/ch001.json" to "{ not json"))
+        vm.collectTest {
+            var state = awaitItem()
+            while (state.textError == null) state = awaitItem()
+            assertEquals(TextKind.Corrupt, state.textKind)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun headingOnlyChapter_loadsWithNullHighlight() = runBlocking {
+        val payload = """{"spec_version": "1.0", "chapter": 1, "title": "Part One",
+            "duration_ms": 800,
+            "blocks": [{"id": 1, "type": "heading", "level": 1,
+            "sentences": [{"sid": 1, "speaker": "narrator",
+            "start_ms": 0, "end_ms": 800, "text": "Part One "}]}]}"""
+        val vm = viewModel(playback(), mapOf("text/ch001.json" to payload))
+        vm.collectTest {
+            var state = awaitItem()
+            while (state.chapter == null && state.textError == null) state = awaitItem()
+            assertEquals("Part One", state.chapter?.title)
+            assertEquals(1, state.currentSid)
+            assertEquals(null, state.textKind)
             cancelAndIgnoreRemainingEvents()
         }
     }

@@ -1,5 +1,6 @@
 package app.auloud.player.settings
 
+import app.auloud.player.reader.ReaderFontSize
 import app.auloud.player.reader.ReaderMode
 
 /**
@@ -19,4 +20,8 @@ interface ReaderModeStore {
     /** RA8: global playback speed (0.75x-2.0x). */
     fun playbackSpeed(): Float
     fun setPlaybackSpeed(speed: Float)
+
+    /** RA10: reader font size. */
+    fun fontSize(): ReaderFontSize
+    fun setFontSize(size: ReaderFontSize)
 }

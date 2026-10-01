@@ -44,8 +44,21 @@ data class ReaderState(
      * first change after a chapter load. Debug overlay only.
      */
     val lagAvgMs: Long? = null,
-    val lagMaxMs: Long? = null
+    val lagMaxMs: Long? = null,
+    /**
+     * RA10: why the text is absent (null when text is loaded or loading).
+     * The screen renders per-kind messaging; the controls stay usable in
+     * every case.
+     */
+    val textKind: TextKind? = null
 )
+
+/** Missing file, corrupt content, or a PDF form that reads later. */
+enum class TextKind {
+    Missing,
+    Corrupt,
+    PdfForm
+}
 
 /** Follow-state machine inputs (RA5 owns the scroll source; RA6 the jump). */
 sealed interface FollowEvent {

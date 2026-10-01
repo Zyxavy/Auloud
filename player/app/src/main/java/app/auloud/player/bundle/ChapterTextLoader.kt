@@ -23,8 +23,11 @@ import kotlinx.serialization.json.jsonObject
  *
  * API 24 safe: `java.io` + kotlinx.serialization only.
  */
-class ChapterTextUnavailable(message: String, cause: Throwable? = null) :
+open class ChapterTextUnavailable(message: String, cause: Throwable? = null) :
     IOException(message, cause)
+
+/** RA10: PDF page-sync chapter — reading arrives later, listening works. */
+class ChapterTextPdfForm(message: String) : ChapterTextUnavailable(message)
 
 class ChapterTextInvalid(message: String, cause: Throwable? = null) :
     IllegalArgumentException(message, cause)
@@ -66,7 +69,7 @@ object ChapterTextLoader {
         }
         if (root.containsKey("pages") && !root.containsKey("blocks")) {
             return Result.failure(
-                ChapterTextUnavailable(
+                ChapterTextPdfForm(
                     "$textPath: PDF page-sync chapter " +
                         "(reader not available for this book yet)"
                 )
