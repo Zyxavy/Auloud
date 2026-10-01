@@ -20,3 +20,9 @@ captures/
 # Signing keys (never commit)
 *.jks
 *.keystore
+
+# Scribe generated: never commit (SW11) — bundles, work folders, models.
+# Yellow Wallpaper stress-test artifacts live here locally, untracked.
+bundles/
+.scribe/
+models/
