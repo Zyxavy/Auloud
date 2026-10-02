@@ -33,7 +33,7 @@ In-app: add a "Licenses" screen listing these (a Gradle license plugin can gener
 | PyMuPDF | AGPL-3.0 (commercial license available) | Same AGPL consideration. Alternative: `pypdf`/`pdfminer.six` (permissive) if you want to avoid it. | \[ \] |
 | beautifulsoup4, lxml | MIT, BSD-3 |  | \[ \] |
 | pysbd | MIT |  | \[ \] |
-| spaCy, `en_core_web_sm` | MIT | Check the model card for data notes | \[ \] |
+| spaCy, `en_core_web_sm` | MIT | spacy 3.8.16 + en-core-web-sm 3.8.0 (installed METADATA says MIT for both; transitives MIT/BSD/Apache-2.0, tqdm dual MPL-2.0 AND MIT, nothing GPL). Model pinned by wheel URL in `scribe/pyproject.toml` + `uv.lock` (not on PyPI); `scribe doctor` checks present + version and proves a parse. | \[x\] |
 | PyYAML, numpy, typer, rich, pytest | MIT/BSD |  | \[ \] |
 | soundfile | BSD-3 | Uses libsndfile (LGPL) | \[ \] |
 | pyrubberband (optional) | ISC | Uses Rubber Band (GPL, commercial option) | \[ \] |

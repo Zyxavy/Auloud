@@ -69,7 +69,7 @@ def resolve_model_paths(models_dir: Path | str = DEFAULT_MODEL_DIR) -> tuple[Pat
 
 
 class KokoroEngine(TTSEngine):
-    """ :class:`TTSEngine` backed by ``kokoro_onnx.Kokoro`` (D-023)."""
+    """:class:`TTSEngine` backed by ``kokoro_onnx.Kokoro`` (D-023)."""
 
     def __init__(self, model_path: Path | str, voices_path: Path | str) -> None:
         try:
@@ -91,6 +91,11 @@ class KokoroEngine(TTSEngine):
         return SAMPLE_RATE
 
     @property
+    def voices(self) -> tuple[str, ...]:
+        """Available voice ids, sorted (audition order for `scribe voices`)."""
+        return tuple(sorted(self._kokoro.voices))
+
+    @property
     def engine_version(self) -> str:
         try:
             pkg = importlib.metadata.version("kokoro-onnx")
@@ -101,12 +106,12 @@ class KokoroEngine(TTSEngine):
     def synth(self, text: str, voice: str = DEFAULT_VOICE, speed: float = 1.0) -> np.ndarray:
         """Synthesize one sentence with ``voice`` at ``speed`` (24 kHz mono)."""
         if not text.strip():
-            raise ValueError("KokoroEngine.synth needs non-empty text; "
-                             "use cache.get_or_synth for empty sentences.")
-        if voice not in self._kokoro.voices:
             raise ValueError(
-                f"Unknown Kokoro voice {voice!r} for this voices file."
+                "KokoroEngine.synth needs non-empty text; "
+                "use cache.get_or_synth for empty sentences."
             )
+        if voice not in self._kokoro.voices:
+            raise ValueError(f"Unknown Kokoro voice {voice!r} for this voices file.")
         audio, reported_rate = self._kokoro.create(text, voice, float(speed), LANG)
         mono = np.asarray(audio, dtype=np.float32).ravel()
         if int(reported_rate) != SAMPLE_RATE:
