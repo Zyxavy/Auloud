@@ -62,7 +62,12 @@ class ChapterSummary:
 class InspectResult:
     """Outcome of :func:`inspect_bundle` (everything :func:`format_inspect`
     prints). ``speakers`` maps each declared voice to its sentence count,
-    in manifest order, with any undeclared speakers appended."""
+    in manifest order, with any undeclared speakers appended. ``speaker_ms``
+    maps each speaker to its spoken milliseconds (sum of ``end_ms`` minus
+    ``start_ms`` across its sentences, MV8); ``speaker_low`` maps each
+    speaker to its low-confidence sentence count (from the ``confidence``
+    field when present — bundle JSON omits it by spec, so real bundles
+    report zero and tests supply it explicitly)."""
 
     bundle_dir: Path
     book_id: str
@@ -71,6 +76,8 @@ class InspectResult:
     total_duration_ms: int
     chapters: list[ChapterSummary] = field(default_factory=list)
     speakers: dict[str, int] = field(default_factory=dict)
+    speaker_ms: dict[str, int] = field(default_factory=dict)
+    speaker_low: dict[str, int] = field(default_factory=dict)
 
 
 def _read_json(path: Path, label: str, errors: list[str]) -> object | None:
@@ -113,6 +120,8 @@ def inspect_bundle(bundle_dir: Path | str) -> InspectResult:
         raise InspectError("; ".join(errors))
 
     speakers: dict[str, int] = {name: 0 for name in manifest.voices}
+    speaker_ms: dict[str, int] = {name: 0 for name in manifest.voices}
+    speaker_low: dict[str, int] = {name: 0 for name in manifest.voices}
     summaries: list[ChapterSummary] = []
     for entry in manifest.chapters:
         label = entry.text or f"chapter {entry.index}"
@@ -129,13 +138,20 @@ def inspect_bundle(bundle_dir: Path | str) -> InspectResult:
                     errors.append(f"{label}: {exc}")
         if chapter is not None and chapter.chapter != entry.index:
             errors.append(
-                f"{label}: chapter is {chapter.chapter}, "
-                f"manifest lists index {entry.index}"
+                f"{label}: chapter is {chapter.chapter}, manifest lists index {entry.index}"
             )
             chapter = None
         sentences = chapter.sentences_in_order() if chapter is not None else []
         for sentence in sentences:
             speakers[sentence.speaker] = speakers.get(sentence.speaker, 0) + 1
+            spoken = sentence.end_ms - sentence.start_ms
+            if spoken < 0:
+                spoken = 0
+            speaker_ms[sentence.speaker] = speaker_ms.get(sentence.speaker, 0) + spoken
+            if sentence.confidence == "low":
+                speaker_low[sentence.speaker] = speaker_low.get(sentence.speaker, 0) + 1
+            else:
+                speaker_low.setdefault(sentence.speaker, speaker_low.get(sentence.speaker, 0))
         title = chapter.title if chapter is not None else entry.title
         duration = entry.duration_ms
         summaries.append(
@@ -150,6 +166,9 @@ def inspect_bundle(bundle_dir: Path | str) -> InspectResult:
 
     if errors:
         raise InspectError("; ".join(errors))
+    for name in speakers:
+        speaker_ms.setdefault(name, 0)
+        speaker_low.setdefault(name, 0)
     return InspectResult(
         bundle_dir=root,
         book_id=manifest.id,
@@ -158,11 +177,18 @@ def inspect_bundle(bundle_dir: Path | str) -> InspectResult:
         total_duration_ms=sum(s.duration_ms for s in summaries),
         chapters=summaries,
         speakers=speakers,
+        speaker_ms=speaker_ms,
+        speaker_low=speaker_low,
     )
 
 
-def format_inspect(result: InspectResult) -> str:
-    """Render :class:`InspectResult` as human-readable lines."""
+def format_inspect(result: InspectResult, *, speakers_detail: bool = False) -> str:
+    """Render :class:`InspectResult` as human-readable lines.
+
+    :param speakers_detail: MV8 ``--speakers`` view: per-speaker lines and
+        spoken seconds (from timings) instead of plain sentence counts,
+        with low-confidence counts appended for speakers that have any.
+    """
     heading = result.title
     if result.author:
         heading += f" — {result.author}"
@@ -187,6 +213,17 @@ def format_inspect(result: InspectResult) -> str:
             lines.append("    (no sentences)")
     lines.append("speakers:")
     for name, count in result.speakers.items():
-        noun = "sentence" if count == 1 else "sentences"
-        lines.append(f"  {name}: {count} {noun}")
+        if not speakers_detail:
+            noun = "sentence" if count == 1 else "sentences"
+            lines.append(f"  {name}: {count} {noun}")
+            continue
+        ms = result.speaker_ms.get(name, 0)
+        seconds = ms / 1000.0
+        line_noun = "line" if count == 1 else "lines"
+        entry = f"  {name}: {count} {line_noun}, {seconds:.1f}s ({ms} ms)"
+        low = result.speaker_low.get(name, 0)
+        if low:
+            low_noun = "line" if low == 1 else "lines"
+            entry += f", {low} low-confidence {low_noun}"
+        lines.append(entry)
     return "\n".join(lines)

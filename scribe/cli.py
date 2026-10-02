@@ -454,6 +454,12 @@ def inspect(
         readable=True,
         help="Bundle directory to inspect.",
     ),
+    speakers: bool = typer.Option(
+        False,
+        "--speakers",
+        help="Per-speaker lines and spoken seconds (from timings), "
+        "with low-confidence counts where present.",
+    ),
 ) -> None:
     """Print chapters, speakers and sample sentences of a bundle."""
     from bundle.inspect import InspectError, format_inspect, inspect_bundle
@@ -463,7 +469,7 @@ def inspect(
     except InspectError as exc:
         typer.echo(f"inspect failed: {exc}", err=True)
         raise typer.Exit(code=1)
-    typer.echo(format_inspect(result))
+    typer.echo(format_inspect(result, speakers_detail=speakers))
 
 
 @app.command()

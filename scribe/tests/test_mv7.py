@@ -58,7 +58,8 @@ from build import (
     run_build,
 )
 from bundle.models import Block, ChapterFile, Sentence
-from bundle.writer import VOICE_PITCH, BundleWriteError
+from bundle.validate import validate_bundle
+from bundle.writer import VOICE_PITCH
 from draft import book_id_for_file, run_draft
 from text.cast import read_cast, write_cast
 from text.dialogue import split_paragraph_dialogue
@@ -112,11 +113,7 @@ class VoicesEngine(TTSEngine):
         self.calls.append((text, voice, float(speed)))
         # Deterministic across processes AND voice-sensitive (like a real
         # engine): the same text in another voice is different audio.
-        freq = (
-            440.0
-            + (len(text) % 5) * 110.0
-            + (sum(ord(char) for char in voice) % 7) * 13.0
-        )
+        freq = 440.0 + (len(text) % 5) * 110.0 + (sum(ord(char) for char in voice) % 7) * 13.0
         t = np.arange(2400, dtype=np.float64) / SR
         return (0.4 * np.sin(2 * np.pi * freq * t)).astype(np.float32)
 
@@ -230,11 +227,13 @@ def test_tag_pause_exact_offsets_mixed_voices() -> None:
                 id=2,
                 type="para",
                 sentences=[
-                    _sentence(1, '"Leave,"', kind="dialogue", speaker="Alice", pair=1,
-                              quote=_quote_key()),
+                    _sentence(
+                        1, '"Leave,"', kind="dialogue", speaker="Alice", pair=1, quote=_quote_key()
+                    ),
                     _sentence(2, " she said.", pair=1),
-                    _sentence(3, '"Later."', kind="dialogue", speaker="Bob",
-                              quote=_quote_key(quote=2)),
+                    _sentence(
+                        3, '"Later."', kind="dialogue", speaker="Bob", quote=_quote_key(quote=2)
+                    ),
                 ],
             )
         ],
@@ -279,8 +278,9 @@ def test_tag_pause_before_quote_exact_offsets() -> None:
                 type="para",
                 sentences=[
                     _sentence(1, "She said, ", pair=1),
-                    _sentence(2, '"Hi."', kind="dialogue", speaker="Alice", pair=1,
-                              quote=_quote_key()),
+                    _sentence(
+                        2, '"Hi."', kind="dialogue", speaker="Alice", pair=1, quote=_quote_key()
+                    ),
                 ],
             )
         ],
@@ -317,8 +317,9 @@ def test_assemble_deterministic_same_inputs_identical() -> None:
                 id=2,
                 type="para",
                 sentences=[
-                    _sentence(1, '"Hi,"', kind="dialogue", speaker="Alice", pair=1,
-                              quote=_quote_key()),
+                    _sentence(
+                        1, '"Hi,"', kind="dialogue", speaker="Alice", pair=1, quote=_quote_key()
+                    ),
                     _sentence(2, " she said.", pair=1),
                 ],
             )
@@ -326,11 +327,13 @@ def test_assemble_deterministic_same_inputs_identical() -> None:
     )
     voices = {1: "v_alice", 2: "v_narr"}
     first = assemble_chapter(
-        chapter, _const_synth({1: (SR, 0.3), 2: (SR // 2, 0.6)}),
+        chapter,
+        _const_synth({1: (SR, 0.3), 2: (SR // 2, 0.6)}),
         voice_of=lambda s: voices[s.sid],
     )
     second = assemble_chapter(
-        chapter, _const_synth({1: (SR, 0.3), 2: (SR // 2, 0.6)}),
+        chapter,
+        _const_synth({1: (SR, 0.3), 2: (SR // 2, 0.6)}),
         voice_of=lambda s: voices[s.sid],
     )
     assert np.array_equal(first.pcm, second.pcm)  # bit-identical audio
@@ -392,16 +395,14 @@ def test_resolve_narration_takes_narrator() -> None:
 
 
 def test_resolve_character_voice_and_speed() -> None:
-    sentence = _sentence(2, '"Hello,"', kind="dialogue", speaker="Alice",
-                         quote=_quote_key())
+    sentence = _sentence(2, '"Hello,"', kind="dialogue", speaker="Alice", quote=_quote_key())
     resolved = _resolve(_cast(), sentence)
     assert (resolved.character, resolved.voice, resolved.speed) == ("Alice", "v_alice", 1.1)
 
 
 def test_resolve_unknown_speaker_falls_to_generic_never_crashes() -> None:
     for raw in ("unknown", "", "  ", "Some Stranger"):
-        sentence = _sentence(2, '"Hm."', kind="dialogue", speaker=raw,
-                             quote=_quote_key())
+        sentence = _sentence(2, '"Hm."', kind="dialogue", speaker=raw, quote=_quote_key())
         resolved = _resolve(_cast(), sentence)
         assert resolved.character in ("default_female", "default_male")
         assert resolved.voice in ("v_fem", "v_male")
@@ -415,25 +416,23 @@ def test_gender_hint_rederived_at_build_no_stored_hint() -> None:
     alone, with no spaCy and no ``script.json`` shape change.
     """
     cast = _cast()
-    male = _sentence(2, '"I agree."', kind="dialogue", speaker="Robert",
-                     quote=_quote_key())
+    male = _sentence(2, '"I agree."', kind="dialogue", speaker="Robert", quote=_quote_key())
     assert _resolve(cast, male).character == "default_male"
-    unknown = _sentence(3, '"Bare line."', kind="dialogue", speaker="unknown",
-                        quote=_quote_key(quote=2))
+    unknown = _sentence(
+        3, '"Bare line."', kind="dialogue", speaker="unknown", quote=_quote_key(quote=2)
+    )
     assert _resolve(cast, unknown).character == "default_female"
 
 
 def test_resolve_quote_override_beats_raw_speaker() -> None:
     cast = _cast()
     cast["overrides"] = [{"chapter": 1, "block": 2, "quote": 1, "speaker": "Alice"}]
-    sentence = _sentence(2, '"Hm."', kind="dialogue", speaker="Bob",
-                         quote=_quote_key())
+    sentence = _sentence(2, '"Hm."', kind="dialogue", speaker="Bob", quote=_quote_key())
     assert _resolve(cast, sentence).character == "Alice"
 
 
 def test_resolve_first_person_goes_to_narrator() -> None:
-    sentence = _sentence(2, '"I said."', kind="dialogue", speaker="I",
-                         quote=_quote_key())
+    sentence = _sentence(2, '"I said."', kind="dialogue", speaker="I", quote=_quote_key())
     assert _resolve(_cast(), sentence).character == "narrator"
 
 
@@ -444,11 +443,14 @@ def test_resolve_chapter_covers_every_sentence_in_order() -> None:
         title="Chapter 1",
         duration_ms=0,
         blocks=[
-            Block(id=1, type="para", sentences=[
-                _sentence(1, "Narration."),
-                _sentence(2, '"Hi,"', kind="dialogue", speaker="Alice",
-                          quote=_quote_key()),
-            ])
+            Block(
+                id=1,
+                type="para",
+                sentences=[
+                    _sentence(1, "Narration."),
+                    _sentence(2, '"Hi,"', kind="dialogue", speaker="Alice", quote=_quote_key()),
+                ],
+            )
         ],
     )
     plan = resolve_chapter(_cast(), chapter, narrator_voice="v_narr", narrator_speed=1.0)
@@ -466,17 +468,24 @@ def test_with_timings_preserves_draft_fields() -> None:
         title="Chapter 1",
         duration_ms=0,
         blocks=[
-            Block(id=2, type="para", sentences=[
-                _sentence(1, '"Hi,"', kind="dialogue", speaker="Alice", pair=7,
-                          quote=_quote_key()),
-                _sentence(2, " she said.", pair=7),
-            ])
+            Block(
+                id=2,
+                type="para",
+                sentences=[
+                    _sentence(
+                        1, '"Hi,"', kind="dialogue", speaker="Alice", pair=7, quote=_quote_key()
+                    ),
+                    _sentence(2, " she said.", pair=7),
+                ],
+            )
         ],
     )
     timed = _with_timings(
         chapter,
-        [SentenceTiming(sid=1, start_ms=0, end_ms=1000),
-         SentenceTiming(sid=2, start_ms=1100, end_ms=1600)],
+        [
+            SentenceTiming(sid=1, start_ms=0, end_ms=1000),
+            SentenceTiming(sid=2, start_ms=1100, end_ms=1600),
+        ],
         2100,
     )
     first, second = timed.sentences_in_order()
@@ -510,12 +519,7 @@ def _dialogue_epub(path: Path) -> Path:
         '<p>"Fine, thanks."</p>'
     )
     ch2 = epub.EpubHtml(title="Chapter Two", file_name="ch2.xhtml", lang="en")
-    ch2.content = (
-        "<h1>Chapter Two</h1>"
-        f"<p>{long_para}</p>"
-        '<p>"Bare first."</p>'
-        '<p>"Second bare."</p>'
-    )
+    ch2.content = f'<h1>Chapter Two</h1><p>{long_para}</p><p>"Bare first."</p><p>"Second bare."</p>'
     for item in (ch1, ch2):
         book.add_item(item)
     book.toc = [
@@ -569,26 +573,53 @@ def _chapter_texts(work_dir: Path, book_id: str, index: int) -> set[str]:
     return {s.text for s in chapters[index - 1].sentences_in_order()}
 
 
+def _assert_multivoice_bundle(out: Path) -> None:
+    """MV8 bundle-success asserts: manifest + text JSON carry resolved keys."""
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    voices = manifest["voices"]
+    assert "narrator" in voices
+    assert "Alice" in voices
+    for name, entry in voices.items():
+        assert entry["engine"] == "kokoro"
+        assert isinstance(entry["voice"], str) and entry["voice"].strip()
+        assert float(entry["speed"]) > 0
+    # Every sentence speaker exists in voices; no raw fallback ships.
+    for chapter_file in sorted((out / "text").glob("ch*.json")):
+        chapter = json.loads(chapter_file.read_text(encoding="utf-8"))
+        for block in chapter.get("blocks", []):
+            for sentence in block.get("sentences", []):
+                assert sentence["speaker"] in voices, (
+                    f"{chapter_file.name}: speaker {sentence['speaker']!r} not in manifest voices"
+                )
+                assert sentence["speaker"] != "unknown"
+                for draft_key in ("kind", "confidence", "quote", "split_pair"):
+                    assert draft_key not in sentence
+    check = validate_bundle(out)
+    assert check.ok, check.errors
+
+
 def test_build_cast_edit_rerenders_only_affected_render(tmp_path: Path) -> None:
     """Render X, edit Alice's voice, rebuild: only chapter 1 re-renders.
 
-    MV7 scope note: the bundle WRITER still fails on dialogue books (it
-    ships a narrator-only voices map, so raw speakers like ``Alice`` do
-    not validate — populating the voices map and remapping speakers is
-    MV8). This test therefore drives the real ``run_build`` render loop
-    and asserts everything MV7 owns: per-chapter skip/re-render, the
-    sentence cache hits/misses, and the new cache entries. MV8 flips the
-    two ``pytest.raises`` below into bundle-success asserts.
+    MV8: the bundle writer now ships the resolved voices map (narrator +
+    characters + used generics) with resolved character keys per sentence,
+    so both builds succeed end to end and validate. Render assertions are
+    MV7's (per-chapter skip/re-render, cache hits/misses, new entries).
     """
     _needs_ffmpeg()
     epub_path = _dialogue_epub(tmp_path / "dialogue.epub")
     work_root = tmp_path / "work"
     out = tmp_path / "out"
-    with pytest.raises(BundleWriteError, match="unknown speaker"):
-        run_build(
-            epub_path, work_root=work_root, out_dir=out, engine=VoicesEngine(),
-            show_progress=False,
-        )
+    first = run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=VoicesEngine(),
+        show_progress=False,
+    )
+    assert isinstance(first, BuildResult)
+    assert (first.rendered, first.skipped) == (2, 0)
+    _assert_multivoice_bundle(out)
     book_id, _ = book_id_for_file(epub_path)
     render = work_root / book_id / "render"
     assert (render / "audio" / "ch001.mp3").is_file()
@@ -602,11 +633,16 @@ def test_build_cast_edit_rerenders_only_affected_render(tmp_path: Path) -> None:
     write_cast(work_root / book_id / "cast.yaml", cast)
 
     resumer = VoicesEngine()
-    with pytest.raises(BundleWriteError, match="unknown speaker"):
-        run_build(
-            epub_path, work_root=work_root, out_dir=out, engine=resumer,
-            show_progress=False,
-        )
+    second = run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=resumer,
+        show_progress=False,
+    )
+    assert isinstance(second, BuildResult)
+    assert (second.rendered, second.skipped) == (1, 1)
+    _assert_multivoice_bundle(out)
     # Chapter 2 holds no Alice lines: skipped, artifacts bit-identical,
     # and no synth call for any of its texts.
     assert (render / "audio" / "ch002.mp3").read_bytes() == ch2_mp3_before
@@ -624,7 +660,8 @@ def test_build_cast_edit_rerenders_only_affected_render(tmp_path: Path) -> None:
         narrator_speed=float(narrator["speed"]),
     )
     alice = [
-        sentence for sentence in chapters[0].sentences_in_order()
+        sentence
+        for sentence in chapters[0].sentences_in_order()
         if plan[sentence.sid].character == "Alice"
     ]
     assert alice
@@ -635,8 +672,11 @@ def test_build_cast_edit_rerenders_only_affected_render(tmp_path: Path) -> None:
     for sentence in alice:
         resolved = plan[sentence.sid]
         key = cache_key(
-            sentence.text, resolved.voice, resolved.speed,
-            VOICE_PITCH, resumer.engine_version,
+            sentence.text,
+            resolved.voice,
+            resolved.speed,
+            VOICE_PITCH,
+            resumer.engine_version,
         )
         assert cache_path(cache_dir, key).is_file()
 
@@ -647,11 +687,20 @@ def test_build_cast_edit_rerenders_only_affected_render(tmp_path: Path) -> None:
 def test_summary_prints_cache_hits_and_misses(tmp_path: Path) -> None:
     """``format_summary`` prints the MV7 ``X cached, Y rendered`` counts."""
     result = BuildResult(
-        book_id="book", title="Title", work_dir=tmp_path,
-        bundle_dir=tmp_path / "out", log_path=tmp_path / "scribe.log",
-        chapters_total=2, rendered=1, skipped=1, total_sentences=10,
-        total_audio_ms=5000, wall_seconds=2.0, rtf=2.5,
-        cache_hits=7, cache_misses=2,
+        book_id="book",
+        title="Title",
+        work_dir=tmp_path,
+        bundle_dir=tmp_path / "out",
+        log_path=tmp_path / "scribe.log",
+        chapters_total=2,
+        rendered=1,
+        skipped=1,
+        total_sentences=10,
+        total_audio_ms=5000,
+        wall_seconds=2.0,
+        rtf=2.5,
+        cache_hits=7,
+        cache_misses=2,
     )
     text = format_summary(result)
     assert "7 cached" in text
@@ -668,8 +717,11 @@ def test_build_rejects_unknown_voice_against_real_list(tmp_path: Path) -> None:
 
     with pytest.raises(BuildError) as excinfo:
         run_build(
-            epub_path, work_root=work_root, out_dir=tmp_path / "out",
-            engine=VoicesEngine(), show_progress=False,
+            epub_path,
+            work_root=work_root,
+            out_dir=tmp_path / "out",
+            engine=VoicesEngine(),
+            show_progress=False,
         )
     message = str(excinfo.value)
     assert "cast.yaml" in message  # file

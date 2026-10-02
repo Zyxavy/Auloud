@@ -35,7 +35,7 @@ import json
 import shutil
 import subprocess
 import unicodedata
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -206,12 +206,23 @@ ProbeFn = Callable[[Path], AudioProbe]
 
 
 def validate_bundle(
-    bundle_dir: str | Path, *, probe: ProbeFn | None = None
+    bundle_dir: str | Path,
+    *,
+    probe: ProbeFn | None = None,
+    known_voices: Collection[str] | None = None,
 ) -> ValidationResult:
     """Validate a bundle directory against the spec; collect every error.
 
     Every error names the file and the rule broken, e.g.
     ``text/ch002.json: sentence 14 overlaps sentence 13``.
+
+    :param known_voices: optional allow-list for the manifest voices map
+        (MV8). When given, each voices entry must name a voice in it;
+        when ``None`` only the shape contract is checked (non-empty
+        engine/voice, speed and pitch above 0). ``scribe validate`` runs
+        shape-only (offline, no engine); ``build`` validates the cast
+        against the engine's real list before writing, so written bundles
+        satisfy both. Unused voices are never an error.
     """
     result = ValidationResult()
     probe_fn: ProbeFn = probe if probe is not None else probe_audio_ffprobe
@@ -220,6 +231,7 @@ def validate_bundle(
     if manifest is None:
         return result
     _validate_manifest_declarations(manifest, result)
+    _validate_voices(manifest, result, known_voices=known_voices)
     _validate_referenced_files(root, manifest, result)
     _validate_source(root, manifest, result)
     for entry in manifest.chapters:
@@ -279,9 +291,7 @@ def _validate_manifest_declarations(manifest: Manifest, result: ValidationResult
         result.errors.append("manifest.json: no chapters listed")
     audio = manifest.audio
     if audio.format != "mp3":
-        result.errors.append(
-            f"manifest.json: audio.format must be 'mp3', got '{audio.format}'"
-        )
+        result.errors.append(f"manifest.json: audio.format must be 'mp3', got '{audio.format}'")
     if audio.channels != 1:
         result.errors.append(
             f"manifest.json: audio.channels must be 1 (mono), got {audio.channels}"
@@ -329,9 +339,63 @@ def _validate_manifest_declarations(manifest: Manifest, result: ValidationResult
             )
 
 
-def _validate_referenced_files(
-    root: Path, manifest: Manifest, result: ValidationResult
+def _validate_voices(
+    manifest: Manifest,
+    result: ValidationResult,
+    *,
+    known_voices: Collection[str] | None,
 ) -> None:
+    """Check every manifest voices entry (MV8, spec sections 3-4/7).
+
+    Shape contract (always): non-blank speaker key, non-blank engine,
+    non-blank voice, speed and pitch above 0. Membership (only when
+    ``known_voices`` is given): the voice id must be in the allow-list.
+    Unused voices are never an error (plan explicit): only malformed or
+    unknown voice names fail. Every error names ``manifest.json``, the
+    dotted key, and the rule.
+    """
+    for name, voice in manifest.voices.items():
+        if not isinstance(name, str) or not name.strip():
+            result.errors.append(
+                f"manifest.json: voices: speaker key must be a non-empty string (got {name!r})"
+            )
+            continue
+        if not isinstance(voice.engine, str) or not voice.engine.strip():
+            result.errors.append(
+                f"manifest.json: voices.{name}.engine: must be a non-empty string "
+                f"(got {voice.engine!r})"
+            )
+        if not isinstance(voice.voice, str) or not voice.voice.strip():
+            result.errors.append(
+                f"manifest.json: voices.{name}.voice: unknown voice "
+                f"{voice.voice!r} (must name a real Kokoro voice)"
+            )
+        elif known_voices is not None and voice.voice not in known_voices:
+            result.errors.append(
+                f"manifest.json: voices.{name}.voice: unknown voice "
+                f"{voice.voice!r} (must be a real Kokoro voice)"
+            )
+        if (
+            isinstance(voice.speed, bool)
+            or not isinstance(voice.speed, (int, float))
+            or not voice.speed > 0
+        ):
+            result.errors.append(
+                f"manifest.json: voices.{name}.speed: must be a number above 0 "
+                f"(got {voice.speed!r})"
+            )
+        if (
+            isinstance(voice.pitch, bool)
+            or not isinstance(voice.pitch, (int, float))
+            or not voice.pitch > 0
+        ):
+            result.errors.append(
+                f"manifest.json: voices.{name}.pitch: must be a number above 0 "
+                f"(got {voice.pitch!r})"
+            )
+
+
+def _validate_referenced_files(root: Path, manifest: Manifest, result: ValidationResult) -> None:
     for entry in manifest.chapters:
         if entry.audio and not (root / entry.audio).is_file():
             result.errors.append(
@@ -342,9 +406,7 @@ def _validate_referenced_files(
                 f"manifest.json: chapter {entry.index} text file missing {entry.text}"
             )
     if manifest.cover and not (root / manifest.cover).is_file():
-        result.errors.append(
-            f"manifest.json: cover file missing {manifest.cover}"
-        )
+        result.errors.append(f"manifest.json: cover file missing {manifest.cover}")
 
 
 def _validate_source(root: Path, manifest: Manifest, result: ValidationResult) -> None:
@@ -353,9 +415,7 @@ def _validate_source(root: Path, manifest: Manifest, result: ValidationResult) -
         return
     path = root / source.file
     if not path.is_file():
-        result.errors.append(
-            f"{source.file}: file missing (listed in manifest source)"
-        )
+        result.errors.append(f"{source.file}: file missing (listed in manifest source)")
         return
     if source.sha256 is None:
         return
@@ -456,23 +516,18 @@ def _validate_chapter_content(
     prev_sid = 0
     for sentence in sentences:
         if not _is_nfc(sentence.text):
-            result.errors.append(
-                f"{label}: sentence {sentence.sid} text is not NFC-normalized"
-            )
+            result.errors.append(f"{label}: sentence {sentence.sid} text is not NFC-normalized")
         if sentence.sid != expected_sid:
             result.errors.append(
-                f"{label}: sentence sid out of order: expected {expected_sid}, "
-                f"got {sentence.sid}"
+                f"{label}: sentence sid out of order: expected {expected_sid}, got {sentence.sid}"
             )
         if sentence.speaker not in voices:
             result.errors.append(
-                f"{label}: sentence {sentence.sid} has unknown speaker "
-                f"'{sentence.speaker}'"
+                f"{label}: sentence {sentence.sid} has unknown speaker '{sentence.speaker}'"
             )
         if sentence.start_ms < 0:
             result.errors.append(
-                f"{label}: sentence {sentence.sid} has negative start_ms "
-                f"{sentence.start_ms}"
+                f"{label}: sentence {sentence.sid} has negative start_ms {sentence.start_ms}"
             )
         if sentence.start_ms >= sentence.end_ms:
             result.errors.append(
@@ -489,9 +544,7 @@ def _validate_chapter_content(
                 f"{label}: first sentence start_ms is {sentence.start_ms}, expected 0"
             )
         if prev_end is not None and sentence.start_ms < prev_end:
-            result.errors.append(
-                f"{label}: sentence {sentence.sid} overlaps sentence {prev_sid}"
-            )
+            result.errors.append(f"{label}: sentence {sentence.sid} overlaps sentence {prev_sid}")
         _validate_spans(label, sentence, result)
         prev_end = sentence.end_ms if prev_end is None else max(prev_end, sentence.end_ms)
         prev_sid = sentence.sid
@@ -503,8 +556,7 @@ def _validate_spans(label: str, sentence: Sentence, result: ValidationResult) ->
     for pos, span in enumerate(sentence.spans):
         if span.style not in ALLOWED_SPAN_STYLES:
             result.errors.append(
-                f"{label}: sentence {sentence.sid} span {pos} has unknown style "
-                f"'{span.style}'"
+                f"{label}: sentence {sentence.sid} span {pos} has unknown style '{span.style}'"
             )
         if span.start < 0 or span.end < 0:
             result.errors.append(
@@ -527,18 +579,14 @@ def _validate_pages(label: str, chapter: ChapterFile, result: ValidationResult) 
     prev_start: int | None = None
     for pos, page in enumerate(chapter.pages or []):
         if page.page < 1:
-            result.errors.append(
-                f"{label}: page entry {pos} has non-positive page {page.page}"
-            )
+            result.errors.append(f"{label}: page entry {pos} has non-positive page {page.page}")
         if page.start_ms < 0 or page.start_ms > chapter.duration_ms:
             result.errors.append(
                 f"{label}: page entry {pos} start_ms {page.start_ms} outside "
                 f"duration_ms {chapter.duration_ms}"
             )
         if prev_start is None and page.start_ms != 0:
-            result.errors.append(
-                f"{label}: first page start_ms is {page.start_ms}, expected 0"
-            )
+            result.errors.append(f"{label}: first page start_ms is {page.start_ms}, expected 0")
         if prev_start is not None and page.start_ms < prev_start:
             result.errors.append(
                 f"{label}: page entry {pos} start_ms {page.start_ms} out of order "
@@ -596,9 +644,7 @@ def _validate_audio(
                 f"expected {expected_bps} bps ({expected.bitrate_kbps} kbps CBR required)"
             )
     if not probe.cbr_frames:
-        result.errors.append(
-            f"{label}: MP3 frames vary in size; constant bitrate (CBR) required"
-        )
+        result.errors.append(f"{label}: MP3 frames vary in size; constant bitrate (CBR) required")
     if probe.duration_ms is None:
         result.errors.append(f"{label}: could not determine MP3 duration")
     else:

@@ -1,0 +1,43 @@
+{
+  "audio": {
+    "bitrate_kbps": 64,
+    "cbr": true,
+    "channels": 1,
+    "format": "mp3",
+    "sample_rate": 24000
+  },
+  "author": "Auloud Test",
+  "chapters": [
+    {
+      "audio": "audio/ch001.mp3",
+      "duration_ms": 1550,
+      "index": 1,
+      "text": "text/ch001.json",
+      "title": "Chapter One"
+    }
+  ],
+  "created_at": "2026-10-02T11:31:41Z",
+  "generator": "scribe 0.1.0",
+  "id": "9e86414e-92b7-53e5-8a1f-e4ac7dc9dde9",
+  "source": {
+    "file": "source/book.epub",
+    "sha256": "baf814774fc22513b51f0405e7bf45a55f0de06b2682b44fff5fb44b07f9890e"
+  },
+  "spec_version": "1.0",
+  "title": "Multivoice Golden Miniature",
+  "type": "epub",
+  "voices": {
+    "Alice": {
+      "engine": "kokoro",
+      "pitch": 1.0,
+      "speed": 1.0,
+      "voice": "bf_isabella"
+    },
+    "narrator": {
+      "engine": "kokoro",
+      "pitch": 1.0,
+      "speed": 1.0,
+      "voice": "am_onyx"
+    }
+  }
+}

@@ -127,7 +127,7 @@ from audio.assemble import AssembledChapter, apply_loudness_gain, assemble_chapt
 from audio.encode import encode_assembled_chapter
 import audio.assemble as assemble_mod
 import audio.encode as encode_mod
-from bundle.models import Block, ChapterFile, Sentence
+from bundle.models import Block, ChapterFile, Sentence, Voice
 from bundle.validate import AudioProbeError, DURATION_TOLERANCE_MS, probe_audio_ffprobe
 from bundle.writer import VOICE_PITCH, write_bundle
 from draft import (
@@ -137,7 +137,14 @@ from draft import (
     format_duration,
     run_draft,
 )
-from text.cast import NARRATOR, ResolvedVoice, read_cast, resolve_speaker, validate_cast
+from text.cast import (
+    NARRATOR,
+    NARRATOR_ENGINE,
+    ResolvedVoice,
+    read_cast,
+    resolve_speaker,
+    validate_cast,
+)
 from text.speakers import gender_hint_for
 from tts.base import TTSEngine
 from tts.cache import CacheStats, get_or_synth
@@ -262,9 +269,7 @@ def _read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def ensure_script(
-    source: Path | str, *, work_root: Path | str = Path(".scribe")
-) -> ScriptInfo:
+def ensure_script(source: Path | str, *, work_root: Path | str = Path(".scribe")) -> ScriptInfo:
     """Return a fresh script for ``source``, drafting first when stale.
 
     Fresh means ``<work_root>/<book-id>/script.json`` exists AND its
@@ -366,9 +371,7 @@ def resolve_sentence_voice(
     a generic, never raise.
     """
     if sentence.kind != "dialogue":
-        return ResolvedVoice(
-            character=NARRATOR, voice=narrator_voice, speed=narrator_speed
-        )
+        return ResolvedVoice(character=NARRATOR, voice=narrator_voice, speed=narrator_speed)
     quote = sentence.quote if isinstance(sentence.quote, dict) else {}
     chapter = quote.get("chapter", chapter_index)
     block = quote.get("block")
@@ -417,9 +420,117 @@ def resolve_chapter(
     return plan
 
 
-def _fingerprint(
-    cast: dict[str, Any], engine: TTSEngine, chapter: ChapterFile
-) -> dict[str, Any]:
+def _cast_engine(cast: dict[str, Any]) -> str:
+    """Engine id for the manifest voices map (narrator entry, else Kokoro)."""
+    narrator = cast.get(NARRATOR) if isinstance(cast, dict) else None
+    if isinstance(narrator, dict):
+        engine = narrator.get("engine")
+        if isinstance(engine, str) and engine.strip():
+            return engine
+    return NARRATOR_ENGINE
+
+
+def build_voices_map(
+    cast: dict[str, Any],
+    plans: list[dict[int, ResolvedVoice]],
+    *,
+    pitch: float = VOICE_PITCH,
+) -> dict[str, Voice]:
+    """Manifest ``voices`` from the RESOLVED cast (MV8).
+
+    Keys are the resolved character keys (``narrator``, characters,
+    collapsed ``default_female``/``default_male`` generics — never raw
+    surfaces), one entry per character actually used across ``plans``
+    (plus ``narrator`` always, so narration-only books keep the legacy
+    single entry). ``(engine, voice, speed)`` come from the resolution
+    itself (engine is the cast narrator engine for every entry; voice and
+    speed are the resolved values), ``pitch`` is the writer constant.
+    Narrator first, then sorted others, for deterministic manifests.
+    """
+    engine = _cast_engine(cast if isinstance(cast, dict) else {})
+    by_character: dict[str, ResolvedVoice] = {}
+    for plan in plans:
+        for resolved in plan.values():
+            by_character.setdefault(resolved.character, resolved)
+    if NARRATOR not in by_character:
+        voice, speed = _narrator_voice_fallback(cast)
+        by_character[NARRATOR] = ResolvedVoice(character=NARRATOR, voice=voice, speed=speed)
+    ordered = [NARRATOR, *[k for k in sorted(by_character) if k != NARRATOR]]
+    return {
+        name: Voice(
+            engine=engine,
+            voice=by_character[name].voice,
+            speed=by_character[name].speed,
+            pitch=pitch,
+        )
+        for name in ordered
+        if name in by_character
+    }
+
+
+def _narrator_voice_fallback(cast: dict[str, Any]) -> tuple[str, float]:
+    """Narrator ``(voice, speed)`` for the voices map when unused (never raises)."""
+    from text.cast import NARRATOR_SPEED, NARRATOR_VOICE
+
+    narrator = cast.get(NARRATOR) if isinstance(cast, dict) else None
+    voice = NARRATOR_VOICE
+    speed = NARRATOR_SPEED
+    if isinstance(narrator, dict):
+        raw_voice = narrator.get("voice")
+        if isinstance(raw_voice, str) and raw_voice.strip():
+            voice = raw_voice
+        try:
+            speed = float(narrator.get("speed", speed))
+        except (TypeError, ValueError):
+            speed = NARRATOR_SPEED
+    return voice, speed
+
+
+def remap_chapter_speakers(chapter: ChapterFile, plan: dict[int, ResolvedVoice]) -> ChapterFile:
+    """Copy ``chapter`` with sentence ``speaker`` set to the resolved key.
+
+    Timings, text, spans and draft fields ride along untouched; only
+    ``speaker`` changes (raw surface -> resolved character key). Render
+    artifacts keep the raw speakers (so :func:`chapter_up_to_date` still
+    compares raw against raw); the bundle chapters are separate copies
+    made from the timed chapters just before :func:`write_bundle`.
+    """
+    blocks: list[Block] = []
+    for block in chapter.blocks or []:
+        sentences = [
+            Sentence(
+                sid=s.sid,
+                speaker=plan[s.sid].character if s.sid in plan else s.speaker,
+                start_ms=s.start_ms,
+                end_ms=s.end_ms,
+                text=s.text,
+                spans=list(s.spans),
+                kind=s.kind,
+                confidence=s.confidence,
+                quote=dict(s.quote) if s.quote is not None else None,
+                split_pair=s.split_pair,
+            )
+            for s in block.sentences
+        ]
+        blocks.append(
+            Block(
+                id=block.id,
+                type=block.type,
+                level=block.level,
+                text=block.text,
+                sentences=sentences,
+            )
+        )
+    return ChapterFile(
+        spec_version=chapter.spec_version,
+        chapter=chapter.chapter,
+        title=chapter.title,
+        duration_ms=chapter.duration_ms,
+        blocks=blocks,
+    )
+
+
+def _fingerprint(cast: dict[str, Any], engine: TTSEngine, chapter: ChapterFile) -> dict[str, Any]:
     """Render fingerprint for one chapter: everything (besides sentence
     text) that can change its audio or its shipped JSON. The cast half is
     the per-sentence resolution (``[sid, character, voice, speed, kind,
@@ -461,10 +572,7 @@ def _fingerprint(
         ]
         for sid, resolved in plan.items()
     ]
-    blocks = [
-        [block.id, block.type, block.level, block.text]
-        for block in chapter.blocks or []
-    ]
+    blocks = [[block.id, block.type, block.level, block.text] for block in chapter.blocks or []]
     return {
         "voices": voices,
         "pitch": VOICE_PITCH,
@@ -544,9 +652,7 @@ def chapter_up_to_date(
     return chapter
 
 
-def _with_timings(
-    chapter: ChapterFile, timings: list[Any], duration_ms: int
-) -> ChapterFile:
+def _with_timings(chapter: ChapterFile, timings: list[Any], duration_ms: int) -> ChapterFile:
     """Copy ``chapter`` blocks, filling sentence timings in document order.
 
     Draft fields (``kind``/``confidence``/``quote``/``split_pair``) ride
@@ -599,9 +705,7 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
     )
 
 
-def remove_stale_chapter_files(
-    directory: Path | str, keep: int, suffix: str
-) -> list[Path]:
+def remove_stale_chapter_files(directory: Path | str, keep: int, suffix: str) -> list[Path]:
     """Delete ``chNNN<suffix>`` files in ``directory`` with index > ``keep``.
 
     Used after rendering (and after writing the bundle) so a rerun with
@@ -635,16 +739,8 @@ def compare_bundles(first: Path | str, second: Path | str) -> list[str]:
     must be byte-identical. Sorted for determinism.
     """
     root_a, root_b = Path(first), Path(second)
-    files_a = {
-        p.relative_to(root_a).as_posix()
-        for p in root_a.rglob("*")
-        if p.is_file()
-    }
-    files_b = {
-        p.relative_to(root_b).as_posix()
-        for p in root_b.rglob("*")
-        if p.is_file()
-    }
+    files_a = {p.relative_to(root_a).as_posix() for p in root_a.rglob("*") if p.is_file()}
+    files_b = {p.relative_to(root_b).as_posix() for p in root_b.rglob("*") if p.is_file()}
     diffs = [f"only in {root_a}: {name}" for name in sorted(files_a - files_b)]
     diffs += [f"only in {root_b}: {name}" for name in sorted(files_b - files_a)]
     for name in sorted(files_a & files_b):
@@ -686,8 +782,7 @@ def format_summary(result: BuildResult) -> str:
     audio_s = result.total_audio_ms / 1000.0
     lines = [
         f"bundle: {result.bundle_dir} ({result.chapters_total} chapters)",
-        f"rendered: {result.rendered}, skipped: {result.skipped}, "
-        f"failed: {len(result.failed)}",
+        f"rendered: {result.rendered}, skipped: {result.skipped}, failed: {len(result.failed)}",
         f"sentence audio (this run's renders only): {result.cache_hits} cached, "
         f"{result.cache_misses} rendered",
         f"total audio: {format_duration(audio_s)} ({result.total_audio_ms} ms)",
@@ -794,14 +889,13 @@ def run_build(
     log_lines = [
         f"build start: book {script.book_id} source {Path(source).name} "
         f"strict={strict} chapters={len(chapters)}",
-        f"script: {'redrafted' if script.redrafted else 'fresh'} "
-        f"({len(chapters)} chapters)",
-        f"cast: narrator voice={voice} speed={speed} "
-        f"engine_version={tts.engine_version}",
+        f"script: {'redrafted' if script.redrafted else 'fresh'} ({len(chapters)} chapters)",
+        f"cast: narrator voice={voice} speed={speed} engine_version={tts.engine_version}",
     ]
 
     timed: dict[int, ChapterFile] = {}
     audio_paths: dict[int, Path] = {}
+    plans: dict[int, dict[int, ResolvedVoice]] = {}
     rendered = skipped = 0
     rendered_this_run = 0
     cache_hits = cache_misses = 0
@@ -820,19 +914,16 @@ def run_build(
         for chapter in chapters:
             index = chapter.chapter
             stem = f"ch{index:0{width}d}"
-            progress.update(
-                task_id, description=f"[{index}/{len(chapters)}] {chapter.title}"
-            )
+            progress.update(task_id, description=f"[{index}/{len(chapters)}] {chapter.title}")
             mp3_path = render_audio / f"{stem}.mp3"
             json_path = render_text / f"{stem}.json"
-            plan = resolve_chapter(
-                cast, chapter, narrator_voice=voice, narrator_speed=speed
-            )
+            plan = resolve_chapter(cast, chapter, narrator_voice=voice, narrator_speed=speed)
             fingerprint = _fingerprint(cast, tts, chapter)
             hit = chapter_up_to_date(chapter, json_path, mp3_path, fingerprint)
             if hit is not None:
                 timed[index] = hit
                 audio_paths[index] = mp3_path
+                plans[index] = plan
                 skipped += 1
                 log_lines.append(f"chapter {index} {chapter.title}: skipped (up-to-date)")
                 progress.advance(task_id)
@@ -853,20 +944,17 @@ def run_build(
                     sample_rate=assembled.sample_rate,
                 )
                 try:
-                    encode_assembled_chapter(
-                        to_encode, mp3_path, chapter_label=stem
-                    )
+                    encode_assembled_chapter(to_encode, mp3_path, chapter_label=stem)
                 except Exception:
                     mp3_path.unlink(missing_ok=True)
                     raise
-                timed_chapter = _with_timings(
-                    chapter, assembled.timings, assembled.duration_ms
-                )
+                timed_chapter = _with_timings(chapter, assembled.timings, assembled.duration_ms)
                 payload = dict(timed_chapter.to_dict())
                 payload[RENDER_FINGERPRINT_KEY] = fingerprint
                 _write_json(json_path, payload)
                 timed[index] = timed_chapter
                 audio_paths[index] = mp3_path
+                plans[index] = plan
                 rendered += 1
                 rendered_this_run += 1
                 cache_hits += chapter_stats.hits
@@ -896,21 +984,26 @@ def run_build(
                 )
                 _append_log(work_dir, log_lines)
                 raise BuildError(
-                    f"simulated failure after {hook} chapter(s) "
-                    "(test hook; rerun resumes)"
+                    f"simulated failure after {hook} chapter(s) (test hook; rerun resumes)"
                 )
 
     if failed:
         details = ", ".join(f"chapter {i}: {failure_reasons[i]}" for i in failed)
         log_lines.append(f"build failed: {len(failed)} chapter(s) failed: {details}")
         _append_log(work_dir, log_lines)
-        raise BuildError(
-            f"{len(failed)} chapter(s) failed, no bundle written: {details}"
-        )
+        raise BuildError(f"{len(failed)} chapter(s) failed, no bundle written: {details}")
     ordered_timed = [timed[i] for i in range(1, len(chapters) + 1)]
     ordered_audio = [audio_paths[i] for i in range(1, len(chapters) + 1)]
+    ordered_plans = [plans[i] for i in range(1, len(chapters) + 1)]
+    # MV8: bundle speakers are the RESOLVED character keys (reuse the exact
+    # plans used for synthesis/leveling/fingerprint — never re-resolve),
+    # and the manifest voices map ships exactly those characters.
+    voices_map = build_voices_map(cast, ordered_plans)
+    bundle_chapters = [
+        remap_chapter_speakers(timed[i], plans[i]) for i in range(1, len(chapters) + 1)
+    ]
     bundle_dir = Path(out_dir) if out_dir is not None else Path("bundles") / script.book_id
-    write_bundle(ordered_timed, ordered_audio, source, bundle_dir)
+    write_bundle(bundle_chapters, ordered_audio, source, bundle_dir, voices=voices_map)
 
     stale_bundle = remove_stale_chapter_files(bundle_dir / "audio", len(chapters), ".mp3")
     stale_bundle += remove_stale_chapter_files(bundle_dir / "text", len(chapters), ".json")
@@ -922,9 +1015,7 @@ def run_build(
     rtf = audio_seconds / wall_seconds if wall_seconds > 0 else 0.0
 
     removed = [p.name for p in (*stale_render, *stale_bundle)]
-    log_lines.append(
-        f"orphans removed: {', '.join(removed) if removed else 'none'}"
-    )
+    log_lines.append(f"orphans removed: {', '.join(removed) if removed else 'none'}")
     log_lines.append(
         f"build done: chapters={len(chapters)} rendered={rendered} "
         f"skipped={skipped} failed=0 total_audio_ms={total_audio_ms} "
