@@ -24,9 +24,9 @@ throwaway audition files (WAV/PCM-16 for broad player support), never
 cached and never committed — the default out dir lives under ``logs/``,
 which the root ``.gitignore`` excludes.
 
-Any :class:`tts.base.TTSEngine` with a ``voices`` attribute (a sorted
-or unsorted iterable of voice ids, as :class:`tts.kokoro.KokoroEngine`
-exposes) works here; unknown or empty voice lists fail loudly.
+Any :class:`tts.base.TTSEngine` exposing the optional ``voices``
+contract (a sorted tuple of voice ids, as :class:`tts.kokoro.KokoroEngine`
+provides) works here; unknown or empty voice lists fail loudly.
 """
 
 from __future__ import annotations
@@ -64,13 +64,16 @@ class VoicesSample:
 def list_voices(engine: TTSEngine) -> list[str]:
     """Return the engine's voice ids, sorted (audition order).
 
-    :raises TypeError: the engine exposes no ``voices`` attribute.
+    :raises TypeError: the engine exposes no ``voices`` list (None or missing).
     """
-    voices = getattr(engine, "voices", None)
+    try:
+        voices = engine.voices
+    except AttributeError:
+        voices = None
     if voices is None:
         raise TypeError(
             f"{type(engine).__name__} exposes no 'voices'; "
-            "audition needs a voice list (see KokoroEngine.voices)."
+            "audition needs a voice list (see TTSEngine.voices)."
         )
     return sorted(str(name) for name in voices)
 

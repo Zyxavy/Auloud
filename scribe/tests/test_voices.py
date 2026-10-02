@@ -77,11 +77,8 @@ class FakeVoicesEngine(TTSEngine):
         return np.full((len(text) * 10,), 0.5, dtype=np.float32)
 
 
-class VoicelessEngine(FakeVoicesEngine):
-    """Engine without a voice list (adapter error path)."""
-
-    def __init__(self) -> None:
-        self.calls = []
+class VoicelessEngine(TTSEngine):
+    """Engine without a voice list (no `voices` override, inherits None)."""
 
     @property
     def sample_rate(self) -> int:
@@ -150,6 +147,26 @@ def test_sample_empty_text_rejected(tmp_path: Path) -> None:
         sample_voices(FakeVoicesEngine(), tmp_path, text="   ")
 
 
+def test_sample_twelve_voices_zero_padded(tmp_path: Path) -> None:
+    names = tuple(f"voice_{i:02d}" for i in range(1, 13))
+    engine = FakeVoicesEngine(voices=names)
+    result = sample_voices(engine, tmp_path)
+    assert len(result.files) == 12
+    assert [p.name for p in result.files] == [
+        f"{i:02d}-{v}.wav" for i, v in enumerate(result.voices, start=1)
+    ]
+    assert result.files[0].name.startswith("01-")
+    assert result.files[11].name.startswith("12-")
+
+
+def test_sample_empty_engine_rejected(tmp_path: Path) -> None:
+    engine = FakeVoicesEngine(voices=())
+    with pytest.raises(ValueError, match="no voices to sample"):
+        sample_voices(engine, tmp_path)
+    assert engine.calls == []
+    assert list(tmp_path.glob("*.wav")) == []
+
+
 def test_voices_command_lists_without_rendering(tmp_path: Path, monkeypatch: object) -> None:
     import build
 
@@ -194,6 +211,17 @@ def test_voices_command_engine_failure_is_clean_exit_1(monkeypatch: object) -> N
     result = CliRunner().invoke(cli.app, ["voices"])
     assert result.exit_code == 1
     assert "voices failed" in result.output
+
+
+def test_voices_command_bad_speed_rejected(tmp_path: Path) -> None:
+    out_dir = tmp_path / "samples"
+    for bad in ("0", "-1.5"):
+        result = CliRunner().invoke(
+            cli.app, ["voices", "--sample", "--speed", bad, "--out-dir", str(out_dir)]
+        )
+        assert result.exit_code == 1
+        assert "--speed must be > 0" in result.output
+    assert not out_dir.exists()
 
 
 def _find_model_files() -> tuple[Path | None, Path | None, list[str]]:

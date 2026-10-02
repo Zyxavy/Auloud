@@ -27,13 +27,14 @@ keep every other ``scribe`` command's startup fast.
 
 from __future__ import annotations
 
+import functools
 import importlib.metadata
 from typing import Any
 
-#: English pipeline MV3 attributes with (downloaded via
-#: ``uv run python -m spacy download en_core_web_sm``; not pinned in
-#: ``pyproject.toml`` because the model is not on PyPI — ``doctor``
-#: fails loudly with the install command when it is missing).
+#: English pipeline MV3 attributes with (URL-pinned in
+#: ``pyproject.toml`` + ``uv.lock`` via ``tool.uv.sources`` because the
+#: model is not on PyPI — ``doctor`` fails loudly with ``uv sync`` when
+#: it is missing; ``spacy download`` is an offline fallback only).
 MODEL_NAME = "en_core_web_sm"
 
 #: Distribution name of the model wheel (what ``importlib.metadata``
@@ -57,11 +58,14 @@ def model_version() -> str | None:
         return None
 
 
+@functools.lru_cache(maxsize=1)
 def load_model() -> Any:
     """Load and return the English pipeline (raises ``OSError`` if missing).
 
-    Callers keep the returned object and reuse it across paragraphs —
-    loading takes a second and MV3 parses many paragraphs per chapter.
+    Blessed accessor for MV3: cached, so every call returns the same
+    pipeline object - call it wherever a model is needed and reuse the
+    result across paragraphs (loading takes a second and MV3 parses many
+    paragraphs per chapter).
     """
     import spacy
 

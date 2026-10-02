@@ -214,5 +214,22 @@ def test_spacy_model_version_probe() -> None:
     import text.nlp
 
     assert text.nlp.MODEL_NAME == "en_core_web_sm"
-    assert text.nlp.model_version() is not None  # installed via spacy download
+    assert text.nlp.model_version() is not None  # URL-pinned in pyproject.toml + uv.lock
     assert text.nlp.spacy_version() is not None
+
+
+def test_spacy_packaging_broken_is_graceful_fail(monkeypatch: object) -> None:
+    import sys
+
+    mp = monkeypatch  # type: ignore[union-attr]
+    mp.setitem(sys.modules, "text.nlp", None)  # `from text.nlp import ...` raises ImportError
+    result = cli.check_spacy()
+    assert result.status == cli.FAIL
+    assert "install broken" in result.detail
+    assert "reinstall" in result.hint
+
+
+def test_load_model_cached_returns_same_object() -> None:
+    import text.nlp
+
+    assert text.nlp.load_model() is text.nlp.load_model()

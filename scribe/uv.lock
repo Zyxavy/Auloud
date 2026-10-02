@@ -86,7 +86,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "rich", specifier = ">=15.0.0" },
     { name = "soundfile", specifier = ">=0.14.0" },
-    { name = "spacy", specifier = ">=3.8.16" },
+    { name = "spacy", specifier = ">=3.8.16,<4" },
     { name = "typer" },
 ]
 

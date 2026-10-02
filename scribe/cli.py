@@ -83,10 +83,11 @@ MODELS_HELP = (
 )
 
 SPACY_MODEL_HELP = (
-    "Install the spaCy English model (about 12 MB), then re-run "
-    "`scribe doctor`:\n"
-    "  uv run python -m spacy download en_core_web_sm\n"
-    "(run from scribe/; downloads the wheel, no repo files change)."
+    "The spaCy English model (about 12 MB) is URL-pinned in "
+    "pyproject.toml + uv.lock; run `uv sync` in scribe/ first, "
+    "then re-run `scribe doctor`.\n"
+    "Offline fallback only: `uv run python -m spacy download en_core_web_sm`\n"
+    "(a plain download is wiped by the next `uv sync`)."
 )
 
 PASS = "PASS"
@@ -247,7 +248,17 @@ def check_spacy() -> CheckResult:
     one short sentence. A missing model is a graceful FAIL with the
     download command, never an error.
     """
-    from text.nlp import MODEL_NAME, load_model, model_version
+    try:
+        from text.nlp import MODEL_NAME, load_model, model_version
+    except ImportError as exc:
+        return CheckResult(
+            name="spacy",
+            status=FAIL,
+            detail=f"scribe install broken: cannot import text.nlp ({exc})",
+            hint="The installed scribe wheel is missing text.nlp; reinstall it with "
+            "`uv sync --reinstall-package auloud-scribe` in scribe/, "
+            "then re-run `scribe doctor`.",
+        )
 
     try:
         import spacy
@@ -508,6 +519,9 @@ def voices(
     from build import BuildError, create_engine
     from tts.voices import SAMPLE_TEXT, list_voices, sample_voices
 
+    if speed <= 0:
+        typer.echo(f"voices failed: --speed must be > 0 (got {speed})", err=True)
+        raise typer.Exit(code=1)
     try:
         engine = create_engine(models_dir)
     except BuildError as exc:

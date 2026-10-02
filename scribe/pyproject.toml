@@ -16,7 +16,7 @@ dependencies = [
     "numpy>=2.4.6",
     "soundfile>=0.14.0",
     "rich>=15.0.0",
-    "spacy>=3.8.16",
+    "spacy>=3.8.16,<4",
     "en-core-web-sm",
 ]
 
