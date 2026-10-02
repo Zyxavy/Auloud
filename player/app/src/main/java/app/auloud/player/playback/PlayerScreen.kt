@@ -68,7 +68,12 @@ import coil.compose.AsyncImage
 fun PlayerScreen(
     book: BookUiModel,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * RA11-fix: mode switcher slot (BookScreen supplies the Read/Listen/
+     * Read+listen row, so Listen is never a dead end). Empty by default.
+     */
+    modeSwitcher: @Composable () -> Unit = {}
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -109,6 +114,7 @@ fun PlayerScreen(
     PlayerContent(
         book = book,
         state = state,
+        modeSwitcher = modeSwitcher,
         onPlayPause = {
             if (!state.isPlaying &&
                 BatteryPromptLogic.shouldShowPrompt(
@@ -166,7 +172,8 @@ private fun PlayerContent(
     sleepRemainingMs: Long?,
     onSleep: () -> Unit,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    modeSwitcher: @Composable () -> Unit = {}
 ) {
     Column(
         modifier = modifier.fillMaxSize().padding(24.dp),
@@ -213,6 +220,8 @@ private fun PlayerContent(
             SpeedButton(speed = speed, onClick = onSpeed)
             SleepTimerButton(remainingMs = sleepRemainingMs, onClick = onSleep)
         }
+        // RA11-fix: mode switcher (BookScreen supplies it; empty standalone).
+        modeSwitcher()
         if (!state.isConnected) {
             Spacer(Modifier.height(16.dp))
             Text("Connecting…", style = MaterialTheme.typography.bodySmall)

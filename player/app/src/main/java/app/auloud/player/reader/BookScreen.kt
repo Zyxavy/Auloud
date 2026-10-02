@@ -70,15 +70,26 @@ fun BookScreen(
     val appContext = remember(context) { context.applicationContext }
     val modeStore = remember(appContext) { PrefsReaderModeStore.fromContext(appContext) }
     var mode by remember(book.id) { mutableStateOf(modeStore.mode()) }
+    // Hoisted persist + state: both branches route mode changes through
+    // here, so the setting and the UI can never disagree.
+    val changeMode: (ReaderMode) -> Unit = {
+        modeStore.setMode(it)
+        mode = it
+    }
     if (mode == ReaderMode.Listen) {
-        PlayerScreen(book = book, onBack = onBack, modifier = modifier)
+        PlayerScreen(
+            book = book,
+            onBack = onBack,
+            modifier = modifier,
+            modeSwitcher = { ModeSwitcherRow(mode = mode, onMode = changeMode) }
+        )
     } else {
         ReaderSession(
             book = book,
             mode = mode,
             modeStore = modeStore,
             storage = storage,
-            onModeChange = { mode = it },
+            onModeChange = changeMode,
             onBack = onBack,
             modifier = modifier
         )
@@ -172,7 +183,6 @@ private fun ReaderSession(
 
     fun selectMode(next: ReaderMode) {
         if (next == mode) return
-        modeStore.setMode(next)
         onModeChange(next)
         if (shouldPauseForMode(next)) {
             controller.pause()
@@ -185,6 +195,12 @@ private fun ReaderSession(
                 play = { controller.playOrRestart(controller.state.value) }
             )
         }
+    }
+
+    // Entering the session from Listen in Read mode: pause (the reader never
+    // auto-plays on mount; Read + listen keeps whatever was playing).
+    LaunchedEffect(Unit) {
+        if (shouldPauseForMode(mode)) controller.pause()
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -295,15 +311,25 @@ private fun ModeBar(
             SpeedButton(speed = speed, onClick = onSpeed)
             SleepTimerButton(remainingMs = sleepRemainingMs, onClick = onSleep)
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            ModeButton(label = "Read", selected = mode == ReaderMode.Read, onClick = { onMode(ReaderMode.Read) })
-            ModeButton(label = "Listen", selected = mode == ReaderMode.Listen, onClick = { onMode(ReaderMode.Listen) })
-            ModeButton(label = "Read + listen", selected = mode == ReaderMode.ReadListen, onClick = { onMode(ReaderMode.ReadListen) })
-        }
+        ModeSwitcherRow(mode = mode, onMode = onMode)
+    }
+}
+
+/** Shared Read/Listen/Read+listen row (reader mode bar and Listen player). */
+@Composable
+private fun ModeSwitcherRow(
+    mode: ReaderMode,
+    onMode: (ReaderMode) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        ModeButton(label = "Read", selected = mode == ReaderMode.Read, onClick = { onMode(ReaderMode.Read) })
+        ModeButton(label = "Listen", selected = mode == ReaderMode.Listen, onClick = { onMode(ReaderMode.Listen) })
+        ModeButton(label = "Read + listen", selected = mode == ReaderMode.ReadListen, onClick = { onMode(ReaderMode.ReadListen) })
     }
 }
 
