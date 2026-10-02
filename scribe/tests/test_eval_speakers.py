@@ -16,10 +16,13 @@
 
 """MV1: the speaker gold set loads and validates; the eval harness scores.
 
-The real gold file pins the fragment truth (5 dialogue lines, all certain):
-count, unique ``(chapter, block, quote)`` keys, and one spot-checked label.
-Synthetic gold (2-3 lines plus a fake predictor) proves ``evaluate`` gets
-overall and by-level accuracy right, including the uncertain-line exclusion.
+The real gold file pins the fragment truth (5 dialogue lines, all certain,
+book ``crime-and-punishment``): count, unique ``(book, chapter, block,
+quote)`` keys, and one spot-checked label. Synthetic gold (2-3 lines plus a
+fake predictor) proves ``evaluate`` gets overall and by-level accuracy
+right, including the uncertain-line exclusion. MV2 adds the ``book``/``source``
+label (old files without it still load as ``""``), the predictor-context
+text fields (all defaulted), and documents canonical-name exact matching.
 """
 
 from __future__ import annotations
@@ -52,6 +55,7 @@ def _gold_dict(
     excerpt: str = "some words",
     speaker: str = "Raskolnikov",
     uncertain: bool = False,
+    book: str = "",
 ) -> dict[str, object]:
     entry: dict[str, object] = {
         "chapter": chapter,
@@ -62,6 +66,8 @@ def _gold_dict(
     }
     if uncertain:
         entry["uncertain"] = True
+    if book:
+        entry["book"] = book
     return entry
 
 
@@ -78,8 +84,9 @@ def test_real_gold_loads_with_five_certain_lines() -> None:
     assert [e.key for e in entries] == sorted(e.key for e in entries)
     assert len({e.key for e in entries}) == 5  # anchored, unique, never on sid
     assert all(not e.uncertain for e in entries)
+    assert all(e.book == "crime-and-punishment" for e in entries)
     assert {e.speaker for e in entries} == {"Raskolnikov", "drunken man"}
-    shouted = next(e for e in entries if e.key == (1, 10, 1))
+    shouted = next(e for e in entries if e.key == ("crime-and-punishment", 1, 10, 1))
     assert shouted.speaker == "drunken man"
     assert shouted.excerpt == "Hey there, German hatter"
 
@@ -140,15 +147,27 @@ def test_load_rejects_missing_dir_and_empty_dir(tmp_path: Path) -> None:
 
 def test_baseline_predictor_is_unknown_low() -> None:
     context = QuoteContext(chapter=1, block=8, quote=1, excerpt="x")
+    assert context.book == ""
+    assert context.block_text == "" and context.prev_text == ""
+    assert context.next_text == "" and context.full_quote == ""
     assert predict_baseline(context) == ("unknown", "low")
     assert predict(context) == ("unknown", "low")
 
 
+def test_context_from_gold_carries_book() -> None:
+    entry = GoldEntry(
+        chapter=1, block=8, quote=1, excerpt="x", speaker="Raskolnikov", book="crime-and-punishment"
+    )
+    context = QuoteContext.from_gold(entry)
+    assert context.book == "crime-and-punishment"
+    assert context.block_text == ""  # MV3/MV4 fill the text fields
+
+
 def _fake_predictor(
-    mapping: dict[tuple[int, int, int], tuple[str, str]],
+    mapping: dict[tuple[str, int, int, int], tuple[str, str]],
 ) -> Callable[[QuoteContext], tuple[str, str]]:
     def _predict(context: QuoteContext) -> tuple[str, str]:
-        return mapping[(context.chapter, context.block, context.quote)]
+        return mapping[(context.book, context.chapter, context.block, context.quote)]
 
     return _predict
 
@@ -161,9 +180,9 @@ def test_evaluate_overall_and_by_level_accuracy() -> None:
     ]
     predictor = _fake_predictor(
         {
-            (1, 1, 1): ("Ana", "high"),  # right, high
-            (1, 1, 2): ("Ana", "high"),  # wrong, high
-            (1, 2, 1): ("ana", "low"),  # right (casefold), low
+            ("", 1, 1, 1): ("Ana", "high"),  # right, high
+            ("", 1, 1, 2): ("Ana", "high"),  # wrong, high
+            ("", 1, 2, 1): ("ana", "low"),  # right (casefold), low
         }
     )
     result = evaluate(entries, predictor)
@@ -179,7 +198,7 @@ def test_evaluate_excludes_uncertain_lines() -> None:
         GoldEntry(chapter=1, block=1, quote=1, excerpt="a", speaker="Ana"),
         GoldEntry(chapter=1, block=1, quote=2, excerpt="b", speaker="???", uncertain=True),
     ]
-    predictor = _fake_predictor({(1, 1, 1): ("Ana", "low"), (1, 1, 2): ("nobody", "low")})
+    predictor = _fake_predictor({("", 1, 1, 1): ("Ana", "low"), ("", 1, 1, 2): ("nobody", "low")})
     result = evaluate(entries, predictor)
     assert result.certain == 1 and result.uncertain == 1
     assert result.correct == 1 and result.accuracy == pytest.approx(1.0)
@@ -189,7 +208,7 @@ def test_evaluate_excludes_uncertain_lines() -> None:
 
 def test_evaluate_empty_certain_gives_none_accuracy() -> None:
     entries = [GoldEntry(chapter=1, block=1, quote=1, excerpt="a", speaker="???", uncertain=True)]
-    result = evaluate(entries, _fake_predictor({(1, 1, 1): ("???", "high")}))
+    result = evaluate(entries, _fake_predictor({("", 1, 1, 1): ("???", "high")}))
     assert result.accuracy is None
     assert result.uncertain_agree == 1
     report = format_result(result, predictor_name="fake", file_count=1)
@@ -210,3 +229,70 @@ def test_evaluate_default_uses_rebound_predictor(monkeypatch: pytest.MonkeyPatch
     assert result.correct == 1
     assert result.accuracy == pytest.approx(1.0)
     assert result.by_level["high"] == (1, 1)
+
+
+# ---------------------------------------------------------------------------
+# MV2: book/source labels and canonical-name matching
+# ---------------------------------------------------------------------------
+
+
+def test_book_defaults_empty_for_old_files() -> None:
+    entries = validate_raw_entries([_gold_dict()], "old.yaml")
+    assert entries[0].book == ""
+    assert entries[0].key == ("", 1, 8, 1)
+
+
+def test_book_accepted_and_in_key() -> None:
+    entries = validate_raw_entries([_gold_dict(book="crime-and-punishment")], "new.yaml")
+    assert entries[0].book == "crime-and-punishment"
+    assert entries[0].key == ("crime-and-punishment", 1, 8, 1)
+
+
+def test_source_alias_accepted() -> None:
+    raw = _gold_dict()
+    raw["source"] = "crime-and-punishment"
+    entries = validate_raw_entries([raw], "alias.yaml")
+    assert entries[0].book == "crime-and-punishment"
+
+
+def test_book_and_source_must_agree() -> None:
+    raw = _gold_dict(book="crime-and-punishment")
+    raw["source"] = "other-book"
+    with pytest.raises(GoldError, match="disagree"):
+        validate_raw_entries([raw], "clash.yaml")
+
+
+def test_book_rejects_empty_and_non_string() -> None:
+    with pytest.raises(GoldError, match="book"):
+        validate_raw_entries([_gold_dict(book="  ")], "empty.yaml")
+    bad = _gold_dict()
+    bad["book"] = 7
+    with pytest.raises(GoldError, match="book"):
+        validate_raw_entries([bad], "type.yaml")
+
+
+def test_duplicate_key_includes_book() -> None:
+    with pytest.raises(GoldError, match="duplicate quote key"):
+        validate_raw_entries([_gold_dict(book="b"), _gold_dict(book="b")], "dup.yaml")
+    # Same chapter/block/quote in different books is fine.
+    entries = validate_raw_entries([_gold_dict(book="a"), _gold_dict(book="b")], "ok.yaml")
+    assert [e.key for e in entries] == [("a", 1, 8, 1), ("b", 1, 8, 1)]
+
+
+def test_load_rejects_duplicate_book_key_across_files(tmp_path: Path) -> None:
+    _write_gold(tmp_path, "a.yaml", [_gold_dict(book="b")])
+    _write_gold(tmp_path, "b.yaml", [_gold_dict(book="b")])
+    with pytest.raises(GoldError, match="duplicate quote key"):
+        load_gold_entries(tmp_path)
+
+
+def test_canonical_match_has_no_alias_matching() -> None:
+    entries = [GoldEntry(chapter=1, block=1, quote=1, excerpt="a", speaker="Raskolnikov")]
+    # Case and surrounding space are fine; a different name is simply wrong.
+    assert (
+        evaluate(entries, _fake_predictor({("", 1, 1, 1): ("raskolnikov ", "high")})).correct == 1
+    )
+    assert evaluate(entries, _fake_predictor({("", 1, 1, 1): ("the student", "high")})).correct == 0
+    assert (
+        evaluate(entries, _fake_predictor({("", 1, 1, 1): ("Raskolnikovs", "high")})).correct == 0
+    )

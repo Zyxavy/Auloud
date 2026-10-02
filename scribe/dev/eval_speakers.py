@@ -17,7 +17,7 @@
 """MV1 speaker-attribution eval harness: score a predictor over the gold set.
 
 The gold lives in ``spec/fixtures/speakers-gold/`` (one YAML file per book
-chapter; entries keyed by ``(chapter, block, quote number)``, never by
+chapter; entries keyed by ``(book, chapter, block, quote number)``, never by
 ``sid`` (see that folder's README). This script loads it, runs attribution
 over every line, and prints accuracy overall and by predicted confidence
 level (high/medium/low).
@@ -36,6 +36,13 @@ are normalized again at MV5 resolution, so ``"raskolnikov"`` matches
 ``"Raskolnikov"``). Lines labelled ``uncertain: true`` are excluded from
 accuracy (a predictor should not be punished for human guesses) and only
 reported as counts.
+
+Predictors MUST output CANONICAL speaker names exactly as the gold
+``speaker`` labels them (``"Raskolnikov"``, ``"drunken man"``). Alias
+resolution (``"the young man"`` -> ``"Raskolnikov"``) arrives in MV5 with
+``cast.yaml``; until then matching is exact after stripping and
+casefolding, with NO alias matching. A predictor emitting a non-canonical
+variant is simply wrong.
 
 Run directly (NOT a ``scribe`` command)::
 
@@ -63,7 +70,11 @@ class GoldError(ValueError):
 
 @dataclass(frozen=True)
 class GoldEntry:
-    """One hand-labelled dialogue line (the eval unit)."""
+    """One hand-labelled dialogue line (the eval unit).
+
+    ``book`` is the source-book id (e.g. ``"crime-and-punishment"``); older
+    gold files omit it (and its ``source`` alias) and load as ``""``.
+    """
 
     chapter: int
     block: int
@@ -71,27 +82,45 @@ class GoldEntry:
     excerpt: str
     speaker: str
     uncertain: bool = False
+    book: str = ""
 
     @property
-    def key(self) -> tuple[int, int, int]:
-        """Stable anchor: ``(chapter, block, quote number)``, never ``sid``."""
-        return (self.chapter, self.block, self.quote)
+    def key(self) -> tuple[str, int, int, int]:
+        """Stable anchor: ``(book, chapter, block, quote number)``, never ``sid``."""
+        return (self.book, self.chapter, self.block, self.quote)
 
 
 @dataclass(frozen=True)
 class QuoteContext:
-    """What the predictor sees for one gold line (MV2+ expands this)."""
+    """What the predictor sees for one gold line (MV2 expands this).
+
+    Only ``chapter``/``block``/``quote``/``excerpt`` (plus ``book``) are
+    filled from the gold file itself; MV3/MV4 fill ``block_text`` (the full
+    paragraph holding the quote), ``prev_text``/``next_text`` (neighbouring
+    paragraphs), and ``full_quote`` (the whole quote when the excerpt is a
+    prefix of a multi-sentence speech). All default to ``""`` so older
+    callers keep working.
+    """
 
     chapter: int
     block: int
     quote: int
     excerpt: str
+    book: str = ""
+    block_text: str = ""
+    prev_text: str = ""
+    next_text: str = ""
+    full_quote: str = ""
 
     @classmethod
     def from_gold(cls, entry: GoldEntry) -> QuoteContext:
-        """Context for a gold line (today: just the anchor plus excerpt)."""
+        """Context for a gold line (anchor plus excerpt; text fields empty)."""
         return cls(
-            chapter=entry.chapter, block=entry.block, quote=entry.quote, excerpt=entry.excerpt
+            chapter=entry.chapter,
+            block=entry.block,
+            quote=entry.quote,
+            excerpt=entry.excerpt,
+            book=entry.book,
         )
 
 
@@ -121,13 +150,16 @@ def validate_raw_entries(raw: object, source: str) -> list[GoldEntry]:
     Raises :class:`GoldError` on any shape problem: not a list, missing or
     mistyped required keys (``chapter``/``block``/``quote`` ints,
     ``excerpt``/``speaker`` non-empty strings), an unknown key, a present-but-non-bool
-    ``uncertain`` flag, or a duplicate ``(chapter, block, quote)`` key.
+    ``uncertain`` flag, a present-but-empty ``book``/``source`` label, both
+    ``book`` and ``source`` present but disagreeing, or a duplicate
+    ``(book, chapter, block, quote)`` key. ``book`` (alias ``source``) is
+    optional and defaults to ``""`` so MV1-era files without it still load.
     """
     if not isinstance(raw, list):
         raise GoldError(f"{source}: gold file must hold a YAML list of entries")
     entries: list[GoldEntry] = []
-    seen: set[tuple[int, int, int]] = set()
-    allowed = {"chapter", "block", "quote", "excerpt", "speaker", "uncertain"}
+    seen: set[tuple[str, int, int, int]] = set()
+    allowed = {"chapter", "block", "quote", "excerpt", "speaker", "uncertain", "book", "source"}
     for index, item in enumerate(raw):
         where = f"{source} entry #{index + 1}"
         if not isinstance(item, dict):
@@ -148,7 +180,8 @@ def validate_raw_entries(raw: object, source: str) -> list[GoldEntry]:
         uncertain = item.get("uncertain", False)
         if not isinstance(uncertain, bool):
             raise GoldError(f"{where}: 'uncertain' must be a bool when present")
-        key = (item["chapter"], item["block"], item["quote"])
+        book = _book_label(item, where)
+        key = (book, item["chapter"], item["block"], item["quote"])
         if key in seen:
             raise GoldError(f"{where}: duplicate quote key {key}")
         seen.add(key)
@@ -160,10 +193,33 @@ def validate_raw_entries(raw: object, source: str) -> list[GoldEntry]:
                 excerpt=item["excerpt"],
                 speaker=item["speaker"],
                 uncertain=uncertain,
+                book=book,
             )
         )
     entries.sort(key=lambda e: e.key)
     return entries
+
+
+def _book_label(item: dict[object, object], where: str) -> str:
+    """Gold ``book`` label: ``book`` (or its ``source`` alias), else ``""``."""
+    has_book = "book" in item
+    has_source = "source" in item
+    if not has_book and not has_source:
+        return ""
+    if has_book and has_source:
+        book, source = item["book"], item["source"]
+        if not isinstance(book, str) or not book.strip():
+            raise GoldError(f"{where}: 'book' must be a non-empty string when present")
+        if not isinstance(source, str) or not source.strip():
+            raise GoldError(f"{where}: 'source' must be a non-empty string when present")
+        if book.strip() != source.strip():
+            raise GoldError(f"{where}: 'book' and 'source' disagree")
+        return book.strip()
+    label = item["book"] if has_book else item["source"]
+    name = "book" if has_book else "source"
+    if not isinstance(label, str) or not label.strip():
+        raise GoldError(f"{where}: {name!r} must be a non-empty string when present")
+    return label.strip()
 
 
 def load_gold_entries(gold_dir: Path | str) -> tuple[list[GoldEntry], int]:
@@ -180,7 +236,7 @@ def load_gold_entries(gold_dir: Path | str) -> tuple[list[GoldEntry], int]:
     if not files:
         raise GoldError(f"no gold YAML files in {directory}")
     entries: list[GoldEntry] = []
-    seen: set[tuple[int, int, int]] = set()
+    seen: set[tuple[str, int, int, int]] = set()
     for path in files:
         try:
             raw = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -196,7 +252,11 @@ def load_gold_entries(gold_dir: Path | str) -> tuple[list[GoldEntry], int]:
 
 
 def _matches(predicted: str, truth: str) -> bool:
-    """Speaker equality after stripping and casefolding (see module docstring)."""
+    """Speaker equality after stripping and casefolding (see module docstring).
+
+    Exact canonical-name match only: no alias, fuzzy, or substring matching
+    (MV5 resolves aliases via ``cast.yaml``).
+    """
     return predicted.strip().casefold() == truth.strip().casefold()
 
 

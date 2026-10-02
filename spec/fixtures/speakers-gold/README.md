@@ -5,27 +5,41 @@ against. One YAML file per book chapter; one entry per dialogue line
 ("quoted speech"):
 
 ```yaml
-- chapter: 1        # required int: chapter index (1-based, draft numbering)
+- book: crime-and-punishment  # optional string: source-book id (alias: `source`);
+  chapter: 1        # required int: chapter index (1-based, draft numbering)
   block: 8          # required int: block id within the chapter (draft numbering)
   quote: 1          # required int: quote number within the block (1-based, open-quote order)
   excerpt: "..."    # required non-empty string: short identifying substring
-  speaker: "..."    # required non-empty string: true speaker (best effort)
+  speaker: "..."    # required non-empty string: true speaker, CANONICAL name (best effort)
   uncertain: true   # optional bool, default false: label is a real guess
 ```
 
+`book` (or its alias `source`) is optional and defaults to `""` so MV1-era
+files without it still load; when both appear they must agree. New entries
+should always set it: the anchor is `(book, chapter, block, quote)`.
+
 ## Anchor rule
 
-Entries anchor on `(chapter, block, quote number)`, never on `sid`.
+Entries anchor on `(book, chapter, block, quote number)`, never on `sid`.
 Sentence ids shift whenever splitting rules change; block ids and quote
 order do not (Slice 4 plan, section 4, decision 2). The excerpt is
 documentary (a prefix when the quote runs longer); the key is the anchor.
 
 ## Speaker labels
 
-Use the character's true name when the novel makes it certain, even if the
-chapter itself only says "the young man" / "he" (resolved via speech tags
-and context). Mark anything genuinely ambiguous `uncertain: true` rather
-than guessing silently.
+Use the character's true CANONICAL name when the novel makes it certain,
+even if the chapter itself only says "the young man" / "he" (resolved via
+speech tags and context). Predictors must output these canonical names
+exactly; alias resolution arrives in MV5 (`cast.yaml`), and until then the
+harness matches exactly (strip + casefold) with no alias matching. Mark
+anything genuinely ambiguous `uncertain: true` rather than guessing silently.
+
+## MV2 dialogue notes
+
+MV2's detector (`scribe/text/dialogue.py`) numbers dialogue quotes per
+block in open-quote order, matching this anchor. Multi-sentence quotes stay
+one entry (block 11 quote 2 spans many sids but is a single line here), and
+scare-quote emphasis is not dialogue at all (see below).
 
 ## Current content (MV1)
 

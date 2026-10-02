@@ -102,7 +102,7 @@ Goal: three modes with a synced highlight.
 
 Goal: distinct narrator and character voices.
 
-- [ ] Dialogue detection (straight and curly quotes, multi-paragraph quotes)
+- [x] Dialogue detection (straight and curly quotes, multi-paragraph quotes)
 - [ ] Rule-based speaker attribution ("said X", nearest name, two-person alternation)
 - [ ] Draft `cast.yaml` generated, hand-editable, then used for rendering
 - [ ] Voice palette chosen (narrator plus 3-5 characters)
