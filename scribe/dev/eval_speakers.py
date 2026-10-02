@@ -1,4 +1,4 @@
-# Auloud Scribe — turns ebooks into multi-voice audiobooks (PC tool).
+# Auloud Scribe turns ebooks into multi-voice audiobooks (PC tool).
 # Copyright (C) 2026 Zyxavy
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,12 +18,12 @@
 
 The gold lives in ``spec/fixtures/speakers-gold/`` (one YAML file per book
 chapter; entries keyed by ``(chapter, block, quote number)``, never by
-``sid`` — see that folder's README). This script loads it, runs attribution
+``sid`` (see that folder's README). This script loads it, runs attribution
 over every line, and prints accuracy overall and by predicted confidence
 level (high/medium/low).
 
 Attribution rules do NOT exist yet (MV2-MV4), so the predictor is a trivial
-baseline: always ``("unknown", "low")``. Running this now reports ~0% — that
+baseline: always ``("unknown", "low")``. Running this now reports ~0%, that
 IS the MV1 verify condition (the harness runs end to end, the number comes
 later). MV2-MV4 only swap the predictor function::
 
@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -119,17 +120,21 @@ def validate_raw_entries(raw: object, source: str) -> list[GoldEntry]:
 
     Raises :class:`GoldError` on any shape problem: not a list, missing or
     mistyped required keys (``chapter``/``block``/``quote`` ints,
-    ``excerpt``/``speaker`` non-empty strings), a present-but-non-bool
+    ``excerpt``/``speaker`` non-empty strings), an unknown key, a present-but-non-bool
     ``uncertain`` flag, or a duplicate ``(chapter, block, quote)`` key.
     """
     if not isinstance(raw, list):
         raise GoldError(f"{source}: gold file must hold a YAML list of entries")
     entries: list[GoldEntry] = []
     seen: set[tuple[int, int, int]] = set()
+    allowed = {"chapter", "block", "quote", "excerpt", "speaker", "uncertain"}
     for index, item in enumerate(raw):
         where = f"{source} entry #{index + 1}"
         if not isinstance(item, dict):
             raise GoldError(f"{where}: must be a mapping, got {type(item).__name__}")
+        unknown = set(item) - allowed
+        if unknown:
+            raise GoldError(f"{where}: unknown key(s) {sorted(unknown)}")
         for key in ("chapter", "block", "quote"):
             value = item.get(key)
             if not isinstance(value, int) or isinstance(value, bool):
@@ -210,12 +215,14 @@ class EvalResult:
 
 def evaluate(
     entries: list[GoldEntry],
-    predictor: object = predict,
+    predictor: Callable[[QuoteContext], tuple[str, str]] | None = None,
 ) -> EvalResult:
     """Score ``predictor`` over ``entries`` (certain lines count, see docstring)."""
+    if predictor is None:
+        predictor = predict
     result = EvalResult(total=len(entries))
     for entry in entries:
-        speaker, confidence = predictor(QuoteContext.from_gold(entry))  # type: ignore[operator]
+        speaker, confidence = predictor(QuoteContext.from_gold(entry))
         level = str(confidence).lower()
         if entry.uncertain:
             result.uncertain += 1

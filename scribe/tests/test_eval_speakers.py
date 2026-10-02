@@ -1,4 +1,4 @@
-# Auloud Scribe — turns ebooks into multi-voice audiobooks (PC tool).
+# Auloud Scribe turns ebooks into multi-voice audiobooks (PC tool).
 # Copyright (C) 2026 Zyxavy
 #
 # This program is free software: you can redistribute it and/or modify
@@ -24,6 +24,7 @@ overall and by-level accuracy right, including the uncertain-line exclusion.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -116,6 +117,13 @@ def test_validate_rejects_empty_speaker_and_zero_chapter() -> None:
         validate_raw_entries([_gold_dict(chapter=0)], "test.yaml")
 
 
+def test_validate_rejects_unknown_key() -> None:
+    extra = _gold_dict()
+    extra["chapterr"] = 1
+    with pytest.raises(GoldError, match="unknown key"):
+        validate_raw_entries([extra], "test.yaml")
+
+
 def test_load_rejects_duplicate_key_across_files(tmp_path: Path) -> None:
     _write_gold(tmp_path, "a.yaml", [_gold_dict()])
     _write_gold(tmp_path, "b.yaml", [_gold_dict()])
@@ -136,7 +144,9 @@ def test_baseline_predictor_is_unknown_low() -> None:
     assert predict(context) == ("unknown", "low")
 
 
-def _fake_predictor(mapping: dict[tuple[int, int, int], tuple[str, str]]) -> object:
+def _fake_predictor(
+    mapping: dict[tuple[int, int, int], tuple[str, str]],
+) -> Callable[[QuoteContext], tuple[str, str]]:
     def _predict(context: QuoteContext) -> tuple[str, str]:
         return mapping[(context.chapter, context.block, context.quote)]
 
@@ -184,3 +194,19 @@ def test_evaluate_empty_certain_gives_none_accuracy() -> None:
     assert result.uncertain_agree == 1
     report = format_result(result, predictor_name="fake", file_count=1)
     assert "n/a" in report
+
+
+def test_evaluate_default_uses_rebound_predictor(monkeypatch: pytest.MonkeyPatch) -> None:
+    import dev.eval_speakers as eval_mod
+
+    entries = [GoldEntry(chapter=1, block=1, quote=1, excerpt="a", speaker="Ana")]
+
+    def _custom(context: QuoteContext) -> tuple[str, str]:
+        _ = context
+        return ("Ana", "high")
+
+    monkeypatch.setattr(eval_mod, "predict", _custom)
+    result = eval_mod.evaluate(entries)
+    assert result.correct == 1
+    assert result.accuracy == pytest.approx(1.0)
+    assert result.by_level["high"] == (1, 1)
