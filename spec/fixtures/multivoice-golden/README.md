@@ -44,6 +44,23 @@ the tests fails loudly.
 - Audio: tones, NOT speech. Anyone expecting narration is in the wrong
   fixture.
 
+## Exact sentences (pinned by the MV9 Player test)
+
+`duration_ms` 1550, title "Chapter One". Sids run 1..3, first start 0,
+timings ordered with gaps (100-600, 700-950) and a tail (1050-1550).
+
+| sid | block | speaker | start_ms | end_ms | text (verbatim) |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 1 (para) | narrator | 0 | 100 | `The amber lamp glowed softly above the quiet river bend.` (italic span 22-28, "softly") |
+| 2 | 2 (para) | Alice | 600 | 700 | `"We should leave,"` (no trailing space) |
+| 3 | 2 (para) | narrator | 950 | 1050 | ` Alice said.` (leading space) |
+
+Raw join of block 2 reproduces the paragraph exactly:
+`"We should leave," Alice said.` (one space). Note for the display
+layer: `layoutParagraph` inserts its trimmed-source fallback space after
+sid 2 (ends in `"`), so the laid-out text shows a double space there
+(`"We should leave,"  Alice said.`, ranges 0-19 / 19-31).
+
 ## Sizes / durations
 
 | file | duration | size |
