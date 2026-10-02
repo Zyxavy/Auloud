@@ -11,6 +11,14 @@ Result: pass | fail | needs retest
 ```
 
 ---
+## MV0 voice palette (2026-10-02, user listening test over 54 samples)
+
+- Narrator: `am_onyx` (18)
+- Characters: `bf_isabella` (23), `bm_lewis` (28), `im_nicola` (38), `jf_alpha` (39), `zf_xiaoxiao` (49), `am_eric` (14)
+- Generic female: `af_bella` (03); generic male: `am_adam` (12)
+- User note: current voices sound good and are enough for v1; v2/v3 should add more diverse voices (logged in D-036).
+
+---
 ## RA11 acceptance (2026-10-01, Tab E, user run)
 
 Build: debug APK from `dev/slice3` (through `13a1366`, incl. the Listen dead-end fix). Bundles: `ra-beep`, `ra-long`, C&P sample, Yellow Wallpaper.
