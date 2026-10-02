@@ -101,7 +101,10 @@ from text.speakers import (
 #: comment/doc-only edits, for MV5 cast.py changes (resolution lives in
 #: build, not draft), or for report formatting. A bump re-drafts every book
 #: once via build's ensure_script (source hash OR version mismatch).
-ATTRIBUTION_RULES_VERSION = 1
+#: Version 2: MV7 review fix carries ``split_pair`` onto narration tags in
+#: draft output (previously only dialogue halves kept the link), so old
+#: scripts lose the tag pause without a re-draft.
+ATTRIBUTION_RULES_VERSION = 2
 
 #: Confidence levels the rules produce (match the eval harness display order).
 CONFIDENCE_HIGH = "high"

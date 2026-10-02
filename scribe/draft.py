@@ -325,6 +325,7 @@ def _apply_attribution(
                             kind=NARRATION,
                             confidence="high",
                             quote=None,
+                            split_pair=tagged.split_pair,
                         )
                     )
             new_blocks.append(

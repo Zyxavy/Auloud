@@ -42,7 +42,11 @@ sentence text: it only steers the generic fallback, so the lightweight
 hint is enough — threading the draft's full-context hint through
 ``script.json`` would reshape the work file and force every book to
 re-draft for no audible difference, and running the spaCy tagger at build
-would drag the model into packaging (the MV4 lesson). ``"unknown"`` and
+would drag the model into packaging (the MV4 lesson). Accepted v1 risk:
+build sees only the single sentence text while draft votes from paragraph
+context (prev plus block plus next), so the two hints can disagree on
+edge cases and pick different generics; the resolved voice still lands in
+the fingerprint, so any flip re-renders that chapter. ``"unknown"`` and
 any other raw surface resolve to a generic, never crash. Speed offsets
 only, no pitch shifting (decision 4). Per-voice leveling happens in
 :func:`audio.assemble.assemble_chapter` (decision 5), never in the cache.
@@ -51,7 +55,8 @@ Resume: each chapter's encoded MP3 plus its timed chapter JSON live under
 ``<work-dir>/<book-id>/render/`` (``audio/chNNN.mp3``,
 ``text/chNNN.json``). A chapter is skipped when :func:`chapter_up_to_date`
 finds a valid MP3 plus matching timings already on disk: same sentence
-``(sid, speaker, text, spans)`` sequence as the script, same chapter title
+``(sid, speaker, text, spans)`` sequence as the script
+(see :func:`_sentence_key`), same chapter title
 and block structure (break blocks carry pauses but no sentences), same
 cast voices/speeds, pitch and engine version, and the same assembly
 fingerprint (:func:`_assembly_fingerprint` — pause/loudness/encode
@@ -163,7 +168,10 @@ _CHAPTER_STEM_RE = re.compile(r"^ch(\d+)$")
 #: (those are fingerprinted automatically from their constants — see
 #: :func:`_assembly_fingerprint`), nor for cast/engine/script edits (those
 #: are separate fingerprint fields). A bump re-renders every chapter once.
-BUFFER_VERSION = 1
+#: Version 2: MV7 review fix carries ``kind``/``split_pair`` in the
+#: fingerprint voices (see :func:`_fingerprint`), so pre-fix renders
+#: (which ignored the tag link) invalidate exactly once.
+BUFFER_VERSION = 2
 
 
 def _assembly_fingerprint() -> dict[str, Any]:
@@ -325,7 +333,7 @@ def _narrator_voice(cast_path: Path) -> tuple[str, float]:
         raise BuildError(f"{cast_path.name}: cannot read cast: {exc}") from exc
     entry = cast.get(NARRATOR)
     if not isinstance(entry, dict):
-        raise BuildError(f"{cast_path.name}: no '{NARRATOR}' entry (Slice 2 is single-voice)")
+        raise BuildError(f"{cast_path.name}: no '{NARRATOR}' entry (needs engine, voice, speed)")
     voice = entry.get("voice")
     if not isinstance(voice, str) or not voice.strip():
         raise BuildError(f"{cast_path.name}: narrator entry needs a 'voice' id")
@@ -414,10 +422,16 @@ def _fingerprint(
 ) -> dict[str, Any]:
     """Render fingerprint for one chapter: everything (besides sentence
     text) that can change its audio or its shipped JSON. The cast half is
-    the per-sentence resolution (``[sid, character, voice, speed]`` in
-    document order via :func:`resolve_chapter`), so a cast edit re-renders
+    the per-sentence resolution (``[sid, character, voice, speed, kind,
+    split_pair]`` in document order via :func:`resolve_chapter` plus the
+    script ``kind``/``split_pair``), so a cast edit re-renders
     exactly the chapters holding affected sentences — and within them the
-    sentence cache re-synthesizes only the changed lines. A chapter-title
+    sentence cache re-synthesizes only the changed lines. ``kind`` selects
+    the narrator versus character voice and ``split_pair`` selects the
+    short tag pause in assembly: carrying them here (rather than in
+    :func:`_sentence_key`) is the cleaner seam because render JSON is
+    written without draft fields, so a sentence-identity key could never
+    see them on the stored side. A chapter-title
     or block-structure edit (breaks carry pauses but no sentences)
     re-renders that chapter; any pause/loudness/encode constant edit or
     :data:`BUFFER_VERSION` bump (see :func:`_assembly_fingerprint`)
@@ -435,8 +449,16 @@ def _fingerprint(
         narrator_voice=voice if isinstance(voice, str) and voice.strip() else "narrator",
         narrator_speed=narrator_speed,
     )
+    by_sid = {s.sid: s for s in chapter.sentences_in_order()}
     voices = [
-        [sid, resolved.character, resolved.voice, resolved.speed]
+        [
+            sid,
+            resolved.character,
+            resolved.voice,
+            resolved.speed,
+            by_sid.get(sid).kind if by_sid.get(sid) is not None else "narration",
+            by_sid.get(sid).split_pair if by_sid.get(sid) is not None else None,
+        ]
         for sid, resolved in plan.items()
     ]
     blocks = [
@@ -455,7 +477,14 @@ def _fingerprint(
 
 def _sentence_key(sentence: Sentence) -> tuple[int, str, str, tuple[tuple[int, int, str], ...]]:
     """Identity of one script sentence for the up-to-date check (text and
-    spans included: both flow into the chapter JSON the bundle ships)."""
+    spans included: both flow into the chapter JSON the bundle ships).
+
+    ``kind``/``split_pair`` are intentionally NOT part of this key: render
+    JSON is written without draft fields (see ``Sentence.to_dict``), so
+    the stored side could never match them. Assembly inputs ride in the
+    render fingerprint instead (``_fingerprint`` voices carry
+    ``kind``/``split_pair`` per sentence).
+    """
     spans = tuple((s.start, s.end, s.style) for s in sentence.spans)
     return (sentence.sid, sentence.speaker, sentence.text, spans)
 
@@ -469,9 +498,11 @@ def chapter_up_to_date(
     """Return the stored timed chapter when the render artifacts are fresh.
 
     Fresh means: the render JSON parses with the same chapter number, the
-    same sentence sequence (sid/speaker/text/spans) as ``script_chapter``,
+    same sentence sequence (sid/speaker/text/spans, see
+    :func:`_sentence_key`) as ``script_chapter``,
     a positive duration, and the stored fingerprint equals ``fingerprint``
-    (per-chapter: title, block structure, cast voices/speeds, pitch,
+    (per-chapter: title, block structure, cast voices/speeds plus
+    kind/split_pair, pitch,
     engine version, assembly version); plus the render MP3 exists with an
     ffprobe duration within 50 ms of the stored duration and intact
     constant-bitrate frames. ANY deviation (missing/corrupt files,
@@ -646,13 +677,19 @@ def _append_log(work_dir: Path, lines: list[str]) -> None:
 
 
 def format_summary(result: BuildResult) -> str:
-    """Human-readable totals for :class:`BuildResult` (printed by the CLI)."""
+    """Human-readable totals for :class:`BuildResult` (printed by the CLI).
+
+    The ``cached``/``rendered`` sentence-audio counts cover this run's
+    renders only: skipped (up-to-date) chapters add no synth calls, so
+    they contribute neither hits nor misses.
+    """
     audio_s = result.total_audio_ms / 1000.0
     lines = [
         f"bundle: {result.bundle_dir} ({result.chapters_total} chapters)",
         f"rendered: {result.rendered}, skipped: {result.skipped}, "
         f"failed: {len(result.failed)}",
-        f"sentence audio: {result.cache_hits} cached, {result.cache_misses} rendered",
+        f"sentence audio (this run's renders only): {result.cache_hits} cached, "
+        f"{result.cache_misses} rendered",
         f"total audio: {format_duration(audio_s)} ({result.total_audio_ms} ms)",
         f"wall time: {result.wall_seconds:.1f} s",
         f"real-time factor: {result.rtf:.2f}x",
@@ -714,9 +751,10 @@ def run_build(
 
     tts = engine if engine is not None else create_engine(models_dir)
 
-    # MV5-review item 8: validate against the engine's REAL voice list, not
-    # a synthetic set. Unknown voices fail the build here, with file+key+
-    # rule errors (voiceless engines pass None: shape checks only).
+    # Validate against the engine's real voice list, not a synthetic set.
+    # Unknown voices fail the build here with file plus key plus rule
+    # errors. When the engine exposes no voice list (``voices is None``),
+    # validation checks shape only (non-empty voice strings).
     cast_errors = validate_cast(cast, source=CAST_FILENAME, known_voices=tts.voices)
     if cast_errors:
         raise BuildError("; ".join(cast_errors))

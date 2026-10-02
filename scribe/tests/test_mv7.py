@@ -675,3 +675,41 @@ def test_build_rejects_unknown_voice_against_real_list(tmp_path: Path) -> None:
     assert "cast.yaml" in message  # file
     assert "characters.Alice.voice" in message  # key
     assert "unknown voice" in message and "xx_nope" in message  # rule
+
+
+def test_run_draft_narration_tag_keeps_split_pair(tmp_path: Path) -> None:
+    """Narration tags from ``run_draft`` keep the MV7 same-sentence link.
+
+    Regression for the MV7 review H1: ``_apply_attribution`` gave the
+    dialogue half its ``split_pair`` but built narration sentences without
+    it, so narration tags always lost the link and assembly never took
+    the tag pause on real books. Lowercase pronoun tag (``she said``)
+    is used because MV2 only links continuation tags, not new sentences.
+    """
+    book = epub.EpubBook()
+    book.set_identifier("test-mv7-tag-book")
+    book.set_title("MV7 Tag Book")
+    book.set_language("en")
+    book.add_author("MV7 Author")
+    ch1 = epub.EpubHtml(title="Chapter One", file_name="ch1.xhtml", lang="en")
+    ch1.content = '<h1>Chapter One</h1><p>"Hello," she said.</p>'
+    book.add_item(ch1)
+    book.toc = [epub.Link("ch1.xhtml", "Chapter One", "ch1")]
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    book.spine = [ch1]
+    epub_path = tmp_path / "tag.epub"
+    epub.write_epub(str(epub_path), book)
+
+    result = run_draft(epub_path, work_root=tmp_path / "work")
+    chapters = _script_chapters(tmp_path / "work", result.book_id)
+    assert len(chapters) == 1
+    sentences = chapters[0].sentences_in_order()
+    dialogue = next(s for s in sentences if "Hello" in s.text)
+    assert dialogue.kind == "dialogue"
+    assert dialogue.split_pair is not None
+    tag = next(
+        s for s in sentences if s.sid != dialogue.sid and s.split_pair == dialogue.split_pair
+    )
+    assert tag.kind == "narration"
+    assert "she said" in tag.text
