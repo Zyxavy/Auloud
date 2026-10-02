@@ -93,6 +93,16 @@ from text.speakers import (
     pronoun_gender,
 )
 
+#: Attribution rules version for MV6 draft staleness (stored in script.json).
+#: Bump this integer ONLY when MV2-MV4 logic changes in a way that alters
+#: attribution results: dialogue splitting (text/dialogue.py), candidate
+#: extraction (text/speakers.py: SPEECH_VERBS, TITLE_RE, gender lists,
+#: alias rules), or the priority rules/tie-breaks below. Do NOT bump for
+#: comment/doc-only edits, for MV5 cast.py changes (resolution lives in
+#: build, not draft), or for report formatting. A bump re-drafts every book
+#: once via build's ensure_script (source hash OR version mismatch).
+ATTRIBUTION_RULES_VERSION = 1
+
 #: Confidence levels the rules produce (match the eval harness display order).
 CONFIDENCE_HIGH = "high"
 CONFIDENCE_MEDIUM = "medium"
@@ -124,6 +134,10 @@ class Attribution:
     """One attributed quote: surface speaker, confidence, and the rule used.
 
     Anchored on ``(book, chapter, block, quote)``, never on ``sid``.
+    ``gender`` is the MV3 hint for the winning surface (male/female/unknown;
+    pronoun-rule hits carry the pronoun gender); MV6 draft uses it for the
+    cast palette vote, and MV7 build may reuse it for generic fallback.
+    Defaults to unknown so older constructions keep working.
     """
 
     book: str
@@ -133,6 +147,7 @@ class Attribution:
     speaker: str
     confidence: str
     rule: str
+    gender: str = "unknown"
 
     @property
     def key(self) -> tuple[str, int, int, int]:
@@ -358,6 +373,7 @@ def attribute_quotes(
                 speaker=speaker,
                 confidence=confidence,
                 rule=rule,
+                gender=gender,
             )
         )
         prev_context = context

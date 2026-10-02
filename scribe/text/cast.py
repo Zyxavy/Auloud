@@ -51,7 +51,12 @@ Format notes (per ``05-ScribeDesign.md`` as refined by Slice 4 decisions 1-3):
   quote text, so ``'^"Run!"'`` anchors the start the way the design example
   does. The two forms never mix in one entry.
 - ``first_person`` (decision 6) names who speaks ``"I said"``-style lines:
-  ``"narrator"`` (the default) or a character key.
+  ``"narrator"`` (the default), a character key, or an alias surface (alias
+  surfaces are accepted and resolve to their owner, pinned by test).
+- Override and ``first_person`` speakers accept character keys AND alias
+  surfaces (``"Ally"`` for character ``Alice`` validates and resolves).
+  An override whose speaker normalizes to ``"i"`` redirects through
+  ``first_person`` exactly like a raw ``"I said"`` line.
 
 Resolution order (:func:`resolve_speaker`, pure, used by ``build``):
 
@@ -59,7 +64,9 @@ Resolution order (:func:`resolve_speaker`, pure, used by ``build``):
    file order), else text-match override whose regex searches the quote
    text (first match in file order). Quote-key beats text-match.
 2. First-person raw speaker (normalizes to ``"i"``) goes to the
-   ``first_person`` target (narrator by default, else the named character).
+   ``first_person`` target (narrator by default, else the named character
+   or alias surface). An override speaker that normalizes to ``"i"``
+   lands here too (override-to-``"I"`` redirects, pinned by test).
 3. The raw speaker canonicalized through ``aliases`` (character key match
    first, then alias surfaces), resolving to that character's voice.
 4. Otherwise the gender-matched generic: a ``male`` hint takes
@@ -72,6 +79,19 @@ Resolution order (:func:`resolve_speaker`, pure, used by ``build``):
    map stays small: narrator + top-N characters + two generics).
 5. The ``"unknown"`` fallback speaker from MV4 resolves sanely through step
    4 (generic by hint, default female for unknown hints) and never crashes.
+
+Invalid casts resolve leniently, never raise: a non-mapping cast counts as
+empty, missing sections default (generics fall back to D-036 voices,
+``first_person`` to narrator, overrides to none), malformed override
+entries (bad regex, bad types, missing ids) are skipped, and unknown names
+fall through to the gender-matched generic. Run :func:`validate_cast` to
+find the errors; :func:`resolve_speaker` stays total.
+
+Back-compat: a minimal SW5 narrator-only cast (``default_cast``) remains
+valid (missing characters/aliases/overrides/generics/``first_person``
+default as above) and resolves (every dialogue line to a generic);
+:func:`merge_cast` upgrades it non-destructively, keeping the legacy
+narrator voice byte-for-value.
 
 Merge rule (:func:`merge_cast`, decision 3): re-running ``draft`` merges,
 never clobbers. Every existing user entry (narrator voice/speed,

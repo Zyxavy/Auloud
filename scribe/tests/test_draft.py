@@ -110,10 +110,24 @@ def test_script_structure_speakers_and_sids(tmp_path: Path) -> None:
         assert all(s.text.strip() for s in sentences)
 
 
-def test_cast_yaml_narrator_only(tmp_path: Path) -> None:
+def test_cast_yaml_multivoice_defaults_no_dialogue(tmp_path: Path) -> None:
+    """MV6: dialogue-free book drafts the empty multi-voice cast (D-036)."""
+    from text.cast import (
+        DEFAULT_FEMALE_VOICE,
+        DEFAULT_MALE_VOICE,
+        PALETTE_NARRATOR_VOICE,
+    )
+
     _, result = _run(tmp_path)
     cast = yaml.safe_load(result.cast_path.read_text(encoding="utf-8"))
-    assert cast == {"narrator": {"engine": "kokoro", "voice": "af_heart", "speed": 1.0}}
+    assert cast["narrator"]["voice"] == PALETTE_NARRATOR_VOICE
+    assert cast["narrator"]["engine"] == "kokoro"
+    assert cast["characters"] == {}
+    assert cast["aliases"] == {}
+    assert cast["overrides"] == []
+    assert cast["default_female"]["voice"] == DEFAULT_FEMALE_VOICE
+    assert cast["default_male"]["voice"] == DEFAULT_MALE_VOICE
+    assert cast["first_person"] == "narrator"
 
 
 def test_report_contains_chapters_counts_drops_estimate(tmp_path: Path) -> None:
@@ -138,7 +152,7 @@ def test_twice_run_byte_identical(tmp_path: Path) -> None:
     rerun = run_draft(epub_path, work_root=tmp_path / "work-a")
 
     assert first.book_id == second.book_id == rerun.book_id
-    for name in ("script.json", "cast.yaml", "draft_report.md"):
+    for name in ("script.json", "cast.yaml", "draft_report.md", "cast_report.md"):
         assert (first.work_dir / name).read_bytes() == (second.work_dir / name).read_bytes()
         assert (first.work_dir / name).read_bytes() == (rerun.work_dir / name).read_bytes()
 
@@ -186,6 +200,7 @@ def test_cli_draft_writes_work_folder(tmp_path: Path) -> None:
         "script.json",
         "cast.yaml",
         "draft_report.md",
+        "cast_report.md",
     }
 
 

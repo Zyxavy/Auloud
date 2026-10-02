@@ -440,3 +440,91 @@ def test_write_read_roundtrip(tmp_path) -> None:
     path = write_cast(tmp_path / "cast.yaml", drafted)
     assert read_cast(path) == drafted
     assert yaml.safe_load(path.read_text(encoding="utf-8")) == drafted
+
+
+# ---------------------------------------------------------------------------
+# MV5-review pins: bad-regex leniency, thought survival, merge order,
+# tie-breaks, first-person override/alias
+# ---------------------------------------------------------------------------
+
+
+def test_bad_regex_override_falls_through_never_throws() -> None:
+    """A text-match override with an uncompilable regex never crashes resolve.
+
+    Validation still rejects it (see test_override_malformed_forms); at
+    resolve time the bad entry is skipped and the next layer wins.
+    """
+    cast = _cast()
+    cast["overrides"].append({"match": "(", "speaker": "Alice"})
+    hit = resolve_speaker(cast, raw_speaker="Bob", text='"Walk."')
+    assert hit.character == "Bob"
+    hit = resolve_speaker(cast, raw_speaker="Zarathustra", gender="male", text="hi")
+    assert hit.character == "default_male"
+
+
+def test_thought_hook_survives_merge() -> None:
+    """Top-level and per-character thought mappings are preserved byte-for-value."""
+    user = _cast()
+    user["thought"] = {"voice": "jf_alpha", "speed": 1.0}
+    user["characters"]["Alice"]["thought"] = {"voice": "zf_xiaoxiao"}
+    before = copy.deepcopy(user)
+    discovered = draft_cast({"Alice": 5, "Raskolnikov": 4}, {"Alice": "female"})
+    merged = merge_cast(user, discovered)
+    assert user == before
+    assert merged["thought"] == {"voice": "jf_alpha", "speed": 1.0}
+    assert merged["characters"]["Alice"]["thought"] == {"voice": "zf_xiaoxiao"}
+    assert "Raskolnikov" in merged["characters"]
+
+
+def test_merge_newcomer_order_and_discovered_unmutated() -> None:
+    """Newcomers append in discovered rank order; neither input mutates."""
+    user = _cast()
+    user_before = copy.deepcopy(user)
+    discovered = draft_cast(
+        {"Zara": 6, "Mike": 5, "Anna": 4},
+        {"Zara": "female", "Mike": "male", "Anna": "female"},
+        top_n=5,
+    )
+    discovered_before = copy.deepcopy(discovered)
+    merged = merge_cast(user, discovered)
+    assert user == user_before
+    assert discovered == discovered_before
+    newcomers = [k for k in merged["characters"] if k not in ("Alice", "Bob")]
+    assert newcomers == ["Zara", "Mike", "Anna"]
+
+
+def test_draft_canonical_tie_break_is_deterministic() -> None:
+    """Same-count cluster members: smallest normalized, then smallest surface."""
+    cast = draft_cast({"Bob": 3, "bob": 3}, {"Bob": "male", "bob": "male"}, top_n=5)
+    assert sorted(cast["characters"]) == ["Bob"]
+    canonical = next(iter(cast["characters"]))
+    assert canonical == "Bob"
+    assert cast["aliases"]["Bob"] == ["bob"]
+    assert draft_cast({"Bob": 3, "bob": 3}, {"Bob": "male", "bob": "male"}) == cast
+
+
+def test_draft_gender_tie_break_prefers_alphabetical() -> None:
+    """Equal male/female votes in one cluster break alphabetically (female first)."""
+    cast = draft_cast(
+        {"Elizabeth Bennet": 2, "Bennet": 2},
+        {"Elizabeth Bennet": "female", "Bennet": "male"},
+        top_n=5,
+    )
+    assert sorted(cast["characters"]) == ["Bennet"]
+    assert cast["aliases"]["Bennet"] == ["Elizabeth Bennet"]
+    assert cast["characters"]["Bennet"]["voice"] == CHARACTER_PALETTE_FEMALE[0]
+
+
+def test_override_to_i_redirects_through_first_person() -> None:
+    """An override naming I redirects like a raw first-person line (lenient).
+
+    Validation still points nowhere (``I`` is a raw surface, not a
+    character); resolve stays total and lands on the ``first_person``
+    target anyway.
+    """
+    cast = _cast()
+    cast["first_person"] = "Alice"
+    cast["overrides"].append({"chapter": 9, "block": 9, "quote": 9, "speaker": "I"})
+    assert any("points nowhere" in e and "'I'" in e for e in _errors(cast))
+    hit = resolve_speaker(cast, raw_speaker="Bob", chapter=9, block=9, quote=9)
+    assert hit.character == "Alice"

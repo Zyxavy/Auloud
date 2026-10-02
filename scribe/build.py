@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""``scribe build`` pipeline (SW9): work folder -> rendered chapters -> bundle.
+"""``scribe build`` pipeline (SW9, MV6 staleness): work folder -> chapters -> bundle.
 
 Chapter by chapter: script sentences -> SW6 cache/engine
 (:func:`tts.cache.get_or_synth`) -> SW7 assembly
@@ -23,10 +23,14 @@ continuous buffer — never reimplemented here) -> SW7 encode
 (:func:`audio.encode.encode_assembled_chapter`) -> SW8 writer
 (:func:`bundle.writer.write_bundle`, which runs the SW2 validator gate).
 
-Draft freshness: :func:`ensure_script` runs ``draft`` first when the work
-folder lacks a fresh script. Fresh means ``script.json`` exists AND its
-``source_sha256`` matches the source file's current sha256; anything else
-(missing file, unreadable JSON, shape error, sha mismatch) re-drafts.
+Draft freshness (MV6, decision 1): :func:`ensure_script` runs ``draft``
+first when the work folder lacks a fresh script. Fresh means
+``script.json`` exists AND its ``source_sha256`` matches the source file's
+current sha256 AND its ``attribution_rules_version`` matches
+:data:`text.attribution.ATTRIBUTION_RULES_VERSION`; anything else
+(missing file, unreadable JSON, shape error, sha mismatch, version
+mismatch or missing version on legacy scripts) re-drafts. ``cast.yaml``
+edits NEVER trigger a re-draft (editing cast needs only build).
 
 Resume: each chapter's encoded MP3 plus its timed chapter JSON live under
 ``<work-dir>/<book-id>/render/`` (``audio/chNNN.mp3``,
@@ -237,13 +241,19 @@ def ensure_script(
     """Return a fresh script for ``source``, drafting first when stale.
 
     Fresh means ``<work_root>/<book-id>/script.json`` exists AND its
-    ``source_sha256`` matches the source file's current sha256. Anything
-    else (missing file, bad JSON, shape error, sha mismatch — e.g. the
-    source changed since the draft) runs :func:`draft.run_draft` again.
+    ``source_sha256`` matches the source file's current sha256 AND its
+    ``attribution_rules_version`` matches
+    :data:`text.attribution.ATTRIBUTION_RULES_VERSION`. Anything else
+    (missing file, bad JSON, shape error, sha mismatch, version mismatch
+    or missing version — e.g. the source changed since the draft, or MV2-MV4
+    logic changed) runs :func:`draft.run_draft` again. ``cast.yaml`` is
+    never consulted here: editing it needs only build, never a re-draft.
 
     :raises BuildError: the source file is missing/unreadable.
     :raises DraftError: drafting a stale/missing script failed.
     """
+    from text.attribution import ATTRIBUTION_RULES_VERSION
+
     src = Path(source)
     if not src.is_file():
         raise BuildError(f"EPUB not found: {src}")
@@ -257,7 +267,11 @@ def ensure_script(
     if script_path.is_file():
         try:
             data = _read_json(script_path)
-            if isinstance(data, dict) and data.get("source_sha256") == sha:
+            if (
+                isinstance(data, dict)
+                and data.get("source_sha256") == sha
+                and data.get("attribution_rules_version") == ATTRIBUTION_RULES_VERSION
+            ):
                 chapters = [ChapterFile.from_dict(c) for c in data["chapters"]]
                 if chapters:
                     return ScriptInfo(
