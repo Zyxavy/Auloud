@@ -104,15 +104,15 @@ Goal: distinct narrator and character voices.
 
 - [x] Dialogue detection (straight and curly quotes, multi-paragraph quotes)
 - [x] Rule-based speaker attribution ("said X", nearest name, two-person alternation)
-- [ ] Draft `cast.yaml` generated, hand-editable, then used for rendering
-- [ ] Voice palette chosen (narrator plus 3-5 characters)
-- [ ] Per-character speed/pitch offsets
-- [ ] Manifest `voices` map filled in; speaker stored per sentence
+- [x] Draft `cast.yaml` generated, hand-editable, then used for rendering
+- [x] Voice palette chosen (narrator plus 3-5 characters)
+- [x] Per-character speed/pitch offsets
+- [x] Manifest `voices` map filled in; speaker stored per sentence
 
 **Done when:**
 
-- A dialogue-heavy chapter sounds clearly different for narrator and characters
-- Mislabelled speakers can be fixed by editing `cast.yaml` and re-running, with no code changes
+- [x] A dialogue-heavy chapter sounds clearly different for narrator and characters
+- [x] Mislabelled speakers can be fixed by editing `cast.yaml` and re-running, with no code changes
 
 ## Slice 5: Complete pass (M)
 

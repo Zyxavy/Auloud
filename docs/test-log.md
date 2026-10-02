@@ -11,6 +11,15 @@ Result: pass | fail | needs retest
 ```
 
 ---
+## MV10 acceptance (2026-10-02, user listening + tablet sign-off)
+
+- C&P 2-chapter (`CRIME AND PUNISHMENT.epub`, local): `scribe build` → 2 chapters, 58:32 audio, 632 sentences, validates clean; RTF 24.77x (mostly cache). Speakers: narrator 27 min, orator 16 min, Marmeladov/default_female 4 min each. User casting fixes applied (Marmeladov→am_eric, Raskolnikov→am_adam, old woman→bf_isabella, poor woman→af_bella).
+- Alice fragment (107 sentences): 10:33 audio, RTF 4.13x fresh synth, validates clean. Alice (bf_isabella, 38 lines + 3 aliased "poor Alice") clearly distinct from narrator (am_onyx).
+- Override round-trip (headline check): override on Alice (1,10,3) → rebuild rendered exactly 1 line (106 cached, 1 synthesized) with flipped voice; revert → 107 cached, 0 rendered, byte-identical duration. Caught and fixed on the way: `speaker: narrator` in overrides fell through to `default_female` (fixed, `79c9e9c`, 438 tests green).
+- Tablet: multi-voice bundles import, play, and track highlight with taps per speaker (user-confirmed).
+- Slice 4 "done when" signed off by the user: clearly multi-voice by ear; cast edits fix lines with build-only re-renders.
+
+---
 ## MV0 voice palette (2026-10-02, user listening test over 54 samples)
 
 - Narrator: `am_onyx` (18)
