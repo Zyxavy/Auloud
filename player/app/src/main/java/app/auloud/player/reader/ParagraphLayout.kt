@@ -10,7 +10,9 @@ import app.auloud.player.bundle.Block
  * Spacing rule (checked against `spec/fixtures/scribe-golden/`): Scribe
  * stores sentence text with its trailing space, so sentences concatenate
  * exactly as stored. A sentence without trailing whitespace (hand-made
- * bundle) gets one inserted space, unless it ends the block.
+ * bundle) gets one inserted space, unless it ends the block or the next
+ * sentence already starts with whitespace (Scribe-real split pairs carry
+ * the separator on the tag half).
  *
  * Span offsets in the bundle are relative to their own sentence; they are
  * rebased onto the paragraph here and clamped to the sentence range.
@@ -41,7 +43,10 @@ fun layoutParagraph(block: Block): ParagraphLayout {
             sentence.text.isNotEmpty() &&
             !sentence.text.last().isWhitespace()
         ) {
-            text.append(' ')
+            val next = block.sentences[index + 1].text
+            if (next.isEmpty() || !next.first().isWhitespace()) {
+                text.append(' ')
+            }
         }
         val end = text.length
         sentences.add(SentenceRange(sentence.sid, start, end))

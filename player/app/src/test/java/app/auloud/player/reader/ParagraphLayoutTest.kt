@@ -44,6 +44,19 @@ class ParagraphLayoutTest {
     }
 
     @Test
+    fun splitPairLeadingSpace_noDoubleSpace() {
+        val block = Block(1, "para", sentences = listOf(
+            sentence(1, "\"We should leave,\""),
+            sentence(2, " Alice said.")
+        ))
+        val layout = layoutParagraph(block)
+        assertEquals("\"We should leave,\" Alice said.", layout.text)
+        assertEquals(SentenceRange(1, 0, 18), layout.sentences[0])
+        assertEquals(SentenceRange(2, 18, 30), layout.sentences[1])
+        assertEquals(layout.sentences[1].start, layout.sentences[0].end)
+    }
+
+    @Test
     fun italicSpan_rebasedOntoParagraph() {
         val block = Block(1, "para", sentences = listOf(
             sentence(1, "Plain. "),

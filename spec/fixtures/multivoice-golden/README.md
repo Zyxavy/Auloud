@@ -57,9 +57,10 @@ timings ordered with gaps (100-600, 700-950) and a tail (1050-1550).
 
 Raw join of block 2 reproduces the paragraph exactly:
 `"We should leave," Alice said.` (one space). Note for the display
-layer: `layoutParagraph` inserts its trimmed-source fallback space after
-sid 2 (ends in `"`), so the laid-out text shows a double space there
-(`"We should leave,"  Alice said.`, ranges 0-19 / 19-31).
+layer: `layoutParagraph` skips its trimmed-source fallback space here
+because sid 3 already starts with whitespace, so the laid-out text
+matches the raw join with a single space there
+(`"We should leave," Alice said.`, ranges 0-18 / 18-30).
 
 ## Sizes / durations
 

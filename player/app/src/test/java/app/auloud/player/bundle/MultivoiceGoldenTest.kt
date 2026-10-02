@@ -27,10 +27,10 @@ import org.junit.Test
  * Spacing note: Scribe stores the split pair as dialogue `"We should leave,"`
  * (no trailing space) plus tag `" Alice said."` (leading space), so a raw
  * `"".join` reproduces the paragraph exactly with one space. `layoutParagraph`
- * additionally inserts its trimmed-source fallback space after the dialogue
- * half (it does not end in whitespace), so the display text carries a double
- * space there. Both are pinned below: raw join for the round trip, exact
- * display text for the fallback.
+ * skips its trimmed-source fallback space here because the next sentence
+ * already starts with whitespace, so the display text matches the raw join
+ * (single space). Both are pinned below: raw join for the round trip, exact
+ * display text for the layout.
  *
  * API 24 safe: `java.io.File` only. No Robolectric, no new dependencies.
  */
@@ -167,10 +167,10 @@ class MultivoiceGoldenTest {
         val chapter = loadGolden()
         val splitBlock = chapter.blocks.single { it.id == 2 }
         val layout = layoutParagraph(splitBlock)
-        // Display text: fallback inserts one space after the dialogue half
-        // (no trailing whitespace), so it shows a double space there.
-        assertEquals("\"We should leave,\"  Alice said.", layout.text)
-        assertEquals(31, layout.text.length)
+        // Display text: no fallback space (tag half already starts with
+        // whitespace), so it matches the raw join with a single space.
+        assertEquals("\"We should leave,\" Alice said.", layout.text)
+        assertEquals(30, layout.text.length)
         // Ranges tile contiguously from 0 with no gaps or overlaps.
         assertEquals(2, layout.sentences.size)
         assertEquals(0, layout.sentences.first().start)
@@ -178,13 +178,13 @@ class MultivoiceGoldenTest {
         for (i in 1 until layout.sentences.size) {
             assertEquals(layout.sentences[i].start, layout.sentences[i - 1].end)
         }
-        // Exact ranges given the fallback space (dialogue 18 + 1, tag 12).
+        // Exact ranges with no fallback space (dialogue 18, tag 12).
         assertEquals(2, layout.sentences[0].sid)
         assertEquals(0, layout.sentences[0].start)
-        assertEquals(19, layout.sentences[0].end)
+        assertEquals(18, layout.sentences[0].end)
         assertEquals(3, layout.sentences[1].sid)
-        assertEquals(19, layout.sentences[1].start)
-        assertEquals(31, layout.sentences[1].end)
+        assertEquals(18, layout.sentences[1].start)
+        assertEquals(30, layout.sentences[1].end)
         // Narration block keeps its italic span rebased onto the paragraph.
         val narration = layoutParagraph(chapter.blocks.single { it.id == 1 })
         assertEquals(
@@ -199,15 +199,15 @@ class MultivoiceGoldenTest {
     fun multivoiceGolden_tapAtSplitBoundary() {
         val chapter = loadGolden()
         val layout = layoutParagraph(chapter.blocks.single { it.id == 2 })
-        // Offset 18 is the inserted fallback space: still dialogue half.
+        // Offset 17 is the last char of the dialogue half (closing quote).
         assertEquals(2, sidAtOffset(layout.sentences, 0))
-        assertEquals(2, sidAtOffset(layout.sentences, 18))
-        // Offset 19 is the first offset of the tag half (" Alice said.").
-        assertEquals(3, sidAtOffset(layout.sentences, 19))
+        assertEquals(2, sidAtOffset(layout.sentences, 17))
+        // Offset 18 is the first offset of the tag half (" Alice said.").
+        assertEquals(3, sidAtOffset(layout.sentences, 18))
         assertEquals(3, sidAtOffset(layout.sentences, 25))
-        // Last offset of the dialogue half (18) vs last char of the tag (30).
+        // Last char of the tag (29) vs past the end (30+).
+        assertEquals(3, sidAtOffset(layout.sentences, 29))
         assertEquals(3, sidAtOffset(layout.sentences, 30))
-        assertEquals(3, sidAtOffset(layout.sentences, 31))
         assertEquals(3, sidAtOffset(layout.sentences, 999))
         assertEquals(2, sidAtOffset(layout.sentences, -1))
     }
