@@ -84,19 +84,19 @@ Goal: a real EPUB becomes a valid bundle.
 
 Goal: three modes with a synced highlight.
 
-- [ ] Reader view: blocks and sentences in a `LazyColumn`, headings and italics
-- [ ] Position ticker (about every 200 ms) mapping audio position to the current sentence
-- [ ] Highlight and auto-scroll in read + listen mode
-- [ ] Tap a sentence to seek audio
-- [ ] Manual scroll pauses auto-follow; "back to now" button
-- [ ] Mode switching (read only, listen only, read + listen) keeps one shared position
-- [ ] Speed control and sleep timer
+- [x] Reader view: blocks and sentences in a `LazyColumn`, headings and italics
+- [x] Position ticker (about every 200 ms) mapping audio position to the current sentence
+- [x] Highlight and auto-scroll in read + listen mode
+- [x] Tap a sentence to seek audio
+- [x] Manual scroll pauses auto-follow; "back to now" button
+- [x] Mode switching (read only, listen only, read + listen) keeps one shared position
+- [x] Speed control and sleep timer
 
 **Done when:**
 
-- Highlight stays within about 300 ms of the audio at start, middle and end of a long chapter
-- Switching modes never loses your place
-- Memory stays stable during a 1-hour session
+- [x] Highlight stays within about 300 ms of the audio at start, middle and end of a long chapter
+- [x] Switching modes never loses your place
+- [x] Memory stays stable during a 1-hour session
 
 ## Slice 4: Multi-voice (M to L)
 

@@ -12,6 +12,22 @@ Result: pass | fail | needs retest
 ```
 
 ---
+## RA11 acceptance (2026-10-01, Tab E, user run)
+
+Build: debug APK from `dev/slice3` (through `13a1366`, incl. the Listen dead-end fix). Bundles: `ra-beep`, `ra-long`, C&P sample, Yellow Wallpaper.
+
+- C13 beep sync (start/middle/end, 1.0x + 1.5x, lag avg/max under ~300 ms): pass
+- C14 long chapter scroll/highlight (5,000 sentences, flings): pass
+- C15 tap to jump (incl. italic sentences, audible within ~500 ms): pass
+- C16 detach + back to now (no fighting/jitter): pass
+- C17 mode switches at start/middle/end + across chapter change, position kept: pass
+- C18 Read scroll-settle, then Listen starts at that sentence: pass
+- C19 speeds (0.75x/1.5x/2.0x in sync) + every timer option incl. end-of-chapter and screen-off pause: pass
+- C20 PSS at 0/30/60 min, no growth trend: pass
+- C21 real-book hour (C&P + Yellow Wallpaper, mixed interaction): pass
+- Listen dead end found in testing (no way back to Read modes): fixed (`13a1366`, mode switcher slot on the Listen screen) and retested: pass
+
+Note: qualitative passes; exact overlay lag/PSS numbers were not recorded. Slice 3 "done when" (300 ms sync, lossless switches, stable hour) signed off by the user.
 ## SW11 acceptance (2026-10-01)
 
 - C&P sample (67 sentences, fragment): `scribe build` → 1 chapter, 7:20 audio in 105.9 s wall (**RTF 4.16x**); `scribe validate` valid; `scribe inspect` correct; imports into Slice 1 Player and **plays on the Tab E, user-confirmed** (listen-only; read-along is Slice 3).
