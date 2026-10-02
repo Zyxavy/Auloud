@@ -1,0 +1,36 @@
+# MV1 speaker gold set: Crime and Punishment, chapter 1 (fragment).
+#
+# One entry per dialogue line ("quoted speech"). Anchor is
+# (chapter, block id, quote number within the block) per the Slice 4 plan
+# (overrides anchor on stable keys, never on sid: sids shift whenever
+# sentence-splitting rules change; block ids and quote order do not).
+#
+# Source: local fragment D:\kenta\Downloads\crime-and-punishment.epub
+# (Part I, Chapter I only). Excerpts are short identifying substrings of the
+# quote (a prefix when the quote runs longer); they are documentary, the
+# anchor is the key. `uncertain: true` only when the label is a real guess.
+- chapter: 1
+  block: 8
+  quote: 1
+  excerpt: "I want to attempt a thing like that and am frightened by these trifles,"
+  speaker: Raskolnikov
+- chapter: 1
+  block: 8
+  quote: 2
+  excerpt: "Hm\u2026 yes, all is in a man\u2019s hands and he lets it all slip from cowardice, that\u2019s an axiom."
+  speaker: Raskolnikov
+- chapter: 1
+  block: 10
+  quote: 1
+  excerpt: "Hey there, German hatter"
+  speaker: drunken man
+- chapter: 1
+  block: 11
+  quote: 1
+  excerpt: "I knew it,"
+  speaker: Raskolnikov
+- chapter: 1
+  block: 11
+  quote: 2
+  excerpt: "I thought so! That\u2019s the worst of all!"
+  speaker: Raskolnikov
