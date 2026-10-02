@@ -1,7 +1,6 @@
 # Device test log
 
 Confirmed runs on the Tab E only. Template per check (Slice 3 checks: see `docs/Slice3-Runbook.md`):
-
 ```
 Date / build (commit) / device state:
 Test: C#
@@ -55,3 +54,38 @@ Build: debug APK from `slice-1` (HEAD f77bbc6 + watch-folders). Bundle: hand-mad
 - C11 overlay matches audio: pass
 - C12 battery drain: no issue
 - Overall: all pass, nothing odd
+## MV4 attribution eval (2026-10-02, laptop, `dev/slice4` commit MV4)
+
+- Harness: `uv run python dev/eval_speakers.py --predictor mv4` (strict) and
+  `--predictor mv4 --alias-aware`, over the n=5 seed
+  (`spec/fixtures/speakers-gold/crime-and-punishment-ch01.yaml`).
+- The seed carries anchors and excerpts only, no paragraph texts, so every
+  gold context arrives with empty `block_text`: no tag is visible and rules
+  1-4 cannot fire. First line falls to `unknown`, the rest repeat it via
+  `fallback`. This run validates the wiring format, not accuracy.
+
+| predictor | overall | high | medium | low |
+| --- | --- | --- | --- | --- |
+| baseline | 0/5 = 0.0% | n/a | n/a | 0/5 = 0.0% |
+| mv4 strict | 0/5 = 0.0% | n/a | n/a | 0/5 = 0.0% |
+| mv4 alias-aware | 0/5 = 0.0% | n/a | n/a | 0/5 = 0.0% |
+
+Accuracy by rule (mv4 strict; alias-aware identical, the seed has no
+`surface` fields yet):
+
+| rule | accuracy |
+| --- | --- |
+| explicit | n/a (0 lines) |
+| pronoun | n/a (0 lines) |
+| alternation | n/a (0 lines) |
+| continuation | n/a (0 lines) |
+| fallback | 0/4 = 0.0% |
+| unknown | 0/1 = 0.0% |
+
+- The 80%/90% targets from the Slice 4 plan are explicitly NOT promised on
+  n=5: the set is a format seed, and 0/5 here reflects missing paragraph
+  texts, not rule quality. Rule quality is pinned by 21 unit tests in
+  `scribe/tests/test_attribution.py` (each rule in isolation, both tag
+  sides, gender-mismatch rejection, alternation sustain/break, continuation
+  chains, fallback/unknown, confidence levels). Retune and re-record when
+  the 100-150 line full-novel gold set lands (still owed).

@@ -75,8 +75,7 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:  # annotations only; never imported at runtime (wheel has no dev/)
-    from dev.eval_speakers import QuoteContext
+if TYPE_CHECKING:  # annotations only; dialogue stays a type-only dep here
     from text.dialogue import ChapterDialogue
 
 #: Speech-verb lemmas (matched against ``token.lemma_``). Covers the plan's
@@ -185,13 +184,17 @@ FEMALE_NAMES: frozenset[str] = frozenset(
     }
 )
 
+#: Title words starting a titled name. Single source of truth for
+#: :data:`TITLE_RE` (wired in at MV4; the tuple sat unused through MV3).
 _TITLE_WORDS = ("Miss", "Mrs", "Mr", "Ms", "Dr")
 
-#: Titled names: Mr./Mrs./Miss/Ms./Dr. plus one or two capitalized words.
-#: NER drops the title (``"Darcy"``) or misses the name (``"Miss Bennet"``),
-#: so this pattern recovers the full surface.
+#: Titled names: a title word plus one or two capitalized words. The two-word
+#: cap covers ``"Mr. Darcy"`` and ``"Miss Elizabeth Bennet"``; a three-word
+#: name (``"Mr. John Jacob Smith"``) matches only its first two words here.
+#: Accepted: the full noun-chunk surface still arrives through the
+#: speech-verb-subject path, so MV4 sees both and MV5 canonicalizes.
 TITLE_RE: re.Pattern[str] = re.compile(
-    r"\b(?:Miss|Mrs|Mr|Ms|Dr)\.?\s+[A-Z][\w'-]*(?:\s+[A-Z][\w'-]*)?"
+    r"\b(?:" + "|".join(_TITLE_WORDS) + r")\.?\s+[A-Z][\w'-]*(?:\s+[A-Z][\w'-]*)?"
 )
 
 _DET_PREFIX_RE = re.compile(r"^(?:the|a|an)\s+", re.IGNORECASE)
@@ -215,6 +218,53 @@ class Candidate:
     normalized: str
     source: str
     gender: str
+
+
+@dataclass(frozen=True)
+class QuoteContext:
+    """What the predictor sees for one gold line (MV2 expanded this).
+
+    Only ``chapter``/``block``/``quote``/``excerpt`` (plus ``book``) come
+    from the gold file itself; MV3/MV4 fill ``block_text`` (the full
+    paragraph holding the quote), ``prev_text``/``next_text`` (neighbouring
+    paragraphs), ``full_quote`` (the whole quote when the excerpt is a
+    prefix of a multi-sentence speech), and ``continued`` (the MV2
+    multi-paragraph flag: this quote continues the previous block's speech).
+    All default to ``""``/``False`` so older callers keep working.
+
+    This class lives in the library (moved here from ``dev/`` in MV4)
+    because :func:`candidates_for` consumes it, and the installed wheel
+    ships no ``dev/``: importing it from ``dev.eval_speakers`` at runtime
+    broke packaging. ``dev/eval_speakers.py`` re-exports this exact class,
+    so ``from dev.eval_speakers import QuoteContext`` still works.
+    """
+
+    chapter: int
+    block: int
+    quote: int
+    excerpt: str
+    book: str = ""
+    block_text: str = ""
+    prev_text: str = ""
+    next_text: str = ""
+    full_quote: str = ""
+    continued: bool = False
+
+    @classmethod
+    def from_gold(cls, entry: Any) -> QuoteContext:
+        """Context for a gold line (anchor plus excerpt; text fields empty).
+
+        Duck-typed on ``entry`` (reads ``chapter``/``block``/``quote``/
+        ``excerpt``/``book``) so the library never imports ``dev``;
+        ``dev/eval_speakers.py`` passes its ``GoldEntry``.
+        """
+        return cls(
+            chapter=entry.chapter,
+            block=entry.block,
+            quote=entry.quote,
+            excerpt=entry.excerpt,
+            book=getattr(entry, "book", "") or "",
+        )
 
 
 def normalize_name(name: str) -> str:
@@ -318,6 +368,60 @@ def gender_hint_for(surface: str, context: str = "") -> str:
     if male and not female:
         return GENDER_MALE
     if female and not male:
+        return GENDER_FEMALE
+    return GENDER_UNKNOWN
+
+
+#: Every personal pronoun surface MV4 rule 1 treats as non-explicit (a tag
+#: like ``"I said"`` or ``"you ask"`` never names a speaker; he/she tags go
+#: to rule 2 instead). Normalized before lookup, so case does not matter.
+PRONOUNS: frozenset[str] = frozenset(
+    {
+        "i",
+        "me",
+        "my",
+        "mine",
+        "we",
+        "us",
+        "our",
+        "ours",
+        "you",
+        "your",
+        "yours",
+        "he",
+        "him",
+        "his",
+        "she",
+        "her",
+        "hers",
+        "they",
+        "them",
+        "their",
+        "theirs",
+        "it",
+        "its",
+    }
+)
+
+
+def is_pronoun(surface: str) -> bool:
+    """True when ``surface`` is a personal pronoun (any person or number)."""
+    return normalize_name(surface) in PRONOUNS
+
+
+def pronoun_gender(surface: str) -> str:
+    """Gender of a third-person pronoun surface, else ``unknown``.
+
+    Only he/she forms (``he``/``him``/``his``, ``she``/``her``/``hers``)
+    map; every other surface (names, ``I``/``you``/``they``/``it``) gives
+    ``unknown`` WITHOUT consulting context, so MV4 rule 2 never mistakes a
+    name or ``"it"`` for a gendered tag (unlike :func:`gender_hint_for`,
+    which reads nearby pronouns for names).
+    """
+    norm = normalize_name(surface)
+    if norm in _MALE_PRONOUNS:
+        return GENDER_MALE
+    if norm in _FEMALE_PRONOUNS:
         return GENDER_FEMALE
     return GENDER_UNKNOWN
 
@@ -505,20 +609,22 @@ def build_quote_contexts(dialogue: ChapterDialogue, book: str = "") -> list[Quot
 
     Bridge for MV4: one context per :class:`QuoteInfo` with ``block_text``
     (the full paragraph holding the quote, tag sentences included),
-    ``prev_text``/``next_text`` (neighbouring block paragraphs), and
-    ``full_quote`` (the whole quote region, not just the gold excerpt), so
-    the predictor receives tag sentences instead of bare excerpts. Keys
-    join the gold on ``(book, chapter, block, quote)``; ``excerpt`` carries
-    the full quote text (documentary, like the gold excerpts).
+    ``prev_text``/``next_text`` (neighbouring block paragraphs),
+    ``full_quote`` (the whole quote region, not just the gold excerpt), and
+    ``continued`` copied from the MV2 flag so rule 4 can link multi-block
+    chains. Keys join the gold on ``(book, chapter, block, quote)``;
+    ``excerpt`` carries the full quote text (documentary, like the gold
+    excerpts).
     """
-    from dev.eval_speakers import QuoteContext
-
     paras, tagged_order = _block_paragraphs(dialogue)
     chapter_blocks = getattr(dialogue.chapter, "blocks", None) or []
     order = [block.id for block in chapter_blocks] if chapter_blocks else list(tagged_order)
     for block_id in paras:
         if block_id not in order:
             order.append(block_id)
+    continued_by_block_quote = {
+        (quote.block, quote.quote): quote.continued for quote in dialogue.quotes
+    }
     contexts: list[QuoteContext] = []
     for quote in dialogue.quotes:
         pos = order.index(quote.block) if quote.block in order else -1
@@ -535,6 +641,7 @@ def build_quote_contexts(dialogue: ChapterDialogue, book: str = "") -> list[Quot
                 prev_text=prev_text,
                 next_text=next_text,
                 full_quote=quote.text,
+                continued=continued_by_block_quote.get((quote.block, quote.quote), False),
             )
         )
     return contexts

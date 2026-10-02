@@ -19,34 +19,33 @@
 The gold lives in ``spec/fixtures/speakers-gold/`` (one YAML file per book
 chapter; entries keyed by ``(book, chapter, block, quote number)``, never by
 ``sid`` (see that folder's README). This script loads it, runs attribution
-over every line, and prints accuracy overall and by predicted confidence
-level (high/medium/low).
+over every line, and prints accuracy overall, by predicted confidence
+level (high/medium/low), and by attribution rule.
 
-Attribution rules do NOT exist yet (MV2-MV4), so the predictor is a trivial
-baseline: always ``("unknown", "low")``. Running this now reports ~0%, that
-IS the MV1 verify condition (the harness runs end to end, the number comes
-later). MV2-MV4 only swap the predictor function::
-
-    predict(quote_context) -> (speaker, confidence)
-
-``QuoteContext`` will grow (surrounding text, candidate speakers, ...) as
-the rules arrive; the signature stays. A prediction counts as correct when
-it matches the gold speaker after stripping and casefolding (speaker keys
-are normalized again at MV5 resolution, so ``"raskolnikov"`` matches
-``"Raskolnikov"``). Lines labelled ``uncertain: true`` are excluded from
-accuracy (a predictor should not be punished for human guesses) and only
-reported as counts.
+``QuoteContext`` (the predictor input) lives in ``text/speakers.py`` and is
+re-exported here, so ``from dev.eval_speakers import QuoteContext`` keeps
+working; the library never imports ``dev`` (the wheel ships no ``dev/``).
 
 Predictors MUST output CANONICAL speaker names exactly as the gold
-``speaker`` labels them (``"Raskolnikov"``, ``"drunken man"``). Alias
-resolution (``"the young man"`` -> ``"Raskolnikov"``) arrives in MV5 with
-``cast.yaml``; until then matching is exact after stripping and
-casefolding, with NO alias matching. A predictor emitting a non-canonical
-variant is simply wrong.
+``speaker`` labels them (``"Raskolnikov"``, ``"drunken man"``), scored by
+default in strict mode: exact match after stripping and casefolding, with
+NO alias matching. MV4 predictors emit tag surfaces instead (``"he"``,
+``"the young man"``), which strict mode scores wrong; run those with
+``--alias-aware`` (or ``evaluate(..., alias_aware=True)``), which also
+accepts each entry's optional hand-recorded ``surface`` field. A genuinely
+different canonical name is still wrong in both modes. MV5 resolution
+(``cast.yaml``) will let predictors output canonical names again; until
+then matching is exact after stripping and casefolding.
+
+``evaluate`` accepts predictors returning ``(speaker, confidence)`` or
+``(speaker, confidence, rule)``; the rule element feeds the by-rule table.
+Lines labelled ``uncertain: true`` are excluded from accuracy (a predictor
+should not be punished for human guesses) and only reported as counts.
 
 Run directly (NOT a ``scribe`` command)::
 
     uv run python dev/eval_speakers.py [--gold-dir <dir>]
+    uv run python dev/eval_speakers.py --predictor mv4 [--alias-aware]
 """
 
 from __future__ import annotations
@@ -59,9 +58,26 @@ from pathlib import Path
 
 import yaml
 
+# Dev script: make the scribe/ tree importable so ``text.*`` resolves when
+# run as ``uv run python dev/eval_speakers.py`` (mirrors the cli.py bootstrap).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from text.speakers import QuoteContext  # noqa: E402  (re-exported for back-compat)
+
 #: Confidence levels MV4 rules produce, in display order. Unknown levels a
 #: future predictor invents are shown after these, alphabetically.
 CONFIDENCE_LEVELS: tuple[str, ...] = ("high", "medium", "low")
+
+#: Attribution rules in plan priority order, for the by-rule table display.
+#: Predictors returning a 2-tuple record no rule and are omitted there.
+RULE_LEVELS: tuple[str, ...] = (
+    "explicit",
+    "pronoun",
+    "alternation",
+    "continuation",
+    "fallback",
+    "unknown",
+)
 
 
 class GoldError(ValueError):
@@ -74,6 +90,9 @@ class GoldEntry:
 
     ``book`` is the source-book id (e.g. ``"crime-and-punishment"``); older
     gold files omit it (and its ``source`` alias) and load as ``""``.
+    ``surface`` is the optional hand-recorded surface form the text actually
+    uses (``"he"``, ``"the young man"``); alias-aware scoring accepts it,
+    strict scoring ignores it.
     """
 
     chapter: int
@@ -83,45 +102,12 @@ class GoldEntry:
     speaker: str
     uncertain: bool = False
     book: str = ""
+    surface: str = ""
 
     @property
     def key(self) -> tuple[str, int, int, int]:
         """Stable anchor: ``(book, chapter, block, quote number)``, never ``sid``."""
         return (self.book, self.chapter, self.block, self.quote)
-
-
-@dataclass(frozen=True)
-class QuoteContext:
-    """What the predictor sees for one gold line (MV2 expands this).
-
-    Only ``chapter``/``block``/``quote``/``excerpt`` (plus ``book``) are
-    filled from the gold file itself; MV3/MV4 fill ``block_text`` (the full
-    paragraph holding the quote), ``prev_text``/``next_text`` (neighbouring
-    paragraphs), and ``full_quote`` (the whole quote when the excerpt is a
-    prefix of a multi-sentence speech). All default to ``""`` so older
-    callers keep working.
-    """
-
-    chapter: int
-    block: int
-    quote: int
-    excerpt: str
-    book: str = ""
-    block_text: str = ""
-    prev_text: str = ""
-    next_text: str = ""
-    full_quote: str = ""
-
-    @classmethod
-    def from_gold(cls, entry: GoldEntry) -> QuoteContext:
-        """Context for a gold line (anchor plus excerpt; text fields empty)."""
-        return cls(
-            chapter=entry.chapter,
-            block=entry.block,
-            quote=entry.quote,
-            excerpt=entry.excerpt,
-            book=entry.book,
-        )
 
 
 def predict_baseline(context: QuoteContext) -> tuple[str, str]:
@@ -150,16 +136,27 @@ def validate_raw_entries(raw: object, source: str) -> list[GoldEntry]:
     Raises :class:`GoldError` on any shape problem: not a list, missing or
     mistyped required keys (``chapter``/``block``/``quote`` ints,
     ``excerpt``/``speaker`` non-empty strings), an unknown key, a present-but-non-bool
-    ``uncertain`` flag, a present-but-empty ``book``/``source`` label, both
+    ``uncertain`` flag, a present-but-empty ``book``/``source``/``surface`` label, both
     ``book`` and ``source`` present but disagreeing, or a duplicate
     ``(book, chapter, block, quote)`` key. ``book`` (alias ``source``) is
-    optional and defaults to ``""`` so MV1-era files without it still load.
+    optional and defaults to ``""`` so MV1-era files without it still load;
+    ``surface`` is optional and defaults to ``""`` (alias-aware scoring only).
     """
     if not isinstance(raw, list):
         raise GoldError(f"{source}: gold file must hold a YAML list of entries")
     entries: list[GoldEntry] = []
     seen: set[tuple[str, int, int, int]] = set()
-    allowed = {"chapter", "block", "quote", "excerpt", "speaker", "uncertain", "book", "source"}
+    allowed = {
+        "chapter",
+        "block",
+        "quote",
+        "excerpt",
+        "speaker",
+        "uncertain",
+        "book",
+        "source",
+        "surface",
+    }
     for index, item in enumerate(raw):
         where = f"{source} entry #{index + 1}"
         if not isinstance(item, dict):
@@ -185,6 +182,9 @@ def validate_raw_entries(raw: object, source: str) -> list[GoldEntry]:
         if key in seen:
             raise GoldError(f"{where}: duplicate quote key {key}")
         seen.add(key)
+        surface = item.get("surface", "")
+        if "surface" in item and (not isinstance(surface, str) or not surface.strip()):
+            raise GoldError(f"{where}: 'surface' must be a non-empty string when present")
         entries.append(
             GoldEntry(
                 chapter=item["chapter"],
@@ -194,6 +194,7 @@ def validate_raw_entries(raw: object, source: str) -> list[GoldEntry]:
                 speaker=item["speaker"],
                 uncertain=uncertain,
                 book=book,
+                surface=surface.strip() if isinstance(surface, str) else "",
             )
         )
     entries.sort(key=lambda e: e.key)
@@ -270,19 +271,39 @@ class EvalResult:
     correct: int = 0
     accuracy: float | None = None
     by_level: dict[str, tuple[int, int]] = field(default_factory=dict)
+    by_rule: dict[str, tuple[int, int]] = field(default_factory=dict)
     uncertain_agree: int = 0
+
+
+#: A predictor maps one context to ``(speaker, confidence)`` or to
+#: ``(speaker, confidence, rule)``; the rule element feeds the by-rule table.
+Predictor = Callable[[QuoteContext], tuple[str, str] | tuple[str, str, str]]
 
 
 def evaluate(
     entries: list[GoldEntry],
-    predictor: Callable[[QuoteContext], tuple[str, str]] | None = None,
+    predictor: Predictor | None = None,
+    *,
+    alias_aware: bool = False,
 ) -> EvalResult:
-    """Score ``predictor`` over ``entries`` (certain lines count, see docstring)."""
+    """Score ``predictor`` over ``entries`` (certain lines count, see docstring).
+
+    Strict mode (default) matches the canonical ``speaker`` only;
+    ``alias_aware=True`` also accepts the entry's ``surface`` form, so MV4
+    surface-emitting predictors (``"he"``, ``"the young man"``) are not
+    scored wrong against canonical gold (``"Raskolnikov"``).
+    """
     if predictor is None:
         predictor = predict
     result = EvalResult(total=len(entries))
     for entry in entries:
-        speaker, confidence = predictor(QuoteContext.from_gold(entry))
+        outcome = predictor(QuoteContext.from_gold(entry))
+        if len(outcome) == 3:
+            speaker, confidence, rule = outcome
+            rule_label = str(rule).lower()
+        else:
+            speaker, confidence = outcome
+            rule_label = ""
         level = str(confidence).lower()
         if entry.uncertain:
             result.uncertain += 1
@@ -290,9 +311,14 @@ def evaluate(
                 result.uncertain_agree += 1
             continue
         result.certain += 1
-        correct, total = result.by_level.get(level, (0, 0))
         hit = _matches(speaker, entry.speaker)
+        if not hit and alias_aware and entry.surface:
+            hit = _matches(speaker, entry.surface)
+        correct, total = result.by_level.get(level, (0, 0))
         result.by_level[level] = (correct + (1 if hit else 0), total + 1)
+        if rule_label:
+            correct, total = result.by_rule.get(rule_label, (0, 0))
+            result.by_rule[rule_label] = (correct + (1 if hit else 0), total + 1)
         if hit:
             result.correct += 1
     if result.certain:
@@ -307,7 +333,7 @@ def _pct(correct: int, total: int) -> str:
 
 
 def format_result(result: EvalResult, *, predictor_name: str, file_count: int) -> str:
-    """Human-readable report: overall accuracy plus the by-level breakdown."""
+    """Human-readable report: overall plus by-level and by-rule breakdowns."""
     lines = [
         f"predictor: {predictor_name}",
         f"gold: {file_count} file(s), {result.total} line(s): "
@@ -323,6 +349,13 @@ def format_result(result: EvalResult, *, predictor_name: str, file_count: int) -
     for level in CONFIDENCE_LEVELS:
         if level not in result.by_level:
             lines.append(f"  {level}: n/a (0 lines)")
+    if result.by_rule:
+        lines.append("by attribution rule (certain lines):")
+        ordered_rules = [rule for rule in RULE_LEVELS if rule in result.by_rule]
+        ordered_rules += sorted(rule for rule in result.by_rule if rule not in RULE_LEVELS)
+        for rule in ordered_rules:
+            correct, total = result.by_rule[rule]
+            lines.append(f"  {rule}: {_pct(correct, total)}")
     lines.append(
         f"uncertain lines: {result.uncertain} excluded from accuracy "
         f"(predictor agreed on {result.uncertain_agree})"
@@ -331,7 +364,7 @@ def format_result(result: EvalResult, *, predictor_name: str, file_count: int) -
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Load the gold set, run the baseline predictor, print the report."""
+    """Load the gold set, run the chosen predictor, print the report."""
     parser = argparse.ArgumentParser(description="Score speaker attribution over the gold set.")
     parser.add_argument(
         "--gold-dir",
@@ -339,16 +372,45 @@ def main(argv: list[str] | None = None) -> int:
         default=default_gold_dir(),
         help="gold YAML folder (default: spec/fixtures/speakers-gold/)",
     )
+    parser.add_argument(
+        "--predictor",
+        choices=("baseline", "mv4"),
+        default="baseline",
+        help="baseline always predicts ('unknown', low); mv4 runs the MV4 "
+        "attribution rules over the gold contexts (empty texts, so this "
+        "validates the wiring format, not accuracy).",
+    )
+    parser.add_argument(
+        "--alias-aware",
+        action="store_true",
+        help="also accept each gold entry's surface form, not just the "
+        "canonical speaker (for MV4 surface-emitting predictors).",
+    )
     args = parser.parse_args(argv)
     try:
         entries, file_count = load_gold_entries(args.gold_dir)
     except GoldError as exc:
         print(f"eval failed: {exc}", file=sys.stderr)
         return 1
-    result = evaluate(entries)
-    report = format_result(
-        result, predictor_name="baseline (always 'unknown', low)", file_count=file_count
-    )
+    if args.predictor == "mv4":
+        from text.attribution import attribute_quotes
+
+        contexts = [QuoteContext.from_gold(entry) for entry in entries]
+        by_key = {}
+        for att in attribute_quotes(contexts):
+            by_key[att.key] = (att.speaker, att.confidence, att.rule)
+
+        def _mv4_predict(context: QuoteContext) -> tuple[str, str, str]:
+            return by_key[(context.book, context.chapter, context.block, context.quote)]
+
+        result = evaluate(entries, _mv4_predict, alias_aware=args.alias_aware)
+        predictor_name = "mv4 rules" + (" (alias-aware)" if args.alias_aware else " (strict)")
+    else:
+        result = evaluate(entries, alias_aware=args.alias_aware)
+        predictor_name = "baseline (always 'unknown', low)"
+        if args.alias_aware:
+            predictor_name += " (alias-aware)"
+    report = format_result(result, predictor_name=predictor_name, file_count=file_count)
     print(report)
     return 0
 

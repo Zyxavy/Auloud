@@ -26,13 +26,18 @@ only. No confidence is asserted anywhere: MV4 owns high/medium/low.
 
 from __future__ import annotations
 
+import types
+
 from bundle.models import Block, ChapterFile, Sentence
-from dev.eval_speakers import QuoteContext
+from dev.eval_speakers import QuoteContext as DevQuoteContext
 from text.dialogue import split_chapter_dialogue
 from text.speakers import (
+    TITLE_RE,
     SOURCES,
     SPEECH_VERBS,
+    _TITLE_WORDS,
     Candidate,
+    QuoteContext,
     are_aliases,
     build_quote_contexts,
     candidates_by_quote,
@@ -40,7 +45,9 @@ from text.speakers import (
     cluster_aliases,
     extract_candidates,
     gender_hint_for,
+    is_pronoun,
     normalize_name,
+    pronoun_gender,
 )
 
 
@@ -361,3 +368,78 @@ def test_bridge_is_deterministic() -> None:
     dialogue = split_chapter_dialogue(chapter, chapter_index=1)
     assert build_quote_contexts(dialogue, book="b") == build_quote_contexts(dialogue, book="b")
     assert candidates_by_quote(dialogue, book="b") == candidates_by_quote(dialogue, book="b")
+
+
+# ---------------------------------------------------------------------------
+# MV4: QuoteContext lives in the library (wheel ships no dev/)
+# ---------------------------------------------------------------------------
+
+
+def test_quote_context_home_is_the_library_with_back_compat() -> None:
+    assert DevQuoteContext is QuoteContext
+    ctx = QuoteContext(chapter=1, block=8, quote=1, excerpt="We should leave,")
+    assert ctx.book == ""
+    assert ctx.block_text == "" and ctx.prev_text == ""
+    assert ctx.next_text == "" and ctx.full_quote == ""
+    assert ctx.continued is False
+
+
+def test_quote_context_from_gold_is_duck_typed() -> None:
+    fake = types.SimpleNamespace(chapter=1, block=8, quote=1, excerpt="x", book="b")
+    ctx = QuoteContext.from_gold(fake)
+    assert (ctx.book, ctx.chapter, ctx.block, ctx.quote) == ("b", 1, 8, 1)
+    assert ctx.continued is False
+
+
+def test_bridge_carries_the_mv2_continued_flag() -> None:
+    chapter = _chapter((1, '"First part,'), (2, 'second part."'))
+    dialogue = split_chapter_dialogue(chapter, chapter_index=1)
+    first, second = build_quote_contexts(dialogue, book="b")
+    assert [(c.block, c.quote, c.continued) for c in (first, second)] == [
+        (1, 1, False),
+        (2, 1, True),
+    ]
+    assert first.block_text == '"First part,'
+    assert second.prev_text == '"First part,'
+
+
+# ---------------------------------------------------------------------------
+# MV4: title words are the single source; the titled-name cap is two words
+# ---------------------------------------------------------------------------
+
+
+def test_title_words_feed_the_pattern() -> None:
+    for word in _TITLE_WORDS:
+        assert word in TITLE_RE.pattern
+
+
+def test_titled_name_cap_is_two_words() -> None:
+    assert TITLE_RE.match("Mr. Darcy").group(0) == "Mr. Darcy"
+    assert TITLE_RE.match("Miss Elizabeth Bennet").group(0) == "Miss Elizabeth Bennet"
+    # A third word is out of scope here; the verb-subject path still
+    # carries the full surface, so nothing is lost downstream.
+    assert TITLE_RE.match("Mr. John Jacob Smith").group(0) == "Mr. John Jacob"
+
+
+# ---------------------------------------------------------------------------
+# MV4: pronoun helpers for the explicit/pronoun tag rules
+# ---------------------------------------------------------------------------
+
+
+def test_is_pronoun_covers_all_persons() -> None:
+    for surface in ("I", "you", "he", "she", "we", "they", "it", "him", "her"):
+        assert is_pronoun(surface), surface
+    for surface in ("Alice", "Robert", "the Queen", "Mr. Darcy"):
+        assert not is_pronoun(surface), surface
+
+
+def test_pronoun_gender_only_maps_he_she_forms() -> None:
+    assert pronoun_gender("he") == "male"
+    assert pronoun_gender("She") == "female"
+    assert pronoun_gender("his") == "male"
+    assert pronoun_gender("her") == "female"
+    # Names and other pronouns never map, even with gendered context.
+    assert pronoun_gender("Alice") == "unknown"
+    assert pronoun_gender("Robert") == "unknown"
+    assert pronoun_gender("it") == "unknown"
+    assert pronoun_gender("they") == "unknown"

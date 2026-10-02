@@ -11,6 +11,7 @@ against. One YAML file per book chapter; one entry per dialogue line
   quote: 1          # required int: quote number within the block (1-based, open-quote order)
   excerpt: "..."    # required non-empty string: short identifying substring
   speaker: "..."    # required non-empty string: true speaker, CANONICAL name (best effort)
+  surface: "he"     # optional non-empty string: surface form the text uses (MV4)
   uncertain: true   # optional bool, default false: label is a real guess
 ```
 
@@ -33,6 +34,17 @@ speech tags and context). Predictors must output these canonical names
 exactly; alias resolution arrives in MV5 (`cast.yaml`), and until then the
 harness matches exactly (strip + casefold) with no alias matching. Mark
 anything genuinely ambiguous `uncertain: true` rather than guessing silently.
+
+## Scoring modes (MV4)
+
+Strict mode (default) matches the canonical `speaker` only. Alias-aware
+mode (`--alias-aware`, or `evaluate(..., alias_aware=True)`) additionally
+accepts the entry's `surface` form: the surface text the book actually uses
+for that line (`"he"`, `"the young man"`). Record `surface` when the text
+does not name the character canonically, so MV4 surface-emitting predictors
+are not scored wrong; a genuinely different canonical name is still wrong
+in both modes. MV5 resolution maps surfaces to canonical names, after which
+strict mode scores everything again.
 
 ## MV2 dialogue notes
 

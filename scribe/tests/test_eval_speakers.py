@@ -56,6 +56,7 @@ def _gold_dict(
     speaker: str = "Raskolnikov",
     uncertain: bool = False,
     book: str = "",
+    surface: str = "",
 ) -> dict[str, object]:
     entry: dict[str, object] = {
         "chapter": chapter,
@@ -68,6 +69,8 @@ def _gold_dict(
         entry["uncertain"] = True
     if book:
         entry["book"] = book
+    if surface:
+        entry["surface"] = surface
     return entry
 
 
@@ -296,3 +299,84 @@ def test_canonical_match_has_no_alias_matching() -> None:
     assert (
         evaluate(entries, _fake_predictor({("", 1, 1, 1): ("Raskolnikovs", "high")})).correct == 0
     )
+
+
+# ---------------------------------------------------------------------------
+# MV4: surface field, alias-aware scoring, by-rule table
+# ---------------------------------------------------------------------------
+
+
+def test_surface_accepted_and_in_key_validation() -> None:
+    raw = _gold_dict(book="crime-and-punishment")
+    raw["surface"] = "he"
+    entries = validate_raw_entries([raw], "surface.yaml")
+    assert entries[0].surface == "he"
+    assert entries[0].key == ("crime-and-punishment", 1, 8, 1)
+
+
+def test_surface_rejects_empty_and_non_string() -> None:
+    with pytest.raises(GoldError, match="surface"):
+        validate_raw_entries([_gold_dict(surface="  ")], "empty.yaml")
+    bad = _gold_dict()
+    bad["surface"] = 7
+    with pytest.raises(GoldError, match="surface"):
+        validate_raw_entries([bad], "type.yaml")
+
+
+def test_surface_scoring_strict_vs_alias_aware() -> None:
+    entries = [
+        GoldEntry(chapter=1, block=8, quote=1, excerpt="a", speaker="Raskolnikov", surface="he"),
+        GoldEntry(chapter=1, block=8, quote=2, excerpt="b", speaker="Raskolnikov", surface=""),
+    ]
+    predictor = _fake_predictor({("", 1, 8, 1): ("he", "low"), ("", 1, 8, 2): ("he", "low")})
+    strict = evaluate(entries, predictor)
+    assert strict.correct == 0  # the surface alone never scores in strict mode
+    aware = evaluate(entries, predictor, alias_aware=True)
+    assert aware.correct == 1  # only the entry carrying the surface scores
+    assert aware.by_level["low"] == (1, 2)
+
+
+def test_wrong_canonical_rejected_in_both_modes() -> None:
+    entries = [
+        GoldEntry(chapter=1, block=8, quote=1, excerpt="a", speaker="Raskolnikov", surface="he")
+    ]
+    predictor = _fake_predictor({("", 1, 8, 1): ("Svidrigailov", "high")})
+    assert evaluate(entries, predictor).correct == 0
+    assert evaluate(entries, predictor, alias_aware=True).correct == 0
+
+
+def test_canonical_still_scores_in_alias_aware_mode() -> None:
+    entries = [
+        GoldEntry(chapter=1, block=8, quote=1, excerpt="a", speaker="Raskolnikov", surface="he")
+    ]
+    predictor = _fake_predictor({("", 1, 8, 1): ("Raskolnikov", "high")})
+    assert evaluate(entries, predictor, alias_aware=True).correct == 1
+
+
+def test_three_tuple_predictor_feeds_the_by_rule_table() -> None:
+    entries = [
+        GoldEntry(chapter=1, block=1, quote=1, excerpt="a", speaker="Ana"),
+        GoldEntry(chapter=1, block=1, quote=2, excerpt="b", speaker="Marcus"),
+    ]
+
+    def _predict(context: QuoteContext) -> tuple[str, str, str]:
+        if context.quote == 1:
+            return ("Ana", "high", "explicit")
+        return ("Ana", "low", "fallback")
+
+    result = evaluate(entries, _predict)
+    assert result.correct == 1
+    assert result.by_rule["explicit"] == (1, 1)
+    assert result.by_rule["fallback"] == (0, 1)
+    report = format_result(result, predictor_name="fake", file_count=1)
+    assert "by attribution rule (certain lines):" in report
+    assert "explicit: 1/1 = 100.0%" in report
+    assert "fallback: 0/1 = 0.0%" in report
+
+
+def test_two_tuple_predictor_has_no_by_rule_section() -> None:
+    entries = [GoldEntry(chapter=1, block=1, quote=1, excerpt="a", speaker="Ana")]
+    result = evaluate(entries, _fake_predictor({("", 1, 1, 1): ("Ana", "high")}))
+    assert result.by_rule == {}
+    report = format_result(result, predictor_name="fake", file_count=1)
+    assert "by attribution rule" not in report
