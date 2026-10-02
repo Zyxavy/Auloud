@@ -32,6 +32,21 @@ current sha256 AND its ``attribution_rules_version`` matches
 mismatch or missing version on legacy scripts) re-drafts. ``cast.yaml``
 edits NEVER trigger a re-draft (editing cast needs only build).
 
+Multi-voice rendering (MV7, decisions 4-5): every sentence resolves to
+``(character, voice, speed)`` via :func:`resolve_sentence_voice`
+(narration sentences take the narrator entry; dialogue sentences go
+through :func:`text.cast.resolve_speaker` with their chapter/block/quote
+key and text). The gender hint is re-derived at build with
+:func:`text.speakers.gender_hint_for` from the raw speaker plus the
+sentence text: it only steers the generic fallback, so the lightweight
+hint is enough — threading the draft's full-context hint through
+``script.json`` would reshape the work file and force every book to
+re-draft for no audible difference, and running the spaCy tagger at build
+would drag the model into packaging (the MV4 lesson). ``"unknown"`` and
+any other raw surface resolve to a generic, never crash. Speed offsets
+only, no pitch shifting (decision 4). Per-voice leveling happens in
+:func:`audio.assemble.assemble_chapter` (decision 5), never in the cache.
+
 Resume: each chapter's encoded MP3 plus its timed chapter JSON live under
 ``<work-dir>/<book-id>/render/`` (``audio/chNNN.mp3``,
 ``text/chNNN.json``). A chapter is skipped when :func:`chapter_up_to_date`
@@ -117,9 +132,10 @@ from draft import (
     format_duration,
     run_draft,
 )
-from text.cast import NARRATOR, read_cast
+from text.cast import NARRATOR, ResolvedVoice, read_cast, resolve_speaker, validate_cast
+from text.speakers import gender_hint_for
 from tts.base import TTSEngine
-from tts.cache import get_or_synth
+from tts.cache import CacheStats, get_or_synth
 
 #: Work-folder layout under ``<work_root>/<book-id>/``.
 CACHE_DIRNAME = "cache"
@@ -166,6 +182,7 @@ def _assembly_fingerprint() -> dict[str, Any]:
             "para": assemble_mod.PAUSE_PARA_MS,
             "heading": assemble_mod.PAUSE_HEADING_MS,
             "break": assemble_mod.PAUSE_BREAK_MS,
+            "tag": assemble_mod.PAUSE_TAG_MS,
         },
         "peak_target_dbfs": assemble_mod.PEAK_TARGET_DBFS,
         "peak_target": assemble_mod.PEAK_TARGET,
@@ -211,6 +228,8 @@ class BuildResult:
     wall_seconds: float = 0.0
     rtf: float = 0.0
     strict: bool = False
+    cache_hits: int = 0
+    cache_misses: int = 0
 
 
 def create_engine(models_dir: Path | str = Path("models")) -> TTSEngine:
@@ -317,27 +336,115 @@ def _narrator_voice(cast_path: Path) -> tuple[str, float]:
     return voice, speed
 
 
+def resolve_sentence_voice(
+    cast: dict[str, Any],
+    sentence: Sentence,
+    *,
+    chapter_index: int,
+    narrator_voice: str,
+    narrator_speed: float,
+) -> ResolvedVoice:
+    """Resolve one script sentence to its final ``(character, voice, speed)``.
+
+    Narration (any ``kind`` other than ``dialogue``, which covers legacy
+    pre-MV6 scripts whose sentences all default to narration) takes the
+    narrator entry. Dialogue goes through :func:`text.cast.resolve_speaker`
+    with the sentence's quote key (``(chapter, block, quote)`` when the
+    script carries one, else the current chapter with no block/quote), its
+    text (for text-match overrides), and a gender hint re-derived here
+    with :func:`text.speakers.gender_hint_for` (see the module docstring
+    for why the hint is not threaded through ``script.json``). Total, like
+    resolution itself: ``"unknown"`` and any other surface fall through to
+    a generic, never raise.
+    """
+    if sentence.kind != "dialogue":
+        return ResolvedVoice(
+            character=NARRATOR, voice=narrator_voice, speed=narrator_speed
+        )
+    quote = sentence.quote if isinstance(sentence.quote, dict) else {}
+    chapter = quote.get("chapter", chapter_index)
+    block = quote.get("block")
+    number = quote.get("quote")
+    if not isinstance(chapter, int) or isinstance(chapter, bool):
+        chapter = chapter_index
+    if not isinstance(block, int) or isinstance(block, bool):
+        block = None
+    if not isinstance(number, int) or isinstance(number, bool):
+        number = None
+    raw = sentence.speaker if isinstance(sentence.speaker, str) else ""
+    return resolve_speaker(
+        cast,
+        raw_speaker=raw,
+        gender=gender_hint_for(raw, sentence.text),
+        chapter=chapter,
+        block=block,
+        quote=number,
+        text=sentence.text,
+    )
+
+
+def resolve_chapter(
+    cast: dict[str, Any],
+    chapter: ChapterFile,
+    *,
+    narrator_voice: str,
+    narrator_speed: float,
+) -> dict[int, ResolvedVoice]:
+    """``sid -> ResolvedVoice`` for a chapter, in document order.
+
+    The single source of truth for synthesis (which voice/speed to render),
+    assembly leveling (which voice group a sentence belongs to), and the
+    render fingerprint (which sentences a cast edit affects), so the three
+    can never disagree.
+    """
+    plan: dict[int, ResolvedVoice] = {}
+    for sentence in chapter.sentences_in_order():
+        plan[sentence.sid] = resolve_sentence_voice(
+            cast,
+            sentence,
+            chapter_index=chapter.chapter,
+            narrator_voice=narrator_voice,
+            narrator_speed=narrator_speed,
+        )
+    return plan
+
+
 def _fingerprint(
     cast: dict[str, Any], engine: TTSEngine, chapter: ChapterFile
 ) -> dict[str, Any]:
     """Render fingerprint for one chapter: everything (besides sentence
-    text) that can change its audio or its shipped JSON. A cast edit
-    re-renders; a chapter-title or block-structure edit (breaks carry
-    pauses but no sentences) re-renders that chapter; any pause/loudness/
-    encode constant edit or :data:`BUFFER_VERSION` bump (see
-    :func:`_assembly_fingerprint`) re-renders everything. Unchanged
-    chapters skip."""
-    voices = {
-        speaker: {"voice": entry.get("voice"), "speed": entry.get("speed")}
-        for speaker, entry in cast.items()
-        if isinstance(entry, dict)
-    }
+    text) that can change its audio or its shipped JSON. The cast half is
+    the per-sentence resolution (``[sid, character, voice, speed]`` in
+    document order via :func:`resolve_chapter`), so a cast edit re-renders
+    exactly the chapters holding affected sentences — and within them the
+    sentence cache re-synthesizes only the changed lines. A chapter-title
+    or block-structure edit (breaks carry pauses but no sentences)
+    re-renders that chapter; any pause/loudness/encode constant edit or
+    :data:`BUFFER_VERSION` bump (see :func:`_assembly_fingerprint`)
+    re-renders everything. Unchanged chapters skip."""
+    narrator = cast.get(NARRATOR) if isinstance(cast, dict) else None
+    voice = narrator.get("voice") if isinstance(narrator, dict) else None
+    speed = narrator.get("speed") if isinstance(narrator, dict) else None
+    try:
+        narrator_speed = float(speed if speed is not None else 1.0)
+    except (TypeError, ValueError):
+        narrator_speed = 1.0
+    plan = resolve_chapter(
+        cast if isinstance(cast, dict) else {},
+        chapter,
+        narrator_voice=voice if isinstance(voice, str) and voice.strip() else "narrator",
+        narrator_speed=narrator_speed,
+    )
+    voices = [
+        [sid, resolved.character, resolved.voice, resolved.speed]
+        for sid, resolved in plan.items()
+    ]
     blocks = [
         [block.id, block.type, block.level, block.text]
         for block in chapter.blocks or []
     ]
     return {
-        "cast": voices,
+        "voices": voices,
         "pitch": VOICE_PITCH,
         "engine_version": engine.engine_version,
         "assembly": _assembly_fingerprint(),
@@ -409,7 +516,13 @@ def chapter_up_to_date(
 def _with_timings(
     chapter: ChapterFile, timings: list[Any], duration_ms: int
 ) -> ChapterFile:
-    """Copy ``chapter`` blocks, filling sentence timings in document order."""
+    """Copy ``chapter`` blocks, filling sentence timings in document order.
+
+    Draft fields (``kind``/``confidence``/``quote``/``split_pair``) ride
+    along untouched: assembly reads ``kind``/``split_pair`` off the script
+    sentences, and the timed copy stays faithful to them (the bundle dict
+    still excludes them — spec law, see ``Sentence.to_dict``).
+    """
     timing_iter = iter(timings)
     blocks: list[Block] = []
     for block in chapter.blocks or []:
@@ -421,6 +534,10 @@ def _with_timings(
                 end_ms=t.end_ms,
                 text=s.text,
                 spans=list(s.spans),
+                kind=s.kind,
+                confidence=s.confidence,
+                quote=dict(s.quote) if s.quote is not None else None,
+                split_pair=s.split_pair,
             )
             for s, t in zip(block.sentences, [next(timing_iter) for _ in block.sentences])
         ]
@@ -535,6 +652,7 @@ def format_summary(result: BuildResult) -> str:
         f"bundle: {result.bundle_dir} ({result.chapters_total} chapters)",
         f"rendered: {result.rendered}, skipped: {result.skipped}, "
         f"failed: {len(result.failed)}",
+        f"sentence audio: {result.cache_hits} cached, {result.cache_misses} rendered",
         f"total audio: {format_duration(audio_s)} ({result.total_audio_ms} ms)",
         f"wall time: {result.wall_seconds:.1f} s",
         f"real-time factor: {result.rtf:.2f}x",
@@ -577,7 +695,8 @@ def run_build(
         (``None``/``<1`` disables). A real SIGKILL writes nothing; this
         hook logs its abort line, so it is louder, not quieter.
     :param show_progress: ``rich`` chapter bar with ETA (off in tests).
-    :raises BuildError: missing source, bad cast, chapter failure(s),
+    :raises BuildError: missing source, bad cast (unreadable cast.yaml or
+        voices outside the engine's real voice list), chapter failure(s),
         strict abort, or the simulated kill.
     :raises draft.DraftError: re-drafting a stale script failed.
     :raises bundle.writer.BundleWriteError: the written bundle failed validation.
@@ -592,9 +711,17 @@ def run_build(
         cast = read_cast(cast_path)
     except (OSError, ValueError) as exc:
         raise BuildError(f"{cast_path.name}: cannot read cast: {exc}") from exc
-    voice, speed = _narrator_voice(cast_path)
 
     tts = engine if engine is not None else create_engine(models_dir)
+
+    # MV5-review item 8: validate against the engine's REAL voice list, not
+    # a synthetic set. Unknown voices fail the build here, with file+key+
+    # rule errors (voiceless engines pass None: shape checks only).
+    cast_errors = validate_cast(cast, source=CAST_FILENAME, known_voices=tts.voices)
+    if cast_errors:
+        raise BuildError("; ".join(cast_errors))
+    voice, speed = _narrator_voice(cast_path)
+
     cache_dir = work_dir / CACHE_DIRNAME
     render_audio = work_dir / RENDER_DIRNAME / "audio"
     render_text = work_dir / RENDER_DIRNAME / "text"
@@ -608,24 +735,19 @@ def run_build(
     stale_render = remove_stale_chapter_files(render_audio, len(chapters), ".mp3")
     stale_render += remove_stale_chapter_files(render_text, len(chapters), ".json")
 
-    def _synth_fn(chapter_index: int) -> Callable[[Sentence], np.ndarray]:
+    def _synth_fn(
+        plan: dict[int, ResolvedVoice], stats: CacheStats
+    ) -> Callable[[Sentence], np.ndarray]:
         def _synth(sentence: Sentence) -> np.ndarray:
-            entry = cast.get(sentence.speaker)
-            if not isinstance(entry, dict):
-                raise ValueError(
-                    f"chapter {chapter_index}: no voice for speaker "
-                    f"'{sentence.speaker}' in {CAST_FILENAME}"
-                )
-            speaker_voice = entry.get("voice", voice)
-            try:
-                speaker_speed = float(entry.get("speed", speed))
-            except (TypeError, ValueError) as exc:
-                raise ValueError(
-                    f"chapter {chapter_index}: bad speed for speaker "
-                    f"'{sentence.speaker}' in {CAST_FILENAME}"
-                ) from exc
+            resolved = plan[sentence.sid]
             audio = get_or_synth(
-                tts, sentence.text, speaker_voice, speaker_speed, VOICE_PITCH, cache_dir
+                tts,
+                sentence.text,
+                resolved.voice,
+                resolved.speed,
+                VOICE_PITCH,
+                cache_dir,
+                stats=stats,
             )
             return np.asarray(audio, dtype=np.float32)
 
@@ -644,6 +766,7 @@ def run_build(
     audio_paths: dict[int, Path] = {}
     rendered = skipped = 0
     rendered_this_run = 0
+    cache_hits = cache_misses = 0
     failed: list[int] = []
     failure_reasons: dict[int, str] = {}
 
@@ -664,6 +787,9 @@ def run_build(
             )
             mp3_path = render_audio / f"{stem}.mp3"
             json_path = render_text / f"{stem}.json"
+            plan = resolve_chapter(
+                cast, chapter, narrator_voice=voice, narrator_speed=speed
+            )
             fingerprint = _fingerprint(cast, tts, chapter)
             hit = chapter_up_to_date(chapter, json_path, mp3_path, fingerprint)
             if hit is not None:
@@ -673,8 +799,13 @@ def run_build(
                 log_lines.append(f"chapter {index} {chapter.title}: skipped (up-to-date)")
                 progress.advance(task_id)
                 continue
+            chapter_stats = CacheStats()
             try:
-                assembled = assemble_chapter(chapter, _synth_fn(index))
+                assembled = assemble_chapter(
+                    chapter,
+                    _synth_fn(plan, chapter_stats),
+                    voice_of=lambda sentence: plan[sentence.sid].voice,
+                )
                 loud = apply_loudness_gain(assembled.pcm)
                 to_encode = AssembledChapter(
                     pcm=loud,
@@ -700,10 +831,14 @@ def run_build(
                 audio_paths[index] = mp3_path
                 rendered += 1
                 rendered_this_run += 1
+                cache_hits += chapter_stats.hits
+                cache_misses += chapter_stats.misses
                 sentences = len(timed_chapter.sentences_in_order())
                 log_lines.append(
                     f"chapter {index} {chapter.title}: rendered "
-                    f"({assembled.duration_ms} ms, {sentences} sentences)"
+                    f"({assembled.duration_ms} ms, {sentences} sentences; "
+                    f"audio {chapter_stats.hits} cached, "
+                    f"{chapter_stats.misses} rendered)"
                 )
             except Exception as exc:  # chapter-level: strict aborts, else record
                 reason = f"{type(exc).__name__}: {exc}"
@@ -755,6 +890,7 @@ def run_build(
     log_lines.append(
         f"build done: chapters={len(chapters)} rendered={rendered} "
         f"skipped={skipped} failed=0 total_audio_ms={total_audio_ms} "
+        f"cached={cache_hits} synthesized={cache_misses} "
         f"wall_seconds={wall_seconds:.1f} real-time factor (RTF): {rtf:.2f}x"
     )
     try:
@@ -779,4 +915,6 @@ def run_build(
         wall_seconds=wall_seconds,
         rtf=rtf,
         strict=strict,
+        cache_hits=cache_hits,
+        cache_misses=cache_misses,
     )

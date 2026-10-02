@@ -26,8 +26,9 @@ via :mod:`text.speakers`, attribution :func:`text.attribution
   every sentence carries RAW ``speaker`` (``narrator`` for narration,
   the tag surface or ``unknown`` for dialogue), ``confidence``
   (high/medium/low; narration always high), ``kind``
-  (narration/dialogue) and ``quote`` (the stable
-  ``{chapter, block, quote}`` key for dialogue, else null; never sid).
+  (narration/dialogue), ``quote`` (the stable
+  ``{chapter, block, quote}`` key for dialogue, else null; never sid)
+  and ``split_pair`` (the MV7 same-sentence tag link, else null).
   No audio timings yet (SW7). Top-level ``attribution_rules_version``
   pins the MV2-MV4 logic version (see
   :data:`text.attribution.ATTRIBUTION_RULES_VERSION`); build re-drafts
@@ -302,6 +303,7 @@ def _apply_attribution(
                             kind=DIALOGUE,
                             confidence=confidence,
                             quote=quote_key,
+                            split_pair=tagged.split_pair,
                         )
                     )
                     if normalize_name(speaker) and normalize_name(speaker) != "unknown":

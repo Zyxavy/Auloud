@@ -47,7 +47,11 @@ Rules (MV2):
   said.`` becomes ``"We should leave,"`` (dialogue, quote 1) plus
   `` she said.`` (narration). Each segment is then sentence-split with the
   existing :mod:`text.sentences` splitter (reused, never forked), so
-  abbreviation/ellipsis fixes keep working inside both kinds.
+  abbreviation/ellipsis fixes keep working inside both kinds. Halves of one
+  original sentence share a paragraph-local ``split_pair`` id (MV7: the
+  narration tag continues lowercase, or runs into the next quote with a
+  comma/colon); separate sentences never share one, so assembly can tell a
+  same-sentence tag (short pause) from a new sentence (normal pause).
 - Exact round trip: segments partition the paragraph byte-exactly, and each
   segment round-trips through the sentence splitter, so ``"".join`` over a
   block's sentences reproduces the original paragraph EXACTLY (trailing
@@ -159,7 +163,14 @@ class QuoteInfo:
 
 @dataclass
 class TaggedSentence:
-    """One split sentence plus its MV2 dialogue tag."""
+    """One split sentence plus its MV2 dialogue tag.
+
+    ``split_pair`` (MV7) links the two halves of one original sentence
+    split at a quote boundary: the dialogue half and its narration tag
+    share a paragraph-local id (``None`` everywhere else). Assembly reads
+    it for the short (~100 ms) tag pause; a shared id never crosses a
+    block boundary, so ids stay local to one paragraph split.
+    """
 
     sid: int
     chapter: int
@@ -170,6 +181,7 @@ class TaggedSentence:
     kind: str
     quote: int | None = None
     continued: bool = False
+    split_pair: int | None = None
 
     @property
     def key(self) -> tuple[int, int, int] | None:
@@ -369,6 +381,31 @@ def _slice_spans(spans: Sequence[Span] | None, low: int, high: int) -> list[Span
 _ORPHAN_MARKS = frozenset(("'", '"', _LEFT_DOUBLE, _RIGHT_DOUBLE, _LEFT_SINGLE, _RIGHT_SINGLE))
 
 
+def _starts_continuation(segment: str) -> bool:
+    """True when a narration segment continues the previous sentence.
+
+    The test is the first non-space character: lowercase means the tag
+    runs on from the dialogue (``'"Hi," she said'``), uppercase means a
+    new sentence (``'"Hi." She smiled'``). Limitation: a new sentence that
+    starts lowercase after terminal punctuation (``'"Hi." she left'``)
+    misreads as a tag; real prose capitalizes there, while tags after
+    ``!``/``?`` (``'"Run!" he shouted'``) are common, so the lowercase
+    side carries the decision.
+    """
+    stripped = segment.lstrip()
+    return bool(stripped) and stripped[0].islower()
+
+
+def _ends_continuation(segment: str) -> bool:
+    """True when a narration segment runs into the following quote.
+
+    A trailing comma or colon (``'She said, '``, ``'He shouted: '``)
+    hands the sentence to the quote; terminal punctuation means the tag
+    (if any) is behind, not ahead.
+    """
+    return segment.rstrip().endswith((",", ":"))
+
+
 def _is_quote_orphan(text: str) -> bool:
     """True when ``text`` is only quote marks/whitespace (reattach it)."""
     stripped = text.strip()
@@ -454,10 +491,17 @@ def split_paragraph_dialogue(
     for region, _number in dialogue:
         bounds += [region.start, region.end]
     bounds = sorted(set(bounds))
+    # Segment edges that touch a dialogue region: a segment starting where
+    # a region ends follows its quote; one ending where a region starts
+    # precedes it. MV7 split pairs are assigned off these junctions.
+    region_end_at = {region.end: region for region, _ in dialogue}
+    region_start_at = {region.start: region for region, _ in dialogue}
     tagged: list[TaggedSentence] = []
     next_sid = start_sid
     pending_leading = ""
     carry_forward = ""
+    pair_seq = 0
+    pending_pair: int | None = None
     for low, high in zip(bounds, bounds[1:]):
         if high <= low:
             continue
@@ -488,6 +532,34 @@ def split_paragraph_dialogue(
             else:
                 pending_leading += seg
             continue
+        # MV7 split pair: the id this segment's first/last records share
+        # with the dialogue half of their original sentence (None: no
+        # same-sentence neighbour on that side). Dialogue records consume
+        # a pair opened by a trailing-comma tag (``'She said, '``);
+        # narration records open one when they continue a quote
+        # (lowercase start, ``'"Hi," she said'``) and extend it through a
+        # trailing comma into the next quote.
+        first_pair: int | None = None
+        if active is not None:
+            first_pair, pending_pair = pending_pair, None
+        elif pending_pair is not None:
+            # Defensive only: a pair always precedes its dialogue segment,
+            # so a narration segment must never see one pending. Drop it
+            # rather than leak an id across unrelated sentences.
+            pending_pair = None
+        elif region_end_at.get(low) is not None and _starts_continuation(seg):
+            prev = tagged[-1] if tagged else None
+            if prev is not None and prev.kind == DIALOGUE:
+                if prev.split_pair is not None:
+                    # Tag on both sides of one quote (``'She said, "Hi,"
+                    # she added'``): the whole sentence shares the pair
+                    # the dialogue already holds, so adopt it, never fork.
+                    first_pair = prev.split_pair
+                else:
+                    pair_seq += 1
+                    first_pair = pair_seq
+                    prev.split_pair = pair_seq
+        base = len(tagged)
         for sent in pieces:
             record_kind = DIALOGUE if active is not None else NARRATION
             record_quote = active[1] if active is not None else None
@@ -523,9 +595,22 @@ def split_paragraph_dialogue(
                     kind=record_kind,
                     quote=record_quote,
                     continued=record_continued,
+                    split_pair=first_pair if len(tagged) == base else None,
                 )
             )
             next_sid += 1
+        if active is None and tagged[base:]:
+            # A narration tag running into the next quote (``'She said, "Hi"'``)
+            # shares its original sentence with that quote: extend the pair
+            # (reusing the left one when this segment opened one, as in
+            # ``'"Hi," she said, "bye"'``) through to the next segment.
+            if region_start_at.get(high) is not None and _ends_continuation(seg):
+                if first_pair is None:
+                    pair_seq += 1
+                    first_pair = pair_seq
+                    tagged[base].split_pair = pair_seq
+                tagged[-1].split_pair = first_pair
+                pending_pair = first_pair
         if carry_forward:
             # An orphaned mark with no next piece in its segment (splitters
             # attach closers, so this is defensive only): keep the text on

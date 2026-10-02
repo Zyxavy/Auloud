@@ -331,8 +331,11 @@ class Sentence:
     ``(chapter, block, quote)`` key for dialogue, else ``None``). ``speaker``
     holds the RAW surface (``narrator`` for narration, the tag text or
     ``unknown`` for dialogue); resolution to voices happens in MV7 build.
-    Unknown keys are ignored on parse (Player parity); missing draft fields
-    default to narration/high/None so legacy script and bundle JSON read.
+    MV7 adds ``split_pair`` (script.json only): the paragraph-local id the
+    two halves of one quote-split sentence share (else ``None``); assembly
+    reads it for the short tag pause. Unknown keys are ignored on parse
+    (Player parity); missing draft fields default to narration/high/None so
+    legacy script and bundle JSON read.
     """
 
     sid: int
@@ -344,6 +347,7 @@ class Sentence:
     kind: str = "narration"
     confidence: str = "high"
     quote: dict[str, int] | None = None
+    split_pair: int | None = None
 
     @classmethod
     def from_dict(cls, data: Any) -> Sentence:
@@ -374,6 +378,12 @@ class Sentence:
                     quote = {"chapter": chapter, "block": block, "quote": number}
             except (AttributeError, TypeError):
                 quote = None
+        pair_raw = data.get("split_pair")
+        split_pair = (
+            pair_raw
+            if isinstance(pair_raw, int) and not isinstance(pair_raw, bool)
+            else None
+        )
         return cls(
             sid=_require_int(data, "sid"),
             speaker=_require_str(data, "speaker"),
@@ -384,6 +394,7 @@ class Sentence:
             kind=kind,
             confidence=confidence,
             quote=quote,
+            split_pair=split_pair,
         )
 
     def to_dict(self, *, include_draft: bool = False) -> dict[str, Any]:
@@ -392,7 +403,7 @@ class Sentence:
         The bundle format is unchanged (spec law): bundle text JSON carries
         only sid/speaker/start_ms/end_ms/text/spans. ``script.json`` (the
         draft work file, not the bundle) uses ``include_draft=True`` to
-        persist ``kind``/``confidence``/``quote`` per sentence.
+        persist ``kind``/``confidence``/``quote``/``split_pair`` per sentence.
         """
         out: dict[str, Any] = {
             "sid": self.sid,
@@ -407,6 +418,7 @@ class Sentence:
             out["kind"] = self.kind
             out["confidence"] = self.confidence
             out["quote"] = dict(self.quote) if self.quote is not None else None
+            out["split_pair"] = self.split_pair
         return out
 
 
