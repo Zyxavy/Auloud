@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -22,9 +23,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.auloud.player.BuildConfig
 import app.auloud.player.battery.BatteryPromptDialog
 import app.auloud.player.battery.BatterySettingsIntents
 import app.auloud.player.battery.PrefsBatteryPromptStore
+import app.auloud.player.reader.ReaderFontSize
 import app.auloud.player.storage.WatchFolder
 import app.auloud.player.storage.WatchFolders
 
@@ -48,6 +51,7 @@ fun SettingsScreen(
     folders: List<WatchFolder> = emptyList(),
     onAddFolder: () -> Unit = {},
     onRemoveFolder: (WatchFolder) -> Unit = {},
+    onOpenSpike: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -56,6 +60,13 @@ fun SettingsScreen(
         PrefsBatteryPromptStore.fromContext(appContext)
     }
     var showBatteryDialog by remember { mutableStateOf(false) }
+    // RA10: reader settings live in the shared prefs store (read once per
+    // Settings visit; the reader re-reads on open, so changes apply then).
+    val readerStore = remember(appContext) {
+        PrefsReaderModeStore.fromContext(appContext)
+    }
+    var fontSize by remember { mutableStateOf(readerStore.fontSize()) }
+    var keepScreenOn by remember { mutableStateOf(readerStore.keepScreenOn()) }
 
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -76,6 +87,26 @@ fun SettingsScreen(
             onClick = { showBatteryDialog = true },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         )
+        ReaderSettingsSection(
+            fontSize = fontSize,
+            onFontSize = {
+                readerStore.setFontSize(it)
+                fontSize = it
+            },
+            keepScreenOn = keepScreenOn,
+            onKeepScreenOn = {
+                readerStore.setKeepScreenOn(it)
+                keepScreenOn = it
+            },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        )
+        // RA0 throwaway: debug builds only, deleted with the spike screen.
+        if (BuildConfig.DEBUG) {
+            SpikeEntry(
+                onClick = onOpenSpike,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            )
+        }
     }
 
     if (showBatteryDialog) {
@@ -167,6 +198,90 @@ private fun WatchFolderRow(
     }
 }
 
+/** RA4 temporary entry: previews the real reader screen (debug only). */
+@Composable
+private fun SpikeEntry(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.padding(vertical = 8.dp)) {
+        Text(
+            text = "Reader preview (RA4)",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Temporary look-check of the real reader. Wired to playback in RA7.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = onClick) { Text("Open preview") }
+    }
+}
+
+/** RA10: reader font size + keep-screen-on (persisted global settings). */
+@Composable
+private fun ReaderSettingsSection(
+    fontSize: ReaderFontSize,
+    onFontSize: (ReaderFontSize) -> Unit,
+    keepScreenOn: Boolean,
+    onKeepScreenOn: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.padding(vertical = 8.dp)) {
+        Text(
+            text = "Reading",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Font size",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            FontSizeButton("Small", ReaderFontSize.Small, fontSize, onFontSize)
+            FontSizeButton("Medium", ReaderFontSize.Medium, fontSize, onFontSize)
+            FontSizeButton("Large", ReaderFontSize.Large, fontSize, onFontSize)
+            FontSizeButton("Huge", ReaderFontSize.ExtraLarge, fontSize, onFontSize)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                Text(
+                    text = "Keep screen on while reading",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = "Applies in Read and Read + listen.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Switch(checked = keepScreenOn, onCheckedChange = onKeepScreenOn)
+        }
+    }
+}
+
+@Composable
+private fun FontSizeButton(
+    label: String,
+    size: ReaderFontSize,
+    current: ReaderFontSize,
+    onFontSize: (ReaderFontSize) -> Unit
+) {
+    if (size == current) {
+        Button(onClick = { onFontSize(size) }) { Text(label) }
+    } else {
+        TextButton(onClick = { onFontSize(size) }) { Text(label) }
+    }
+}
 /** Single WP8 entry: narrow scope passes only a click callback. */
 @Composable
 private fun BatteryOptimizationEntry(

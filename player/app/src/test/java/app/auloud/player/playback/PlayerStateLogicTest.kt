@@ -25,7 +25,8 @@ class PlayerStateLogicTest {
         positionMs: Long = 0L,
         durationMs: Long = 600_000L,
         chapterCount: Int = 2,
-        isConnected: Boolean = true
+        isConnected: Boolean = true,
+        sleepRemainingMs: Long? = null
     ) = ControllerSnapshot(
         isPlaying = isPlaying,
         chapterIndex = chapterIndex,
@@ -34,7 +35,8 @@ class PlayerStateLogicTest {
         positionMs = positionMs,
         durationMs = durationMs,
         chapterCount = chapterCount,
-        isConnected = isConnected
+        isConnected = isConnected,
+        sleepRemainingMs = sleepRemainingMs
     )
 
     // Controller-state mapping.
@@ -282,6 +284,19 @@ class PlayerStateLogicTest {
             val idle = awaitItem()
             assertFalse(idle.isPlaying)
             assertFalse(idle.isConnected)
+        }
+    }
+
+    @Test
+    fun holder_carriesSleepRemaining() = runBlocking {
+        val holder = PlayerStateHolder()
+
+        holder.state.test {
+            assertEquals(PlaybackState(), awaitItem())
+            holder.onSnapshot(snapshot(sleepRemainingMs = 599_000L))
+            assertEquals(599_000L, awaitItem().sleepRemainingMs)
+            holder.onSnapshot(snapshot(sleepRemainingMs = null))
+            assertEquals(null, awaitItem().sleepRemainingMs)
         }
     }
 }

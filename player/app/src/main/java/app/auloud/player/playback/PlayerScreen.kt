@@ -38,6 +38,7 @@ import app.auloud.player.battery.BatteryPromptLogic
 import app.auloud.player.battery.BatterySettingsIntents
 import app.auloud.player.battery.PrefsBatteryPromptStore
 import app.auloud.player.library.BookUiModel
+import app.auloud.player.settings.PrefsReaderModeStore
 import coil.compose.AsyncImage
 
 /**
@@ -52,8 +53,8 @@ import coil.compose.AsyncImage
  * same spot. System back returns to the library (no navigation library).
  *
  * A finished book reopens staying at the end, paused (the service prepares
- * the saved finished spot as-is); whether that should restart instead is a
- * deferred product decision.
+ * the saved finished spot as-is); Play restarts it from chapter 1 (D-028,
+ * decided in RA7).
  *
  * Narrow recompositions for the slow Tab E: [PlayerContent] passes only
  * primitive slices to children, so the 500 ms position ticker recomposes just
@@ -67,7 +68,12 @@ import coil.compose.AsyncImage
 fun PlayerScreen(
     book: BookUiModel,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * RA11-fix: mode switcher slot (BookScreen supplies the Read/Listen/
+     * Read+listen row, so Listen is never a dead end). Empty by default.
+     */
+    modeSwitcher: @Composable () -> Unit = {}
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -87,6 +93,11 @@ fun PlayerScreen(
     // verified without the device.
     val batteryStore = remember(appContext) { PrefsBatteryPromptStore.fromContext(appContext) }
     var showBatteryDialog by remember(book.id) { mutableStateOf(false) }
+    // RA8: speed + sleep timer (persisted speed, local timer cycle; the
+    // countdown lives in the service, its remaining arrives via state).
+    val speedStore = remember(appContext) { PrefsReaderModeStore.fromContext(appContext) }
+    var speed by remember(book.id) { mutableStateOf(speedStore.playbackSpeed()) }
+    var sleepOption by remember(book.id) { mutableStateOf(SleepOption.Off) }
 
     BackHandler { onBack() }
 
@@ -103,6 +114,7 @@ fun PlayerScreen(
     PlayerContent(
         book = book,
         state = state,
+        modeSwitcher = modeSwitcher,
         onPlayPause = {
             if (!state.isPlaying &&
                 BatteryPromptLogic.shouldShowPrompt(
@@ -112,11 +124,22 @@ fun PlayerScreen(
             ) {
                 showBatteryDialog = true
             }
-            controller.togglePlayPause()
+            controller.playOrRestart(state)
         },
         onSeek = controller::seekTo,
         onNext = controller::nextChapter,
         onPrevious = controller::previousChapter,
+        speed = speed,
+        onSpeed = {
+            val next = nextSpeed(speed)
+            controller.setSpeed(next)
+            speed = next
+        },
+        sleepRemainingMs = state.sleepRemainingMs,
+        onSleep = {
+            sleepOption = cycleSleepOption(sleepOption)
+            sendSleepOption(appContext, sleepOption)
+        },
         onBack = onBack,
         modifier = modifier
     )
@@ -144,8 +167,13 @@ private fun PlayerContent(
     onSeek: (Long) -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
+    speed: Float,
+    onSpeed: () -> Unit,
+    sleepRemainingMs: Long?,
+    onSleep: () -> Unit,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    modeSwitcher: @Composable () -> Unit = {}
 ) {
     Column(
         modifier = modifier.fillMaxSize().padding(24.dp),
@@ -183,6 +211,17 @@ private fun PlayerContent(
             onNext = onNext,
             onPrevious = onPrevious
         )
+        // RA8: speed + sleep timer row (timings are media time: no sync impact).
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SpeedButton(speed = speed, onClick = onSpeed)
+            SleepTimerButton(remainingMs = sleepRemainingMs, onClick = onSleep)
+        }
+        // RA11-fix: mode switcher (BookScreen supplies it; empty standalone).
+        modeSwitcher()
         if (!state.isConnected) {
             Spacer(Modifier.height(16.dp))
             Text("Connecting…", style = MaterialTheme.typography.bodySmall)

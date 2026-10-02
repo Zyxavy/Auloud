@@ -34,6 +34,7 @@ docs/     PRD, architecture, designs, roadmap, test plan, decisions
 **Both**
 - Do not change the bundle format without updating the spec first and adding a `DECISIONS.md` entry.
 - Never commit copyrighted books or audio. Test content is public domain or self-made.
+- Avoid using em-dashes (—) and '→'.
 
 ## Commands (adjust once the projects exist)
 | Task | Command |

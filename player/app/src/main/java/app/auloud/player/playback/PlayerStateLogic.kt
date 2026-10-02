@@ -23,7 +23,9 @@ data class ControllerSnapshot(
     val chapterCount: Int,
     val isConnected: Boolean,
     /** WP9: service-recorded save time; 0 in release. Defaults keep old call sites compiling. */
-    val lastSaveWallMs: Long = 0L
+    val lastSaveWallMs: Long = 0L,
+    /** RA8: sleep timer remaining ms (null = off). Copied, never computed, here. */
+    val sleepRemainingMs: Long? = null
 )
 
 /**
@@ -47,7 +49,8 @@ fun ControllerSnapshot.toPlaybackState(): PlaybackState {
         durationMs = duration,
         chapterCount = count,
         isConnected = isConnected,
-        lastSaveWallMs = lastSaveWallMs.coerceAtLeast(0L)
+        lastSaveWallMs = lastSaveWallMs.coerceAtLeast(0L),
+        sleepRemainingMs = sleepRemainingMs?.coerceAtLeast(0L)
     )
 }
 
@@ -71,16 +74,27 @@ fun clampSeekRequest(requestedMs: Long, durationMs: Long): Long {
  * entity when it receives its book-id extra; this wrapper exists so WP7
  * unit tests pin the contract without touching the service.
  *
- * Finished-book behavior (current, deliberate): a book saved at the last
- * chapter's full duration reopens staying at the end, paused. Whether
- * reopening a finished book should restart from the beginning instead is a
- * deferred product decision, not made here.
+ * Finished-book behavior (D-028, decided in RA7): a book saved at the last
+ * chapter's full duration reopens staying at the end, paused — and Play
+ * restarts it from chapter 1 ([isFinishedBook],
+ * [PlaybackController.playOrRestart]).
  */
 fun restoreStart(
     progress: ProgressEntity?,
     chapterCount: Int,
     durations: List<Long> = emptyList()
 ): StartPosition = PlaybackQueue.startFrom(progress, chapterCount, durations)
+
+/**
+ * RA7 (D-028): a finished book is the last chapter at (or past) its full
+ * duration. Play on such a book restarts from chapter 1
+ * ([PlaybackController.restartBook]) instead of resuming the end. Pure.
+ */
+fun isFinishedBook(state: PlaybackState): Boolean {
+    if (state.chapterCount <= 0 || state.durationMs <= 0) return false
+    return state.chapterIndex >= state.chapterCount - 1 &&
+        state.positionMs >= state.durationMs
+}
 
 /**
  * WP7: monotonic generation guard for the async `MediaController` connect.
@@ -136,6 +150,7 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
         val chapterTitle = snapshot.chapterTitle?.takeIf { it.isNotBlank() } ?: ""
         val bookTitle = snapshot.bookTitle?.takeIf { it.isNotBlank() } ?: ""
         val lastSave = snapshot.lastSaveWallMs.coerceAtLeast(0L)
+        val sleepRemaining = snapshot.sleepRemainingMs?.coerceAtLeast(0L)
         if (snapshot.isPlaying == cur.isPlaying &&
             index == cur.chapterIndex &&
             chapterTitle == cur.chapterTitle &&
@@ -144,7 +159,8 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
             duration == cur.durationMs &&
             count == cur.chapterCount &&
             snapshot.isConnected == cur.isConnected &&
-            lastSave == cur.lastSaveWallMs
+            lastSave == cur.lastSaveWallMs &&
+            sleepRemaining == cur.sleepRemainingMs
         ) {
             return
         }
@@ -157,7 +173,8 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
             durationMs = duration,
             chapterCount = count,
             isConnected = snapshot.isConnected,
-            lastSaveWallMs = lastSave
+            lastSaveWallMs = lastSave,
+            sleepRemainingMs = sleepRemaining
         )
     }
 

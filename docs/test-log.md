@@ -1,6 +1,6 @@
 # Device test log
 
-Confirmed runs on the Tab E only. Template per check (see `docs/WP10-Runbook.md`):
+Confirmed runs on the Tab E only. Template per check (Slice 3 checks: see `docs/Slice3-Runbook.md`):
 
 ```
 Date / build (commit) / device state:
