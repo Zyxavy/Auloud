@@ -56,7 +56,8 @@ Format notes (per ``05-ScribeDesign.md`` as refined by Slice 4 decisions 1-3):
 - Override and ``first_person`` speakers accept character keys AND alias
   surfaces (``"Ally"`` for character ``Alice`` validates and resolves).
   An override whose speaker normalizes to ``"i"`` redirects through
-  ``first_person`` exactly like a raw ``"I said"`` line.
+  ``first_person`` exactly like a raw ``"I said"`` line; ``"narrator"``
+  (any case) resolves to the narrator entry.
 
 Resolution order (:func:`resolve_speaker`, pure, used by ``build``):
 
@@ -438,6 +439,10 @@ def resolve_speaker(
         resolved = _voice_for_canonical(cast, target)
         if resolved is not None:
             return resolved
+        voice, speed = _narrator_voice(cast)
+        return ResolvedVoice(character=NARRATOR, voice=voice, speed=speed)
+
+    if normalize_name(effective) == NARRATOR:
         voice, speed = _narrator_voice(cast)
         return ResolvedVoice(character=NARRATOR, voice=voice, speed=speed)
 

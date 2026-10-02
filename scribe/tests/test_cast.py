@@ -528,3 +528,42 @@ def test_override_to_i_redirects_through_first_person() -> None:
     assert any("points nowhere" in e and "'I'" in e for e in _errors(cast))
     hit = resolve_speaker(cast, raw_speaker="Bob", chapter=9, block=9, quote=9)
     assert hit.character == "Alice"
+
+
+def test_override_to_narrator_resolves_narrator() -> None:
+    """An override naming narrator (any case) resolves to the narrator entry."""
+    for variant in ("narrator", "Narrator", "NARRATOR"):
+        cast = _cast()
+        cast["overrides"].append({"chapter": 1, "block": 10, "quote": 3, "speaker": variant})
+        hit = resolve_speaker(
+            cast,
+            raw_speaker="Alice",
+            gender="unknown",
+            chapter=1,
+            block=10,
+            quote=3,
+            text="...",
+        )
+        assert hit == ResolvedVoice(character=NARRATOR, voice=PALETTE_NARRATOR_VOICE, speed=1.0), (
+            f"variant {variant!r} got {hit!r}"
+        )
+
+
+def test_override_to_character_still_wins_and_garbage_still_generic() -> None:
+    """Narrator special-case changes nothing else: characters win, garbage generic."""
+    cast = _cast()
+    cast["overrides"].append({"chapter": 1, "block": 10, "quote": 3, "speaker": "Alice"})
+    hit = resolve_speaker(cast, raw_speaker="Bob", chapter=1, block=10, quote=3, text="...")
+    assert hit == ResolvedVoice(character="Alice", voice="bf_isabella", speed=1.0)
+    cast = _cast()
+    cast["overrides"].append({"chapter": 1, "block": 10, "quote": 3, "speaker": "Nobody"})
+    hit = resolve_speaker(
+        cast,
+        raw_speaker="Alice",
+        gender="unknown",
+        chapter=1,
+        block=10,
+        quote=3,
+        text="...",
+    )
+    assert hit.character == "default_female"
