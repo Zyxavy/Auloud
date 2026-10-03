@@ -20,7 +20,7 @@ Feature code lives in the library subpackages (``extract/``, ``text/``,
 ``tts/``, ``audio/``, ``bundle/``, ``draft.py``, ``build.py``); this module
 only parses arguments, runs environment checks, and delegates. SW1 ships
 ``doctor`` (plus ``version``); ``draft`` arrived in SW5, ``build`` and
-``inspect`` in SW9.
+``inspect`` in SW9; MV0 adds ``voices`` and the ``doctor`` spaCy check.
 """
 
 from __future__ import annotations
@@ -80,6 +80,14 @@ MODELS_HELP = (
     "(SW0 used kokoro-v1.0.onnx + voices-v1.0.bin from "
     "https://github.com/thewh1teagle/kokoro-onnx/releases). "
     "`doctor` never downloads anything."
+)
+
+SPACY_MODEL_HELP = (
+    "The spaCy English model (about 12 MB) is URL-pinned in "
+    "pyproject.toml + uv.lock; run `uv sync` in scribe/ first, "
+    "then re-run `scribe doctor`.\n"
+    "Offline fallback only: `uv run python -m spacy download en_core_web_sm`\n"
+    "(a plain download is wiped by the next `uv sync`)."
 )
 
 PASS = "PASS"
@@ -233,6 +241,56 @@ def check_models(models_dir: Path) -> CheckResult:
     )
 
 
+def check_spacy() -> CheckResult:
+    """Check spaCy plus the en_core_web_sm model (MV0; MV3 attributes with it).
+
+    Reports present + versions, proven by loading the pipeline and parsing
+    one short sentence. A missing model is a graceful FAIL with the
+    download command, never an error.
+    """
+    try:
+        from text.nlp import MODEL_NAME, load_model, model_version
+    except ImportError as exc:
+        return CheckResult(
+            name="spacy",
+            status=FAIL,
+            detail=f"scribe install broken: cannot import text.nlp ({exc})",
+            hint="The installed scribe wheel is missing text.nlp; reinstall it with "
+            "`uv sync --reinstall-package auloud-scribe` in scribe/, "
+            "then re-run `scribe doctor`.",
+        )
+
+    try:
+        import spacy
+    except ImportError:
+        return CheckResult(
+            name="spacy",
+            status=FAIL,
+            detail="spacy not importable",
+            hint="spacy is a pinned dependency: run `uv sync` in scribe/, "
+            "then re-run `scribe doctor`.",
+        )
+    spacy_ver = spacy.__version__
+    try:
+        nlp = load_model()
+        doc = nlp("The quick brown fox jumps.")
+        if len(doc) == 0:
+            raise ValueError("model parsed zero tokens")
+        model_ver = model_version() or "unknown version"
+    except (OSError, ImportError, ValueError) as exc:
+        return CheckResult(
+            name="spacy",
+            status=FAIL,
+            detail=f"spacy {spacy_ver} present but model {MODEL_NAME} missing/unreadable ({exc})",
+            hint=SPACY_MODEL_HELP,
+        )
+    return CheckResult(
+        name="spacy",
+        status=PASS,
+        detail=f"spacy {spacy_ver} + {MODEL_NAME} {model_ver} (parse ok)",
+    )
+
+
 def check_gpu() -> CheckResult:
     """Report NVIDIA/CUDA presence. Informational: CPU-only builds work (SW0)."""
     nvidia_smi = shutil.which("nvidia-smi")
@@ -263,6 +321,7 @@ def run_checks(models_dir: Path) -> list[CheckResult]:
         check_espeak_ng(),
         check_engine(),
         check_models(models_dir),
+        check_spacy(),
         check_gpu(),
     ]
 
@@ -286,7 +345,7 @@ def doctor(
         help="Directory holding kokoro-v1.0.onnx + voices-v1.0.bin.",
     ),
 ) -> None:
-    """Check Python, ffmpeg/ffprobe, espeak-ng, TTS engine, models, GPU."""
+    """Check Python, ffmpeg/ffprobe, espeak-ng, TTS engine, models, spaCy, GPU."""
     results = run_checks(models_dir)
     typer.echo(format_table(results))
     failures = [r for r in results if r.status == FAIL]
@@ -395,6 +454,12 @@ def inspect(
         readable=True,
         help="Bundle directory to inspect.",
     ),
+    speakers: bool = typer.Option(
+        False,
+        "--speakers",
+        help="Per-speaker lines and spoken seconds (from timings), "
+        "with low-confidence counts where present.",
+    ),
 ) -> None:
     """Print chapters, speakers and sample sentences of a bundle."""
     from bundle.inspect import InspectError, format_inspect, inspect_bundle
@@ -404,7 +469,7 @@ def inspect(
     except InspectError as exc:
         typer.echo(f"inspect failed: {exc}", err=True)
         raise typer.Exit(code=1)
-    typer.echo(format_inspect(result))
+    typer.echo(format_inspect(result, speakers_detail=speakers))
 
 
 @app.command()
@@ -431,6 +496,51 @@ def validate(
     for error in result.errors:
         typer.echo(f"error: {error}", err=True)
     raise typer.Exit(code=1)
+
+
+@app.command()
+def voices(
+    sample: bool = typer.Option(
+        False,
+        "--sample",
+        help="Render one WAV per voice into --out-dir (plus a voices.txt list).",
+    ),
+    out_dir: Path = typer.Option(
+        Path("logs/voice-samples"),
+        "--out-dir",
+        help="Folder for audition WAVs (under logs/, never committed).",
+    ),
+    models_dir: Path = typer.Option(
+        Path("models"),
+        "--models-dir",
+        help="Directory holding kokoro-v1.0.onnx + voices-v1.0.bin.",
+    ),
+    speed: float = typer.Option(
+        1.0,
+        "--speed",
+        help="Speech rate for the samples (the palette compares timbre).",
+    ),
+) -> None:
+    """List Kokoro voices, or audition them all with --sample (MV0)."""
+    from build import BuildError, create_engine
+    from tts.voices import SAMPLE_TEXT, list_voices, sample_voices
+
+    if speed <= 0:
+        typer.echo(f"voices failed: --speed must be > 0 (got {speed})", err=True)
+        raise typer.Exit(code=1)
+    try:
+        engine = create_engine(models_dir)
+    except BuildError as exc:
+        typer.echo(f"voices failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    if not sample:
+        for name in list_voices(engine):
+            typer.echo(name)
+        return
+    result = sample_voices(engine, out_dir, text=SAMPLE_TEXT, speed=speed)
+    for name in result.voices:
+        typer.echo(name)
+    typer.echo(f"wrote {len(result.files)} WAVs to {result.out_dir}")
 
 
 @app.command()

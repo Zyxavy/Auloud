@@ -14,18 +14,35 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""``scribe draft`` pipeline (SW5): EPUB -> work folder.
+"""``scribe draft`` pipeline (SW5, MV6 multi-voice): EPUB -> work folder.
 
-Parse (SW3 :func:`extract.clean.extract_epub_chapters`) then split sentences
-(SW4 :func:`text.sentences.split_chapter`), then write the work folder
-``.scribe/<book-id>/`` with:
+Parse (SW3 :func:`extract.clean.extract_epub_chapters`) then run MV2-MV4
+(dialogue split :func:`text.dialogue.split_chapter_dialogue`, candidates
+via :mod:`text.speakers`, attribution :func:`text.attribution
+.attribute_quotes`), then write the work folder ``.scribe/<book-id>/`` with:
 
 - ``script.json`` — book metadata plus chapters as SW2
-  :class:`bundle.models.ChapterFile` dicts (chapters > blocks > sentences,
-  every sentence ``speaker == "narrator"``). No audio timings yet (SW7).
-- ``cast.yaml`` — minimal narrator-only cast (see :mod:`text.cast`).
-- ``draft_report.md`` — chapter list, word counts, dropped elements and a
-  rough estimated audio duration.
+  :class:`bundle.models.ChapterFile` dicts (``include_draft=True``:
+  every sentence carries RAW ``speaker`` (``narrator`` for narration,
+  the tag surface or ``unknown`` for dialogue), ``confidence``
+  (high/medium/low; narration always high), ``kind``
+  (narration/dialogue), ``quote`` (the stable
+  ``{chapter, block, quote}`` key for dialogue, else null; never sid)
+  and ``split_pair`` (the MV7 same-sentence tag link, else null).
+  No audio timings yet (SW7). Top-level ``attribution_rules_version``
+  pins the MV2-MV4 logic version (see
+  :data:`text.attribution.ATTRIBUTION_RULES_VERSION`); build re-drafts
+  only when the source hash or this version changes, never for cast edits.
+- ``cast.yaml`` — multi-voice cast, merged never clobbered: first draft
+  writes :func:`text.cast.draft_cast` from discovery counts (starting
+  from :func:`text.cast.default_multivoice_cast`); re-runs merge via
+  :func:`text.cast.merge_cast` (your voices/speeds/aliases/overrides
+  stay, newcomers appended with auto palette voices).
+- ``draft_report.md`` — SW5 chapter list, word counts, dropped elements
+  and rough estimate (unchanged).
+- ``cast_report.md`` — MV6 characters with line counts, then
+  low-confidence lines grouped by chapter with context and the quote key
+  to paste into ``overrides``.
 
 Book id construction (deterministic, so rebuilds keep the id and the Player
 keeps saved progress)::
@@ -47,10 +64,18 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from bundle.models import ChapterFile
+from bundle.models import Block, ChapterFile, Sentence
 from extract.clean import count_words, extract_epub_chapters
-from text.cast import write_cast
-from text.sentences import split_chapter
+from text.attribution import ATTRIBUTION_RULES_VERSION, attribute_quotes
+from text.cast import (
+    default_multivoice_cast,
+    draft_cast,
+    merge_cast,
+    read_cast,
+    write_cast,
+)
+from text.dialogue import DIALOGUE, NARRATION, split_chapter_dialogue
+from text.speakers import build_quote_contexts, normalize_name
 
 BOOK_ID_NAMESPACE = uuid.NAMESPACE_URL
 BOOK_ID_PREFIX = "auloud:book:"
@@ -58,6 +83,7 @@ BOOK_ID_PREFIX = "auloud:book:"
 SCRIPT_FILENAME = "script.json"
 CAST_FILENAME = "cast.yaml"
 REPORT_FILENAME = "draft_report.md"
+CAST_REPORT_FILENAME = "cast_report.md"
 
 # Rough speaking-rate heuristic for the duration estimate: ~150 words/min at
 # ~6 characters per word (5 letters + space) is ~900 chars/min, i.e. ~15
@@ -167,12 +193,15 @@ class DraftResult:
     script_path: Path
     cast_path: Path
     report_path: Path
+    cast_report_path: Path = Path("cast_report.md")
     chapters: list[ChapterFile] = field(default_factory=list)
     drops: list[str] = field(default_factory=list)
     total_sentences: int = 0
     total_words: int = 0
     total_chars: int = 0
     estimated_seconds: float = 0.0
+    dialogue_sentences: int = 0
+    low_confidence: int = 0
 
 
 def _write_script(
@@ -185,11 +214,17 @@ def _write_script(
     source_sha256: str,
     chapters: list[ChapterFile],
 ) -> None:
-    """Write script.json deterministically (sorted keys, no timestamps)."""
+    """Write script.json deterministically (sorted keys, no timestamps).
+
+    Chapters use ``include_draft=True`` (per-sentence raw speaker,
+    confidence, kind, quote key). Top-level ``attribution_rules_version``
+    pins the MV2-MV4 logic version for build's staleness check.
+    """
     data = {
+        "attribution_rules_version": ATTRIBUTION_RULES_VERSION,
         "author": author,
         "book_id": book_id,
-        "chapters": [c.to_dict() for c in chapters],
+        "chapters": [c.to_dict(include_draft=True) for c in chapters],
         "source_file": source_file,
         "source_sha256": source_sha256,
         "title": title,
@@ -198,6 +233,149 @@ def _write_script(
         json.dumps(data, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
     )
+
+
+def _apply_attribution(
+    book_id: str, extracted: list[ChapterFile]
+) -> tuple[list[ChapterFile], dict[str, int], dict[str, str], list[dict]]:
+    """Run MV2-MV4 over extracted chapters; return script chapters + discovery.
+
+    Returns ``(chapters, line_counts, gender_hints, low_confidence)`` where
+    ``line_counts`` maps raw dialogue surfaces to dialogue-sentence counts
+    (``unknown`` excluded: it resolves to generics, never a character),
+    ``gender_hints`` maps each surface to its majority per-occurrence hint
+    (ties break alphabetically, matching :func:`text.cast.draft_cast`),
+    and ``low_confidence`` lists low-confidence quotes with context for the
+    cast report (one entry per quote key, in reading order).
+    """
+    script_chapters: list[ChapterFile] = []
+    line_counts: dict[str, int] = {}
+    gender_votes: dict[str, dict[str, int]] = {}
+    low_confidence: list[dict] = []
+
+    for pos, raw_chapter in enumerate(extracted, start=1):
+        dialogue = split_chapter_dialogue(raw_chapter, chapter_index=pos)
+        if dialogue.chapter.blocks is None:
+            script_chapters.append(dialogue.chapter)
+            continue
+        contexts = build_quote_contexts(dialogue, book=book_id)
+        attributions = attribute_quotes(contexts)
+        att_by_key = {(a.chapter, a.block, a.quote): a for a in attributions}
+
+        tagged_by_block: dict[int, list] = {}
+        for tagged in dialogue.tagged:
+            tagged_by_block.setdefault(tagged.block, []).append(tagged)
+
+        quote_texts: dict[tuple[int, int, int], list[str]] = {}
+        quote_sids: dict[tuple[int, int, int], list[int]] = {}
+        for tagged in dialogue.tagged:
+            if tagged.kind == DIALOGUE and tagged.quote is not None:
+                key = (tagged.chapter, tagged.block, tagged.quote)
+                quote_texts.setdefault(key, []).append(tagged.text)
+                quote_sids.setdefault(key, []).append(tagged.sid)
+
+        new_blocks: list[Block] = []
+        for block in dialogue.chapter.blocks or []:
+            tagged_list = sorted(
+                tagged_by_block.get(block.id, []), key=lambda t: t.sid
+            )
+            sentences: list[Sentence] = []
+            for tagged in tagged_list:
+                if tagged.kind == DIALOGUE and tagged.quote is not None:
+                    att = att_by_key.get((tagged.chapter, tagged.block, tagged.quote))
+                    if att is None:
+                        speaker, confidence, gender = "unknown", "low", "unknown"
+                    else:
+                        speaker, confidence, gender = att.speaker, att.confidence, att.gender
+                    quote_key = {
+                        "block": tagged.block,
+                        "chapter": tagged.chapter,
+                        "quote": tagged.quote,
+                    }
+                    sentences.append(
+                        Sentence(
+                            sid=tagged.sid,
+                            speaker=speaker,
+                            start_ms=0,
+                            end_ms=0,
+                            text=tagged.text,
+                            spans=list(tagged.spans),
+                            kind=DIALOGUE,
+                            confidence=confidence,
+                            quote=quote_key,
+                            split_pair=tagged.split_pair,
+                        )
+                    )
+                    if normalize_name(speaker) and normalize_name(speaker) != "unknown":
+                        line_counts[speaker] = line_counts.get(speaker, 0) + 1
+                        votes = gender_votes.setdefault(
+                            speaker, {"female": 0, "male": 0, "unknown": 0}
+                        )
+                        hint = gender if gender in ("female", "male") else "unknown"
+                        votes[hint] = votes.get(hint, 0) + 1
+                else:
+                    sentences.append(
+                        Sentence(
+                            sid=tagged.sid,
+                            speaker="narrator",
+                            start_ms=0,
+                            end_ms=0,
+                            text=tagged.text,
+                            spans=list(tagged.spans),
+                            kind=NARRATION,
+                            confidence="high",
+                            quote=None,
+                            split_pair=tagged.split_pair,
+                        )
+                    )
+            new_blocks.append(
+                Block(
+                    id=block.id,
+                    type=block.type,
+                    level=block.level,
+                    text=block.text,
+                    sentences=sentences,
+                )
+            )
+        script_chapters.append(
+            ChapterFile(
+                spec_version=dialogue.chapter.spec_version,
+                chapter=dialogue.chapter.chapter,
+                title=dialogue.chapter.title,
+                duration_ms=dialogue.chapter.duration_ms,
+                blocks=new_blocks,
+            )
+        )
+
+        seen_quotes: set[tuple[int, int, int]] = set()
+        for att in attributions:
+            if att.confidence != "low":
+                continue
+            key = (att.chapter, att.block, att.quote)
+            if key in seen_quotes:
+                continue
+            seen_quotes.add(key)
+            texts = quote_texts.get(key, [])
+            full = "".join(texts).strip()
+            sids = quote_sids.get(key, [])
+            low_confidence.append(
+                {
+                    "chapter": att.chapter,
+                    "block": att.block,
+                    "quote": att.quote,
+                    "speaker": att.speaker,
+                    "confidence": att.confidence,
+                    "rule": att.rule,
+                    "text": full,
+                    "sids": list(sids),
+                }
+            )
+
+    gender_hints: dict[str, str] = {}
+    for surface, votes in gender_votes.items():
+        best = sorted(votes.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+        gender_hints[surface] = best
+    return script_chapters, line_counts, gender_hints, low_confidence
 
 
 def _write_report(
@@ -263,16 +441,141 @@ def _write_report(
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
+def _write_cast_report(
+    path: Path,
+    *,
+    result: DraftResult,
+    line_counts: dict[str, int],
+    gender_hints: dict[str, str],
+    merged_cast: dict,
+    low_confidence: list[dict],
+) -> None:
+    """Write cast_report.md (characters by lines, low-confidence by chapter).
+
+    Style follows draft_report.md (header bullets, ``##`` sections, pipe
+    tables). Characters table lists raw dialogue surfaces by line count
+    (``unknown`` excluded at discovery: it resolves to generics, never a
+    character); voice column shows the merged cast voice (user edits kept)
+    or the generic fallback for omitted surfaces. Low-confidence section
+    groups by chapter (one entry per quote key, in reading order) with the
+    quote text, one sentence of context on each side when present, and the
+    exact ``overrides`` snippet to paste into ``cast.yaml``.
+    """
+
+    total_dialogue = sum(line_counts.values())
+    lines = [
+        f"# Cast report: {result.title}",
+        "",
+        f"- Book id: `{result.book_id}`",
+        f"- Named dialogue sentences: {total_dialogue} "
+        f"(`unknown` excluded: generics, never a character), "
+        f"low-confidence quotes: {len(low_confidence)}",
+        f"- Characters drafted: {len(merged_cast.get('characters', {}))} "
+        f"(top {5} by lines get own voices; the rest resolve to generics)",
+        "",
+        "## Characters (by lines)",
+        "",
+        "| Character (raw) | Lines | Gender | Voice |",
+        "| --- | --- | --- | --- |",
+    ]
+    ranked = sorted(line_counts.items(), key=lambda kv: (-kv[1], normalize_name(kv[0])))
+    characters = merged_cast.get("characters", {})
+    if not isinstance(characters, dict):
+        characters = {}
+    aliases = merged_cast.get("aliases", {})
+    if not isinstance(aliases, dict):
+        aliases = {}
+    from text.cast import canonicalize_speaker
+
+    for surface, count in ranked:
+        hint = gender_hints.get(surface, "unknown")
+        canonical = canonicalize_speaker(surface, characters, aliases)
+        if canonical is not None and isinstance(characters.get(canonical), dict):
+            voice = characters[canonical].get("voice", "?")
+            voice_cell = f"`{canonical}` ({voice})"
+        else:
+            generic = "default_male" if hint == "male" else "default_female"
+            entry = merged_cast.get(generic, {})
+            voice = entry.get("voice", "?") if isinstance(entry, dict) else "?"
+            voice_cell = f"generic `{generic}` ({voice})"
+        safe = surface.replace("|", "\\|")
+        lines.append(f"| {safe} | {count} | {hint} | {voice_cell} |")
+    if not ranked:
+        lines.append("| (no dialogue found) | 0 | — | narrator only |")
+    known = {normalize_name(s) for s, _ in ranked}
+    kept_zero = [k for k in characters if normalize_name(k) not in known]
+    if kept_zero:
+        kept_line = ", ".join(f"`{k}`" for k in sorted(kept_zero))
+        lines += ["", "Kept, no current lines (merge keeps): " + kept_line]
+    lines += ["", "## Low-confidence lines by chapter", ""]
+    if not low_confidence:
+        lines.append("None — every dialogue line attributed high or medium.")
+    else:
+        by_chapter: dict[int, list[dict]] = {}
+        for entry in low_confidence:
+            by_chapter.setdefault(entry["chapter"], []).append(entry)
+        title_by_chapter = {c.chapter: c.title for c in result.chapters}
+        for chapter_idx in sorted(by_chapter):
+            title = title_by_chapter.get(chapter_idx, "")
+            lines.append(f"### Chapter {chapter_idx}: {title}".rstrip())
+            lines.append("")
+            chapter_obj = next((c for c in result.chapters if c.chapter == chapter_idx), None)
+            ordered = chapter_obj.sentences_in_order() if chapter_obj is not None else []
+            sid_to_pos = {s.sid: i for i, s in enumerate(ordered)}
+            for entry in sorted(by_chapter[chapter_idx], key=lambda e: (e["block"], e["quote"])):
+                key = f"({entry['chapter']}, {entry['block']}, {entry['quote']})"
+                lines.append(
+                    f"- Quote {key} speaker `{entry['speaker']}` "
+                    f"({entry['confidence']}, {entry['rule']}): "
+                    f"{entry['text'][:200]}"
+                )
+                sids = entry.get("sids", [])
+                if sids and ordered:
+                    first_pos = min(sid_to_pos.get(s, 0) for s in sids)
+                    last_pos = max(sid_to_pos.get(s, 0) for s in sids)
+                    before = ordered[first_pos - 1].text.strip()[:160] if first_pos > 0 else ""
+                    after = (
+                        ordered[last_pos + 1].text.strip()[:160]
+                        if last_pos + 1 < len(ordered)
+                        else ""
+                    )
+                    if before:
+                        lines.append(f"  Context before: {before}")
+                    if after:
+                        lines.append(f"  Context after: {after}")
+                override_snippet = (
+                    "- {chapter: "
+                    + str(entry["chapter"])
+                    + ", block: "
+                    + str(entry["block"])
+                    + ", quote: "
+                    + str(entry["quote"])
+                    + ", speaker: <Name>}"
+                )
+                lines.append("  Override: `" + override_snippet + "`")
+            lines.append("")
+    lines += [
+        "Next: fix names in `cast.yaml` (`aliases` for variants, `overrides` "
+        "for single lines above), then run `scribe build` — no re-draft "
+        "needed (cast edits never trigger one).",
+        "",
+    ]
+    path.write_text("\n".join(lines), encoding="utf-8")
+
+
 def run_draft(
     epub_path: Path | str, *, work_root: Path | str = Path(".scribe")
 ) -> DraftResult:
-    """Parse, split, and write ``<work_root>/<book-id>/``; return the result.
+    """Parse, attribute, and write ``<work_root>/<book-id>/``; return the result.
 
     Every foreseeable failure (missing/unreadable source, unparsable EPUB,
-    uncreatable/unwritable work folder) raises :class:`DraftError` with a
-    file+reason message, so the thin CLI renders it cleanly without a
-    traceback. Writing is deterministic: same input bytes produce
-    byte-identical ``script.json``, ``cast.yaml`` and ``draft_report.md``.
+    uncreatable/unwritable work folder, unreadable existing cast) raises
+    :class:`DraftError` with a file+reason message, so the thin CLI renders
+    it cleanly without a traceback. Writing is deterministic: same input
+    bytes produce byte-identical ``script.json``, ``cast.yaml``,
+    ``draft_report.md`` and ``cast_report.md`` (no timestamps anywhere).
+    Re-runs merge ``cast.yaml`` (never clobber) via
+    :func:`text.cast.merge_cast`.
     """
     source = Path(epub_path)
     if not source.is_file():
@@ -286,7 +589,11 @@ def run_draft(
 
     try:
         extracted = extract_epub_chapters(source)
-        chapters = [split_chapter(c) for c in extracted.chapters]
+        if not extracted.chapters:
+            raise DraftError(f"{source.name}: no chapters survived extraction")
+        chapters, line_counts, gender_hints, low_confidence = _apply_attribution(
+            book_id, extracted.chapters
+        )
     except DraftError:
         raise
     except Exception as exc:
@@ -298,6 +605,12 @@ def run_draft(
     script_path = work_dir / SCRIPT_FILENAME
     cast_path = work_dir / CAST_FILENAME
     report_path = work_dir / REPORT_FILENAME
+    cast_report_path = work_dir / CAST_REPORT_FILENAME
+
+    try:
+        discovered = draft_cast(line_counts, gender_hints)
+    except ValueError as exc:
+        raise DraftError(f"{source.name}: cannot draft cast: {exc}") from exc
 
     per_chapter: list[tuple[int, str, int, int, float]] = []
     total_sentences = total_words = total_chars = 0
@@ -309,6 +622,9 @@ def run_draft(
         total_words += words
         total_chars += chars
     estimated = estimate_seconds(total_chars)
+    dialogue_sentences = sum(
+        1 for c in chapters for s in c.sentences_in_order() if s.kind == DIALOGUE
+    )
 
     result = DraftResult(
         book_id=book_id,
@@ -319,12 +635,15 @@ def run_draft(
         script_path=script_path,
         cast_path=cast_path,
         report_path=report_path,
+        cast_report_path=cast_report_path,
         chapters=chapters,
         drops=list(extracted.drops),
         total_sentences=total_sentences,
         total_words=total_words,
         total_chars=total_chars,
         estimated_seconds=estimated,
+        dialogue_sentences=dialogue_sentences,
+        low_confidence=len(low_confidence),
     )
     try:
         work_dir.mkdir(parents=True, exist_ok=True)
@@ -337,9 +656,25 @@ def run_draft(
             source_sha256=sha,
             chapters=chapters,
         )
-        write_cast(cast_path)
+        if cast_path.is_file():
+            try:
+                existing = read_cast(cast_path)
+            except (OSError, ValueError) as exc:
+                raise DraftError(f"{cast_path.name}: cannot read cast: {exc}") from exc
+            merged = merge_cast(existing, discovered)
+        else:
+            merged = merge_cast(default_multivoice_cast(), discovered)
+        write_cast(cast_path, merged)
         _write_report(
             report_path, result=result, source_name=source.name, per_chapter=per_chapter
+        )
+        _write_cast_report(
+            cast_report_path,
+            result=result,
+            line_counts=line_counts,
+            gender_hints=gender_hints,
+            merged_cast=merged,
+            low_confidence=low_confidence,
         )
     except OSError as exc:
         where = str(exc.filename or work_dir)

@@ -76,6 +76,16 @@ class TTSEngine(ABC):
         """Version string baked into the cache key (package + model)."""
         raise NotImplementedError
 
+    @property
+    def voices(self) -> tuple[str, ...] | None:
+        """Available voice ids as a sorted tuple, or None when voiceless.
+
+        Engines with multiple voices (Kokoro) override this with a sorted
+        tuple of ids in audition order; engines without a voice list keep
+        the default None so callers fail loudly via ``tts.voices``.
+        """
+        return None
+
     @abstractmethod
     def synth(self, text: str, voice: str, speed: float) -> np.ndarray:
         """Synthesize one non-empty sentence.

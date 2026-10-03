@@ -37,6 +37,13 @@ not restated), ``voices`` with the narrator only (reuses :mod:`text.cast`
 constants, plus pitch 1.0), one entry per chapter
 (index/title/audio/text/duration_ms), ``created_at`` (UTC ISO-8601,
 seconds precision, ``Z`` suffix), ``generator`` (``scribe <version>``).
+MV8 multi-voice: :func:`write_bundle` accepts an explicit ``voices`` map
+(built by ``build`` from its per-sentence resolution, so the writer never
+re-resolves); when omitted it keeps the legacy narrator-only map so older
+callers and narration-only books stay valid. Bundle sentence ``speaker``
+values are the RESOLVED character keys (``narrator``, a character, or a
+``default_*`` generic) — the caller remaps them before calling; the writer
+only ships what it is given and lets the validator gate check it.
 
 ``created_at`` differs on every run BY DESIGN: SW5's twice-run
 byte-identity rule covers ``script.json``/``cast.yaml``/``draft_report.md``
@@ -118,12 +125,7 @@ def _scribe_version() -> str:
 
 def _utc_now_iso() -> str:
     """UTC ISO-8601 with ``Z`` suffix, seconds precision (spec example form)."""
-    return (
-        datetime.now(timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _write_json(path: Path, data: dict[str, Any]) -> None:
@@ -183,15 +185,24 @@ def write_bundle(
     audio_paths: Sequence[Path | str],
     source_epub: Path | str,
     out_dir: Path | str,
+    *,
+    voices: dict[str, Voice] | dict[str, dict[str, Any]] | None = None,
 ) -> WriteResult:
     """Write a complete bundle and validate it; fail loudly on any problem.
 
     :param chapters: timed chapters (SW7 output: sentence timings filled,
-        ``duration_ms`` set), in order, numbered 1..N.
+        ``duration_ms`` set), in order, numbered 1..N. Sentence ``speaker``
+        values are shipped as given: MV8 callers pass the RESOLVED
+        character keys (``narrator``, a character, or a ``default_*``
+        generic); legacy callers pass narrator-only chapters.
     :param audio_paths: one already-encoded CBR MP3 per chapter, same order.
     :param source_epub: original EPUB (copied byte-identical, read for
         id/title/author/cover).
     :param out_dir: bundle root (created; existing files are overwritten).
+    :param voices: explicit manifest voices map (MV8 multi-voice path:
+        ``name -> Voice`` or plain ``name -> {engine, voice, speed,
+        pitch}`` dicts, as built by ``build`` from its resolution). When
+        ``None`` (default) the legacy narrator-only map is written.
     :returns: :class:`WriteResult` (the bundle passed ``validate_bundle``).
     :raises BundleWriteError: bad inputs, unwritable output, or the
         written bundle failed validation (every validator error is listed;
@@ -216,13 +227,10 @@ def write_bundle(
             )
         if chapter.blocks is None:
             raise BundleWriteError(
-                f"chapter {pos}: PDF page-sync chapters are not supported "
-                "by this EPUB writer"
+                f"chapter {pos}: PDF page-sync chapters are not supported by this EPUB writer"
             )
         if chapter.duration_ms <= 0:
-            raise BundleWriteError(
-                f"chapter {pos}: non-positive duration_ms {chapter.duration_ms}"
-            )
+            raise BundleWriteError(f"chapter {pos}: non-positive duration_ms {chapter.duration_ms}")
         if not chapter.title.strip():
             raise BundleWriteError(f"chapter {pos}: blank title")
         if not mp3.is_file():
@@ -290,6 +298,29 @@ def write_bundle(
             )
         )
 
+    voices_map: dict[str, Voice]
+    if voices is None:
+        voices_map = {
+            NARRATOR: Voice(
+                engine=NARRATOR_ENGINE,
+                voice=NARRATOR_VOICE,
+                speed=NARRATOR_SPEED,
+                pitch=VOICE_PITCH,
+            )
+        }
+    else:
+        voices_map = {}
+        for name, entry in voices.items():
+            if isinstance(entry, Voice):
+                voices_map[name] = entry
+            elif isinstance(entry, dict):
+                voices_map[name] = Voice.from_dict(entry)
+            else:
+                raise BundleWriteError(
+                    f"manifest.json: voices.{name}: invalid voice entry "
+                    f"(need object, got {type(entry).__name__})"
+                )
+
     manifest = Manifest(
         spec_version=SPEC_VERSION,
         id=book_id,
@@ -306,14 +337,7 @@ def write_bundle(
         author=author,
         source=SourceInfo(file=SOURCE_REL, sha256=sha),
         cover=cover_rel,
-        voices={
-            NARRATOR: Voice(
-                engine=NARRATOR_ENGINE,
-                voice=NARRATOR_VOICE,
-                speed=NARRATOR_SPEED,
-                pitch=VOICE_PITCH,
-            )
-        },
+        voices=voices_map,
         created_at=_utc_now_iso(),
         generator=f"scribe {_scribe_version()}",
     )
@@ -335,4 +359,3 @@ def write_bundle(
         chapters=len(chapters),
         cover=cover_rel is not None,
     )
-

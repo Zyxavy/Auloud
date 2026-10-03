@@ -323,7 +323,20 @@ class Span:
 
 @dataclass
 class Sentence:
-    """One read-aloud sentence with its MP3 offsets (integer milliseconds)."""
+    """One read-aloud sentence with its MP3 offsets (integer milliseconds).
+
+    MV6 draft fields (script.json only; the bundle ignores them): ``kind``
+    (``narration``|``dialogue``), ``confidence`` (``high``|``medium``|``low``;
+    narration is always ``high``), and ``quote`` (the stable
+    ``(chapter, block, quote)`` key for dialogue, else ``None``). ``speaker``
+    holds the RAW surface (``narrator`` for narration, the tag text or
+    ``unknown`` for dialogue); resolution to voices happens in MV7 build.
+    MV7 adds ``split_pair`` (script.json only): the paragraph-local id the
+    two halves of one quote-split sentence share (else ``None``); assembly
+    reads it for the short tag pause. Unknown keys are ignored on parse
+    (Player parity); missing draft fields default to narration/high/None so
+    legacy script and bundle JSON read.
+    """
 
     sid: int
     speaker: str
@@ -331,6 +344,10 @@ class Sentence:
     end_ms: int
     text: str
     spans: list[Span] = field(default_factory=list)
+    kind: str = "narration"
+    confidence: str = "high"
+    quote: dict[str, int] | None = None
+    split_pair: int | None = None
 
     @classmethod
     def from_dict(cls, data: Any) -> Sentence:
@@ -339,6 +356,34 @@ class Sentence:
         spans_raw = data.get("spans", [])
         if not isinstance(spans_raw, list):
             raise BundleError("invalid field 'spans' (need list)")
+        kind_raw = data.get("kind", "narration")
+        kind = kind_raw if kind_raw in ("narration", "dialogue") else "narration"
+        conf_raw = data.get("confidence", "high")
+        confidence = conf_raw if conf_raw in ("high", "medium", "low") else "high"
+        quote: dict[str, int] | None = None
+        quote_raw = data.get("quote")
+        if isinstance(quote_raw, dict):
+            try:
+                chapter = quote_raw.get("chapter")
+                block = quote_raw.get("block")
+                number = quote_raw.get("quote")
+                if (
+                    isinstance(chapter, int)
+                    and not isinstance(chapter, bool)
+                    and isinstance(block, int)
+                    and not isinstance(block, bool)
+                    and isinstance(number, int)
+                    and not isinstance(number, bool)
+                ):
+                    quote = {"chapter": chapter, "block": block, "quote": number}
+            except (AttributeError, TypeError):
+                quote = None
+        pair_raw = data.get("split_pair")
+        split_pair = (
+            pair_raw
+            if isinstance(pair_raw, int) and not isinstance(pair_raw, bool)
+            else None
+        )
         return cls(
             sid=_require_int(data, "sid"),
             speaker=_require_str(data, "speaker"),
@@ -346,9 +391,20 @@ class Sentence:
             end_ms=_require_int(data, "end_ms"),
             text=_require_str(data, "text"),
             spans=[Span.from_dict(s) for s in spans_raw],
+            kind=kind,
+            confidence=confidence,
+            quote=quote,
+            split_pair=split_pair,
         )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, include_draft: bool = False) -> dict[str, Any]:
+        """Bundle dict; with ``include_draft`` also write MV6 draft fields.
+
+        The bundle format is unchanged (spec law): bundle text JSON carries
+        only sid/speaker/start_ms/end_ms/text/spans. ``script.json`` (the
+        draft work file, not the bundle) uses ``include_draft=True`` to
+        persist ``kind``/``confidence``/``quote``/``split_pair`` per sentence.
+        """
         out: dict[str, Any] = {
             "sid": self.sid,
             "speaker": self.speaker,
@@ -358,6 +414,11 @@ class Sentence:
         }
         if self.spans:
             out["spans"] = [s.to_dict() for s in self.spans]
+        if include_draft:
+            out["kind"] = self.kind
+            out["confidence"] = self.confidence
+            out["quote"] = dict(self.quote) if self.quote is not None else None
+            out["split_pair"] = self.split_pair
         return out
 
 
@@ -392,14 +453,14 @@ class Block:
             sentences=[Sentence.from_dict(s) for s in sentences_raw],
         )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, include_draft: bool = False) -> dict[str, Any]:
         out: dict[str, Any] = {"id": self.id, "type": self.type}
         if self.level is not None:
             out["level"] = self.level
         if self.text is not None:
             out["text"] = self.text
         if self.sentences:
-            out["sentences"] = [s.to_dict() for s in self.sentences]
+            out["sentences"] = [s.to_dict(include_draft=include_draft) for s in self.sentences]
         return out
 
 
@@ -460,7 +521,7 @@ class ChapterFile:
             pages=pages,
         )
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, include_draft: bool = False) -> dict[str, Any]:
         out: dict[str, Any] = {
             "spec_version": self.spec_version,
             "chapter": self.chapter,
@@ -468,7 +529,7 @@ class ChapterFile:
             "duration_ms": self.duration_ms,
         }
         if self.blocks is not None:
-            out["blocks"] = [b.to_dict() for b in self.blocks]
+            out["blocks"] = [b.to_dict(include_draft=include_draft) for b in self.blocks]
         if self.pages is not None:
             out["pages"] = [p.to_dict() for p in self.pages]
         return out

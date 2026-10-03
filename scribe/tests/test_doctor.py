@@ -42,7 +42,16 @@ def test_doctor_runs_and_prints_table(tmp_path: Path) -> None:
     result = CliRunner().invoke(cli.app, ["doctor", "--models-dir", str(tmp_path)])
     assert result.exit_code in (0, 1)
     assert "CHECK" in result.output and "STATUS" in result.output
-    for row in ("python", "ffmpeg", "ffprobe", "espeak-ng", "tts-engine", "models", "gpu"):
+    for row in (
+        "python",
+        "ffmpeg",
+        "ffprobe",
+        "espeak-ng",
+        "tts-engine",
+        "models",
+        "spacy",
+        "gpu",
+    ):
         assert row in result.output
 
 
@@ -164,3 +173,63 @@ def test_gpu_with_empty_output_stays_info(monkeypatch: object) -> None:
     mp.setattr(cli.subprocess, "run", lambda *args, **kwargs: fake)
     result = cli.check_gpu()
     assert result.status == cli.INFO
+
+
+def test_spacy_check_passes_with_installed_model() -> None:
+    # spacy + en_core_web_sm are pinned project dependencies (MV0), so the
+    # real check must pass in the project environment (like the python check).
+    result = cli.check_spacy()
+    assert result.status == cli.PASS
+    assert "en_core_web_sm" in result.detail
+    assert "parse ok" in result.detail
+
+
+def test_spacy_missing_is_fail_with_sync_hint(monkeypatch: object) -> None:
+    import sys
+
+    mp = monkeypatch  # type: ignore[union-attr]
+    mp.setitem(sys.modules, "spacy", None)  # `import spacy` then raises ImportError
+    result = cli.check_spacy()
+    assert result.status == cli.FAIL
+    assert "not importable" in result.detail
+    assert "uv sync" in result.hint
+
+
+def test_spacy_model_missing_is_fail_with_download_hint(monkeypatch: object) -> None:
+    import text.nlp
+
+    mp = monkeypatch  # type: ignore[union-attr]
+
+    def _missing() -> object:
+        raise OSError("No module named 'en_core_web_sm'")
+
+    mp.setattr(text.nlp, "load_model", _missing)
+    result = cli.check_spacy()
+    assert result.status == cli.FAIL
+    assert "en_core_web_sm" in result.detail
+    assert "spacy download en_core_web_sm" in result.hint
+
+
+def test_spacy_model_version_probe() -> None:
+    import text.nlp
+
+    assert text.nlp.MODEL_NAME == "en_core_web_sm"
+    assert text.nlp.model_version() is not None  # URL-pinned in pyproject.toml + uv.lock
+    assert text.nlp.spacy_version() is not None
+
+
+def test_spacy_packaging_broken_is_graceful_fail(monkeypatch: object) -> None:
+    import sys
+
+    mp = monkeypatch  # type: ignore[union-attr]
+    mp.setitem(sys.modules, "text.nlp", None)  # `from text.nlp import ...` raises ImportError
+    result = cli.check_spacy()
+    assert result.status == cli.FAIL
+    assert "install broken" in result.detail
+    assert "reinstall" in result.hint
+
+
+def test_load_model_cached_returns_same_object() -> None:
+    import text.nlp
+
+    assert text.nlp.load_model() is text.nlp.load_model()

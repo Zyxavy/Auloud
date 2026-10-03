@@ -57,6 +57,7 @@ import hashlib
 import math
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -87,6 +88,22 @@ def cache_key(
 def cache_path(cache_dir: Path | str, key: str) -> Path:
     """File holding one cached sentence (compressed FLAC, lossless)."""
     return Path(cache_dir) / f"{key}.flac"
+
+
+@dataclass
+class CacheStats:
+    """Hit/miss counters for one render run (MV7 build totals).
+
+    Passed to :func:`get_or_synth` via ``stats``; a hit is a cache file
+    that decoded, a miss is everything else that synthesized (including a
+    present-but-undecodable file, which is deleted and re-rendered).
+    Empty sentences return silence without touching the engine or the
+    cache and count as neither. Callers sum per-chapter instances for
+    the run totals ``build`` prints (``X cached, Y rendered``).
+    """
+
+    hits: int = 0
+    misses: int = 0
 
 
 def split_long_sentence(text: str) -> list[str]:
@@ -152,15 +169,17 @@ def get_or_synth(
     speed: float,
     pitch: float,
     cache_dir: Path | str,
+    *,
+    stats: CacheStats | None = None,
 ) -> np.ndarray:
     """Return sentence audio, synthesizing only on cache miss.
 
     Empty/whitespace-only sentences return zero-length audio without
-    touching the engine (or the cache). Over-long sentences split via
-    :func:`split_long_sentence` and each clause is cached individually,
-    so a resumed build reuses the clauses it already rendered.
-    Non-finite ``speed``/``pitch`` raise ``ValueError`` before any key
-    is built. A present-but-undecodable file is deleted and treated as
+    touching the engine (or the cache, or ``stats``). Over-long sentences
+    split via :func:`split_long_sentence` and each clause is cached
+    individually, so a resumed build reuses the clauses it already
+    rendered. Non-finite ``speed``/``pitch`` raise ``ValueError`` before any
+    key is built. A present-but-undecodable file is deleted and treated as
     a miss, never returned.
     """
     if not text.strip():
@@ -172,7 +191,7 @@ def get_or_synth(
         parts = split_long_sentence(text)
         if len(parts) > 1:
             chunks = [
-                get_or_synth(engine, part, voice, speed, pitch, cache_dir)
+                get_or_synth(engine, part, voice, speed, pitch, cache_dir, stats=stats)
                 for part in parts
                 if part.strip()
             ]
@@ -184,16 +203,22 @@ def get_or_synth(
     path = cache_path(cache_dir, key)
     if path.is_file():
         try:
-            return _read_flac(path, engine.sample_rate)
+            audio = _read_flac(path, engine.sample_rate)
         except Exception:
             # Torn write, foreign bytes, 0-byte file: drop it and
             # re-synthesize below. Broad catch is deliberate — any
             # decode failure means "not a valid hit".
             path.unlink(missing_ok=True)
+        else:
+            if stats is not None:
+                stats.hits += 1
+            return audio
 
     audio = np.asarray(engine.synth(text, voice, speed), dtype=np.float32).ravel()
     audio = audio.astype(np.float32, copy=False)
     directory = Path(cache_dir)
     directory.mkdir(parents=True, exist_ok=True)
     _write_flac_atomic(path, audio, engine.sample_rate)
+    if stats is not None:
+        stats.misses += 1
     return audio

@@ -84,35 +84,35 @@ Goal: a real EPUB becomes a valid bundle.
 
 Goal: three modes with a synced highlight.
 
-- [ ] Reader view: blocks and sentences in a `LazyColumn`, headings and italics
-- [ ] Position ticker (about every 200 ms) mapping audio position to the current sentence
-- [ ] Highlight and auto-scroll in read + listen mode
-- [ ] Tap a sentence to seek audio
-- [ ] Manual scroll pauses auto-follow; "back to now" button
-- [ ] Mode switching (read only, listen only, read + listen) keeps one shared position
-- [ ] Speed control and sleep timer
+- [x] Reader view: blocks and sentences in a `LazyColumn`, headings and italics
+- [x] Position ticker (about every 200 ms) mapping audio position to the current sentence
+- [x] Highlight and auto-scroll in read + listen mode
+- [x] Tap a sentence to seek audio
+- [x] Manual scroll pauses auto-follow; "back to now" button
+- [x] Mode switching (read only, listen only, read + listen) keeps one shared position
+- [x] Speed control and sleep timer
 
 **Done when:**
 
-- Highlight stays within about 300 ms of the audio at start, middle and end of a long chapter
-- Switching modes never loses your place
-- Memory stays stable during a 1-hour session
+- [x] Highlight stays within about 300 ms of the audio at start, middle and end of a long chapter
+- [x] Switching modes never loses your place
+- [x] Memory stays stable during a 1-hour session
 
 ## Slice 4: Multi-voice (M to L)
 
 Goal: distinct narrator and character voices.
 
-- [ ] Dialogue detection (straight and curly quotes, multi-paragraph quotes)
-- [ ] Rule-based speaker attribution ("said X", nearest name, two-person alternation)
-- [ ] Draft `cast.yaml` generated, hand-editable, then used for rendering
-- [ ] Voice palette chosen (narrator plus 3-5 characters)
-- [ ] Per-character speed/pitch offsets
-- [ ] Manifest `voices` map filled in; speaker stored per sentence
+- [x] Dialogue detection (straight and curly quotes, multi-paragraph quotes)
+- [x] Rule-based speaker attribution ("said X", nearest name, two-person alternation)
+- [x] Draft `cast.yaml` generated, hand-editable, then used for rendering
+- [x] Voice palette chosen (narrator plus 3-5 characters)
+- [x] Per-character speed/pitch offsets
+- [x] Manifest `voices` map filled in; speaker stored per sentence
 
 **Done when:**
 
-- A dialogue-heavy chapter sounds clearly different for narrator and characters
-- Mislabelled speakers can be fixed by editing `cast.yaml` and re-running, with no code changes
+- [x] A dialogue-heavy chapter sounds clearly different for narrator and characters
+- [x] Mislabelled speakers can be fixed by editing `cast.yaml` and re-running, with no code changes
 
 ## Slice 5: Complete pass (M)
 

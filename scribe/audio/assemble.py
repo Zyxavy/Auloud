@@ -22,9 +22,13 @@ come from RUNNING SAMPLE COUNTS on that same buffer, so they agree with
 what :mod:`audio.encode` writes by construction (spec section 6 rule 5).
 
 Pauses (source: ``docs/05-ScribeDesign.md`` section 9, which governs over
-``docs/plans/Slice2.md`` SW7 — both agree: 250/500/800/1000 ms):
+``docs/plans/Slice2.md`` SW7 — both agree: 250/500/800/1000 ms — plus the
+MV7 tag pause):
 
 - inside a paragraph/quote, between sentences: 250 ms (sentence pause)
+- between a dialogue sentence and the narration tag split from the SAME
+  original sentence (``Sentence.split_pair`` link from ``text.dialogue``):
+  100 ms (tag pause); normal pauses everywhere else
 - after the last sentence of a para/quote block: 500 ms (paragraph pause)
 - after each sentence of a heading block: 800 ms (heading pause)
 - for a break block (scene divider, no sentences): 1000 ms of silence,
@@ -42,15 +46,19 @@ so no audio (not even break silence) may precede the first sentence: a
 pre-first-sentence silence is skipped). Mid- and trailing breaks keep
 their 1000 ms.
 
-Loudness (:func:`apply_loudness_gain`): one deterministic numpy scalar gain
-per chapter to a peak target of -1 dBFS (``PEAK_TARGET``). Gain ONLY — no
-compression, limiting, or time-stretch, so duration never changes, and the
-same input array always yields bit-identical output. Note: the design doc
-mentions ``ffmpeg loudnorm`` to -16 LUFS only as an example ("for
+Loudness: per-voice peak leveling at assembly time (MV7) plus the chapter
+peak limit (:func:`apply_loudness_gain`). Each voice present in the
+chapter is measured (peak over its sentence audios, pauses excluded) and
+scaled by one gain so every voice peaks at the same target; the chapter
+gain then still caps the whole buffer at -1 dBFS (a no-op when leveling
+already hit it, a guard otherwise). Gain ONLY — no compression, limiting,
+or time-stretch, so duration never changes, and the same input always
+yields bit-identical output. Leveling lives here, never in the sentence
+cache, so gain changes cannot invalidate cached audio. Note: the design
+doc mentions ``ffmpeg loudnorm`` to -16 LUFS only as an example ("for
 example"); a filter-based loudness pass is deliberately NOT used here
-because it is version-dependent and complicates determinism. Single-voice
-peak gain is enough for Slice 2; revisit perceptual leveling when multiple
-voices arrive (Slice 4).
+because it is version-dependent and complicates determinism. Perceptual
+(LUFS) leveling stays a future option; v1 equalizes peaks.
 
 Memory: one chapter's float32 mono buffer is held (4 bytes/sample at
 24 kHz, i.e. ~96 KB per second, ~5.8 MB per minute). Sentence arrays are
@@ -81,6 +89,12 @@ PAUSE_PARA_MS = 500
 PAUSE_HEADING_MS = 800
 #: Silence for a break block (scene divider, carries no sentences).
 PAUSE_BREAK_MS = 1000
+#: Pause between a dialogue sentence and the narration tag split from the
+#: SAME original sentence (adjacent ``split_pair`` match, same block).
+#: Fixed at ~100 ms in v1; the natural next knob is a CLI flag or cast
+#: entry, but no caller reads one yet, so this fingerprinted constant
+#: (build re-renders when its live value changes) is the whole surface.
+PAUSE_TAG_MS = 100
 
 #: Peak loudness target in dBFS (design-doc loudnorm example NOT used; see module doc).
 PEAK_TARGET_DBFS = -1.0
@@ -107,6 +121,9 @@ class AssembledChapter:
     ``pcm`` is mono float32 at ``sample_rate`` (the exact buffer
     :mod:`audio.encode` must write). ``timings`` are in document order.
     ``duration_ms`` covers the whole buffer INCLUDING trailing pauses.
+    ``voice_gains`` maps each voice id seen (via ``voice_of``) to the
+    applied per-voice gain (1.0 for silence-only voices); empty when no
+    ``voice_of`` was given.
     """
 
     pcm: np.ndarray
@@ -114,6 +131,7 @@ class AssembledChapter:
     duration_ms: int = 0
     sample_count: int = 0
     sample_rate: int = SAMPLE_RATE
+    voice_gains: dict[str, float] = field(default_factory=dict)
 
 
 def samples_for_ms(duration_ms: int, sample_rate: int = SAMPLE_RATE) -> int:
@@ -185,6 +203,56 @@ def apply_loudness_gain(
     return (audio * gain).astype(np.float32, copy=False)
 
 
+def voice_peak_levels(
+    audios_by_voice: dict[str, list[np.ndarray]],
+) -> dict[str, float]:
+    """Representative loudness per voice: peak absolute sample.
+
+    Measured over each voice's sentence audios only (silence pauses are
+    added after leveling, so padding never skews the measurement).
+    Voices with no audio measure 0.0 (their gain stays 1.0 downstream).
+    """
+    peaks: dict[str, float] = {}
+    for voice, chunks in audios_by_voice.items():
+        peak = 0.0
+        for chunk in chunks:
+            mono = np.asarray(chunk, dtype=np.float32).ravel()
+            if mono.size:
+                peak = max(peak, float(np.max(np.abs(mono))))
+        peaks[voice] = peak
+    return peaks
+
+
+def gains_for_peaks(
+    peaks: dict[str, float], target_peak: float = PEAK_TARGET
+) -> dict[str, float]:
+    """One gain per voice: ``target_peak / peak`` (silence peaks give 1.0).
+
+    Peak, not RMS, by decision: the same metric as the chapter peak
+    limiter end to end, a deterministic single pass with no silence
+    threshold to tune (RMS over raw synth output would weight each
+    engine's leading/trailing silence differently), and exact test
+    numbers. Same peaks always give bit-identical gains (pure float
+    division, no randomness).
+    """
+    try:
+        target = float(target_peak)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"target_peak must be a number, got {target_peak!r}.") from exc
+    if not math.isfinite(target) or target <= 0:
+        raise ValueError(f"target_peak must be finite and positive, got {target_peak!r}.")
+    gains: dict[str, float] = {}
+    for voice, peak in peaks.items():
+        try:
+            level = float(peak)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"voice {voice!r}: peak must be a number, got {peak!r}.") from exc
+        if not math.isfinite(level):
+            raise ValueError(f"voice {voice!r}: peak is not finite.")
+        gains[voice] = target / level if level > 0 else 1.0
+    return gains
+
+
 def _check_sentence_audio(audio: np.ndarray, sentence: Sentence, chapter: Any) -> np.ndarray:
     """Validate one synth result: 1-D mono float32, non-empty, finite."""
     mono = np.asarray(audio, dtype=np.float32).ravel()
@@ -208,6 +276,7 @@ def assemble_chapter(
     synth_fn: Callable[[Sentence], np.ndarray],
     *,
     sample_rate: int = SAMPLE_RATE,
+    voice_of: Callable[[Sentence], str] | None = None,
 ) -> AssembledChapter:
     """Build one chapter's continuous buffer plus sentence timings.
 
@@ -218,9 +287,16 @@ def assemble_chapter(
         mapping lives with the caller/cast); tests pass a fake of known
         lengths. Called exactly once per sentence, in document order.
     :param sample_rate: bundle rate (must be 24 000; anything else raises).
+    :param voice_of: ``(sentence) -> voice id`` for MV7 per-voice leveling
+        (callers pass the resolved voice, not the raw speaker). ``None``
+        keeps the Slice 2 path: every gain is 1.0 and ``voice_gains`` is
+        empty. Pauses never scale (they are digital silence either way).
     :returns: :class:`AssembledChapter` whose ``pcm`` is the exact buffer to
         encode and whose ``timings`` satisfy the SW2 validator rules
         (ordered, non-overlapping, ``end_ms`` excludes the trailing pause).
+        Adjacent same-block sentences sharing a ``split_pair`` (the two
+        halves of one quote-split sentence) take the short
+        :data:`PAUSE_TAG_MS` pause between them.
     :raises ValueError: empty chapter (no audio at all), empty/non-finite
         sentence audio, non-24 kHz rate, sids out of order, or degenerate
         timings (e.g. sub-millisecond audio rounding to start_ms == end_ms).
@@ -232,12 +308,44 @@ def assemble_chapter(
     if chapter.blocks is None:
         raise ValueError("assemble_chapter needs EPUB-form blocks, not PDF pages.")
 
+    # First pass: synthesize every sentence in document order (exactly one
+    # synth call per sentence). Gains need all of a voice's audio before
+    # any sample is placed, while timings only depend on lengths, so the
+    # buffer itself is built in the second pass below.
+    plans: list[tuple[Any, list[tuple[Sentence, np.ndarray, str | None]]]] = []
+    seen_sids: list[int] = []
+    for block in chapter.blocks:
+        if block.type == "break":
+            plans.append((block, []))
+            continue
+        if block.type not in ("heading", "para", "quote"):
+            raise ValueError(f"unknown block type '{block.type}' (block {block.id}).")
+        items: list[tuple[Sentence, np.ndarray, str | None]] = []
+        for sentence in block.sentences:
+            audio = _check_sentence_audio(
+                np.asarray(synth_fn(sentence), dtype=np.float32), sentence, chapter
+            )
+            voice = voice_of(sentence) if voice_of is not None else None
+            items.append((sentence, audio, voice))
+            seen_sids.append(sentence.sid)
+        plans.append((block, items))
+
+    # Per-voice leveling (MV7, never in the cache): one gain per voice from
+    # its representative peak, applied to that voice's sentence segments.
+    voice_gains: dict[str, float] = {}
+    if voice_of is not None:
+        by_voice: dict[str, list[np.ndarray]] = {}
+        for _, items in plans:
+            for _, audio, voice in items:
+                if voice is not None:
+                    by_voice.setdefault(voice, []).append(audio)
+        voice_gains = gains_for_peaks(voice_peak_levels(by_voice))
+
     parts: list[np.ndarray] = []
     timings: list[SentenceTiming] = []
     offset = 0
-    seen_sids: list[int] = []
 
-    for block in chapter.blocks:
+    for block, items in plans:
         if block.type == "break":
             if not timings:
                 # Spec section 6 rule 1: the first sentence starts at 0,
@@ -248,20 +356,25 @@ def assemble_chapter(
             parts.append(pause)
             offset += pause.size
             continue
-        if block.type not in ("heading", "para", "quote"):
-            raise ValueError(f"unknown block type '{block.type}' (block {block.id}).")
-        sentences = list(block.sentences)
-        for pos, sentence in enumerate(sentences):
-            audio = _check_sentence_audio(
-                np.asarray(synth_fn(sentence), dtype=np.float32), sentence, chapter
-            )
+        for pos, (sentence, audio, voice) in enumerate(items):
+            gain = voice_gains.get(voice, 1.0) if voice is not None else 1.0
+            scaled = audio if gain == 1.0 else (audio * gain).astype(np.float32)
             start_ms = ms_for_samples(offset, sample_rate)
-            offset += int(audio.size)
+            offset += int(scaled.size)
             end_ms = ms_for_samples(offset, sample_rate)
             timings.append(SentenceTiming(sid=sentence.sid, start_ms=start_ms, end_ms=end_ms))
-            seen_sids.append(sentence.sid)
-            parts.append(audio)
-            pause_ms = pause_after_sentence(block.type, pos == len(sentences) - 1)
+            parts.append(scaled)
+            if pos + 1 < len(items):
+                following = items[pos + 1][0]
+                if (
+                    sentence.split_pair is not None
+                    and sentence.split_pair == following.split_pair
+                ):
+                    pause_ms = PAUSE_TAG_MS
+                else:
+                    pause_ms = pause_after_sentence(block.type, False)
+            else:
+                pause_ms = pause_after_sentence(block.type, True)
             pause = np.zeros(samples_for_ms(pause_ms, sample_rate), dtype=np.float32)
             parts.append(pause)
             offset += pause.size
@@ -302,4 +415,5 @@ def assemble_chapter(
         duration_ms=duration_ms,
         sample_count=int(offset),
         sample_rate=int(sample_rate),
+        voice_gains=dict(voice_gains),
     )
