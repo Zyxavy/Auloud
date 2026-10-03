@@ -11,6 +11,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import app.auloud.player.BuildConfig
+import app.auloud.player.reader.coerceChapterJump
 import app.auloud.player.settings.PrefsReaderModeStore
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
@@ -171,6 +172,20 @@ class PlaybackController(
     fun nextChapter() {
         val c = controller ?: return
         if (c.hasNextMediaItem()) c.seekToNextMediaItem()
+    }
+
+    /**
+     * CP3: jump to a chapter by index (chapter list screen).
+     *
+     * Validates via [coerceChapterJump]; out-of-range is a no-op. Seeks to
+     * the chapter start and refreshes immediately (same paused-seek reason
+     * as [seekTo]: the ticker only fires while playing).
+     */
+    fun seekToChapter(index: Int) {
+        val c = controller ?: return
+        val target = coerceChapterJump(index, c.mediaItemCount) ?: return
+        c.seekTo(target, 0L)
+        refresh("chapterJump")
     }
 
     /**

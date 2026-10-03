@@ -76,7 +76,8 @@ fun ReaderScreen(
     onUserScroll: () -> Unit = {},
     onBackToNow: () -> Unit = {},
     onSentenceTap: (Int) -> Unit = {},
-    onTopVisibleSentence: (Int) -> Unit = {}
+    onTopVisibleSentence: (Int) -> Unit = {},
+    onOpenChapters: () -> Unit = {}
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -85,6 +86,7 @@ fun ReaderScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = onBack) { Text("Back") }
+            TextButton(onClick = onOpenChapters) { Text("Chapters") }
             Text(
                 text = state.chapter?.title ?: "",
                 style = MaterialTheme.typography.titleMedium,

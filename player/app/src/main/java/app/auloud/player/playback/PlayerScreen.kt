@@ -38,6 +38,8 @@ import app.auloud.player.battery.BatteryPromptLogic
 import app.auloud.player.battery.BatterySettingsIntents
 import app.auloud.player.battery.PrefsBatteryPromptStore
 import app.auloud.player.library.BookUiModel
+import app.auloud.player.reader.ChapterEntry
+import app.auloud.player.reader.ChapterListScreen
 import app.auloud.player.settings.PrefsReaderModeStore
 import coil.compose.AsyncImage
 
@@ -73,7 +75,16 @@ fun PlayerScreen(
      * RA11-fix: mode switcher slot (BookScreen supplies the Read/Listen/
      * Read+listen row, so Listen is never a dead end). Empty by default.
      */
-    modeSwitcher: @Composable () -> Unit = {}
+    modeSwitcher: @Composable () -> Unit = {},
+    /**
+     * CP3: chapter navigation (BookScreen supplies the shared chapter list;
+     * null = not loaded yet, empty = manifest unreadable). Standalone use
+     * keeps the defaults and never shows the list.
+     */
+    chapters: List<ChapterEntry>? = null,
+    showChapters: Boolean = false,
+    onOpenChapters: () -> Unit = {},
+    onDismissChapters: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -141,6 +152,15 @@ fun PlayerScreen(
             sendSleepOption(appContext, sleepOption)
         },
         onBack = onBack,
+        onOpenChapters = onOpenChapters,
+        showChapters = showChapters,
+        chapters = chapters,
+        chapterIndex = state.chapterIndex,
+        onChapterJump = {
+            controller.seekToChapter(it)
+            onDismissChapters()
+        },
+        onDismissChapters = onDismissChapters,
         modifier = modifier
     )
 
@@ -173,14 +193,33 @@ private fun PlayerContent(
     onSleep: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    modeSwitcher: @Composable () -> Unit = {}
+    modeSwitcher: @Composable () -> Unit = {},
+    onOpenChapters: () -> Unit = {},
+    showChapters: Boolean = false,
+    chapters: List<ChapterEntry>? = null,
+    chapterIndex: Int = 0,
+    onChapterJump: (Int) -> Unit = {},
+    onDismissChapters: () -> Unit = {}
 ) {
+    // CP3: chapter list overlays the player; the controller stays owned by
+    // PlayerScreen above, so jumps keep working after dismiss.
+    if (showChapters) {
+        ChapterListScreen(
+            entries = chapters ?: emptyList(),
+            currentIndex = chapterIndex,
+            onJump = onChapterJump,
+            onBack = onDismissChapters,
+            modifier = modifier
+        )
+        return
+    }
     Column(
         modifier = modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
             TextButton(onClick = onBack) { Text("Back") }
+            TextButton(onClick = onOpenChapters) { Text("Chapters") }
         }
         Spacer(Modifier.height(8.dp))
         PlayerCover(coverPath = book.coverPath, title = book.title)
