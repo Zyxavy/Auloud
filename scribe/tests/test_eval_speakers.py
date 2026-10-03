@@ -14,15 +14,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""MV1: the speaker gold set loads and validates; the eval harness scores.
+"""CP1: the speaker gold set loads and validates; the eval harness scores.
 
-The real gold file pins the fragment truth (5 dialogue lines, all certain,
+The real gold file holds 107 hand-verified C&P lines (Part I chapters 1-2,
 book ``crime-and-punishment``): count, unique ``(book, chapter, block,
-quote)`` keys, and one spot-checked label. Synthetic gold (2-3 lines plus a
-fake predictor) proves ``evaluate`` gets overall and by-level accuracy
-right, including the uncertain-line exclusion. MV2 adds the ``book``/``source``
-label (old files without it still load as ``""``), the predictor-context
-text fields (all defaulted), and documents canonical-name exact matching.
+quote)`` keys, and the generics convention for unattributable lines (D-040).
+Excerpts are full quote texts (documentary; the anchor is the key), so no
+length cap is asserted. Synthetic gold (2-3 lines plus a fake predictor)
+proves ``evaluate`` gets overall and by-level accuracy right, including the
+uncertain-line exclusion. MV2 adds the ``book``/``source`` label (old files
+without it still load as ``""``), the predictor-context text fields (all
+defaulted), and documents canonical-name exact matching.
 """
 
 from __future__ import annotations
@@ -80,25 +82,25 @@ def _write_gold(tmp_path: Path, name: str, entries: list[dict[str, object]]) -> 
     return path
 
 
-def test_real_gold_loads_with_five_certain_lines() -> None:
+def test_real_gold_loads_with_verified_lines() -> None:
     entries, file_count = load_gold_entries(GOLD_DIR)
     assert file_count == 1
-    assert len(entries) == 5
+    assert len(entries) == 107
     assert [e.key for e in entries] == sorted(e.key for e in entries)
-    assert len({e.key for e in entries}) == 5  # anchored, unique, never on sid
+    assert len({e.key for e in entries}) == 107  # anchored, unique, never on sid
     assert all(not e.uncertain for e in entries)
     assert all(e.book == "crime-and-punishment" for e in entries)
-    assert {e.speaker for e in entries} == {"Raskolnikov", "drunken man"}
-    shouted = next(e for e in entries if e.key == ("crime-and-punishment", 1, 10, 1))
-    assert shouted.speaker == "drunken man"
-    assert shouted.excerpt == "Hey there, German hatter"
+    assert {e.chapter for e in entries} == {1, 2}
+    # D-040: unattributable lines keep the rendered generics.
+    assert {"default_female", "default_male"} <= {e.speaker for e in entries}
+    thought = next(e for e in entries if e.key == ("crime-and-punishment", 1, 8, 1))
+    assert thought.speaker == "default_female"
 
 
-def test_gold_excerpts_are_short_substrings() -> None:
+def test_gold_excerpts_are_non_empty() -> None:
     entries, _ = load_gold_entries(GOLD_DIR)
     for entry in entries:
-        assert entry.excerpt.strip()  # validated non-empty
-        assert len(entry.excerpt) <= 100  # short excerpt, not whole chapters
+        assert entry.excerpt.strip()  # validated non-empty; full texts, no length cap
 
 
 def test_validate_rejects_missing_key() -> None:

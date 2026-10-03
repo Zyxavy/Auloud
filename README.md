@@ -59,6 +59,7 @@ docs/     PRD, architecture, design, roadmap, test plan
 ## Limitations
 
 - Character voices depend on speaker detection, which is rule-based in v1 and will sometimes be wrong. Fix mistakes by editing `cast.yaml` and rebuilding.
+- Speaker accuracy on 107 hand-checked C&P lines is 92.5%; the misses are all lines no speaker can be assigned (interior thought, unattributed shouts), which render in a generic voice. Crowded scenes with several speakers in one paragraph are the weakest spot.
 - PDFs are harder than EPUBs; results vary.
 - v1 is English only.
 - Voices are AI-generated.

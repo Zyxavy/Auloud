@@ -312,3 +312,10 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Status: Accepted
 - Decision: Fix now in this slice: full-novel gold set (CP1); speaker remap made PDF-safe (CP6, never reuse the EPUB-only one as-is); notice auto-dismiss + SAF cover resolution (CP4, which owns that code anyway); preview/debug entries stripped from release (CP8, explicit checklist item); packaging convergence attempted in CP9 only if zero-friction, back out otherwise. Deferred to the v1.1 backlog: cache size cap (PC disk is cheap, 10-hour build cache is small), progress-bar ETA coverage, quoteless-narration alternation refinement (current rule is a documented default, cast_report review covers mistakes), thought-vs-speech voicing (still undecided, hook reserved). Crowded-block overconfidence goes into the CP1 tuning time box; whatever remains is documented as a README limitation. Docs updated to AGPL-3.0-or-later in CP0 (01-PRD, 05-ScribeDesign, 08-Licenses, README, plus the repo AGENTS.md which said GPL-3.0); Slice 4 roadmap already fully ticked.
 - Why: Triage keeps Slice 5 on the release path; nothing deferred can block the soak test.
+
+### D-040: CP1 gold convention and no-change tuning
+
+- Date: 2026-10-02
+- Status: Accepted
+- Decision: The 107-line C&P gold keeps the user's generic labels on the 8 unattributable lines (interior thought, unattributed shouts render as `default_female`/`default_male`) instead of the old 5-line seed's true-speaker labels (Raskolnikov, drunken man); the old seed is deleted as superseded. Tuning changed no rules: all 8 strict misses are unknown-speaker convention lines with zero wrong-person errors, so any rule edit would overfit. Headline accuracy is the strict 92.5%, not the alias-aware 100% (which matches machine-written surfaces).
+- Why: Gold records what the pipeline should render; the eval then measures attribution of assignable lines, and the fallback convention is tested separately by the pipeline's own resolution tests.

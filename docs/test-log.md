@@ -20,6 +20,15 @@ Result: pass | fail | needs retest
 - Slice 4 "done when" signed off by the user: clearly multi-voice by ear; cast edits fix lines with build-only re-renders.
 
 ---
+## CP1 gold set and tuning (2026-10-02)
+
+- Gold: `spec/fixtures/speakers-gold/crime-and-punishment-2ch.yaml`, 107 dialogue lines from C&P Part I ch 1-2, every speaker hand-checked (machine pre-labels + user correction). Supersedes and deletes the 5-line MV1 seed (same keys, conflicting convention; see D-040).
+- Real-text eval (`--predictor mv4-real`, strict): **99/107 = 92.5%** overall; high 13/13, medium 27/31, low 59/63; explicit 13/13, pronoun 25/29, continuation 22/22, fallback 39/42, unknown 0/1.
+- All 8 gaps are lines the machine leaves `unknown` (interior thought, unattributed shouts); **zero wrong-person errors**. Alias-aware scores 100% but that matches machine-written surfaces, so 92.5% strict is the honest headline.
+- Tuning: no rule changes (nothing to fix without overfitting 8 convention lines); low outscoring medium noted as calibration watch, not action.
+- Weak spots (also in README): unattributed lines fall back to generics; crowded multi-speaker paragraphs; two ch-2 paragraphs with stray closers treated as narration.
+
+---
 ## MV0 voice palette (2026-10-02, user listening test over 54 samples)
 
 - Narrator: `am_onyx` (18)
