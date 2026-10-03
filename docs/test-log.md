@@ -29,6 +29,13 @@ Result: pass | fail | needs retest
 - Weak spots (also in README): unattributed lines fall back to generics; crowded multi-speaker paragraphs; two ch-2 paragraphs with stray closers treated as narration.
 
 ---
+## CP2 soak build (2026-10-02, 2-chapter C&P per user choice)
+
+- No rebuild needed: CP0-CP1 changed no library code (dev scripts, tests, gold, docs only), so the MV10 bundle `0e4b290b...` is current.
+- `scribe validate`: valid. `scribe inspect --speakers`: 2 chapters, 58:32, 8 voices (narrator 27 min, orator 16 min, Marmeladov/default_female 4 min each, old woman, poor woman, Raskolnikov, default_male); matches the MV10 numbers exactly.
+- Note: with the 2-chapter book instead of a 10-hour novel there is no long build pole; the schedule's CP2 parallelism rationale does not apply. Copy to tablet whenever convenient; rebuild only if later Scribe changes affect audio or text output.
+
+---
 ## MV0 voice palette (2026-10-02, user listening test over 54 samples)
 
 - Narrator: `am_onyx` (18)
