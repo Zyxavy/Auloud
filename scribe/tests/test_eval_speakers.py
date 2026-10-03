@@ -380,3 +380,160 @@ def test_two_tuple_predictor_has_no_by_rule_section() -> None:
     assert result.by_rule == {}
     report = format_result(result, predictor_name="fake", file_count=1)
     assert "by attribution rule" not in report
+
+
+# ---------------------------------------------------------------------------
+# mv4-real: MV4 rules over real contexts rebuilt from script.json
+# ---------------------------------------------------------------------------
+
+
+def _tiny_script() -> dict:
+    """One chapter, one tagged quote: real texts name Alice explicitly."""
+
+    def _sent(sid: int, text: str, **extra: object) -> dict:
+        base: dict[str, object] = {
+            "sid": sid,
+            "speaker": "narrator",
+            "start_ms": 0,
+            "end_ms": 0,
+            "text": text,
+            "kind": "narration",
+            "confidence": "high",
+            "quote": None,
+            "split_pair": None,
+        }
+        base.update(extra)
+        return base
+
+    return {
+        "chapters": [
+            {
+                "spec_version": "1.0",
+                "chapter": 1,
+                "title": "One",
+                "duration_ms": 0,
+                "blocks": [
+                    {
+                        "id": 5,
+                        "type": "para",
+                        "sentences": [
+                            _sent(
+                                1,
+                                "\u201cHello,\u201d",
+                                kind="dialogue",
+                                speaker="unknown",
+                                confidence="low",
+                                quote={"chapter": 1, "block": 5, "quote": 1},
+                                split_pair=1,
+                            ),
+                            _sent(2, " said Alice.", split_pair=1),
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def _write_script(tmp_path: Path) -> Path:
+    import json
+
+    path = tmp_path / "script.json"
+    path.write_text(json.dumps(_tiny_script()), encoding="utf-8")
+    return path
+
+
+def test_mv4_real_beats_empty_text_on_tagged_quote(tmp_path: Path) -> None:
+    from dev.eval_speakers import predictions_from_script
+
+    script = _write_script(tmp_path)
+    entries = [
+        GoldEntry(
+            chapter=1,
+            block=5,
+            quote=1,
+            excerpt="\u201cHello,\u201d",
+            speaker="Alice",
+            book="b",
+        )
+    ]
+    real = predictions_from_script(script, book="b")
+    assert real[("b", 1, 5, 1)][0] == "Alice"  # explicit tag wins on real texts
+    assert real[("b", 1, 5, 1)][2] == "explicit"
+
+    def _by_real_key(context: QuoteContext) -> tuple[str, str, str]:
+        return real[(context.book, context.chapter, context.block, context.quote)]
+
+    scored_real = evaluate(entries, _by_real_key)
+    assert scored_real.correct == 1
+    from text.attribution import attribute_quotes
+
+    by_empty = {
+        (att.book, att.chapter, att.block, att.quote): (
+            att.speaker,
+            att.confidence,
+            att.rule,
+        )
+        for att in attribute_quotes([QuoteContext.from_gold(e) for e in entries])
+    }
+
+    def _by_empty_key(context: QuoteContext) -> tuple[str, str, str]:
+        return by_empty[(context.book, context.chapter, context.block, context.quote)]
+
+    scored_empty = evaluate(entries, _by_empty_key)
+    assert scored_empty.correct == 0  # empty texts cannot see the tag
+    assert by_empty[("b", 1, 5, 1)][0] == "unknown"
+
+
+def test_mv4_real_falls_back_for_gold_lines_missing_from_script(tmp_path: Path) -> None:
+    from dev.eval_speakers import predictions_from_script
+
+    real = predictions_from_script(_write_script(tmp_path), book="b")
+    assert ("b", 1, 999, 1) not in real
+
+
+def test_mv4_real_cli_smoke_and_requires_script(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import yaml
+
+    import dev.eval_speakers as eval_mod
+
+    gold_dir = tmp_path / "gold"
+    gold_dir.mkdir()
+    (gold_dir / "g.yaml").write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "book": "b",
+                    "chapter": 1,
+                    "block": 5,
+                    "quote": 1,
+                    "excerpt": "Hello",
+                    "speaker": "Alice",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    script = _write_script(tmp_path)
+    assert (
+        eval_mod.main(
+            [
+                "--predictor",
+                "mv4-real",
+                "--script",
+                str(script),
+                "--book",
+                "b",
+                "--gold-dir",
+                str(gold_dir),
+            ]
+        )
+        == 0
+    )
+    out = capsys.readouterr().out
+    assert "real contexts: 1 script quote(s)" in out
+    assert "1/1 gold line(s) matched" in out
+    with pytest.raises(SystemExit):
+        eval_mod.main(["--predictor", "mv4-real", "--gold-dir", str(gold_dir)])

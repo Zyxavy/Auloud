@@ -46,6 +46,8 @@ Run directly (NOT a ``scribe`` command)::
 
     uv run python dev/eval_speakers.py [--gold-dir <dir>]
     uv run python dev/eval_speakers.py --predictor mv4 [--alias-aware]
+    uv run python dev/eval_speakers.py --predictor mv4-real --script <script.json>
+        [--book <book-id>] [--alias-aware]
 """
 
 from __future__ import annotations
@@ -128,6 +130,26 @@ def predict(context: QuoteContext) -> tuple[str, str]:
 def default_gold_dir() -> Path:
     """``spec/fixtures/speakers-gold/`` under the repo root."""
     return Path(__file__).resolve().parents[2] / "spec" / "fixtures" / "speakers-gold"
+
+
+def predictions_from_script(
+    script_path: Path | str, book: str = ""
+) -> dict[tuple[str, int, int, int], tuple[str, str, str]]:
+    """Run the MV4 rules over real contexts rebuilt from ``script.json``.
+
+    Rebuilds full :class:`QuoteContext` entries via
+    :func:`dev.real_contexts.contexts_from_script` (real paragraph texts,
+    not the empty :meth:`QuoteContext.from_gold` shells) and scores them
+    with :func:`text.attribution.attribute_quotes` in reading order.
+    Returns ``{(book, chapter, block, quote): (speaker, confidence, rule)}``.
+    """
+    from dev.real_contexts import contexts_from_script
+    from text.attribution import attribute_quotes
+
+    by_key: dict[tuple[str, int, int, int], tuple[str, str, str]] = {}
+    for att in attribute_quotes(contexts_from_script(script_path, book=book)):
+        by_key[att.key] = (att.speaker, att.confidence, att.rule)
+    return by_key
 
 
 def validate_raw_entries(raw: object, source: str) -> list[GoldEntry]:
@@ -374,11 +396,26 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--predictor",
-        choices=("baseline", "mv4"),
+        choices=("baseline", "mv4", "mv4-real"),
         default="baseline",
         help="baseline always predicts ('unknown', low); mv4 runs the MV4 "
         "attribution rules over the gold contexts (empty texts, so this "
-        "validates the wiring format, not accuracy).",
+        "validates the wiring format, not accuracy); mv4-real rebuilds "
+        "real contexts from --script and runs the MV4 rules over those "
+        "(real accuracy; gold lines with no script quote fall back to "
+        "('unknown', low)).",
+    )
+    parser.add_argument(
+        "--script",
+        type=Path,
+        default=None,
+        help="draft script.json for --predictor mv4-real (required there).",
+    )
+    parser.add_argument(
+        "--book",
+        default="",
+        help="book label stamped on rebuilt contexts (must match the gold "
+        "'book' ids to join; default: empty).",
     )
     parser.add_argument(
         "--alias-aware",
@@ -405,6 +442,34 @@ def main(argv: list[str] | None = None) -> int:
 
         result = evaluate(entries, _mv4_predict, alias_aware=args.alias_aware)
         predictor_name = "mv4 rules" + (" (alias-aware)" if args.alias_aware else " (strict)")
+    elif args.predictor == "mv4-real":
+        if args.script is None:
+            parser.error("--predictor mv4-real requires --script <script.json>")
+        try:
+            by_key = predictions_from_script(args.script, book=args.book)
+        except ValueError as exc:
+            print(f"eval failed: {exc}", file=sys.stderr)
+            return 1
+        matched = sum(1 for entry in entries if entry.key in by_key)
+
+        def _mv4_real_predict(context: QuoteContext) -> tuple[str, str, str]:
+            return by_key.get(
+                (context.book, context.chapter, context.block, context.quote),
+                ("unknown", "low", "unknown"),
+            )
+
+        result = evaluate(entries, _mv4_real_predict, alias_aware=args.alias_aware)
+        predictor_name = (
+            f"mv4-real rules from {args.script.name}"
+            + (" (alias-aware)" if args.alias_aware else " (strict)")
+        )
+        report = format_result(result, predictor_name=predictor_name, file_count=file_count)
+        print(report)
+        print(
+            f"real contexts: {len(by_key)} script quote(s) (book={args.book!r}), "
+            f"{matched}/{len(entries)} gold line(s) matched"
+        )
+        return 0
     else:
         result = evaluate(entries, alias_aware=args.alias_aware)
         predictor_name = "baseline (always 'unknown', low)"
