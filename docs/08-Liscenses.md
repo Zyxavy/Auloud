@@ -5,7 +5,7 @@
 | Component | Proposed license | Why |
 | --- | --- | --- |
 | Player (Android app) | Apache-2.0 (or MIT) | Permissive, patent grant, compatible with the AndroidX/Media3 libraries it uses |
-| Scribe (PC tool) | AGPL-3.0 | ebooklib is AGPL-3.0 (METADATA: GNU Affero General Public License, AGPLv3+), so Scribe which imports it is AGPL-3.0; also covers hosted-service use via the network clause (see D-024) |
+| Scribe (PC tool) | AGPL-3.0-or-later | ebooklib is AGPL-3.0 (METADATA: GNU Affero General Public License, AGPLv3+), so Scribe which imports it is AGPL-3.0-or-later; also covers hosted-service use via the network clause (see D-024) |
 | Bundle spec (`03-BundleSpec.md`) | CC0 or Apache-2.0 | So anyone can write compatible tools |
 
 The Player only plays audio and shows text, so no GPL code ships in the app. If v2 adds on-device TTS with Piper/espeak-ng, revisit the Player's license (see section 5).
@@ -69,7 +69,7 @@ Bundling espeak-ng (GPL-3.0) or a GPL Piper build into the app means the app is 
 
 ## 7. Release checklist for licensing
 
-- [ ] `LICENSE` file in each component (Player: Apache-2.0; Scribe: GPL-3.0)
+- [ ] `LICENSE` file in each component (Player: Apache-2.0; Scribe: AGPL-3.0-or-later)
 - [ ] `NOTICE` and `THIRD_PARTY_LICENSES.md` generated
 - [ ] All "Verified" boxes above ticked
 - [ ] Voice table complete, with per-voice licenses

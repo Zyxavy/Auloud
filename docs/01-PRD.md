@@ -91,7 +91,7 @@ A full novel (10+ hours) is converted on the PC, copied to the tablet, and read 
 
 1. **Language:** English.
 2. **Device:** Galaxy Tab E, Android 7.1.1.
-3. **License:** Player under Apache-2.0 (or MIT); Scribe under GPL-3.0 because Piper and espeak-ng are GPL. Verify model licenses; not legal advice.
+3. **License:** Player under Apache-2.0 (or MIT); Scribe under AGPL-3.0-or-later because ebooklib is AGPL (see D-024). Verify model licenses; not legal advice.
 
 ## 13. Later versions
 

@@ -1,6 +1,6 @@
 # Scribe Design (PC/server tool)
 
-Scribe turns an EPUB or PDF into a book bundle (see `03-BundleSpec.md`). Language: Python 3.11+. License: GPL-3.0.
+Scribe turns an EPUB or PDF into a book bundle (see `03-BundleSpec.md`). Language: Python 3.11+. License: AGPL-3.0-or-later (see D-024).
 
 ## 1. Commands
 

@@ -1,6 +1,6 @@
 # Auloud
 
-Turn your ebooks into multi-voice audiobooks, then read along or just listens
+Turn your ebooks into multi-voice audiobooks, then read along or just listen
 
 > Status: in design. The interfaces below are the planned v1 and may change as slices are built. See `04-Roadmap.md`.
 
@@ -40,7 +40,7 @@ The bundle format is documented in `03-BundleSpec.md`, so other tools can produc
 ## Repo layout
 
 ```
-scribe/   Python PC tool (GPL-3.0)
+scribe/   Python PC tool (AGPL-3.0-or-later)
 player/   Android app (Apache-2.0)
 spec/     Bundle specification
 docs/     PRD, architecture, design, roadmap, test plan
@@ -69,7 +69,7 @@ Use it with books you have the right to use, such as public-domain works or book
 
 ## License
 
-Player: Apache-2.0. Scribe: GPL-3.0. Voice models have their own licenses, see `08-Licenses.md`.
+Player: Apache-2.0. Scribe: AGPL-3.0-or-later. Voice models have their own licenses, see `08-Licenses.md`.
 
 ## Contributing
 
