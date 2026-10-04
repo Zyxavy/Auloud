@@ -19,6 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import app.auloud.player.BuildConfig
 import app.auloud.player.data.AuloudDatabase
 import app.auloud.player.data.LibraryRepository
 import app.auloud.player.data.ProgressRepository
@@ -164,7 +165,9 @@ class MainActivity : ComponentActivity() {
                     // over, back clears the selection. The service session
                     // survives the switch, so return reconnects to the spot.
                     val selectedBook = state.books.firstOrNull { it.id == state.selectedBookId }
-                    if (showSpike) {
+                    // CP8: the spike screen is debug-only; the second conjunct
+                    // is a constant false in release, so R8 drops the path.
+                    if (showSpike && BuildConfig.DEBUG) {
                         ReaderPreviewScreen(onBack = { showSpike = false })
                     } else if (showSettings) {
                         SettingsScreen(

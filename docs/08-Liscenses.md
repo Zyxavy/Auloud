@@ -16,12 +16,12 @@ If you host Scribe as a network service for other people, check the AGPL points 
 
 | Library | License | Verified |
 | --- | --- | --- |
-| Kotlin, coroutines | Apache-2.0 | \[ \] |
-| Jetpack Compose, AndroidX (Room, DataStore, Navigation), Media3 | Apache-2.0 | \[ \] |
-| kotlinx.serialization | Apache-2.0 | \[ \] |
-| Coil | Apache-2.0 | \[ \] |
-| JUnit (test only) | EPL-1.0 | \[ \] |
-| MockK, Turbine (test only) | Apache-2.0 | \[ \] |
+| Kotlin, coroutines | Apache-2.0 | [x] |
+| Jetpack Compose, AndroidX (Room, DataStore, Navigation), Media3 | Apache-2.0 | [x] |
+| kotlinx.serialization | Apache-2.0 | [x] |
+| Coil | Apache-2.0 | [x] |
+| JUnit (test only) | EPL-1.0 | [x] |
+| MockK, Turbine (test only) | Apache-2.0 | [x] |
 
 In-app: add a "Licenses" screen listing these (a Gradle license plugin can generate it), and ship a `NOTICE` file.
 
@@ -44,10 +44,28 @@ In-app: add a "Licenses" screen listing these (a Gradle license plugin can gener
 | Item | License (as I understand it) | Notes | Verified |
 | --- | --- | --- | --- |
 | Kokoro (Python package) | Apache-2.0 | Needs espeak-ng for phonemes | \[ \] |
-| Kokoro model weights | Apache-2.0 | Check the model card | \[ \] |
+| Kokoro model weights | Apache-2.0 | Model card `license: apache-2.0` (https://huggingface.co/hexgrad/Kokoro-82M), checked 2026-10-04 | [x] |
 | Piper (current GPL fork) | GPL-3.0 | Older `rhasspy/piper` was MIT; check which you use | \[ \] |
 | Piper voice models | **Each voice has its own license** | Some permissive, some restricted (for example non-commercial). Record it per voice. | \[ \] |
-| espeak-ng | GPL-3.0 | Used for phonemization by both engines | \[ \] |
+| espeak-ng | GPL-3.0-or-later | Used for phonemization by both engines; repo states GPL-3.0-or-later, installed 1.52.0 matches the latest release, checked 2026-10-04 | [x] |
+
+**v1 voice palette (CP8): every voice below is a configuration inside the
+Kokoro-82M weights, so the model-card Apache-2.0 license covers all of them.
+Source for all rows: https://huggingface.co/hexgrad/Kokoro-82M. Models are
+downloaded at runtime, never committed or bundled in the APK. Unattributable
+lines fall back to the generic female/male voices.**
+
+| Voice | Role | License | Verified |
+| --- | --- | --- | --- |
+| am_onyx | Narrator | Apache-2.0 (Kokoro-82M) | [x] |
+| bf_isabella | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| bm_lewis | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| im_nicola | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| jf_alpha | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| zf_xiaoxiao | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| am_eric | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| af_bella | Generic female | Apache-2.0 (Kokoro-82M) | [x] |
+| am_adam | Generic male | Apache-2.0 (Kokoro-82M) | [x] |
 
 **Rules for voices:**
 
