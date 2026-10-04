@@ -26,6 +26,7 @@ the offending Host or the expected token.
 
 from __future__ import annotations
 
+import html
 from pathlib import Path
 from typing import Any
 
@@ -43,13 +44,14 @@ def _placeholder_html(token: str) -> str:
 
     The static file ships in the wheel (``ui/static/index.html``); the
     ``{{AULOUD_TOKEN}}`` slot is filled per run so later pages (UI3+) can
-    read one ``api()`` helper. The token alphabet (URL-safe) needs no
-    HTML escaping inside the quoted attribute.
+    read one ``api()`` helper. The token is HTML-escaped (the ``secrets``
+    URL-safe alphabet needs no escaping in practice; the escape covers a
+    custom ``token=`` passed in tests).
     """
     template = (Path(__file__).resolve().parent / "static" / "index.html").read_text(
         encoding="utf-8"
     )
-    return template.replace("{{AULOUD_TOKEN}}", token)
+    return template.replace("{{AULOUD_TOKEN}}", html.escape(token, quote=True))
 
 
 def create_app(workspace: Path | str, token: str | None = None) -> FastAPI:

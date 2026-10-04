@@ -34,6 +34,7 @@ from __future__ import annotations
 import hmac
 import re
 import secrets
+import urllib.parse
 from pathlib import Path, PurePath, PureWindowsPath
 
 #: Fallback when a client-supplied name carries no usable basename.
@@ -47,6 +48,13 @@ ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost"})
 TOKEN_HEADER = "X-Auloud-Token"
 
 _DRIVE_RE = re.compile(r"^[A-Za-z]:")
+
+#: Windows device names that cannot be created as files (with any extension).
+_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
 
 
 def generate_token(nbytes: int = 32) -> str:
@@ -88,9 +96,11 @@ def sanitize_filename(name: str | None) -> str:
 
     Takes the final path component across POSIX and Windows separators,
     strips a Windows drive prefix (``C:``), replaces Windows-forbidden and
-    control characters with ``_``, and falls back to ``upload.bin`` when
-    nothing usable remains (empty, ``.`` or ``..``). Unicode letters and
-    spaces survive; directory parts never do.
+    control characters with ``_``, prefixes Windows device names
+    (``CON``/``PRN``/``AUX``/``NUL``/``COM1``-``COM9``/``LPT1``-``LPT9``,
+    any extension, case-insensitive) with ``_``, and falls back to
+    ``upload.bin`` when nothing usable remains (empty, ``.`` or ``..``).
+    Unicode letters and spaces survive; directory parts never do.
     """
     if not name:
         return FALLBACK_FILENAME
@@ -112,34 +122,46 @@ def sanitize_filename(name: str | None) -> str:
     safe = safe.strip().strip(".")
     if not safe or safe in (".", ".."):
         return FALLBACK_FILENAME
+    stem = safe.split(".", 1)[0].upper()
+    if stem in _RESERVED_NAMES:
+        safe = "_" + safe
     return safe[:255]
 
 
 def safe_join(root: Path | str, *parts: str | Path) -> Path:
     """Join ``parts`` onto ``root`` and refuse escapes (``path-traversal``).
 
-    Rejects absolute paths, Windows drive specs (``C:...``) and UNC prefixes
-    (``\\\\\\\\server``) up front, then resolves and requires the result to
-    stay at or under the resolved root. ``..`` segments that resolve back
-    inside are allowed; anything escaping raises ``ValueError`` shaped
-    ``{file, rule, message}`` with rule ``path-traversal`` (never a raw
-    traceback at the API layer).
+    Decodes one layer of URL-encoding first (so ``%2e%2e`` cannot smuggle
+    ``..`` past the checks when a caller passes a raw URL segment; the
+    framework already decodes once for route params), then rejects absolute
+    paths, Windows drive specs (``C:...``), UNC prefixes
+    (``\\\\\\\\server``) and ADS colons (``file:stream``) up front, then
+    resolves and requires the result to stay at or under the resolved root.
+    ``..`` segments that resolve back inside are allowed; anything escaping
+    raises ``ValueError`` shaped ``{file, rule, message}`` with rule
+    ``path-traversal`` (never a raw traceback at the API layer).
     """
     root_path = Path(root)
     original = "/".join(str(p) for p in parts) if parts else "."
+    decoded: list[str] = []
     for part in parts:
         text = str(part).replace("\x00", "")
         if not text:
             continue
+        text = urllib.parse.unquote(text)
+        if not text:
+            continue
+        decoded.append(text)
+    for text in decoded:
         if PurePath(text).is_absolute() or PureWindowsPath(text).is_absolute():
             raise ValueError(f"{original}: path-traversal: absolute path rejected")
         if PureWindowsPath(text).drive or text.startswith("\\\\"):
             raise ValueError(f"{original}: path-traversal: drive/UNC path rejected")
+        if ":" in text:
+            raise ValueError(f"{original}: path-traversal: ADS/colon path rejected")
     candidate = root_path
-    for part in parts:
-        text = str(part).replace("\x00", "")
-        if text:
-            candidate = candidate / text
+    for text in decoded:
+        candidate = candidate / text
     base = root_path.resolve()
     resolved = candidate.resolve()
     try:
