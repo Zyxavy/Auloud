@@ -87,10 +87,10 @@ Bundling espeak-ng (GPL-3.0) or a GPL Piper build into the app means the app is 
 
 ## 7. Release checklist for licensing
 
-- [ ] `LICENSE` file in each component (Player: Apache-2.0; Scribe: AGPL-3.0-or-later)
-- [ ] `NOTICE` and `THIRD_PARTY_LICENSES.md` generated
-- [ ] All "Verified" boxes above ticked
-- [ ] Voice table complete, with per-voice licenses
-- [ ] In-app licenses screen
-- [ ] README states the copyright/personal-use position
+- [ ] `LICENSE` file in each component (Player: Apache-2.0; Scribe: AGPL-3.0-or-later) - Scribe has `scribe/LICENSE` (AGPL); Player has no own `LICENSE` file (root `LICENSE` is MIT, `player/NOTICE` says Apache-2.0-or-MIT undecided per D-015/D-047)
+- [x] `NOTICE` and `THIRD_PARTY_LICENSES.md` generated (`player/NOTICE` + `player/THIRD_PARTY_LICENSES.md`, CP8)
+- [ ] All "Verified" boxes above ticked (Player section 2 + voices done; Scribe section 3 rows for bs4/lxml, pysbd, yaml/numpy/typer/rich/pytest, soundfile, pyrubberband, ffmpeg and section 4 Kokoro package/Piper still open)
+- [x] Voice table complete, with per-voice licenses (section 4 palette: 9 Kokoro-82M voices, all Apache-2.0, CP8)
+- [x] In-app licenses screen (Settings entry rendering the static list; legibility on the Tab E left for the user)
+- [x] README states the copyright/personal-use position (verbatim paragraph, CP10)
 - [ ] Contribution policy (for example DCO sign-off or a CLA) decided

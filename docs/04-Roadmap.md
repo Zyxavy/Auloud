@@ -118,13 +118,15 @@ Goal: distinct narrator and character voices.
 
 Goal: fit for a full novel and daily use.
 
-- [ ] PDF support: page view with page-level sync, or PDF to clean text on the PC
-- [ ] Chapter navigation screen
-- [ ] Error handling: bad chapter skipped with a message, missing files, low storage
-- [ ] Player-side validation on import
+- [x] PDF support: PDF to clean text on the PC with v1.1 page marks (JVM/unit verified CP5-CP7; rendered Page view deferred to v1.1 per D-046)
+- [x] Chapter navigation screen (JVM verified CP3)
+- [x] Error handling: bad chapter skipped with a message, missing files, low storage (JVM verified CP4)
+- [x] Player-side validation on import (JVM verified CP4)
 - [ ] Battery whitelist flow tested on the Tab E
 - [ ] Full-novel soak test (see below)
-- [ ] README and setup instructions
+- [ ] README and setup instructions (written in CP10; fresh-follow on real hardware left for the user)
+
+Automated evidence (no device claimed): CP3 chapter list + jump (JVM suite green); CP4 import validation + skip notices + storage-loss pause (JVM suites green); CP5 PDF extraction incl. scanned-fail + determinism (unit); CP6 spec 1.1 + pdf-golden contract both suites; CP7 Text view reader path + page lookup (JVM); CP8 release APK `1.0.0` minified with no INTERNET; CP9 clean `uv` install builds a short bundle end to end. Device remainder for the user: battery-whitelist flow, eject-and-reinsert pause/resume, bad-bundle import on device, read + listen on a real PDF with memory stability, Slice 1-4 smoke on the release build, licenses screen legibility, launcher icon render, sideload + upgrade-install, README fresh-follow zero to playing book, full soak below.
 
 **Done when (v1 release criteria):** the soak test passes.
 

@@ -36,6 +36,55 @@ Result: pass | fail | needs retest
 - Note: with the 2-chapter book instead of a 10-hour novel there is no long build pole; the schedule's CP2 parallelism rationale does not apply. Copy to tablet whenever convenient; rebuild only if later Scribe changes affect audio or text output.
 
 ---
+## CP3 chapter navigation (Player, JVM verified)
+
+- Chapter list screen with titles, durations, current marker, tap-to-jump keeping shared position rules; next/previous controls and mode state on jumps.
+- Automated: Player JVM suite green (340 tests reported for the session), incl. list state, jump seek, current marker. Found and fixed on the way: an off-by-one in chapter jump.
+- Device remainder: jumping works in all three modes on the Tab E (user).
+
+---
+## CP4 error handling and import validation (Player, JVM verified)
+
+- Import validation covers manifest, audio files, and each chapter text file; problems listed with file and rule; book still importable when only some chapters are bad. Storage loss pauses with "Storage unavailable - playback paused", Play retries. Corrupt/missing chapter at play time skips with a transient auto-dismissing notice; missing text stays reader-only while audio continues. SAF cover resolution fixed.
+- Automated: 41 Player suites green (session count), incl. BundleValidatorTest, BundleResilienceTest (truncated JSON, wrong types, huge values), SkipNoticeTest, storage tests. See D-041 for the consume rule and consecutive-failure heuristic.
+- Device remainder: eject-and-reinsert pause/resume, bad-bundle import with message, skip message on a real corrupt chapter (user).
+
+---
+## CP5 PDF extraction in Scribe (unit verified)
+
+- PyMuPDF 1.28.2 text-layer extraction (`get_text("blocks")`, image blocks dropped; two-column left-first; hyphen rejoin on lowercase continuations; header/footer, page-number, footnote, heading rules), chapters from outline else headings else 20-page ranges, scanned detection (over half pages without text fails as DraftError, no OCR), PDF quality section in `draft_report.md`, deterministic block ids.
+- Automated: Scribe suite green (464 tests reported for the session), incl. synthetic clean/header/two-column/scanned PDFs plus determinism. `scribe doctor` gains the pymupdf row. See D-042.
+- Device remainder: none (PC-side); real-PDF quality judged in CP11 soak.
+
+---
+## CP6 PDF through the pipeline and the spec (both suites verified)
+
+- Spec v1.1 additive: PDF text-path chapters keep `blocks`, MAY add `pages: [{page, start_ms}]` plus optional sentence `page` (1-based, absent for EPUB, never null); readers accept "1.0" and "1.1". Validator enforces sorted/pages-match-first-sentence/page-in-range plus coverage. PDF-safe speaker remap variant carries `page`/`pages`. Golden PDF bundle `spec/fixtures/pdf-golden/` (synthetic 2-page, 4 sentences, tones not speech) validates; Player contract parses it.
+- Automated: Scribe 482 + Player 399 green (session counts); pdf-golden pinned in both suites. See D-043.
+- Device remainder: none (contract); playback of a real PDF text bundle is CP7/CP11.
+
+---
+## CP7 Player PDF support, Text view (JVM verified, gate closed)
+
+- Blocks-form PDF chapters read through the unchanged EPUB reader path (no playback/reader logic change). Pure-pages message reworded to "Page-only chapter - listening still works". Chapter list gains display-ready optional `pageRange` (still unpopulated: filling it would load every chapter JSON against the one-at-a-time rule).
+- Automated: Player JVM suite green (413 tests reported for the session), incl. new pdf-golden reader tests and page lookup/seek mapping. Gate: user judged clean text sufficient, so no `PdfRenderer`, no toggle (D-045); Page view deferred to v1.1 as a reader option (D-046).
+- Device remainder: read + listen on a real PDF, memory stability on 1.5 GB RAM (user).
+
+---
+## CP8 release build and packaging (JVM verified, device pending)
+
+- Release `minifyEnabled` + `shrinkResources` with keeps for kotlinx.serialization, Room, Media3, Guava futures, Coil; `versionName 1.0.0`, `versionCode 1`. Signing via gitignored `local.properties` (`auloud.keystore.*`), debug fallback with loud warning. Hand-made vector launcher icon. Preview/debug entries gated behind `BuildConfig.DEBUG`. Licenses: Settings entry, `player/NOTICE`, `player/THIRD_PARTY_LICENSES.md`, per-voice table. Merged release manifest and `aapt dump badging` show no INTERNET.
+- Automated: release APK 2.98 MB (session report), 417 release tests green (session count), incl. ReleaseManifestTest + ReleaseGuardsTest. See D-047 and `docs/ReleaseSigning.md`.
+- Device remainder: sideload on the Tab E (unknown sources), upgrade-install over debug, Slice 1-4 smoke on the release build, licenses legibility, icon render (user).
+
+---
+## CP9 Scribe release hygiene (clean-install proof)
+
+- Fresh-environment install verified end to end on Windows 11 following the README literally: clone (1.2 s) + `uv sync` (8.5 s, 73 resolved/72 installed) + models copied locally (0.1 s; download step NOT clean-tested) + `scribe doctor` all 9 PASS (29.7 s) + `draft` (9.1 s, 1 chapter/6 sentences/22 words/0 drops) + `build --no-progress` (15.6 s CLI wall, 9.0 s in-process, RTF 1.28x, 6/6 real Kokoro synth) + `validate` PASS (3.9 s) on a synthetic 1-page PDF.
+- Packaging convergence NOT done, deferred per the D-039 zero-friction gate (flat tree maps correctly; 27 modules ship). Working `scribe/.venv` noted stale (predates CP5 pymupdf row); refresh with `uv sync --reinstall-package auloud-scribe`. Suite green at proof time (482 passed, 2 deselected, `ruff check` clean). See D-048.
+- Device remainder: none (PC-side).
+
+---
 ## MV0 voice palette (2026-10-02, user listening test over 54 samples)
 
 - Narrator: `am_onyx` (18)

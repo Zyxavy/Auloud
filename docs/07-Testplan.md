@@ -84,15 +84,16 @@ Goal: prove the v1 done criteria from `01-PRD.md` and `04-Roadmap.md`, on the ac
 
 ## 7. Soak test (v1 acceptance)
 
-Log daily: date, mode, hours listened, issues.
+Log daily in `docs/soak-log.md`: date, mode, hours listened, issues. Run it on the signed release APK (not a debug build).
 
-- [ ] 10+ hour novel converted, validated, copied to the tablet
-- [ ] Listened across several days in all three modes
-- [ ] Long screen-off stretches (at least 2 hours in one go, at least twice)
-- [ ] No crashes, no service kills
-- [ ] Resume correct after every restart and after switching modes
-- [ ] Sync spot-checks pass in early, middle and late chapters
-- [ ] Voices are distinguishable and speaker labels are mostly right (record any mislabelled lines and fix via `cast.yaml`)
+- [ ] 10+ hour multi-voice novel converted, validated, copied to the tablet
+- [ ] Listened over several days in all three modes
+- [ ] At least two screen-off stretches of 2+ hours
+- [ ] No crashes or service kills; resume correct after every restart
+- [ ] Sync spot-checks pass in early, middle and late chapters (overlay lag)
+- [ ] Voices distinguishable; mislabelled lines noted and fixable via `cast.yaml`
+- [ ] A real PDF read in Text view (and Page view if ever built; Page view is v1.1 per D-046)
+- [ ] Battery: charge to 100%, one hour screen-off at fixed volume, note the percentage lost (use Android's battery usage screen since adb isn't available)
 
 ## 8. Performance thresholds
 
@@ -120,9 +121,9 @@ Status:
 ## 10. Release checklist (v1)
 
 - [ ] All slice "done when" lists checked
-- [ ] Soak test passed
-- [ ] `scribe validate` passes on every test bundle
+- [ ] Soak test (section 7) passed and logged
+- [ ] `scribe validate` passes on every test bundle (incl. pdf-golden v1.1)
 - [ ] No known blocker or major bugs
-- [ ] README with setup steps for Scribe and Player
-- [ ] Licenses listed (app, Scribe, models, libraries)
-- [ ] Release APK built and installed on the Tab E
+- [ ] README with setup steps for Scribe and Player (CP10; fresh-follow verified by the user)
+- [ ] Licenses listed (app screen + `player/NOTICE` + `player/THIRD_PARTY_LICENSES.md` + per-voice table in `08-Liscenses.md` section 4)
+- [ ] Release APK `1.0.0` built minified, signed with the kept-outside-repo key, no `INTERNET` in the merged manifest, installed on the Tab E with upgrade-install working

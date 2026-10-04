@@ -43,13 +43,13 @@ app/
 - `ProgressEntity(bookId, chapterIndex, positionMs, mode, updatedAt)`
 - `SettingsEntity` (or DataStore): speed, font size, theme, sleep timer default, last mode.
 
-**Storage abstraction** `BundleStorage { list(); open(path): InputStream; uriFor(path): Uri }`. v1 implementation uses file paths with the legacy read-storage permission (works on API 24, including microSD). Keeping it behind an interface means v3 can swap in Storage Access Framework for newer Android versions without touching the rest.
+**Storage abstraction** `BundleStorage { list(); open(path): InputStream; uriFor(path): Uri }`. v1 watches user-chosen folders (system folder picker, SAF persistable grants) with an auto-created shared-internal `/Auloud` default (needs `WRITE_EXTERNAL_STORAGE`); microSD arrives as a persisted tree URI. Keeping it behind an interface means later Android versions can evolve storage without touching the rest.
 
 ## 3b. Import
 
-1. User picks a folder (or the app scans a configured books folder).
-2. `BundleParser` reads `manifest.json`, `BundleValidator` runs light checks (files exist, chapters listed, durations plausible).
-3. Insert or update the book in Room by manifest `id`. A bad chapter is flagged and skipped in playback, with a message.
+1. User picks watch folders (or the app uses the auto-created shared-internal `/Auloud`).
+2. `BundleParser` reads `manifest.json`, `BundleValidator` runs light checks (files exist, chapters listed, durations plausible, chapter JSON well-formed).
+3. Insert or update the book in Room by manifest `id`. A bad chapter is flagged and skipped in playback, with a transient message; missing chapter text stays a reader-only message while audio continues.
 
 ## 4. Playback service
 
@@ -86,7 +86,7 @@ app/
 - Tap a sentence: seek to its `start_ms`, set `Following`. Use `pointerInput` with text layout offset hit testing to find the tapped sentence.
 - Font size, line spacing and theme (light, dark, sepia) from settings.
 
-**PDF books**: `PdfRenderer` renders the current page to a bitmap (recycled on change); page changes when playback crosses the next `PageMark.start_ms`. Manual page turns seek audio to that page's `start_ms`.
+**PDF books (v1):** blocks-form PDF chapters read through the same text path as EPUB (Text view; `page`/`pages` ignored for layout). Pure page-sync chapters without `blocks` show "Page-only chapter - listening still works". The rendered Page view (`PdfRenderer`, one page at a time, Text/Page toggle) is a v1.1 option (D-046), not built. Chapter rows can show an optional page range once populated; list loading stays one-chapter-at-a-time.
 
 ## 6. Screens
 
@@ -94,8 +94,8 @@ app/
 | --- | --- |
 | Library | Grid or list of books, cover, title, progress bar; import button |
 | Reader | Text, mini controls, mode switch, speed, sleep timer |
-| Chapters | List with durations; tap to jump |
-| Settings | Font size, theme, default speed, battery-optimization help, storage location, about/licenses |
+| Chapters | List with titles, durations, current chapter marked (optional page range when present); tap to jump, keeps shared position rules |
+| Settings | Font size, theme, default speed, battery-optimization help, storage location (watch folders), about/licenses (static list mirroring `player/THIRD_PARTY_LICENSES.md`) |
 
 Navigation: Compose Navigation, a single back stack (Library, Reader, Chapters, Settings).
 
@@ -124,6 +124,6 @@ Check that the versions you pick still support `minSdk 24`.
 
 ## 9. Build and release
 
-- Build variants: `debug` (with logging overlay: position, current `sid`, chapter), `release` (minified).
+- Build variants: `debug` (with logging overlay: position, current `sid`, chapter), `release` (minified with keep rules, `versionName 1.0.0`, `versionCode 1`). Preview/debug entries are gated behind `BuildConfig.DEBUG` and absent in release.
 - Sideload the APK first; publish to F-Droid or GitHub releases when open-sourcing (see licenses doc, later).
-- Permissions: `READ_EXTERNAL_STORAGE`, `FOREGROUND_SERVICE` (declared, harmless on API 24), `WAKE_LOCK`. No internet permission in v1.
+- Permissions: `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE` (shared-internal `/Auloud` default), `FOREGROUND_SERVICE` (declared, harmless on API 24), `WAKE_LOCK`. No internet permission in v1 (merged release manifest and `aapt dump badging` both confirm no `INTERNET`).

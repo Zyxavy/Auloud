@@ -47,7 +47,7 @@ The Tab E cannot run neural TTS in real time, so **all synthesis happens on a PC
 | P4 | Read-only mode (scrollable text) | P0 |
 | P5 | Read + listen mode: synced sentence highlight, tap a sentence to jump audio, manual scroll pauses auto-follow with a "back to now" button | P0 |
 | P6 | Playback speed (0.75x to 2.0x) and sleep timer | P1 |
-| P7 | PDF page view with page-level sync | P1 |
+| P7 | PDF text view with page-level marks (`pages` + sentence `page`); rendered Page view deferred to v1.1 (D-046) | P1 |
 | P8 | Chapter navigation | P1 |
 | P9 | First-run prompt to exempt the app from battery optimization | P1 |
 
