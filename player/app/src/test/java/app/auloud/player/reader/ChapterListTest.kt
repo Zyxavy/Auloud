@@ -1,6 +1,7 @@
 package app.auloud.player.reader
 
 import app.auloud.player.bundle.ChapterInfo
+import app.auloud.player.bundle.PageMark
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -126,5 +127,74 @@ class ChapterListTest {
     @Test
     fun mapping_emptyManifest_isEmpty() {
         assertEquals(emptyList<ChapterEntry>(), toChapterEntries(emptyList()))
+    }
+
+    @Test
+    fun mapping_leavesPageRangeNull_epubIdentical() {
+        val entries = toChapterEntries(
+            listOf(
+                ChapterInfo(index = 1, title = "One", audio = "a", text = "t", durationMs = 60_000L)
+            )
+        )
+        assertEquals(1, entries.size)
+        assertNull(entries[0].pageRange)
+        assertEquals("1:00", formatChapterSubtitle(entries[0].durationMs, entries[0].pageRange))
+    }
+
+    @Test
+    fun pageRange_nullOrEmpty_isNull() {
+        assertNull(formatPageRange(null))
+        assertNull(formatPageRange(emptyList()))
+    }
+
+    @Test
+    fun pageRange_singlePage_isSingular() {
+        assertEquals("p. 3", formatPageRange(listOf(PageMark(3, 0L))))
+    }
+
+    @Test
+    fun pageRange_span_isPluralRange() {
+        assertEquals(
+            "pp. 3-5",
+            formatPageRange(
+                listOf(PageMark(3, 0L), PageMark(4, 1000L), PageMark(5, 2000L))
+            )
+        )
+    }
+
+    @Test
+    fun pageRange_unsorted_usesMinToMax() {
+        assertEquals(
+            "pp. 3-5",
+            formatPageRange(
+                listOf(PageMark(5, 2000L), PageMark(3, 0L), PageMark(4, 1000L))
+            )
+        )
+    }
+
+    @Test
+    fun pageRange_nonPositive_ignored() {
+        assertNull(formatPageRange(listOf(PageMark(0, 0L), PageMark(-2, 10L))))
+        assertEquals("p. 2", formatPageRange(listOf(PageMark(0, 0L), PageMark(2, 10L))))
+    }
+
+    @Test
+    fun subtitle_withRange_appendsAfterDuration() {
+        assertEquals("1:05 - pp. 3-5", formatChapterSubtitle(65_000L, "pp. 3-5"))
+    }
+
+    @Test
+    fun subtitle_blankRange_fallsBackToDuration() {
+        assertEquals("1:00", formatChapterSubtitle(60_000L, null))
+        assertEquals("1:00", formatChapterSubtitle(60_000L, "  "))
+    }
+
+    @Test
+    fun withPageRange_copiesEntryWithPrintableRange() {
+        val entry = ChapterEntry(index = 0, title = "One", durationMs = 60_000L)
+        val ranged = entry.withPageRange(listOf(PageMark(1, 0L), PageMark(2, 1550L)))
+        assertEquals("pp. 1-2", ranged.pageRange)
+        assertNull(entry.pageRange)
+        assertEquals("1:00 - pp. 1-2", formatChapterSubtitle(ranged.durationMs, ranged.pageRange))
     }
 }

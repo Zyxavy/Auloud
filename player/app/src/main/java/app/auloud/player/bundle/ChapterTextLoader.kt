@@ -15,7 +15,7 @@ import kotlinx.serialization.json.jsonObject
  *
  * - [ChapterTextUnavailable]: missing/unreadable file.
  * - [ChapterTextPdfForm]: pure PDF page-sync chapter (`pages` instead of
- *   `blocks`, legacy v1.0 option (b)). Reader shows "text unavailable",
+ *   `blocks`, legacy v1.0 option (b)). Reader shows the page-only message,
  *   listening still works. CP6: `blocks`+`pages` (v1.1 text path) is NOT
  *   PdfForm — it parses as text with [ChapterText.pages] available for the
  *   Page view; only pure pages-without-blocks stays PdfForm.
@@ -31,7 +31,7 @@ import kotlinx.serialization.json.jsonObject
 open class ChapterTextUnavailable(message: String, cause: Throwable? = null) :
     IOException(message, cause)
 
-/** RA10: PDF page-sync chapter — reading arrives later, listening works. */
+/** RA10: PDF page-only chapter - text unavailable, listening works. */
 class ChapterTextPdfForm(message: String) : ChapterTextUnavailable(message)
 
 class ChapterTextInvalid(message: String, cause: Throwable? = null) :
@@ -75,8 +75,8 @@ object ChapterTextLoader {
         if (root.containsKey("pages") && !root.containsKey("blocks")) {
             return Result.failure(
                 ChapterTextPdfForm(
-                    "$textPath: PDF page-sync chapter " +
-                        "(reader not available for this book yet)"
+                    "$textPath: page-only PDF chapter " +
+                        "(text unavailable - listening still works)"
                 )
             )
         }

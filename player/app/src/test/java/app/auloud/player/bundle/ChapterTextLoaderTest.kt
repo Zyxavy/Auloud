@@ -129,7 +129,7 @@ class ChapterTextLoaderTest {
         val error = result.exceptionOrNull()
         assertTrue("wrong type: $error", error is ChapterTextUnavailable)
         assertTrue("wrong subtype: $error", error is ChapterTextPdfForm)
-        assertTrue("must say reader unavailable: ${error?.message}", error?.message?.contains("reader not available") == true)
+        assertTrue("must say page-only: ${error?.message}", error?.message?.contains("page-only") == true)
     }
 
     @Test

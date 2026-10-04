@@ -105,7 +105,7 @@ fun ReaderScreen(
             state.textError != null -> {
                 Text(
                     text = if (state.textKind == TextKind.PdfForm) {
-                        "Reading arrives later — listening still works"
+                        "Page-only chapter - listening still works"
                     } else {
                         "Text unavailable for this chapter"
                     },

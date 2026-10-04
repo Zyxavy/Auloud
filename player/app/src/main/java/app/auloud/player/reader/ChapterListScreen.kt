@@ -73,6 +73,7 @@ private fun ChapterListContent(
                         index = entry.index,
                         title = entry.title,
                         durationMs = entry.durationMs,
+                        pageRange = entry.pageRange,
                         isCurrent = isCurrentChapter(entry.index, currentIndex),
                         onJump = onJump
                     )
@@ -89,7 +90,8 @@ private fun ChapterRow(
     durationMs: Long,
     isCurrent: Boolean,
     onJump: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    pageRange: String? = null
 ) {
     Row(
         modifier = modifier
@@ -102,7 +104,7 @@ private fun ChapterRow(
         Column(modifier = Modifier.weight(1f)) {
             Text(text = title, style = MaterialTheme.typography.titleMedium, maxLines = 2)
             Text(
-                text = formatChapterDuration(durationMs),
+                text = formatChapterSubtitle(durationMs, pageRange),
                 style = MaterialTheme.typography.bodyMedium
             )
         }

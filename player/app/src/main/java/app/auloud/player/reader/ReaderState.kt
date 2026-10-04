@@ -59,7 +59,7 @@ data class ReaderState(
     val textKind: TextKind? = null
 )
 
-/** Missing file, corrupt content, or a PDF form that reads later. */
+/** Missing file, corrupt content, or a page-only PDF chapter (listening still works). */
 enum class TextKind {
     Missing,
     Corrupt,
