@@ -66,7 +66,7 @@ docs/     PRD, architecture, design, roadmap, test plan
 
 ## Books and copyright
 
-Use it with books you have the right to use, such as public-domain works or books you own, for your own listening. Do not share generated audiobooks of copyrighted works. This repository contains no copyrighted books.
+Use it only with books you have the right to use, such as public-domain works or books you own, for your own listening. Do not share generated audiobooks of copyrighted works. You are solely responsible for what you convert and share with it; the authors of this project are not responsible for, nor accomplices to, copyright infringement. This repository contains no copyrighted books.
 
 ## License
 
