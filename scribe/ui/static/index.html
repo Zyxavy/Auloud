@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="auloud-token" content="{{AULOUD_TOKEN}}">
+<title>Auloud Scribe UI</title>
+<style>
+  body { font-family: "Segoe UI", system-ui, sans-serif; background: #FAF8F3;
+         color: #1C1917; max-width: 720px; margin: 0 auto; padding: 16px; }
+  h1 { font-family: Georgia, serif; }
+  .meta { color: #78716C; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>Auloud Scribe UI</h1>
+<p>Server skeleton (Slice 6 UI2). Real views arrive in UI3+.</p>
+<p class="meta">Health: <a href="/api/health">/api/health</a></p>
+<script type="module">
+  const token = document.querySelector('meta[name="auloud-token"]').content;
+  window.auloudToken = token;
+</script>
+</body>
+</html>

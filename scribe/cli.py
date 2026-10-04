@@ -87,6 +87,11 @@ PYMUPDF_HELP = (
     "in scribe/, then re-run `scribe doctor`."
 )
 
+UI_EXTRA_HINT = (
+    "The UI needs the optional 'ui' extra: run `uv sync --extra ui` "
+    "in scribe/, then re-run the command."
+)
+
 SPACY_MODEL_HELP = (
     "The spaCy English model (about 12 MB) is URL-pinned in "
     "pyproject.toml + uv.lock; run `uv sync` in scribe/ first, "
@@ -332,6 +337,50 @@ def check_pymupdf() -> CheckResult:
     )
 
 
+def check_ui() -> CheckResult:
+    """Check the UI extra (FastAPI + uvicorn) imports (Slice 6 UI2).
+
+    Probes importability plus versions, mirroring the engine check: a
+    missing extra is a graceful FAIL with the sync hint, never an error.
+    """
+    if importlib.util.find_spec("fastapi") is None:
+        return CheckResult(
+            name="ui",
+            status=FAIL,
+            detail="fastapi not importable (ui extra not installed)",
+            hint=UI_EXTRA_HINT,
+        )
+    if importlib.util.find_spec("uvicorn") is None:
+        return CheckResult(
+            name="ui",
+            status=FAIL,
+            detail="uvicorn not importable (ui extra not installed)",
+            hint=UI_EXTRA_HINT,
+        )
+    if importlib.util.find_spec("ui.app") is None:
+        return CheckResult(
+            name="ui",
+            status=FAIL,
+            detail="scribe install broken: ui.app missing",
+            hint="The installed scribe wheel is missing the ui package; "
+            "reinstall it with `uv sync --reinstall-package auloud-scribe` "
+            "in scribe/, then re-run `scribe doctor`.",
+        )
+    try:
+        fastapi_ver = importlib.metadata.version("fastapi")
+    except importlib.metadata.PackageNotFoundError:
+        fastapi_ver = "unknown version"
+    try:
+        uvicorn_ver = importlib.metadata.version("uvicorn")
+    except importlib.metadata.PackageNotFoundError:
+        uvicorn_ver = "unknown version"
+    return CheckResult(
+        name="ui",
+        status=PASS,
+        detail=f"fastapi {fastapi_ver} + uvicorn {uvicorn_ver} (import ok)",
+    )
+
+
 def check_gpu() -> CheckResult:
     """Report NVIDIA/CUDA presence. Informational: CPU-only builds work (SW0)."""
     nvidia_smi = shutil.which("nvidia-smi")
@@ -364,6 +413,7 @@ def run_checks(models_dir: Path) -> list[CheckResult]:
         check_models(models_dir),
         check_spacy(),
         check_pymupdf(),
+        check_ui(),
         check_gpu(),
     ]
 
@@ -387,7 +437,8 @@ def doctor(
         help="Directory holding kokoro-v1.0.onnx + voices-v1.0.bin.",
     ),
 ) -> None:
-    """Check Python, ffmpeg/ffprobe, espeak-ng, TTS engine, models, spaCy, GPU."""
+    """Check Python, ffmpeg/ffprobe, espeak-ng, TTS engine, models, spaCy,
+    PyMuPDF, UI extra, GPU."""
     results = run_checks(models_dir)
     typer.echo(format_table(results))
     failures = [r for r in results if r.status == FAIL]
@@ -653,6 +704,53 @@ def voices(
 def version() -> None:
     """Print the Scribe version."""
     typer.echo(__version__)
+
+
+@app.command()
+def ui(
+    port: int = typer.Option(
+        8137,
+        "--port",
+        help="Preferred port; the next free port is used when busy.",
+    ),
+    workspace: Path = typer.Option(
+        Path("."),
+        "--workspace",
+        help="Workspace root; all file access stays inside it.",
+    ),
+    no_browser: bool = typer.Option(
+        False,
+        "--no-browser",
+        help="Print the URL without opening a browser.",
+    ),
+) -> None:
+    """Start the localhost web UI (thin operator over the library).
+
+    Binds 127.0.0.1 only (there is deliberately no --host flag); FastAPI
+    and uvicorn lazy-import here so the plain CLI install never needs the
+    optional ``ui`` extra.
+    """
+    if (
+        importlib.util.find_spec("fastapi") is None
+        or importlib.util.find_spec("uvicorn") is None
+    ):
+        typer.echo(f"ui failed: the 'ui' extra is not installed.\n{UI_EXTRA_HINT}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        from ui.server import run_server
+    except ImportError as exc:
+        typer.echo(
+            f"ui failed: scribe install broken: cannot import ui.server ({exc}); "
+            "reinstall it with `uv sync --reinstall-package auloud-scribe` "
+            "in scribe/, then re-run `scribe ui`.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        run_server(workspace, port=port, open_browser=not no_browser)
+    except ValueError as exc:
+        typer.echo(f"ui failed: {exc}", err=True)
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":

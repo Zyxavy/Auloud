@@ -24,6 +24,22 @@ dependencies = [
 [project.scripts]
 scribe = "scribe.cli:app"
 
+[project.optional-dependencies]
+# Slice 6 UI2 (D2): localhost web UI. Optional so the plain CLI install stays
+# light; the `scribe ui` command lazy-imports it with a friendly hint when
+# missing. Licenses checked 2026-10-04 via the PyPI JSON API (all permissive,
+# AGPL-compatible inside Scribe; none ships in the Player): fastapi MIT,
+# uvicorn BSD-3-Clause, starlette BSD-3-Clause, python-multipart Apache-2.0,
+# pydantic MIT. Floors satisfy fastapi's own requirements
+# (starlette>=0.46, pydantic>=2.9, python-multipart>=0.0.18).
+ui = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "starlette>=0.46.0",
+    "python-multipart>=0.0.18",
+    "pydantic>=2.9.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8",
@@ -54,6 +70,7 @@ packages = []
 "tts" = "scribe/tts"
 "audio" = "scribe/audio"
 "bundle" = "scribe/bundle"
+"ui" = "scribe/ui"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
