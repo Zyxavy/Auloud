@@ -30,7 +30,7 @@ In-app: add a "Licenses" screen listing these (a Gradle license plugin can gener
 | Library | License (as I understand it) | Notes | Verified |
 | --- | --- | --- | --- |
 | EbookLib | AGPL-3.0 | Strong copyleft. Fine inside an open-source GPL/AGPL tool; if you offer Scribe as a hosted service, AGPL's network clause means users must be able to get the source. Consider licensing Scribe as AGPL-3.0 in that case. | \[x\] |
-| PyMuPDF | AGPL-3.0 (commercial license available) | Same AGPL consideration. Alternative: `pypdf`/`pdfminer.six` (permissive) if you want to avoid it. | \[ \] |
+| PyMuPDF | AGPL-3.0 (commercial license available) | AGPL is compatible inside AGPL-3.0-or-later Scribe (never ships in the Apache-2.0 Player); pymupdf 1.28.2 pinned in `scribe/pyproject.toml` + `uv.lock`, proven by `scribe doctor` (new `pymupdf` row: import + in-memory open). | \[x\] |
 | beautifulsoup4, lxml | MIT, BSD-3 |  | \[ \] |
 | pysbd | MIT |  | \[ \] |
 | spaCy, `en_core_web_sm` | MIT | spacy 3.8.16 + en-core-web-sm 3.8.0 (installed METADATA says MIT for both; transitives MIT/BSD/Apache-2.0, tqdm dual MPL-2.0 AND MIT, nothing GPL). Model pinned by wheel URL in `scribe/pyproject.toml` + `uv.lock` (not on PyPI); `scribe doctor` checks present + version and proves a parse. | \[x\] |

@@ -288,7 +288,8 @@ def ensure_script(source: Path | str, *, work_root: Path | str = Path(".scribe")
 
     src = Path(source)
     if not src.is_file():
-        raise BuildError(f"EPUB not found: {src}")
+        kind = "PDF" if src.suffix.lower() == ".pdf" else "EPUB"
+        raise BuildError(f"{kind} not found: {src}")
     try:
         book_id, sha = book_id_for_file(src)
     except OSError as exc:
@@ -804,7 +805,7 @@ def run_build(
     fail_after: int | None = None,
     show_progress: bool = True,
 ) -> BuildResult:
-    """Render ``source`` EPUB to a validated bundle; return the totals.
+    """Render ``source`` EPUB or PDF to a validated bundle; return the totals.
 
     Runs ``draft`` first when the work folder lacks a fresh script
     (:func:`ensure_script`), renders chapter by chapter with resume
@@ -812,7 +813,7 @@ def run_build(
     bundle via the SW8 writer (which validates), appends ``scribe.log``,
     and returns :class:`BuildResult` (totals + real-time factor).
 
-    :param source: EPUB file to build from.
+    :param source: EPUB or PDF file to build from.
     :param work_root: work folder root (``<work_root>/<book-id>/`` holds
         script, cast, cache, render output and ``scribe.log``).
     :param out_dir: bundle root; defaults to ``bundles/<book-id>``.
