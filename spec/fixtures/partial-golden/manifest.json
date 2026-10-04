@@ -1,0 +1,46 @@
+{
+  "audio": {
+    "bitrate_kbps": 64,
+    "cbr": true,
+    "channels": 1,
+    "format": "mp3",
+    "sample_rate": 24000
+  },
+  "author": "Auloud Test",
+  "chapters": [
+    {
+      "audio": "audio/ch001.mp3",
+      "duration_ms": 9900,
+      "index": 1,
+      "source_index": 2,
+      "text": "text/ch001.json",
+      "title": "Chapter Two"
+    },
+    {
+      "audio": "audio/ch002.mp3",
+      "duration_ms": 9900,
+      "index": 2,
+      "source_index": 3,
+      "text": "text/ch002.json",
+      "title": "Chapter Three"
+    }
+  ],
+  "created_at": "2026-10-04T12:41:07Z",
+  "generator": "scribe 0.1.0",
+  "id": "53a97272-f146-524b-94e2-3aee0d397b2f",
+  "source": {
+    "file": "source/book.epub",
+    "sha256": "0fd32580acd2212933dd2889b3c11071b8792ecc03730180d8021be63729d7a9"
+  },
+  "spec_version": "1.2",
+  "title": "Partial Golden Miniature",
+  "type": "epub",
+  "voices": {
+    "narrator": {
+      "engine": "kokoro",
+      "pitch": 1.0,
+      "speed": 1.0,
+      "voice": "am_onyx"
+    }
+  }
+}

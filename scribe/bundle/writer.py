@@ -96,7 +96,11 @@ from text.cast import NARRATOR, NARRATOR_ENGINE, NARRATOR_SPEED, NARRATOR_VOICE
 from tts.base import SAMPLE_RATE
 
 #: Bundle contract version (spec section 3; v1.1 additive PDF pages).
+#: v1.2 adds optional ``source_index`` for range bundles (D7). Full builds
+#: (no range) still write "1.1" with no ``source_index`` so they stay
+#: byte-identical to v1.1 output; range builds write "1.2" with it.
 SPEC_VERSION = "1.1"
+SPEC_VERSION_RANGE = "1.2"
 #: Book types by source suffix (CP6: PDF text-path chapters carry blocks
 #: plus computed ``pages``; pure pages-without-blocks is never written).
 BOOK_TYPE_EPUB = "epub"
@@ -229,6 +233,9 @@ def write_bundle(
     out_dir: Path | str,
     *,
     voices: dict[str, Voice] | dict[str, dict[str, Any]] | None = None,
+    source_indices: Sequence[int] | None = None,
+    bundle_id: str | None = None,
+    spec_version: str | None = None,
 ) -> WriteResult:
     """Write a complete bundle and validate it; fail loudly on any problem.
 
@@ -249,6 +256,20 @@ def write_bundle(
         ``name -> Voice`` or plain ``name -> {engine, voice, speed,
         pitch}`` dicts, as built by ``build`` from its resolution). When
         ``None`` (default) the legacy narrator-only map is written.
+    :param source_indices: UI1 range bundles (D7): original 1-based source
+        chapter per position, same length as ``chapters``. When given (and
+        not exactly 1..N), the bundle is a range: chapters are renumbered
+        consecutively 1..K for the bundle (file stems, ``chapter``,
+        manifest ``index``), each carries ``source_index``, ``spec_version``
+        is "1.2", and ``bundle_id`` should be the range-aware id (see
+        :func:`draft.book_id_for_range`; when omitted here it is derived
+        from the source hash plus the range). When ``None`` (default) the
+        bundle is full: 1..N, no ``source_index``, spec "1.1", existing id.
+    :param bundle_id: explicit manifest ``id`` (range-aware for partials).
+        When ``None``, derived from the source (full id, or range id when
+        ``source_indices`` is a true range).
+    :param spec_version: explicit manifest/chapter ``spec_version``.
+        When ``None``, "1.2" for range bundles, else "1.1".
     :returns: :class:`WriteResult` (the bundle passed ``validate_bundle``).
     :raises BundleWriteError: bad inputs, unwritable output, or the
         written bundle failed validation (every validator error is listed;
@@ -287,11 +308,47 @@ def write_bundle(
             raise BundleWriteError(f"chapter {pos}: audio file not found: {mp3}")
 
     try:
-        book_id, sha = book_id_for_file(source)
+        _full_id, sha = book_id_for_file(source)
     except OSError as exc:
         raise BundleWriteError(
             f"{source.name}: cannot read source file: {exc.strerror or exc}"
         ) from exc
+    # UI1 D7 range handling: full builds keep the existing id and spec 1.1
+    # with no source_index (byte-identical to v1.1). A true range (any
+    # source_indices not exactly 1..N) gets a range-aware id, spec 1.2,
+    # consecutive bundle indices plus source_index on every chapter.
+    is_range = False
+    range_indices: list[int] | None = None
+    if source_indices is not None:
+        range_indices = [int(v) for v in source_indices]
+        if len(range_indices) != len(chapters):
+            raise BundleWriteError(
+                f"manifest.json: {len(chapters)} chapters but "
+                f"{len(range_indices)} source_index values: pass one per chapter"
+            )
+        if any(not isinstance(v, int) or isinstance(v, bool) or v < 1 for v in range_indices):
+            raise BundleWriteError(
+                f"manifest.json: invalid source_index values {range_indices!r} "
+                "(need 1-based source chapters)"
+            )
+        if range_indices != list(range(1, len(chapters) + 1)):
+            is_range = True
+    if bundle_id is not None:
+        book_id = bundle_id
+    elif is_range:
+        assert range_indices is not None
+        from draft import book_id_for_range as _range_id
+
+        book_id = _range_id(sha, range_indices)
+    else:
+        book_id = _full_id
+    use_spec = spec_version
+    if use_spec is None:
+        use_spec = SPEC_VERSION_RANGE if is_range else SPEC_VERSION
+    if use_spec not in ("1.0", "1.1", "1.2"):
+        raise BundleWriteError(
+            f"manifest.json: spec_version {use_spec!r} must be one of ['1.0', '1.1', '1.2']"
+        )
     title, author = read_book_metadata(source)
 
     bundle = Path(out_dir)
@@ -327,34 +384,37 @@ def write_bundle(
 
     width = 4 if len(chapters) > 999 else 3
     entries: list[ChapterEntry] = []
-    for chapter in chapters:
-        stem = f"ch{chapter.chapter:0{width}d}"
+    for pos, chapter in enumerate(chapters, start=1):
+        stem = f"ch{pos:0{width}d}"
         audio_rel = f"audio/{stem}.mp3"
         text_rel = f"text/{stem}.json"
         try:
-            shutil.copyfile(mp3s[chapter.chapter - 1], bundle / audio_rel)
+            shutil.copyfile(mp3s[pos - 1], bundle / audio_rel)
         except OSError as exc:
             raise BundleWriteError(
                 f"{audio_rel}: cannot copy chapter audio: {exc.strerror or exc}"
             ) from exc
         # CP6 authoritative pages: recomputed from final timings, never
         # trusted from upstream (which may predate timing fill-in).
+        src_idx = range_indices[pos - 1] if is_range and range_indices is not None else None
         out_chapter = ChapterFile(
-            spec_version=SPEC_VERSION,
-            chapter=chapter.chapter,
+            spec_version=use_spec,
+            chapter=pos,
             title=chapter.title,
             duration_ms=chapter.duration_ms,
             blocks=chapter.blocks,
             pages=pages_from_sentences(chapter),
+            source_index=src_idx,
         )
         _write_json(bundle / text_rel, out_chapter.to_dict())
         entries.append(
             ChapterEntry(
-                index=chapter.chapter,
+                index=pos,
                 title=chapter.title,
                 audio=audio_rel,
                 text=text_rel,
                 duration_ms=chapter.duration_ms,
+                source_index=src_idx,
             )
         )
 
@@ -382,7 +442,7 @@ def write_bundle(
                 )
 
     manifest = Manifest(
-        spec_version=SPEC_VERSION,
+        spec_version=use_spec,
         id=book_id,
         title=title,
         type=book_type,

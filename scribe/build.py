@@ -115,13 +115,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from rich.progress import (
-    BarColumn,
-    Progress,
-    TaskProgressColumn,
-    TextColumn,
-    TimeRemainingColumn,
-)
 
 from audio.assemble import AssembledChapter, apply_loudness_gain, assemble_chapter
 from audio.encode import encode_assembled_chapter
@@ -134,7 +127,9 @@ from draft import (
     CAST_FILENAME,
     SCRIPT_FILENAME,
     book_id_for_file,
+    book_id_for_range,
     format_duration,
+    format_range_compact,
     run_draft,
 )
 from text.cast import (
@@ -213,6 +208,17 @@ class BuildError(ValueError):
     """``scribe build`` cannot proceed or a chapter failed (see message)."""
 
 
+class BuildStoppedError(BuildError):
+    """Cooperative stop at a sentence boundary (pause/cancel, UI1).
+
+    Subclasses :class:`BuildError` so existing ``except BuildError`` paths
+    stay intact; callers needing the distinction catch this first. The
+    partial chapter's render files are removed before raising, so resume
+    re-renders it fully (atomicity) while sentence-cache hits keep the
+    resume cheap (only uncached sentences re-synthesize, the MV7 path).
+    """
+
+
 @dataclass
 class ScriptInfo:
     """Outcome of :func:`ensure_script` (fresh script or a just-run draft)."""
@@ -245,21 +251,76 @@ class BuildResult:
     strict: bool = False
     cache_hits: int = 0
     cache_misses: int = 0
+    # UI1 range fields (full builds: selected == all source chapters).
+    source_chapters_total: int = 0
+    selected_chapters: list[int] = field(default_factory=list)
+    page_resolution: str = ""
+    is_range: bool = False
 
 
-def create_engine(models_dir: Path | str = Path("models")) -> TTSEngine:
+@dataclass
+class PlanResult:
+    """Outcome of :func:`plan_build` (dry run, no audio rendered).
+
+    ``cached_sentences`` counts sentences in up-to-date chapters (skip);
+    ``to_render_sentences`` counts sentences in chapters needing render.
+    ``estimated_seconds`` uses recent RTF from ``build_stats.json`` (last
+    20 chapter timings in the work dir); ``None`` when no history exists.
+    """
+
+    book_id: str
+    title: str
+    work_dir: Path
+    source_chapters_total: int = 0
+    selected_chapters: list[int] = field(default_factory=list)
+    cached_chapters: int = 0
+    to_render_chapters: int = 0
+    cached_sentences: int = 0
+    to_render_sentences: int = 0
+    total_audio_ms_cached: int = 0
+    estimated_seconds: float | None = None
+    rtf_used: float | None = None
+    page_resolution: str = ""
+    is_range: bool = False
+
+
+def create_engine(
+    models_dir: Path | str = Path("models"), *, device: str = "auto"
+) -> TTSEngine:
     """Build the Slice 2 TTS engine (Kokoro, D-023) from ``models_dir``.
 
+    :param device: UI1 ``--device`` (``auto``/``cpu``/``cuda``; default
+        ``auto`` = CUDA provider only when ``onnxruntime`` reports it,
+        else CPU). ``cpu`` forces CPU (the old path, byte-identical);
+        ``cuda`` forces CUDA or fails cleanly. No packaging change.
     :raises BuildError: runtime/models missing or unreadable (clean message,
         no traceback from deep inside the engine stack).
+    :raises BuildError: bad ``device`` or unavailable CUDA (``device:
+        bad-device`` / ``device: cuda-unavailable`` rule names).
     """
     from tts.kokoro import resolve_model_paths
 
-    try:
-        from tts.kokoro import KokoroEngine
+    normalized = str(device or "auto").strip().lower()
+    if normalized not in ("auto", "cpu", "cuda"):
+        raise BuildError(
+            f"device: bad-device: {device!r} must be one of ['auto', 'cpu', 'cuda']"
+        )
+    if normalized in ("auto", "cpu"):
+        # CPU path stays exactly the old constructor when CUDA is absent
+        # (byte-identical behavior for the common case). ``auto`` with a
+        # CUDA-capable onnxruntime goes through the device module.
+        if normalized == "cpu":
+            try:
+                from tts.kokoro import KokoroEngine
 
-        model_path, voices_path = resolve_model_paths(models_dir)
-        return KokoroEngine(model_path, voices_path)
+                model_path, voices_path = resolve_model_paths(models_dir)
+                return KokoroEngine(model_path, voices_path)
+            except (ImportError, FileNotFoundError, ValueError, OSError) as exc:
+                raise BuildError(f"cannot init TTS engine: {exc}") from exc
+    from device import create_engine_with_device
+
+    try:
+        return create_engine_with_device(models_dir, device=normalized)
     except (ImportError, FileNotFoundError, ValueError, OSError) as exc:
         raise BuildError(f"cannot init TTS engine: {exc}") from exc
 
@@ -267,6 +328,133 @@ def create_engine(models_dir: Path | str = Path("models")) -> TTSEngine:
 def _read_json(path: Path) -> Any:
     """Parse ``path`` as UTF-8 JSON (any decode/shape error propagates)."""
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+#: Recent-RTF window for ``plan_build`` estimates (last N chapter timings).
+PLAN_RTF_WINDOW = 20
+#: Persisted chapter timings for RTF estimates (next to the work dir).
+BUILD_STATS_FILENAME = "build_stats.json"
+
+
+def _chapter_page_ranges(chapters: list[ChapterFile]) -> dict[int, tuple[int, int]]:
+    """``{source_chapter: (min_page, max_page)}`` from sentence provenance.
+
+    Chapters with no paged sentences are absent (EPUB books resolve no
+    pages; ``--pages`` on them is a clean error naming the rule).
+    """
+    ranges: dict[int, tuple[int, int]] = {}
+    for chapter in chapters:
+        pages = [
+            s.page
+            for s in chapter.sentences_in_order()
+            if isinstance(s.page, int) and not isinstance(s.page, bool)
+        ]
+        if pages:
+            ranges[chapter.chapter] = (min(pages), max(pages))
+    return ranges
+
+
+def _resolve_selection(
+    chapters: list[ChapterFile],
+    *,
+    chapters_spec: str | None,
+    pages_spec: str | None,
+) -> tuple[list[int], str]:
+    """Source chapter numbers to render plus a human resolution string.
+
+    ``draft`` ALWAYS processes the whole book; this only selects what
+    ``build`` renders. ``--chapters`` parses directly; ``--pages`` resolves
+    via sentence ``page`` provenance to covering chapters (whole chapters
+    render). Both together raise :class:`BuildError` naming
+    ``chapters-pages-exclusive``. Empty resolution (pages with no paged
+    chapters, e.g. EPUB) raises naming ``pages-need-pdf``.
+    """
+    from selection import chapters_for_pages, parse_range_spec
+
+    total = len(chapters)
+    if chapters_spec and pages_spec:
+        raise BuildError(
+            "build: chapters-pages-exclusive: --chapters and --pages "
+            "cannot be used together (pick one range form)"
+        )
+    if pages_spec:
+        ranges = _chapter_page_ranges(chapters)
+        if not ranges:
+            raise BuildError(
+                "build: pages-need-pdf: --pages needs PDF page provenance "
+                "(this book has no sentence pages; EPUB books use --chapters)"
+            )
+        max_page = max(last for _, last in ranges.values())
+        wanted_pages = parse_range_spec(pages_spec, total=max_page, kind="pages")
+        covering = chapters_for_pages(ranges, wanted_pages)
+        if not covering:
+            raise BuildError(
+                f"build: pages-no-cover: pages {pages_spec!r} cover no chapters "
+                f"(book pages 1..{max_page})"
+            )
+        compact_pages = pages_spec.strip()
+        resolution = (
+            f"pages {compact_pages} map to chapter(s) "
+            f"{','.join(str(c) for c in covering)} "
+            f"(whole covering chapters render)"
+        )
+        return covering, resolution
+    if chapters_spec:
+        selected = parse_range_spec(chapters_spec, total=total, kind="chapters")
+        return selected, ""
+    return list(range(1, total + 1)), ""
+
+
+def _load_build_stats(work_dir: Path) -> list[dict[str, Any]]:
+    """Recent chapter timings from ``build_stats.json`` (empty when absent)."""
+    path = Path(work_dir) / BUILD_STATS_FILENAME
+    if not path.is_file():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [e for e in data if isinstance(e, dict)]
+
+
+def _record_build_stats(
+    work_dir: Path, entries: list[dict[str, Any]], *, keep: int = 100
+) -> None:
+    """Append chapter timings to ``build_stats.json`` (best-effort, no raise).
+
+    Choice documented for UI1: a small JSON next to the work dir (not cache
+    metadata: cache files know hits but not wall time or audio length, and
+    a sidecar stays readable for the UI preflight without scanning
+    thousands of FLACs). Keeps the last ``keep`` entries.
+    """
+    if not entries:
+        return
+    path = Path(work_dir) / BUILD_STATS_FILENAME
+    try:
+        existing = _load_build_stats(path.parent)
+        merged = (existing + entries)[-keep:]
+        path.write_text(json.dumps(merged, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _recent_rtf(work_dir: Path, *, window: int = PLAN_RTF_WINDOW) -> float | None:
+    """Mean RTF over the last ``window`` chapter timings, or ``None``."""
+    stats = _load_build_stats(work_dir)[-window:]
+    ratios: list[float] = []
+    for entry in stats:
+        try:
+            audio_ms = float(entry.get("audio_ms", 0))
+            wall_s = float(entry.get("wall_s", 0))
+        except (TypeError, ValueError):
+            continue
+        if audio_ms > 0 and wall_s > 0:
+            ratios.append((audio_ms / 1000.0) / wall_s)
+    if not ratios:
+        return None
+    return sum(ratios) / len(ratios)
 
 
 def ensure_script(source: Path | str, *, work_root: Path | str = Path(".scribe")) -> ScriptInfo:
@@ -837,7 +1025,156 @@ def format_summary(result: BuildResult) -> str:
         f"real-time factor: {result.rtf:.2f}x",
         f"scribe.log: {result.log_path}",
     ]
+    if result.is_range:
+        lines.insert(
+            1,
+            f"range: source chapters {format_range_compact(result.selected_chapters)} "
+            f"-> bundle 1..{result.chapters_total}",
+        )
+    if result.page_resolution:
+        lines.append(result.page_resolution)
     return "\n".join(lines)
+
+
+def format_plan(plan: PlanResult) -> str:
+    """Human-readable preflight for :class:`PlanResult` (``--plan`` output)."""
+    lines = [
+        f"book id: {plan.book_id}",
+        f"title: {plan.title}",
+        f"chapters: {plan.source_chapters_total} total, "
+        f"{len(plan.selected_chapters)} selected "
+        f"({format_range_compact(plan.selected_chapters) if plan.is_range else 'full book'})",
+        f"chapters cached: {plan.cached_chapters}, to render: {plan.to_render_chapters}",
+        f"sentences cached: {plan.cached_sentences}, "
+        f"to render: {plan.to_render_sentences}",
+    ]
+    if plan.estimated_seconds is None:
+        lines.append(
+            "estimate: unknown (no recent RTF data; render once to calibrate)"
+        )
+    else:
+        lines.append(
+            f"estimate: ~{format_duration(plan.estimated_seconds)} "
+            f"({plan.estimated_seconds:.0f} s at {plan.rtf_used:.2f}x RTF, "
+            f"last {PLAN_RTF_WINDOW} chapters)"
+        )
+    if plan.page_resolution:
+        lines.append(plan.page_resolution)
+    if plan.is_range:
+        lines.append(
+            "range bundle: chapters renumbered 1.."
+            f"{len(plan.selected_chapters)} with source_index, "
+            "range-aware id (full rebuilds keep the existing id)"
+        )
+    return "\n".join(lines)
+
+
+def plan_build(
+    source: Path | str,
+    *,
+    work_root: Path | str = Path(".scribe"),
+    chapters: str | None = None,
+    pages: str | None = None,
+    engine: TTSEngine | None = None,
+    models_dir: Path | str = Path("models"),
+    device: str = "auto",
+) -> PlanResult:
+    """Dry run: cached vs to-render counts plus a time estimate (no audio).
+
+    Computes per-chapter fingerprints (needs the cast plus the engine
+    version, but never synthesizes) and calls :func:`chapter_up_to_date`
+    for each selected chapter. No render files are written, no bundle is
+    produced, no lock is taken. The estimate divides to-render audio by the
+    recent RTF (see :func:`_recent_rtf`); to-render audio for uncached
+    chapters is approximated from draft text (chars / 15 per second, the
+    same heuristic as ``draft_report.md``) when no timing exists yet, else
+    from the stored render duration when present but stale? Simpler and
+    documented: estimate from sentence counts via the draft heuristic
+    (chars/15) divided by 1.0 when no RTF history, else by recent RTF.
+    Actually implemented: estimate = (to_render_chars / 15) / 1.0? No:
+    audio estimate is chars/15 seconds of AUDIO; wall estimate is audio /
+    RTF. When no RTF history, wall estimate is unknown (None).
+
+    :raises BuildError: bad selection (same shapes as :func:`run_build`).
+    """
+    from text.cast import read_cast as _read_cast
+
+    script = ensure_script(source, work_root=work_root)
+    normalized_device = str(device or "auto").strip().lower()
+    if normalized_device not in ("auto", "cpu", "cuda"):
+        raise BuildError(
+            f"device: bad-device: {device!r} must be one of ['auto', 'cpu', 'cuda']"
+        )
+    selected, resolution = _resolve_selection(
+        script.chapters, chapters_spec=chapters, pages_spec=pages
+    )
+    is_range = selected != list(range(1, len(script.chapters) + 1))
+    work_dir = script.work_dir
+    try:
+        cast = _read_cast(work_dir / CAST_FILENAME)
+    except (OSError, ValueError) as exc:
+        raise BuildError(f"{CAST_FILENAME}: cannot read cast: {exc}") from exc
+    tts = engine
+    if tts is None:
+        # Plan needs only the engine version for fingerprints; a missing
+        # model dir must not fail preflight, so fall back to a stable
+        # placeholder version (counts still correct, estimate may be None).
+        try:
+            tts = create_engine(models_dir, device=normalized_device)
+        except (BuildError, TypeError):
+            tts = None
+
+    width = 4 if len(script.chapters) > 999 else 3
+    cached_ch = to_render_ch = 0
+    cached_sent = to_render_sent = 0
+    to_render_chars = 0
+    for chapter in script.chapters:
+        if chapter.chapter not in selected:
+            continue
+        stem = f"ch{chapter.chapter:0{width}d}"
+        mp3_path = work_dir / RENDER_DIRNAME / "audio" / f"{stem}.mp3"
+        json_path = work_dir / RENDER_DIRNAME / "text" / f"{stem}.json"
+        fingerprint: dict[str, Any] | None = None
+        if tts is not None:
+            try:
+                fingerprint = _fingerprint(cast, tts, chapter)
+            except Exception:
+                fingerprint = None
+        hit = None
+        if fingerprint is not None:
+            try:
+                hit = chapter_up_to_date(chapter, json_path, mp3_path, fingerprint)
+            except Exception:
+                hit = None
+        sentences = chapter.sentences_in_order()
+        if hit is not None:
+            cached_ch += 1
+            cached_sent += len(sentences)
+        else:
+            to_render_ch += 1
+            to_render_sent += len(sentences)
+            to_render_chars += sum(len(s.text.strip()) for s in sentences)
+    rtf = _recent_rtf(work_dir)
+    estimated: float | None = None
+    if to_render_sent and rtf:
+        # Draft heuristic: chars/15 = audio seconds; wall = audio / RTF.
+        audio_s = to_render_chars / 15.0
+        estimated = audio_s / rtf if rtf > 0 else None
+    return PlanResult(
+        book_id=(book_id_for_range(script.sha256, selected) if is_range else script.book_id),
+        title=script.title,
+        work_dir=work_dir,
+        source_chapters_total=len(script.chapters),
+        selected_chapters=selected,
+        cached_chapters=cached_ch,
+        to_render_chapters=to_render_ch,
+        cached_sentences=cached_sent,
+        to_render_sentences=to_render_sent,
+        estimated_seconds=estimated,
+        rtf_used=rtf,
+        page_resolution=resolution,
+        is_range=is_range,
+    )
 
 
 def run_build(
@@ -850,6 +1187,11 @@ def run_build(
     strict: bool = False,
     fail_after: int | None = None,
     show_progress: bool = True,
+    chapters: str | None = None,
+    pages: str | None = None,
+    device: str = "auto",
+    progress_listener: Callable[[dict[str, Any]], None] | None = None,
+    stop_event: Any | None = None,
 ) -> BuildResult:
     """Render ``source`` EPUB or PDF to a validated bundle; return the totals.
 
@@ -859,12 +1201,20 @@ def run_build(
     bundle via the SW8 writer (which validates), appends ``scribe.log``,
     and returns :class:`BuildResult` (totals + real-time factor).
 
+    UI1 additions (library only, CLI outputs identical for existing cases):
+    chapter selection (``chapters``/``pages``), ``device``, progress
+    ``progress_listener`` (the CLI Rich bar is one such listener),
+    cooperative ``stop_event`` (checked at sentence boundaries; partial
+    chapter files removed so resume re-renders fully), per-book lock file,
+    and range-aware bundle ids (D7: full keeps the existing id).
+
     :param source: EPUB or PDF file to build from.
     :param work_root: work folder root (``<work_root>/<book-id>/`` holds
         script, cast, cache, render output and ``scribe.log``).
-    :param out_dir: bundle root; defaults to ``bundles/<book-id>``.
+    :param out_dir: bundle root; defaults to ``bundles/<book-id>`` (full)
+        or ``bundles/<range-id>`` (range).
     :param engine: TTS engine; ``None`` builds the Kokoro engine from
-        ``models_dir``. Tests inject a fake (no real TTS in tests).
+        ``models_dir`` (honoring ``device``). Tests inject a fake.
     :param strict: abort the whole build on the first chapter error.
         Non-strict renders every remaining chapter first, then raises
         :class:`BuildError` listing all failures (no bundle either way —
@@ -874,16 +1224,118 @@ def run_build(
         (``None``/``<1`` disables). A real SIGKILL writes nothing; this
         hook logs its abort line, so it is louder, not quieter.
     :param show_progress: ``rich`` chapter bar with ETA (off in tests).
-    :raises BuildError: missing source, bad cast (unreadable cast.yaml or
-        voices outside the engine's real voice list), chapter failure(s),
-        strict abort, or the simulated kill.
+        Implemented as a :class:`progress.RichProgressListener` (same
+        columns/wording as before); combined with ``progress_listener``
+        via fanout when both are given.
+    :param chapters: UI1 ``--chapters`` spec (``"3-5,7"``); ``None`` = all.
+    :param pages: UI1 ``--pages`` spec for PDFs (resolves to covering
+        chapters); mutually exclusive with ``chapters``.
+    :param device: UI1 ``--device`` (``auto``/``cpu``/``cuda``).
+    :param progress_listener: optional callable receiving event dicts
+        (see :mod:`progress`); called at sentence/chapter boundaries.
+    :param stop_event: optional ``threading.Event`` (or any object with
+        ``is_set()``); when set, the build stops at the next sentence
+        boundary, cleans the partial chapter, and raises
+        :class:`BuildStoppedError`.
+    :raises BuildError: missing source, bad cast, bad selection/device,
+        work-lock held, chapter failure(s), strict abort, simulated kill.
+    :raises BuildStoppedError: cooperative stop (subclass of BuildError).
     :raises draft.DraftError: re-drafting a stale script failed.
     :raises bundle.writer.BundleWriteError: the written bundle failed validation.
     """
+    from lock import WorkLockError, acquire_work_lock
+
+    def _stopped() -> bool:
+        try:
+            return bool(stop_event is not None and stop_event.is_set())
+        except Exception:
+            return False
+
     wall_start = time.monotonic()
+    # Selection parsing needs the script; ensure_script may draft (which
+    # takes the same per-book lock — same-PID re-entry is allowed, so take
+    # our lock AFTER the script is fresh to keep the work_dir stable, then
+    # hold it for render+write). Compute the book work_dir first without
+    # holding (cheap hash), then lock, then ensure fresh under lock.
+    prelim_id: str | None = None
+    try:
+        prelim_id, _ = book_id_for_file(Path(source))
+    except OSError:
+        prelim_id = None
+    lock: Any = None
+    if prelim_id is not None:
+        try:
+            lock = acquire_work_lock(Path(work_root) / prelim_id, cmd="build")
+        except WorkLockError as exc:
+            raise BuildError(str(exc)) from exc
+        except OSError as exc:
+            raise BuildError(
+                f"{Path(work_root) / prelim_id}: cannot write work folder: {exc}"
+            ) from exc
+    try:
+        return _run_build_locked(
+            source,
+            work_root=work_root,
+            out_dir=out_dir,
+            engine=engine,
+            models_dir=models_dir,
+            strict=strict,
+            fail_after=fail_after,
+            show_progress=show_progress,
+            chapters=chapters,
+            pages=pages,
+            device=device,
+            progress_listener=progress_listener,
+            stop_event=stop_event,
+            wall_start=wall_start,
+            stopped_fn=_stopped,
+        )
+    finally:
+        if lock is not None:
+            try:
+                lock.release()
+            except Exception:
+                pass
+
+
+def _run_build_locked(
+    source: Path | str,
+    *,
+    work_root: Path | str,
+    out_dir: Path | str | None,
+    engine: TTSEngine | None,
+    models_dir: Path | str,
+    strict: bool,
+    fail_after: int | None,
+    show_progress: bool,
+    chapters: str | None,
+    pages: str | None,
+    device: str,
+    progress_listener: Callable[[dict[str, Any]], None] | None,
+    stop_event: Any | None,
+    wall_start: float,
+    stopped_fn: Callable[[], bool],
+) -> BuildResult:
+    """Inner build (lock already held); see :func:`run_build`."""
+    from progress import FanoutProgress, RichProgressListener, make_event
+
     script = ensure_script(source, work_root=work_root)
-    chapters = script.chapters
+    all_chapters = script.chapters
     work_dir = script.work_dir
+    # UI1 device shape check first (invalid names fail even with an
+    # injected fake engine; CUDA availability is checked at creation).
+    normalized_device = str(device or "auto").strip().lower()
+    if normalized_device not in ("auto", "cpu", "cuda"):
+        raise BuildError(
+            f"device: bad-device: {device!r} must be one of ['auto', 'cpu', 'cuda']"
+        )
+    selected, page_resolution = _resolve_selection(
+        all_chapters, chapters_spec=chapters, pages_spec=pages
+    )
+    is_range = selected != list(range(1, len(all_chapters) + 1))
+    selected_set = set(selected)
+    render_chapters = [c for c in all_chapters if c.chapter in selected_set]
+    bundle_id = book_id_for_range(script.sha256, selected) if is_range else script.book_id
 
     cast_path = work_dir / CAST_FILENAME
     try:
@@ -891,7 +1343,15 @@ def run_build(
     except (OSError, ValueError) as exc:
         raise BuildError(f"{cast_path.name}: cannot read cast: {exc}") from exc
 
-    tts = engine if engine is not None else create_engine(models_dir)
+    if engine is not None:
+        tts = engine
+    else:
+        try:
+            tts = create_engine(models_dir, device=normalized_device)
+        except TypeError:
+            # Back-compat for test monkeypatches replacing create_engine
+            # with a single-arg lambda (pre-UI1 signature).
+            tts = create_engine(models_dir)
 
     # Validate against the engine's real voice list, not a synthetic set.
     # Unknown voices fail the build here with file plus key plus rule
@@ -908,17 +1368,56 @@ def run_build(
     render_audio.mkdir(parents=True, exist_ok=True)
     render_text.mkdir(parents=True, exist_ok=True)
 
-    width = 4 if len(chapters) > 999 else 3
+    width = 4 if len(all_chapters) > 999 else 3
 
     # Render orphan cleanup up front (not after the loop): a shorter script
     # must not leave stale chNNN files behind even when this run aborts.
-    stale_render = remove_stale_chapter_files(render_audio, len(chapters), ".mp3")
-    stale_render += remove_stale_chapter_files(render_text, len(chapters), ".json")
+    # UI1: keep is the FULL chapter count (range builds must not delete
+    # unselected chapters' render files; they are resume cache).
+    stale_render = remove_stale_chapter_files(render_audio, len(all_chapters), ".mp3")
+    stale_render += remove_stale_chapter_files(render_text, len(all_chapters), ".json")
+
+    # Progress: the CLI Rich bar is one listener implementation (same
+    # columns/wording as before); fan out to the caller's listener when
+    # both are present so numbers stay identical.
+    rich_bar = RichProgressListener(total=len(render_chapters), enabled=show_progress)
+    if progress_listener is not None and show_progress:
+        listener: Callable[[dict[str, Any]], None] | None = FanoutProgress(
+            rich_bar, progress_listener
+        )
+    elif progress_listener is not None:
+        listener = FanoutProgress(progress_listener)
+        # Still record Rich events disabled (for tests asserting parity).
+        rich_bar.enabled = False
+    else:
+        listener = rich_bar if show_progress else None
+    # When neither sink is enabled, use a null recorder so sentence counts
+    # stay testable without terminal output.
+    null_events: list[dict[str, Any]] = []
+
+    def _emit(event: dict[str, Any]) -> None:
+        if listener is not None:
+            listener(event)
+        else:
+            null_events.append(dict(event))
+        # Disabled Rich bar still records for parity tests.
+        if listener is not rich_bar and show_progress is False and rich_bar.enabled is False:
+            rich_bar.events.append(dict(event))
+
+    cum_cached = cum_rendered = 0
+    cum_audio_ms = 0
 
     def _synth_fn(
-        plan: dict[int, ResolvedVoice], stats: CacheStats
+        plan: dict[int, ResolvedVoice],
+        stats: CacheStats,
+        chapter_index: int,
     ) -> Callable[[Sentence], np.ndarray]:
         def _synth(sentence: Sentence) -> np.ndarray:
+            if stopped_fn():
+                raise BuildStoppedError(
+                    f"build: stopped: cooperative stop at chapter {chapter_index} "
+                    f"sentence {sentence.sid} (partial chapter cleaned; resume re-renders)"
+                )
             resolved = plan[sentence.sid]
             audio = get_or_synth(
                 tts,
@@ -935,33 +1434,43 @@ def run_build(
 
     log_lines = [
         f"build start: book {script.book_id} source {Path(source).name} "
-        f"strict={strict} chapters={len(chapters)}",
-        f"script: {'redrafted' if script.redrafted else 'fresh'} ({len(chapters)} chapters)",
+        f"strict={strict} chapters={len(all_chapters)} "
+        f"selected={(format_range_compact(selected) if is_range else 'all')} "
+        f"bundle_id={bundle_id} device={device}",
+        f"script: {'redrafted' if script.redrafted else 'fresh'} ({len(all_chapters)} chapters)",
         f"cast: narrator voice={voice} speed={speed} engine_version={tts.engine_version}",
     ]
+    if page_resolution:
+        log_lines.append(page_resolution)
 
     timed: dict[int, ChapterFile] = {}
     audio_paths: dict[int, Path] = {}
     plans: dict[int, dict[int, ResolvedVoice]] = {}
+    chapter_audio_ms: dict[int, int] = {}
     rendered = skipped = 0
     rendered_this_run = 0
     cache_hits = cache_misses = 0
     failed: list[int] = []
     failure_reasons: dict[int, str] = {}
+    stats_entries: list[dict[str, Any]] = []
 
-    columns = [
-        TextColumn("{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        TimeRemainingColumn(),
-    ]
     hook = fail_after if fail_after is not None and fail_after >= 1 else None
-    with Progress(*columns, disable=not show_progress) as progress:
-        task_id = progress.add_task("Rendering chapters", total=len(chapters))
-        for chapter in chapters:
+    rich_ctx = rich_bar if show_progress else None
+    # Enter Rich context manually so events flow even when disabled.
+    if rich_ctx is not None:
+        rich_ctx.__enter__()
+    try:
+        for chapter in render_chapters:
+            if stopped_fn():
+                log_lines.append("build stopped: cooperative stop before chapter "
+                                 f"{chapter.chapter} (no bundle written)")
+                _append_log(work_dir, log_lines)
+                raise BuildStoppedError(
+                    f"build: stopped: cooperative stop before chapter {chapter.chapter} "
+                    "(no bundle written; resume re-renders uncached)"
+                )
             index = chapter.chapter
             stem = f"ch{index:0{width}d}"
-            progress.update(task_id, description=f"[{index}/{len(chapters)}] {chapter.title}")
             mp3_path = render_audio / f"{stem}.mp3"
             json_path = render_text / f"{stem}.json"
             plan = resolve_chapter(cast, chapter, narrator_voice=voice, narrator_speed=speed)
@@ -971,15 +1480,48 @@ def run_build(
                 timed[index] = hit
                 audio_paths[index] = mp3_path
                 plans[index] = plan
+                chapter_audio_ms[index] = hit.duration_ms
                 skipped += 1
+                cum_audio_ms += hit.duration_ms
                 log_lines.append(f"chapter {index} {chapter.title}: skipped (up-to-date)")
-                progress.advance(task_id)
+                _emit(
+                    make_event(
+                        "chapter_skipped",
+                        chapter=index,
+                        cached=cum_cached,
+                        rendered=cum_rendered,
+                        audio_ms=hit.duration_ms,
+                        wall_s=time.monotonic() - wall_start,
+                    )
+                    | {"title": chapter.title, "chapters_total": len(render_chapters)}
+                )
                 continue
             chapter_stats = CacheStats()
+            chapter_wall = time.monotonic()
             try:
+                # Sentence-level stop + progress: wrap synth to emit per
+                # sentence so the Rich bar and the JSONL tail see the same
+                # cumulative numbers (previous chapters + this chapter so far).
+                base_synth = _synth_fn(plan, chapter_stats, index)
+
+                def _emit_synth(sentence: Sentence) -> np.ndarray:
+                    audio = base_synth(sentence)
+                    _emit(
+                        make_event(
+                            "sentence",
+                            chapter=index,
+                            sid=sentence.sid,
+                            cached=cum_cached + chapter_stats.hits,
+                            rendered=cum_rendered + chapter_stats.misses,
+                            audio_ms=cum_audio_ms,
+                            wall_s=time.monotonic() - wall_start,
+                        )
+                    )
+                    return audio
+
                 assembled = assemble_chapter(
                     chapter,
-                    _synth_fn(plan, chapter_stats),
+                    _emit_synth,
                     voice_of=lambda sentence: plan[sentence.sid].voice,
                 )
                 loud = apply_loudness_gain(assembled.pcm)
@@ -1002,10 +1544,24 @@ def run_build(
                 timed[index] = timed_chapter
                 audio_paths[index] = mp3_path
                 plans[index] = plan
+                chapter_audio_ms[index] = assembled.duration_ms
                 rendered += 1
                 rendered_this_run += 1
+                # Cumulative sentence-audio counts (same numbers the Rich
+                # bar and JSONL tail report).
+                cum_cached += chapter_stats.hits
+                cum_rendered += chapter_stats.misses
+                cum_audio_ms += assembled.duration_ms
                 cache_hits += chapter_stats.hits
                 cache_misses += chapter_stats.misses
+                stats_entries.append(
+                    {
+                        "audio_ms": assembled.duration_ms,
+                        "wall_s": round(time.monotonic() - chapter_wall, 3),
+                        "chapter": index,
+                        "sentences": len(timed_chapter.sentences_in_order()),
+                    }
+                )
                 sentences = len(timed_chapter.sentences_in_order())
                 log_lines.append(
                     f"chapter {index} {chapter.title}: rendered "
@@ -1013,7 +1569,48 @@ def run_build(
                     f"audio {chapter_stats.hits} cached, "
                     f"{chapter_stats.misses} rendered)"
                 )
+                _emit(
+                    make_event(
+                        "chapter_done",
+                        chapter=index,
+                        cached=cum_cached,
+                        rendered=cum_rendered,
+                        audio_ms=assembled.duration_ms,
+                        wall_s=time.monotonic() - wall_start,
+                    )
+                    | {"title": chapter.title, "chapters_total": len(render_chapters)}
+                )
+            except BuildStoppedError:
+                # Atomicity: partial chapter output removed so resume
+                # re-renders it fully (render files are only complete after
+                # a successful encode; a stop mid-sentences leaves nothing,
+                # a stop mid-encode leaves a torn MP3 — both deleted).
+                mp3_path.unlink(missing_ok=True)
+                json_path.unlink(missing_ok=True)
+                timed.pop(index, None)
+                audio_paths.pop(index, None)
+                plans.pop(index, None)
+                log_lines.append(
+                    f"chapter {index} {chapter.title}: stopped (partial cleaned)"
+                )
+                _append_log(work_dir, log_lines)
+                raise
             except Exception as exc:  # chapter-level: strict aborts, else record
+                # A stop checked late (e.g. encode took long) still cleans.
+                if stopped_fn():
+                    mp3_path.unlink(missing_ok=True)
+                    json_path.unlink(missing_ok=True)
+                    timed.pop(index, None)
+                    audio_paths.pop(index, None)
+                    plans.pop(index, None)
+                    log_lines.append(
+                        f"chapter {index} {chapter.title}: stopped (partial cleaned)"
+                    )
+                    _append_log(work_dir, log_lines)
+                    raise BuildStoppedError(
+                        f"build: stopped: cooperative stop at chapter {index} "
+                        "(partial chapter cleaned; resume re-renders)"
+                    ) from exc
                 reason = f"{type(exc).__name__}: {exc}"
                 if strict:
                     log_lines.append(f"chapter {index} {chapter.title}: FAILED {reason}")
@@ -1023,7 +1620,6 @@ def run_build(
                 failed.append(index)
                 failure_reasons[index] = reason
                 log_lines.append(f"chapter {index} {chapter.title}: FAILED {reason}")
-            progress.advance(task_id)
             if hook is not None and rendered_this_run >= hook:
                 log_lines.append(
                     f"build aborted: simulated failure after {hook} "
@@ -1033,15 +1629,17 @@ def run_build(
                 raise BuildError(
                     f"simulated failure after {hook} chapter(s) (test hook; rerun resumes)"
                 )
+    finally:
+        if rich_ctx is not None:
+            rich_ctx.__exit__(None, None, None)
 
     if failed:
         details = ", ".join(f"chapter {i}: {failure_reasons[i]}" for i in failed)
         log_lines.append(f"build failed: {len(failed)} chapter(s) failed: {details}")
         _append_log(work_dir, log_lines)
         raise BuildError(f"{len(failed)} chapter(s) failed, no bundle written: {details}")
-    ordered_timed = [timed[i] for i in range(1, len(chapters) + 1)]
-    ordered_audio = [audio_paths[i] for i in range(1, len(chapters) + 1)]
-    ordered_plans = [plans[i] for i in range(1, len(chapters) + 1)]
+    ordered_audio = [audio_paths[i] for i in selected]
+    ordered_plans = [plans[i] for i in selected]
     # MV8: bundle speakers are the RESOLVED character keys (reuse the exact
     # plans used for synthesis/leveling/fingerprint — never re-resolve),
     # and the manifest voices map ships exactly those characters.
@@ -1063,17 +1661,44 @@ def run_build(
             return remap_pdf_chapter_speakers(timed_chapter, plan)
         return remap_chapter_speakers(timed_chapter, plan)
 
-    bundle_chapters = [
-        _remap_for_bundle(timed[i], plans[i]) for i in range(1, len(chapters) + 1)
-    ]
-    bundle_dir = Path(out_dir) if out_dir is not None else Path("bundles") / script.book_id
-    write_bundle(bundle_chapters, ordered_audio, source, bundle_dir, voices=voices_map)
+    # Range bundles renumber consecutively for the writer (1..K in
+    # selection order); the writer attaches source_index + range id.
+    # Full builds pass through numbered 1..N (writer keeps 1.1 + existing id).
+    bundle_numbered: list[ChapterFile] = []
+    if is_range:
+        for pos, src in enumerate(selected, start=1):
+            remapped = _remap_for_bundle(timed[src], plans[src])
+            bundle_numbered.append(
+                ChapterFile(
+                    spec_version=remapped.spec_version,
+                    chapter=pos,
+                    title=remapped.title,
+                    duration_ms=remapped.duration_ms,
+                    blocks=remapped.blocks,
+                    pages=remapped.pages,
+                )
+            )
+    else:
+        bundle_numbered = [_remap_for_bundle(timed[i], plans[i]) for i in selected]
+    if out_dir is not None:
+        bundle_dir = Path(out_dir)
+    else:
+        bundle_dir = Path("bundles") / bundle_id
+    write_bundle(
+        bundle_numbered,
+        ordered_audio,
+        source,
+        bundle_dir,
+        voices=voices_map,
+        source_indices=selected if is_range else None,
+        bundle_id=bundle_id,
+    )
 
-    stale_bundle = remove_stale_chapter_files(bundle_dir / "audio", len(chapters), ".mp3")
-    stale_bundle += remove_stale_chapter_files(bundle_dir / "text", len(chapters), ".json")
+    stale_bundle = remove_stale_chapter_files(bundle_dir / "audio", len(selected), ".mp3")
+    stale_bundle += remove_stale_chapter_files(bundle_dir / "text", len(selected), ".json")
 
-    total_audio_ms = sum(c.duration_ms for c in ordered_timed)
-    total_sentences = sum(len(c.sentences_in_order()) for c in ordered_timed)
+    total_audio_ms = sum(chapter_audio_ms[i] for i in selected)
+    total_sentences = sum(len(timed[i].sentences_in_order()) for i in selected)
     wall_seconds = time.monotonic() - wall_start
     audio_seconds = total_audio_ms / 1000.0
     rtf = audio_seconds / wall_seconds if wall_seconds > 0 else 0.0
@@ -1081,25 +1706,38 @@ def run_build(
     removed = [p.name for p in (*stale_render, *stale_bundle)]
     log_lines.append(f"orphans removed: {', '.join(removed) if removed else 'none'}")
     log_lines.append(
-        f"build done: chapters={len(chapters)} rendered={rendered} "
+        f"build done: chapters={len(selected)} rendered={rendered} "
         f"skipped={skipped} failed=0 total_audio_ms={total_audio_ms} "
         f"cached={cache_hits} synthesized={cache_misses} "
         f"wall_seconds={wall_seconds:.1f} real-time factor (RTF): {rtf:.2f}x"
     )
+    if page_resolution:
+        log_lines.append(page_resolution)
     try:
         _append_log(work_dir, log_lines)
     except OSError as exc:
         raise BuildError(
             f"bundle written to {bundle_dir} but {LOG_FILENAME} unwritable: {exc}"
         ) from exc
+    _record_build_stats(work_dir, stats_entries)
+    _emit(
+        make_event(
+            "build_done",
+            chapter=0,
+            cached=cum_cached,
+            rendered=cum_rendered,
+            audio_ms=total_audio_ms,
+            wall_s=wall_seconds,
+        )
+    )
 
     return BuildResult(
-        book_id=script.book_id,
+        book_id=bundle_id,
         title=script.title,
         work_dir=work_dir,
         bundle_dir=bundle_dir,
         log_path=work_dir / LOG_FILENAME,
-        chapters_total=len(chapters),
+        chapters_total=len(selected),
         rendered=rendered,
         skipped=skipped,
         failed=[],
@@ -1110,4 +1748,8 @@ def run_build(
         strict=strict,
         cache_hits=cache_hits,
         cache_misses=cache_misses,
+        source_chapters_total=len(all_chapters),
+        selected_chapters=list(selected),
+        page_resolution=page_resolution,
+        is_range=is_range,
     )

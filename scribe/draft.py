@@ -131,6 +131,44 @@ def book_id_for_file(path: Path | str) -> tuple[str, str]:
     return book_id_for_sha256(sha), sha
 
 
+def format_range_compact(indices: list[int]) -> str:
+    """Compact ``3-5,7`` form for a sorted 1-based chapter list (D7 ids).
+
+    Runs collapse to ``a-b`` (singles stay bare); input need not be sorted
+    (sorted + deduped here) but must be 1-based ints or :class:`DraftError`
+    rules apply at the caller. Pure, deterministic, no IO.
+    """
+    uniq = sorted(set(int(v) for v in indices))
+    if not uniq:
+        return ""
+    parts: list[str] = []
+    start = prev = uniq[0]
+    for value in uniq[1:]:
+        if value == prev + 1:
+            prev = value
+            continue
+        parts.append(f"{start}-{prev}" if prev != start else f"{start}")
+        start = prev = value
+    parts.append(f"{start}-{prev}" if prev != start else f"{start}")
+    return ",".join(parts)
+
+
+def book_id_for_range(sha256_hex: str, indices: list[int]) -> str:
+    """Range-aware bundle id (D7): UUIDv5 over sha plus the chapter range.
+
+    Full builds MUST NOT call this (they keep :func:`book_id_for_sha256`
+    so the Player keeps saved progress and rebuilds stay byte-identical).
+    Partials get ``uuid5(NAMESPACE_URL,
+    "auloud:book:<hex>:chapters:<compact>")`` where ``<compact>`` is
+    :func:`format_range_compact` (e.g. ``3-5,7``). Same source + same
+    range always gives the same id; different ranges never collide.
+    """
+    compact = format_range_compact(indices)
+    return str(
+        uuid.uuid5(BOOK_ID_NAMESPACE, f"{BOOK_ID_PREFIX}{sha256_hex.lower()}:chapters:{compact}")
+    )
+
+
 def read_book_metadata(epub_path: Path | str) -> tuple[str, str | None]:
     """``(title, author)`` from EPUB Dublin Core or PDF metadata.
 
@@ -665,6 +703,64 @@ def run_draft(
     report_path = work_dir / REPORT_FILENAME
     cast_report_path = work_dir / CAST_REPORT_FILENAME
 
+    # UI1 per-book lock (same file as build; same-PID re-entry allowed so
+    # build -> ensure_script -> draft does not deadlock on itself).
+    from lock import WorkLockError, acquire_work_lock
+    try:
+        lock = acquire_work_lock(work_dir, cmd="draft")
+    except WorkLockError as exc:
+        raise DraftError(str(exc)) from exc
+    except OSError as exc:
+        where = str(exc.filename or work_dir)
+        raise DraftError(f"{where}: cannot write work folder: {_reason(exc)}") from exc
+    try:
+        return _run_draft_locked(
+            source=source,
+            kind=kind,
+            book_id=book_id,
+            sha=sha,
+            title=title,
+            author=author,
+            work_dir=work_dir,
+            script_path=script_path,
+            cast_path=cast_path,
+            report_path=report_path,
+            cast_report_path=cast_report_path,
+            chapters=chapters,
+            line_counts=line_counts,
+            gender_hints=gender_hints,
+            low_confidence=low_confidence,
+            pdf_quality=pdf_quality,
+            drops=list(extracted.drops),
+        )
+    finally:
+        try:
+            lock.release()
+        except Exception:
+            pass
+
+
+def _run_draft_locked(
+    *,
+    source: Path,
+    kind: str,
+    book_id: str,
+    sha: str,
+    title: str,
+    author: str | None,
+    work_dir: Path,
+    script_path: Path,
+    cast_path: Path,
+    report_path: Path,
+    cast_report_path: Path,
+    chapters: list,
+    line_counts: dict,
+    gender_hints: dict,
+    low_confidence: list,
+    pdf_quality: PdfQuality | None,
+    drops: list[str],
+) -> DraftResult:
+
     try:
         discovered = draft_cast(line_counts, gender_hints)
     except ValueError as exc:
@@ -695,7 +791,7 @@ def run_draft(
         report_path=report_path,
         cast_report_path=cast_report_path,
         chapters=chapters,
-        drops=list(extracted.drops),
+        drops=list(drops),
         pdf_quality=pdf_quality,
         total_sentences=total_sentences,
         total_words=total_words,

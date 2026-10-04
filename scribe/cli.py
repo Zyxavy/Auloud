@@ -447,7 +447,8 @@ def build(
     out_dir: Path | None = typer.Option(
         None,
         "--out-dir",
-        help="Bundle output dir (default bundles/<book-id>).",
+        help="Bundle output dir (default bundles/<book-id>, "
+        "bundles/<range-id> for --chapters/--pages).",
     ),
     models_dir: Path = typer.Option(
         Path("models"),
@@ -464,13 +465,64 @@ def build(
         "--no-progress",
         help="Disable the rich progress bar.",
     ),
+    chapters: str | None = typer.Option(
+        None,
+        "--chapters",
+        help="Chapter selection 1-based (e.g. --chapters 3-5,7); "
+        "bundle lists only rendered chapters consecutively.",
+    ),
+    pages: str | None = typer.Option(
+        None,
+        "--pages",
+        help="PDF page range (e.g. --pages 40-90); resolves to covering "
+        "chapters via sentence page provenance (whole chapters render).",
+    ),
+    device: str = typer.Option(
+        "auto",
+        "--device",
+        help="TTS device: auto (CUDA when onnxruntime reports it, else CPU), "
+        "cpu, or cuda.",
+    ),
+    plan: bool = typer.Option(
+        False,
+        "--plan",
+        help="Dry run: print cached vs to-render counts plus a time "
+        "estimate from recent RTF; render no audio.",
+    ),
+    events_jsonl: Path | None = typer.Option(
+        None,
+        "--events-jsonl",
+        help="Append progress events as JSON lines "
+        "({event, chapter, sid, cached, rendered, audio_ms, wall_s}) "
+        "for detached-job tailing.",
+    ),
 ) -> None:
     """Render audio chapter by chapter (resumable) and write the bundle."""
-    from build import BuildError, format_summary, run_build
+    from build import BuildError, format_plan, format_summary, plan_build, run_build
     from bundle.writer import BundleWriteError
     from draft import DraftError
 
+    if plan:
+        try:
+            preflight = plan_build(
+                book,
+                work_root=work_dir,
+                chapters=chapters,
+                pages=pages,
+                models_dir=models_dir,
+                device=device,
+            )
+        except (BuildError, DraftError, BundleWriteError, ValueError) as exc:
+            typer.echo(f"build failed: {exc}", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(format_plan(preflight))
+        return
+    jsonl_writer = None
     try:
+        if events_jsonl is not None:
+            from progress import JsonlProgressWriter
+
+            jsonl_writer = JsonlProgressWriter(events_jsonl)
         result = run_build(
             book,
             work_root=work_dir,
@@ -478,12 +530,24 @@ def build(
             models_dir=models_dir,
             strict=strict,
             show_progress=not no_progress,
+            chapters=chapters,
+            pages=pages,
+            device=device,
+            progress_listener=jsonl_writer,
         )
-    except (BuildError, DraftError, BundleWriteError) as exc:
+    except (BuildError, DraftError, BundleWriteError, ValueError) as exc:
         typer.echo(f"build failed: {exc}", err=True)
         raise typer.Exit(code=1)
+    finally:
+        if jsonl_writer is not None:
+            try:
+                jsonl_writer.close()
+            except Exception:
+                pass
     typer.echo(f"book id: {result.book_id}")
     typer.echo(f"title: {result.title}")
+    if result.page_resolution:
+        typer.echo(result.page_resolution)
     typer.echo(format_summary(result))
 
 
