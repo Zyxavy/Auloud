@@ -77,12 +77,17 @@ _FOOTNOTE_TEXT_RE = re.compile(r"^[\[\(\*†‡§]?\s*\d{1,3}\s*[\]\)\*†‡§]
 
 @dataclass
 class ParsedBlock:
-    """One block parsed from chapter HTML (before cleaning drops/merges)."""
+    """One block parsed from chapter HTML (before cleaning drops/merges).
+
+    ``page`` carries CP6 PDF provenance (1-based source page); the EPUB
+    path leaves it ``None`` (no page numbers in reflowable text).
+    """
 
     kind: str  # "heading" | "para" | "quote" | "break"
     text: str = ""
     level: int | None = None
     spans: list[Span] = field(default_factory=list)
+    page: int | None = None
 
 
 @dataclass

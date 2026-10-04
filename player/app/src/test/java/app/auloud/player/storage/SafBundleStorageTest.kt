@@ -141,6 +141,34 @@ class SafBundleStorageTest {
         storage.audioUri("/storage/emulated/0/Auloud/book1", "audio/ch001.mp3")
     }
 
+    @Test
+    fun coverUri_returnsBackendDocumentUri() {
+        backend.files = setOf("book1/cover.jpg")
+
+        assertEquals(
+            "doc://primary:Auloud/book1/cover.jpg",
+            storage.coverUri("$tree|book1", "cover.jpg")
+        )
+    }
+
+    @Test
+    fun coverUri_wrongTree_returnsNull() {
+        assertEquals(
+            null,
+            storage.coverUri("$tree%2FBooks|book1", "cover.jpg")
+        )
+    }
+
+    @Test
+    fun coverUri_dotDotEscape_returnsNull() {
+        assertEquals(null, storage.coverUri("$tree|book1", "../evil.jpg"))
+    }
+
+    @Test
+    fun coverUri_blank_returnsNull() {
+        assertEquals(null, storage.coverUri("$tree|book1", "  "))
+    }
+
     /** In-memory [SafBackend]: dirs, files, and texts keyed by tree-rel. */
     private class FakeSafBackend : SafBackend {
         var dirs: List<String> = emptyList()

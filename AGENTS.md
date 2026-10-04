@@ -14,7 +14,7 @@ Target device: Samsung Galaxy Tab E (SM-T560NU), Android 7.1.1, `minSdk 24`, abo
 ## Repo layout
 ```
 player/   Android app (Kotlin, Compose, Media3, Room). License: Apache-2.0
-scribe/   Python CLI + library. License: GPL-3.0
+scribe/   Python CLI + library. License: AGPL-3.0-or-later
 spec/     bundle spec and shared test fixtures
 docs/     PRD, architecture, designs, roadmap, test plan, decisions
 ```

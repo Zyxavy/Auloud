@@ -53,15 +53,19 @@ block in open-quote order, matching this anchor. Multi-sentence quotes stay
 one entry (block 11 quote 2 spans many sids but is a single line here), and
 scare-quote emphasis is not dialogue at all (see below).
 
-## Current content (MV1)
+## Current content (CP1)
 
-`crime-and-punishment-ch01.yaml`: 5 dialogue lines from the local
-Part I Chapter I fragment (all certain, 0 uncertain).
+`crime-and-punishment-2ch.yaml`: 107 dialogue lines from C&P Part I
+chapters 1-2 (local 2-chapter EPUB), all hand-verified, 0 uncertain.
+Excerpts are full quote texts (documentary; the anchor is the key).
+Unattributable lines (interior thought, unattributed shouts) keep the
+generic voice the pipeline renders (`default_female`/`default_male`);
+see D-040. This file supersedes and replaces the MV1 5-line seed, whose
+true-speaker convention conflicted on the same keys.
 
 Deliberately excluded: block 12 quotes 1-2 ("hideous", "rehearsal") are
 scare quotes on narration, not spoken dialogue.
 
-The fragment yields only these 5 lines (7 quote pairs total, 2 of them
-scare quotes), far below the plan's 100-150. A proper gold set needs the
-full-novel EPUB (Project Gutenberg). MV2+ rule work still uses this
-directory and the `scribe/dev/eval_speakers.py` harness unchanged.
+Real-text accuracy on this set (`--predictor mv4-real`, strict): 99/107
+= 92.5%; all 8 gaps are unknown-speaker convention lines, zero
+wrong-person errors. Full table in `docs/test-log.md` (CP1 entry).

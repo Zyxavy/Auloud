@@ -14,9 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""``scribe draft`` pipeline (SW5, MV6 multi-voice): EPUB -> work folder.
+"""``scribe draft`` pipeline (SW5, MV6 multi-voice): EPUB/PDF -> work folder.
 
-Parse (SW3 :func:`extract.clean.extract_epub_chapters`) then run MV2-MV4
+Parse (SW3 :func:`extract.clean.extract_epub_chapters`, CP5
+:func:`extract.pdf.extract_pdf_chapters` for ``.pdf`` sources) then run MV2-MV4
 (dialogue split :func:`text.dialogue.split_chapter_dialogue`, candidates
 via :mod:`text.speakers`, attribution :func:`text.attribution
 .attribute_quotes`), then write the work folder ``.scribe/<book-id>/`` with:
@@ -66,6 +67,12 @@ from pathlib import Path
 
 from bundle.models import Block, ChapterFile, Sentence
 from extract.clean import count_words, extract_epub_chapters
+from extract.pdf import (
+    SHORT_LINE_CHARS,
+    PdfQuality,
+    ScannedPdfError,
+    extract_pdf_with_quality,
+)
 from text.attribution import ATTRIBUTION_RULES_VERSION, attribute_quotes
 from text.cast import (
     default_multivoice_cast,
@@ -125,15 +132,27 @@ def book_id_for_file(path: Path | str) -> tuple[str, str]:
 
 
 def read_book_metadata(epub_path: Path | str) -> tuple[str, str | None]:
-    """``(title, author)`` from EPUB Dublin Core; title falls back to stem.
+    """``(title, author)`` from EPUB Dublin Core or PDF metadata.
 
-    Returns author ``None`` when the EPUB names none. Never raises for
-    missing metadata — a draft must work on messy real-world EPUBs.
+    Title falls back to the file stem, author to ``None``. Never raises
+    for missing metadata — a draft must work on messy real-world files.
     """
     from ebooklib import epub as ebooklib_epub
 
     path = Path(epub_path)
     fallback = path.stem
+
+    if path.suffix.lower() == ".pdf":
+        try:
+            import pymupdf
+
+            with pymupdf.open(str(path)) as doc:
+                meta = doc.metadata or {}
+            title = str(meta.get("title") or "").strip() or fallback
+            author = str(meta.get("author") or "").strip() or None
+        except Exception:
+            title, author = fallback, None
+        return title, author
 
     def _first(values: object) -> str | None:
         if not isinstance(values, (list, tuple)) or not values:
@@ -196,6 +215,7 @@ class DraftResult:
     cast_report_path: Path = Path("cast_report.md")
     chapters: list[ChapterFile] = field(default_factory=list)
     drops: list[str] = field(default_factory=list)
+    pdf_quality: PdfQuality | None = None  # Set for PDF sources (CP5 report).
     total_sentences: int = 0
     total_words: int = 0
     total_chars: int = 0
@@ -304,6 +324,7 @@ def _apply_attribution(
                             confidence=confidence,
                             quote=quote_key,
                             split_pair=tagged.split_pair,
+                            page=tagged.page,
                         )
                     )
                     if normalize_name(speaker) and normalize_name(speaker) != "unknown":
@@ -326,6 +347,7 @@ def _apply_attribution(
                             confidence="high",
                             quote=None,
                             split_pair=tagged.split_pair,
+                            page=tagged.page,
                         )
                     )
             new_blocks.append(
@@ -344,6 +366,9 @@ def _apply_attribution(
                 title=dialogue.chapter.title,
                 duration_ms=dialogue.chapter.duration_ms,
                 blocks=new_blocks,
+                pages=list(dialogue.chapter.pages)
+                if dialogue.chapter.pages is not None
+                else None,
             )
         )
 
@@ -413,6 +438,8 @@ def _write_report(
             f"| {index} | {safe_title} | {sentences} | {words} "
             f"| ~{format_duration(seconds)} |"
         )
+    if result.pdf_quality is not None:
+        lines += _pdf_quality_lines(result.pdf_quality)
     lines += [
         "",
         "## Dropped elements",
@@ -439,6 +466,29 @@ def _write_report(
         "",
     ]
     path.write_text("\n".join(lines), encoding="utf-8")
+
+
+def _pdf_quality_lines(quality: PdfQuality) -> list[str]:
+    """``draft_report.md`` PDF quality section (CP5: counts plus warning)."""
+    text_pages = quality.pages - quality.scanned_pages
+    lines = [
+        "",
+        "## PDF quality",
+        "",
+        f"- Pages: {quality.pages} (text: {text_pages}, "
+        f"scanned/image-only: {quality.scanned_pages})",
+        f"- Dropped: {quality.header_lines_dropped} header lines, "
+        f"{quality.footer_lines_dropped} footer lines, "
+        f"{quality.page_numbers_dropped} page numbers, "
+        f"{quality.footnotes_dropped} footnotes",
+        f"- Short-line ratio: {quality.short_line_ratio:.0%} "
+        f"({quality.short_lines}/{quality.total_lines}; "
+        f"lines under {SHORT_LINE_CHARS} chars)",
+    ]
+    if quality.messy:
+        reasons = "; ".join(quality.messy_reasons)
+        lines.append(f"- Warning: this PDF looks messy - {reasons}.")
+    return lines
 
 
 def _write_cast_report(
@@ -568,7 +618,7 @@ def run_draft(
 ) -> DraftResult:
     """Parse, attribute, and write ``<work_root>/<book-id>/``; return the result.
 
-    Every foreseeable failure (missing/unreadable source, unparsable EPUB,
+    Every foreseeable failure (missing/unreadable source, unparsable EPUB/PDF,
     uncreatable/unwritable work folder, unreadable existing cast) raises
     :class:`DraftError` with a file+reason message, so the thin CLI renders
     it cleanly without a traceback. Writing is deterministic: same input
@@ -578,8 +628,9 @@ def run_draft(
     :func:`text.cast.merge_cast`.
     """
     source = Path(epub_path)
+    kind = "PDF" if source.suffix.lower() == ".pdf" else "EPUB"
     if not source.is_file():
-        raise DraftError(f"EPUB not found: {source}")
+        raise DraftError(f"{kind} not found: {source}")
 
     try:
         book_id, sha = book_id_for_file(source)
@@ -587,8 +638,15 @@ def run_draft(
         raise DraftError(f"{source}: cannot read source file: {_reason(exc)}") from exc
     title, author = read_book_metadata(source)
 
+    pdf_quality: PdfQuality | None = None
     try:
-        extracted = extract_epub_chapters(source)
+        if kind == "PDF":
+            try:
+                extracted, pdf_quality = extract_pdf_with_quality(source)
+            except ScannedPdfError as exc:
+                raise DraftError(str(exc)) from exc
+        else:
+            extracted = extract_epub_chapters(source)
         if not extracted.chapters:
             raise DraftError(f"{source.name}: no chapters survived extraction")
         chapters, line_counts, gender_hints, low_confidence = _apply_attribution(
@@ -597,7 +655,7 @@ def run_draft(
     except DraftError:
         raise
     except Exception as exc:
-        raise DraftError(f"{source.name}: cannot parse EPUB: {exc}") from exc
+        raise DraftError(f"{source.name}: cannot parse {kind}: {exc}") from exc
     if not chapters:
         raise DraftError(f"{source.name}: no chapters survived extraction")
 
@@ -638,6 +696,7 @@ def run_draft(
         cast_report_path=cast_report_path,
         chapters=chapters,
         drops=list(extracted.drops),
+        pdf_quality=pdf_quality,
         total_sentences=total_sentences,
         total_words=total_words,
         total_chars=total_chars,

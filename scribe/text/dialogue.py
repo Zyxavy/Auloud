@@ -170,6 +170,9 @@ class TaggedSentence:
     share a paragraph-local id (``None`` everywhere else). Assembly reads
     it for the short (~100 ms) tag pause; a shared id never crosses a
     block boundary, so ids stay local to one paragraph split.
+
+    ``page`` carries CP6 PDF provenance (1-based source page, else
+    ``None`` for EPUB): every split piece inherits its paragraph's page.
     """
 
     sid: int
@@ -182,6 +185,7 @@ class TaggedSentence:
     quote: int | None = None
     continued: bool = False
     split_pair: int | None = None
+    page: int | None = None
 
     @property
     def key(self) -> tuple[int, int, int] | None:
@@ -422,6 +426,7 @@ def split_paragraph_dialogue(
     start_sid: int = 1,
     start_quote: int = 1,
     in_quote: bool = False,
+    page: int | None = None,
 ) -> ParagraphDialogue:
     """Split one paragraph at quote boundaries and tag each record.
 
@@ -429,6 +434,10 @@ def split_paragraph_dialogue(
     ``start_sid``), quote entries (numbers from ``start_quote``), the
     ``out_quote`` carry for the next paragraph, and ``next_quote``.
     ``"".join(s.text)`` over the result always equals ``text`` exactly.
+
+    ``page`` (CP6) stamps every produced record: one paragraph comes
+    from one source page, so all its split pieces share it (``None``
+    for EPUB).
     """
     result = ParagraphDialogue(next_quote=start_quote)
     if not text.strip():
@@ -472,6 +481,7 @@ def split_paragraph_dialogue(
                     spans=list(sent.spans),
                     speaker=sent.speaker,
                     kind=NARRATION,
+                    page=page,
                 )
             )
         return result
@@ -596,6 +606,7 @@ def split_paragraph_dialogue(
                     quote=record_quote,
                     continued=record_continued,
                     split_pair=first_pair if len(tagged) == base else None,
+                    page=page,
                 )
             )
             next_sid += 1
@@ -628,8 +639,14 @@ def split_paragraph_dialogue(
     return result
 
 
-def _paragraph_text_and_spans(block: Block) -> tuple[str, list[Span]]:
-    """Rebuild a para/quote block's paragraph text plus paragraph-global spans."""
+def _paragraph_text_and_spans(block: Block) -> tuple[str, list[Span], int | None]:
+    """Rebuild a para/quote block's paragraph text plus paragraph-global spans.
+
+    Returns ``(text, spans, page)`` where ``page`` is the block's CP6
+    provenance (first sentence's ``page``; ``None`` for EPUB or mixed).
+    One paragraph comes from one source page, so all its sentences share
+    it; split pieces inherit it in :func:`split_chapter_dialogue`.
+    """
     text_parts: list[str] = []
     spans: list[Span] = []
     offset = 0
@@ -638,7 +655,8 @@ def _paragraph_text_and_spans(block: Block) -> tuple[str, list[Span]]:
         for span in sent.spans:
             spans.append(Span(start=offset + span.start, end=offset + span.end, style=span.style))
         offset += len(sent.text)
-    return "".join(text_parts), spans
+    page = block.sentences[0].page if block.sentences else None
+    return "".join(text_parts), spans, page
 
 
 def split_chapter_dialogue(
@@ -652,6 +670,11 @@ def split_chapter_dialogue(
     pass through. Block ids are preserved; sids renumber from 1. At chapter
     end an unclosed multi-paragraph chain is logged and flipped to
     narration so no chapter ends mid-quote.
+
+    CP6: ``page`` provenance rides along (para/quote pieces inherit their
+    paragraph's page; headings infer the next paged page, else the previous,
+    else ``None`` for EPUB). ``pages`` sync marks (if any) pass through;
+    timings are still 0 placeholders here.
     """
     index = chapter.chapter if chapter_index is None else chapter_index
     if chapter.blocks is None:
@@ -673,12 +696,28 @@ def split_chapter_dialogue(
     # Per para/quote block: (block id, started-inside-quote, ended-open,
     # trailing dialogue quote number or None).
     block_infos: list[tuple[int, bool, bool, int | None]] = []
+
+    def _next_paged_page(from_idx: int) -> int | None:
+        """Next para/quote block's page at or after ``from_idx`` (heading fallback)."""
+        for future in chapter.blocks or []:
+            if future.id < from_idx:
+                continue
+            if future.type not in ("para", "quote") or not future.sentences:
+                continue
+            page = future.sentences[0].page
+            if page is not None:
+                return page
+        return None
+
     for block in chapter.blocks:
         if block.type == "heading":
             heading_text = block.text or "".join(s.text for s in block.sentences)
             sentences: list[Sentence] = []
             tagged: list[TaggedSentence] = []
             if heading_text:
+                heading_page = _next_paged_page(block.id)
+                if heading_page is None and tagged_all:
+                    heading_page = tagged_all[-1].page
                 sentences.append(
                     Sentence(
                         sid=sid,
@@ -687,6 +726,7 @@ def split_chapter_dialogue(
                         end_ms=0,
                         text=heading_text,
                         spans=[],
+                        page=heading_page,
                     )
                 )
                 tagged.append(
@@ -698,6 +738,7 @@ def split_chapter_dialogue(
                         spans=[],
                         speaker="narrator",
                         kind=NARRATION,
+                        page=heading_page,
                     )
                 )
                 sid += 1
@@ -723,7 +764,7 @@ def split_chapter_dialogue(
                 )
             )
             continue
-        paragraph, spans = _paragraph_text_and_spans(block)
+        paragraph, spans, para_page = _paragraph_text_and_spans(block)
         speaker = block.sentences[0].speaker if block.sentences else "narrator"
         started_in = in_quote
         result = split_paragraph_dialogue(
@@ -735,13 +776,20 @@ def split_chapter_dialogue(
             start_sid=sid,
             start_quote=1,
             in_quote=in_quote,
+            page=para_page,
         )
         in_quote = result.out_quote
         trailing = result.quotes[-1].quote if (result.quotes and result.out_quote) else None
         block_infos.append((block.id, started_in, result.out_quote, trailing))
         sentences = [
             Sentence(
-                sid=t.sid, speaker=t.speaker, start_ms=0, end_ms=0, text=t.text, spans=list(t.spans)
+                sid=t.sid,
+                speaker=t.speaker,
+                start_ms=0,
+                end_ms=0,
+                text=t.text,
+                spans=list(t.spans),
+                page=t.page,
             )
             for t in result.sentences
         ]
@@ -785,5 +833,6 @@ def split_chapter_dialogue(
         title=chapter.title,
         duration_ms=chapter.duration_ms,
         blocks=blocks,
+        pages=list(chapter.pages) if chapter.pages is not None else None,
     )
     return ChapterDialogue(chapter=out_chapter, tagged=tagged_all, quotes=quotes_all)

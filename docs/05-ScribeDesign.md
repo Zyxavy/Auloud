@@ -1,15 +1,22 @@
 # Scribe Design (PC/server tool)
 
-Scribe turns an EPUB or PDF into a book bundle (see `03-BundleSpec.md`). Language: Python 3.11+. License: GPL-3.0.
+Scribe turns an EPUB or PDF into a book bundle (see `03-BundleSpec.md`). Language: Python 3.11+. License: AGPL-3.0-or-later (see D-024).
 
 ## 1. Commands
 
+All flags verified against `scribe <cmd> --help` on Windows 11 (CP10). `<book>` accepts EPUB or PDF.
+
 | Command | What it does |
 | --- | --- |
-| `scribe draft book.epub` | Parse, clean, split, tag speakers. Writes a work folder with `script.json`, a draft `cast.yaml` and `cast_report.md`. No audio yet. |
-| `scribe build book.epub` | Render audio from the work folder (using your edited `cast.yaml`) and write the bundle. Resumable. |
-| `scribe validate <bundle>` | Run the bundle checks from the spec. |
-| `scribe inspect <bundle>` | Print chapters, durations, speakers, sample sentences. |
+| `scribe draft <book> --work-dir <path>` | Parse, clean, split, tag speakers. Writes `<work-dir>/<book-id>/` with `script.json`, a draft `cast.yaml` and `cast_report.md`. No audio yet. Default `--work-dir .scribe`. |
+| `scribe build <book> --work-dir <path> --out-dir <path> --models-dir models --strict --no-progress` | Render audio from the work folder (using your edited `cast.yaml`) and write the bundle. Resumable. Default output `bundles/<book-id>`. `--strict` aborts on the first chapter error; `--no-progress` disables the rich bar. |
+| `scribe validate <bundle>` | Run the bundle checks from the spec (fails loudly, no traceback). |
+| `scribe inspect <bundle> --speakers` | Print chapters, durations, speakers, sample sentences (`--speakers` adds per-speaker lines and spoken seconds). |
+| `scribe doctor --models-dir models` | Check Python, ffmpeg/ffprobe, espeak-ng, TTS engine, models, spaCy, PyMuPDF, GPU. Prints a table plus `To fix:` hints; never installs or downloads. |
+| `scribe voices --sample --out-dir <path> --models-dir models --speed 1.0` | List Kokoro voices, or with `--sample` render one WAV per voice (default `logs/voice-samples` plus `voices.txt`). |
+| `scribe version` | Print the Scribe version. |
+
+There is no `--cast` flag: `draft` writes the draft `cast.yaml` into the work folder and `build` reads your edited copy from there.
 
 Typical flow: `draft`, edit `cast.yaml`, `build`, `validate`, copy to the tablet.
 
@@ -51,7 +58,7 @@ Book(id, title, author, type, chapters)
 - Drop: nav pages, copyright boilerplate, empty paragraphs, footnote markers, image-only pages (log them).
 - Merge tiny chapters (under about 200 words) into the next one; give untitled chapters "Chapter N".
 
-**PDF:** PyMuPDF text extraction, then remove repeated headers and footers and page numbers, join hyphenated line breaks, rebuild paragraphs from line spacing. If the result looks bad (high ratio of short lines), fall back to page-level sync mode in the spec.
+**PDF:** PyMuPDF text extraction (pinned `pymupdf>=1.28.2`), then remove repeated headers and footers and page numbers, join hyphenated line breaks, rebuild paragraphs from line spacing. Scanned PDFs with no text layer fail as a draft error (no OCR). Each sentence keeps its 1-based source `page`; the writer computes `pages` marks from final timings (spec v1.1). If the result looks bad (high ratio of short lines), the draft report warns "this PDF looks messy".
 
 **Normalization:** NFC, curly quotes preserved, expand nothing automatically. Add a small replacement file (`pronounce.yaml`) for names and words the TTS mispronounces.
 
@@ -101,7 +108,7 @@ overrides:
   - { match: "^\"Run!\"", speaker: Ana }
 ```
 
-Voice names above are examples; check the names your installed Kokoro or Piper version provides. Pitch offsets are small (about 10% max), applied only if you enable `pyrubberband`; otherwise ignored.
+Voice names above are examples; check the names your installed Kokoro version provides. Speed offsets apply; pitch values are accepted and ignored in v1 (no pitch shifting).
 
 ## 9. Synthesis
 
@@ -115,7 +122,7 @@ Implementations: `KokoroEngine` (native 24 kHz, matching the spec) and `PiperEng
 
 - **Cache:** each sentence's audio is stored under a hash of (text, voice, speed, pitch, engine version). Editing `cast.yaml` re-synthesizes only changed lines. Builds resume after a crash.
 - **Pauses (silence inserted after each sentence):** 250 ms sentence, 500 ms paragraph, 800 ms heading, 1000 ms scene break. Configurable.
-- **Loudness:** normalize each chapter buffer to a consistent level (for example, `ffmpeg loudnorm` targeting -16 LUFS) so voices don't jump in volume.
+- **Loudness:** deterministic numpy peak gain to -1 dBFS per voice plus a chapter peak cap (durations unchanged; cached sentence audio stays valid). No LUFS filter pass in v1.
 - **Long text:** synthesize one sentence at a time (keeps engines within their limits and gives exact timings).
 
 ## 10. Assembly and timings
@@ -137,7 +144,7 @@ scribe/
 
 ## 12. Dependencies
 
-`ebooklib`, `beautifulsoup4`, `lxml`, `pysbd`, `spacy` (+ `en_core_web_sm`), `pyyaml`, `numpy`, `soundfile`, `typer`, `rich`, `pytest`; TTS: `kokoro` and/or `piper-tts` (both need `espeak-ng`); `ffmpeg` and `ffprobe` on PATH; optional `pyrubberband`, `pymupdf`.
+`ebooklib`, `beautifulsoup4`, `lxml`, `pysbd`, `spacy` (+ URL-pinned `en_core_web_sm`), `pyyaml`, `numpy`, `soundfile`, `typer`, `rich`, `pytest`; TTS: `kokoro-onnx` + `onnxruntime` (needs `espeak-ng` 1.52.0); `ffmpeg` and `ffprobe` on PATH; `pymupdf` pinned (PDF text extraction); optional `pyrubberband` (unused: pitch is ignored in v1).
 
 ## 13. Errors and logging
 

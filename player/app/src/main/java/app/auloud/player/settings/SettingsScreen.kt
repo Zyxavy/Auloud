@@ -60,6 +60,7 @@ fun SettingsScreen(
         PrefsBatteryPromptStore.fromContext(appContext)
     }
     var showBatteryDialog by remember { mutableStateOf(false) }
+    var showLicenses by remember { mutableStateOf(false) }
     // RA10: reader settings live in the shared prefs store (read once per
     // Settings visit; the reader re-reads on open, so changes apply then).
     val readerStore = remember(appContext) {
@@ -68,6 +69,10 @@ fun SettingsScreen(
     var fontSize by remember { mutableStateOf(readerStore.fontSize()) }
     var keepScreenOn by remember { mutableStateOf(readerStore.keepScreenOn()) }
 
+    if (showLicenses) {
+        LicensesScreen(onBack = { showLicenses = false })
+        return
+    }
     Column(modifier = modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -101,12 +106,18 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         )
         // RA0 throwaway: debug builds only, deleted with the spike screen.
-        if (BuildConfig.DEBUG) {
+        // CP8: gated through isReaderPreviewAvailable so the entry (and the
+        // screen behind it) is unreachable in release builds.
+        if (isReaderPreviewAvailable(BuildConfig.DEBUG)) {
             SpikeEntry(
                 onClick = onOpenSpike,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
             )
         }
+        LicensesEntry(
+            onClick = { showLicenses = true },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        )
     }
 
     if (showBatteryDialog) {
@@ -280,6 +291,26 @@ private fun FontSizeButton(
         Button(onClick = { onFontSize(size) }) { Text(label) }
     } else {
         TextButton(onClick = { onFontSize(size) }) { Text(label) }
+    }
+}
+/** CP8: in-app licenses screen entry (ships in release). */
+@Composable
+private fun LicensesEntry(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.padding(vertical = 8.dp)) {
+        Text(
+            text = "Licenses",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Open-source licenses for the libraries and voices Auloud uses.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = onClick) { Text("View licenses") }
     }
 }
 /** Single WP8 entry: narrow scope passes only a click callback. */

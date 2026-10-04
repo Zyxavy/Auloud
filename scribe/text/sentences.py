@@ -306,6 +306,7 @@ def split_chapter(chapter: ChapterFile) -> ChapterFile:
                         end_ms=0,
                         text=heading_text,
                         spans=[],
+                        page=block.sentences[0].page if block.sentences else None,
                     )
                 ]
                 if heading_text
@@ -325,6 +326,8 @@ def split_chapter(chapter: ChapterFile) -> ChapterFile:
             sentences = []
             for sent in block.sentences:
                 pieces = split_paragraph(sent.text, sent.spans, speaker=sent.speaker, start_sid=sid)
+                for piece in pieces:
+                    piece.page = sent.page
                 sentences.extend(pieces)
                 sid += len(pieces)
             blocks.append(
@@ -352,4 +355,5 @@ def split_chapter(chapter: ChapterFile) -> ChapterFile:
         title=chapter.title,
         duration_ms=chapter.duration_ms,
         blocks=blocks,
+        pages=list(chapter.pages) if chapter.pages is not None else None,
     )

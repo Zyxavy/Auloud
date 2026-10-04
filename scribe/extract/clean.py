@@ -48,7 +48,7 @@ from extract.epub import ParsedBlock, SpineDocument, read_spine_documents
 
 logger = logging.getLogger(__name__)
 
-SPEC_VERSION = "1.0"
+SPEC_VERSION = "1.1"
 TINY_CHAPTER_WORDS = 200
 NARRATOR = "narrator"
 
@@ -105,11 +105,17 @@ def chapter_word_count(blocks: list[ParsedBlock]) -> int:
 
 @dataclass
 class RawChapter:
-    """One spine document after drops, before tiny-merge and renumbering."""
+    """One spine document after drops, before tiny-merge and renumbering.
+
+    ``source_pages`` holds 1-based PDF source pages (Slice 5 CP5; CP6
+    threads them into per-sentence page provenance). The EPUB path leaves
+    it empty.
+    """
 
     href: str
     title: str | None  # TOC title or first heading; None -> "Chapter N" later.
     blocks: list[ParsedBlock] = field(default_factory=list)
+    source_pages: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -144,14 +150,16 @@ def _clean_document(doc: SpineDocument, drops: list[str]) -> RawChapter | None:
                 continue
             if first_heading is None:
                 first_heading = text
-            kept.append(ParsedBlock(kind="heading", text=text, level=block.level or 1))
+            kept.append(
+                ParsedBlock(kind="heading", text=text, level=block.level or 1, page=block.page)
+            )
             continue
         # Para / quote: drop empty, boilerplate, and divider leftovers.
         if not text:
             _record(drops, f"{label}: dropped empty paragraph")
             continue
         if block.kind == "para" and is_break_text(text):
-            kept.append(ParsedBlock(kind="break"))
+            kept.append(ParsedBlock(kind="break", page=block.page))
             continue
         if is_boilerplate(text):
             preview = text[:60] + ("…" if len(text) > 60 else "")
@@ -160,7 +168,7 @@ def _clean_document(doc: SpineDocument, drops: list[str]) -> RawChapter | None:
         # Re-trim spans to the normalized text (epub already normalized,
         # so this is a no-op safety net that also drops out-of-range spans).
         spans = [s for s in block.spans if 0 <= s.start <= s.end <= len(text)]
-        kept.append(ParsedBlock(kind=block.kind, text=text, spans=spans))
+        kept.append(ParsedBlock(kind=block.kind, text=text, spans=spans, page=block.page))
     if not [b for b in kept if b.kind in ("heading", "para", "quote") and b.text.strip()]:
         if doc.has_images:
             _record(drops, f"{label}: dropped image-only page (no text)")
@@ -176,7 +184,11 @@ def _clean_document(doc: SpineDocument, drops: list[str]) -> RawChapter | None:
 def _merge_tiny(
     chapters: list[RawChapter], drops: list[str], *, tiny_threshold: int
 ) -> list[RawChapter]:
-    """Merge sub-threshold chapters forward (backward for a trailing one)."""
+    """Merge sub-threshold chapters forward (backward for a trailing one).
+
+    Merged chapters union their ``source_pages`` (sorted) so PDF page
+    provenance survives the merge (CP5; CP6 reads it for sentence pages).
+    """
     if len(chapters) <= 1:
         return chapters
     merged: list[RawChapter] = []
@@ -189,18 +201,26 @@ def _merge_tiny(
         if pending:
             blocks: list[ParsedBlock] = []
             names: list[str] = []
+            pages: list[int] = []
             for tiny in pending:
                 blocks.extend(tiny.blocks)
+                pages.extend(tiny.source_pages)
                 names.append(
                     f"'{tiny.title or tiny.href}' ({chapter_word_count(tiny.blocks)} words)"
                 )
             blocks.extend(chapter.blocks)
+            pages.extend(chapter.source_pages)
             _record(
                 drops,
                 f"merged tiny chapter(s) {', '.join(names)} into next chapter "
                 f"'{chapter.title or chapter.href}'",
             )
-            chapter = RawChapter(href=chapter.href, title=chapter.title, blocks=blocks)
+            chapter = RawChapter(
+                href=chapter.href,
+                title=chapter.title,
+                blocks=blocks,
+                source_pages=sorted(set(pages)),
+            )
             pending = []
         merged.append(chapter)
     if pending:
@@ -208,9 +228,11 @@ def _merge_tiny(
         if merged:
             target = merged[-1]
             blocks = list(target.blocks)
+            pages = list(target.source_pages)
             names = []
             for tiny in pending:
                 blocks.extend(tiny.blocks)
+                pages.extend(tiny.source_pages)
                 names.append(
                     f"'{tiny.title or tiny.href}' ({chapter_word_count(tiny.blocks)} words)"
                 )
@@ -219,15 +241,29 @@ def _merge_tiny(
                 f"merged trailing tiny chapter(s) {', '.join(names)} into previous chapter "
                 f"'{target.title or target.href}'",
             )
-            merged[-1] = RawChapter(href=target.href, title=target.title, blocks=blocks)
+            merged[-1] = RawChapter(
+                href=target.href,
+                title=target.title,
+                blocks=blocks,
+                source_pages=sorted(set(pages)),
+            )
         else:
             # Every chapter is tiny: keep one combined chapter.
             blocks = []
+            pages = []
             for tiny in pending:
                 blocks.extend(tiny.blocks)
+                pages.extend(tiny.source_pages)
             title = pending[-1].title or pending[0].title
             _record(drops, "all chapters tiny; combined into a single chapter")
-            merged.append(RawChapter(href=pending[0].href, title=title, blocks=blocks))
+            merged.append(
+                RawChapter(
+                    href=pending[0].href,
+                    title=title,
+                    blocks=blocks,
+                    source_pages=sorted(set(pages)),
+                )
+            )
     return merged
 
 
@@ -257,6 +293,7 @@ def _to_chapter_file(index: int, raw: RawChapter) -> ChapterFile:
                             end_ms=0,
                             text=parsed.text,
                             spans=list(parsed.spans),
+                            page=parsed.page,
                         )
                     ],
                 )

@@ -5,7 +5,7 @@
 | Component | Proposed license | Why |
 | --- | --- | --- |
 | Player (Android app) | Apache-2.0 (or MIT) | Permissive, patent grant, compatible with the AndroidX/Media3 libraries it uses |
-| Scribe (PC tool) | AGPL-3.0 | ebooklib is AGPL-3.0 (METADATA: GNU Affero General Public License, AGPLv3+), so Scribe which imports it is AGPL-3.0; also covers hosted-service use via the network clause (see D-024) |
+| Scribe (PC tool) | AGPL-3.0-or-later | ebooklib is AGPL-3.0 (METADATA: GNU Affero General Public License, AGPLv3+), so Scribe which imports it is AGPL-3.0-or-later; also covers hosted-service use via the network clause (see D-024) |
 | Bundle spec (`03-BundleSpec.md`) | CC0 or Apache-2.0 | So anyone can write compatible tools |
 
 The Player only plays audio and shows text, so no GPL code ships in the app. If v2 adds on-device TTS with Piper/espeak-ng, revisit the Player's license (see section 5).
@@ -16,12 +16,12 @@ If you host Scribe as a network service for other people, check the AGPL points 
 
 | Library | License | Verified |
 | --- | --- | --- |
-| Kotlin, coroutines | Apache-2.0 | \[ \] |
-| Jetpack Compose, AndroidX (Room, DataStore, Navigation), Media3 | Apache-2.0 | \[ \] |
-| kotlinx.serialization | Apache-2.0 | \[ \] |
-| Coil | Apache-2.0 | \[ \] |
-| JUnit (test only) | EPL-1.0 | \[ \] |
-| MockK, Turbine (test only) | Apache-2.0 | \[ \] |
+| Kotlin, coroutines | Apache-2.0 | [x] |
+| Jetpack Compose, AndroidX (Room, DataStore, Navigation), Media3 | Apache-2.0 | [x] |
+| kotlinx.serialization | Apache-2.0 | [x] |
+| Coil | Apache-2.0 | [x] |
+| JUnit (test only) | EPL-1.0 | [x] |
+| MockK, Turbine (test only) | Apache-2.0 | [x] |
 
 In-app: add a "Licenses" screen listing these (a Gradle license plugin can generate it), and ship a `NOTICE` file.
 
@@ -30,7 +30,7 @@ In-app: add a "Licenses" screen listing these (a Gradle license plugin can gener
 | Library | License (as I understand it) | Notes | Verified |
 | --- | --- | --- | --- |
 | EbookLib | AGPL-3.0 | Strong copyleft. Fine inside an open-source GPL/AGPL tool; if you offer Scribe as a hosted service, AGPL's network clause means users must be able to get the source. Consider licensing Scribe as AGPL-3.0 in that case. | \[x\] |
-| PyMuPDF | AGPL-3.0 (commercial license available) | Same AGPL consideration. Alternative: `pypdf`/`pdfminer.six` (permissive) if you want to avoid it. | \[ \] |
+| PyMuPDF | AGPL-3.0 (commercial license available) | AGPL is compatible inside AGPL-3.0-or-later Scribe (never ships in the Apache-2.0 Player); pymupdf 1.28.2 pinned in `scribe/pyproject.toml` + `uv.lock`, proven by `scribe doctor` (new `pymupdf` row: import + in-memory open). | \[x\] |
 | beautifulsoup4, lxml | MIT, BSD-3 |  | \[ \] |
 | pysbd | MIT |  | \[ \] |
 | spaCy, `en_core_web_sm` | MIT | spacy 3.8.16 + en-core-web-sm 3.8.0 (installed METADATA says MIT for both; transitives MIT/BSD/Apache-2.0, tqdm dual MPL-2.0 AND MIT, nothing GPL). Model pinned by wheel URL in `scribe/pyproject.toml` + `uv.lock` (not on PyPI); `scribe doctor` checks present + version and proves a parse. | \[x\] |
@@ -44,10 +44,28 @@ In-app: add a "Licenses" screen listing these (a Gradle license plugin can gener
 | Item | License (as I understand it) | Notes | Verified |
 | --- | --- | --- | --- |
 | Kokoro (Python package) | Apache-2.0 | Needs espeak-ng for phonemes | \[ \] |
-| Kokoro model weights | Apache-2.0 | Check the model card | \[ \] |
+| Kokoro model weights | Apache-2.0 | Model card `license: apache-2.0` (https://huggingface.co/hexgrad/Kokoro-82M), checked 2026-10-04 | [x] |
 | Piper (current GPL fork) | GPL-3.0 | Older `rhasspy/piper` was MIT; check which you use | \[ \] |
 | Piper voice models | **Each voice has its own license** | Some permissive, some restricted (for example non-commercial). Record it per voice. | \[ \] |
-| espeak-ng | GPL-3.0 | Used for phonemization by both engines | \[ \] |
+| espeak-ng | GPL-3.0-or-later | Used for phonemization by both engines; repo states GPL-3.0-or-later, installed 1.52.0 matches the latest release, checked 2026-10-04 | [x] |
+
+**v1 voice palette (CP8): every voice below is a configuration inside the
+Kokoro-82M weights, so the model-card Apache-2.0 license covers all of them.
+Source for all rows: https://huggingface.co/hexgrad/Kokoro-82M. Models are
+downloaded at runtime, never committed or bundled in the APK. Unattributable
+lines fall back to the generic female/male voices.**
+
+| Voice | Role | License | Verified |
+| --- | --- | --- | --- |
+| am_onyx | Narrator | Apache-2.0 (Kokoro-82M) | [x] |
+| bf_isabella | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| bm_lewis | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| im_nicola | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| jf_alpha | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| zf_xiaoxiao | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| am_eric | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| af_bella | Generic female | Apache-2.0 (Kokoro-82M) | [x] |
+| am_adam | Generic male | Apache-2.0 (Kokoro-82M) | [x] |
 
 **Rules for voices:**
 
@@ -69,10 +87,10 @@ Bundling espeak-ng (GPL-3.0) or a GPL Piper build into the app means the app is 
 
 ## 7. Release checklist for licensing
 
-- [ ] `LICENSE` file in each component (Player: Apache-2.0; Scribe: GPL-3.0)
-- [ ] `NOTICE` and `THIRD_PARTY_LICENSES.md` generated
-- [ ] All "Verified" boxes above ticked
-- [ ] Voice table complete, with per-voice licenses
-- [ ] In-app licenses screen
-- [ ] README states the copyright/personal-use position
+- [ ] `LICENSE` file in each component (Player: Apache-2.0; Scribe: AGPL-3.0-or-later) - Scribe has `scribe/LICENSE` (AGPL); Player has no own `LICENSE` file (root `LICENSE` is MIT, `player/NOTICE` says Apache-2.0-or-MIT undecided per D-015/D-047)
+- [x] `NOTICE` and `THIRD_PARTY_LICENSES.md` generated (`player/NOTICE` + `player/THIRD_PARTY_LICENSES.md`, CP8)
+- [ ] All "Verified" boxes above ticked (Player section 2 + voices done; Scribe section 3 rows for bs4/lxml, pysbd, yaml/numpy/typer/rich/pytest, soundfile, pyrubberband, ffmpeg and section 4 Kokoro package/Piper still open)
+- [x] Voice table complete, with per-voice licenses (section 4 palette: 9 Kokoro-82M voices, all Apache-2.0, CP8)
+- [x] In-app licenses screen (Settings entry rendering the static list; legibility on the Tab E left for the user)
+- [x] README states the copyright/personal-use position (verbatim paragraph, CP10)
 - [ ] Contribution policy (for example DCO sign-off or a CLA) decided

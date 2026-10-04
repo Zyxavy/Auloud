@@ -1,0 +1,41 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="48"
+    android:viewportHeight="48">
+    <!-- CP8: hand-made launcher icon (own drawing, no downloads): a closed
+         book with a bookmark, emitting three sound waves. -->
+    <!-- book cover -->
+    <path
+        android:fillColor="#00695C"
+        android:pathData="M9,7 h17 a2,2 0 0 1 2,2 v30 a2,2 0 0 1 -2,2 H9 a2,2 0 0 1 -2,-2 V9 a2,2 0 0 1 2,-2 z" />
+    <!-- spine -->
+    <path
+        android:strokeColor="#004D40"
+        android:strokeWidth="2"
+        android:pathData="M11,7 v34" />
+    <!-- bookmark ribbon -->
+    <path
+        android:fillColor="#FFA000"
+        android:pathData="M19,7 v12 l3,-3 3,3 V7 z" />
+    <!-- sound source dot -->
+    <path
+        android:fillColor="#FFA000"
+        android:pathData="M28.5,24 a2.5,2.5 0 1 0 5,0 a2.5,2.5 0 1 0 -5,0" />
+    <!-- three sound waves, 45-degree arcs around the dot -->
+    <path
+        android:strokeColor="#FFA000"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M36,19 A7,7 0 0 1 36,29" />
+    <path
+        android:strokeColor="#FFA000"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M39.5,15.5 A12,12 0 0 1 39.5,32.5" />
+    <path
+        android:strokeColor="#FFA000"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M43,12 A17,17 0 0 1 43,36" />
+</vector>

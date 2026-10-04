@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
@@ -76,7 +77,10 @@ fun ReaderScreen(
     onUserScroll: () -> Unit = {},
     onBackToNow: () -> Unit = {},
     onSentenceTap: (Int) -> Unit = {},
-    onTopVisibleSentence: (Int) -> Unit = {}
+    onTopVisibleSentence: (Int) -> Unit = {},
+    onOpenChapters: () -> Unit = {},
+    onConfirmTapJump: () -> Unit = {},
+    onDismissTapJump: () -> Unit = {}
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -85,6 +89,7 @@ fun ReaderScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = onBack) { Text("Back") }
+            TextButton(onClick = onOpenChapters) { Text("Chapters") }
             Text(
                 text = state.chapter?.title ?: "",
                 style = MaterialTheme.typography.titleMedium,
@@ -100,7 +105,7 @@ fun ReaderScreen(
             state.textError != null -> {
                 Text(
                     text = if (state.textKind == TextKind.PdfForm) {
-                        "Reading arrives later — listening still works"
+                        "Page-only chapter - listening still works"
                     } else {
                         "Text unavailable for this chapter"
                     },
@@ -119,6 +124,26 @@ fun ReaderScreen(
                         onSentenceTap = onSentenceTap,
                         onTopVisibleSentence = onTopVisibleSentence,
                         modifier = Modifier.fillMaxSize()
+                    )
+                }
+                // CP3 follow-up: a tap arms the jump; the audio moves only on
+                // confirm, so accidental taps never lose the place.
+                val pending = state.pendingTapSid
+                if (pending != null) {
+                    val excerpt = state.chapter
+                        ?.sentencesInOrder()
+                        ?.firstOrNull { it.sid == pending }
+                        ?.text
+                    AlertDialog(
+                        onDismissRequest = onDismissTapJump,
+                        confirmButton = {
+                            TextButton(onClick = onConfirmTapJump) { Text("Jump") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = onDismissTapJump) { Text("Cancel") }
+                        },
+                        title = { Text("Jump to this line?") },
+                        text = excerpt?.let { { Text(it) } }
                     )
                 }
             }

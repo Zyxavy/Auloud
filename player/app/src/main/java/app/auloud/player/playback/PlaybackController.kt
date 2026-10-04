@@ -11,6 +11,7 @@ import androidx.media3.common.Timeline
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import app.auloud.player.BuildConfig
+import app.auloud.player.reader.coerceChapterJump
 import app.auloud.player.settings.PrefsReaderModeStore
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
@@ -174,6 +175,20 @@ class PlaybackController(
     }
 
     /**
+     * CP3: jump to a chapter by index (chapter list screen).
+     *
+     * Validates via [coerceChapterJump]; out-of-range is a no-op. Seeks to
+     * the chapter start and refreshes immediately (same paused-seek reason
+     * as [seekTo]: the ticker only fires while playing).
+     */
+    fun seekToChapter(index: Int) {
+        val c = controller ?: return
+        val target = coerceChapterJump(index, c.mediaItemCount) ?: return
+        c.seekTo(target, 0L)
+        refresh("chapterJump")
+    }
+
+    /**
      * RA8: playback speed (0.75x-2.0x, pitch preserved). Clamped, applied
      * to the player when connected, and persisted globally; [connect]
      * re-applies the saved speed because a fresh player starts at 1x.
@@ -238,14 +253,20 @@ class PlaybackController(
                 // Cheap read; holder drops the update when nothing changed,
                 // so a paused screen costs no allocations/recompositions.
                 // An active sleep timer keeps ticking while paused so the
-                // remaining display stays live (one volatile read).
-                if (c.isPlaying || SleepTimerMonitor.active) refresh("tick")
+                // remaining display stays live (one volatile read). A
+                // pending skip/storage notice does the same so a paused
+                // error still reaches the UI.
+                if (c.isPlaying || SleepTimerMonitor.active || SkipNoticeMonitor.hasPending) refresh("tick")
             }
         }
     }
 
     private fun refresh(reason: String) {
         val c = controller ?: return
+        // CP4: take the pending skip/storage notice, if any. Each skip
+        // surfaces exactly once (consume clears the slot); the holder
+        // retains it until the UI dismisses it via clearSkipNotice().
+        val freshNotice = SkipNoticeMonitor.consume()
         holder.onSnapshot(
             ControllerSnapshot(
                 isPlaying = c.isPlaying,
@@ -262,9 +283,19 @@ class PlaybackController(
                 // saver, never the UI clock. Gated so release behavior is
                 // unchanged (stays 0, overlay absent); a volatile read,
                 // no allocation on the ticker path.
-                lastSaveWallMs = if (BuildConfig.DEBUG) DebugSaveTracker.lastSaveWallMs else 0L
+                lastSaveWallMs = if (BuildConfig.DEBUG) DebugSaveTracker.lastSaveWallMs else 0L,
+                skipNotice = freshNotice
             )
         )
+    }
+
+    /**
+     * CP4: UI dismissal for the transient skip/storage notice (tap or
+     * ~6 s timeout). Clears the holder field so rotation cannot
+     * resurrect it; the monitor slot is already consumed.
+     */
+    fun clearSkipNotice() {
+        holder.clearSkipNotice()
     }
 
     private fun chapterDurationOf(c: MediaController): Long {

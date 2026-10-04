@@ -336,6 +336,11 @@ class Sentence:
     reads it for the short tag pause. Unknown keys are ignored on parse
     (Player parity); missing draft fields default to narration/high/None so
     legacy script and bundle JSON read.
+
+    CP6 (spec v1.1): ``page`` is the 1-based PDF source page (PDF text path
+    only). EPUB sentences carry no ``page``: the bundle omits the key
+    entirely (absent, never null); parsing accepts missing (or null) as
+    ``None`` and validation enforces ``>= 1`` when present.
     """
 
     sid: int
@@ -348,6 +353,7 @@ class Sentence:
     confidence: str = "high"
     quote: dict[str, int] | None = None
     split_pair: int | None = None
+    page: int | None = None
 
     @classmethod
     def from_dict(cls, data: Any) -> Sentence:
@@ -395,15 +401,19 @@ class Sentence:
             confidence=confidence,
             quote=quote,
             split_pair=split_pair,
+            page=_optional_int(data, "page"),
         )
 
     def to_dict(self, *, include_draft: bool = False) -> dict[str, Any]:
         """Bundle dict; with ``include_draft`` also write MV6 draft fields.
 
         The bundle format is unchanged (spec law): bundle text JSON carries
-        only sid/speaker/start_ms/end_ms/text/spans. ``script.json`` (the
-        draft work file, not the bundle) uses ``include_draft=True`` to
-        persist ``kind``/``confidence``/``quote``/``split_pair`` per sentence.
+        only sid/speaker/start_ms/end_ms/text/spans (plus CP6 ``page`` when
+        present: PDF sentences include it, EPUB sentences omit the key
+        entirely, never null). ``script.json`` (the draft work file, not
+        the bundle) uses ``include_draft=True`` to persist
+        ``kind``/``confidence``/``quote``/``split_pair`` per sentence
+        (``page`` rides in both: provenance must survive draft and build).
         """
         out: dict[str, Any] = {
             "sid": self.sid,
@@ -414,6 +424,8 @@ class Sentence:
         }
         if self.spans:
             out["spans"] = [s.to_dict() for s in self.spans]
+        if self.page is not None:
+            out["page"] = self.page
         if include_draft:
             out["kind"] = self.kind
             out["confidence"] = self.confidence
@@ -483,7 +495,13 @@ class PageEntry:
 
 @dataclass
 class ChapterFile:
-    """``text/chNNN.json``: EPUB form (``blocks``) or PDF page-sync (``pages``)."""
+    """``text/chNNN.json``: EPUB form (``blocks``), PDF page-sync (``pages``),
+    or v1.1 PDF text path (both ``blocks`` and ``pages``).
+
+    v1.0 allowed exactly one of ``blocks``/``pages``; v1.1 allows both
+    (blocks carry sentences with optional ``page`` provenance, ``pages``
+    carries the sync marks). At least one must be present.
+    """
 
     spec_version: str
     chapter: int
@@ -500,8 +518,7 @@ class ChapterFile:
         pages_raw = data.get("pages")
         if blocks_raw is None and pages_raw is None:
             raise BundleError("chapter file needs 'blocks' (EPUB) or 'pages' (PDF sync)")
-        if blocks_raw is not None and pages_raw is not None:
-            raise BundleError("chapter file must not have both 'blocks' and 'pages'")
+        # v1.1: blocks+pages together is the PDF text path (both allowed).
         blocks = None
         if blocks_raw is not None:
             if not isinstance(blocks_raw, list):

@@ -112,4 +112,30 @@ class FileBundleStorageTest {
         val bundle = bundleDir(temp.root, "book")
         storage.audioUri(bundle.absolutePath, "../evil.mp3")
     }
+
+    @Test
+    fun coverUri_returnsFilePathInsideBundle() {
+        val bundle = bundleDir(temp.root, "book")
+
+        val result = storage.coverUri(bundle.absolutePath, "cover.jpg")
+
+        assertEquals(
+            File(bundle, "cover.jpg").absolutePath,
+            File(result!!).absolutePath
+        )
+    }
+
+    @Test
+    fun coverUri_blank_returnsNull() {
+        val bundle = bundleDir(temp.root, "book")
+
+        assertEquals(null, storage.coverUri(bundle.absolutePath, "  "))
+    }
+
+    @Test
+    fun coverUri_dotDotEscape_returnsNull() {
+        val bundle = bundleDir(temp.root, "book")
+
+        assertEquals(null, storage.coverUri(bundle.absolutePath, "../evil.jpg"))
+    }
 }

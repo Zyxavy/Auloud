@@ -19,4 +19,15 @@ interface BundleStorage {
     fun readText(path: String): String
     fun exists(path: String): Boolean
     fun audioUri(bundleDir: String, relPath: String): Uri
+
+    /**
+     * CP4: resolved cover reference for [coverRel] inside [bundleDirPath].
+     * File branch returns the file path; SAF branch returns a `content://`
+     * document URI string for the cover inside the tree. Returns null when
+     * the cover cannot be resolved (blank rel or bundle escape); callers
+     * store null (no cover) rather than failing the import.
+     *
+     * API 24 safe: plain strings, no new APIs.
+     */
+    fun coverUri(bundleDirPath: String, coverRel: String): String?
 }

@@ -82,6 +82,11 @@ MODELS_HELP = (
     "`doctor` never downloads anything."
 )
 
+PYMUPDF_HELP = (
+    "PyMuPDF is a pinned dependency (PDF text extraction): run `uv sync` "
+    "in scribe/, then re-run `scribe doctor`."
+)
+
 SPACY_MODEL_HELP = (
     "The spaCy English model (about 12 MB) is URL-pinned in "
     "pyproject.toml + uv.lock; run `uv sync` in scribe/ first, "
@@ -291,6 +296,42 @@ def check_spacy() -> CheckResult:
     )
 
 
+def check_pymupdf() -> CheckResult:
+    """Check PyMuPDF imports and can open a document (CP5 PDF extraction).
+
+    Probes importability plus a real in-memory open, mirroring the spaCy
+    check's prove-it-parses ethos. Missing is a graceful FAIL with the
+    sync hint, never an error.
+    """
+    try:
+        import pymupdf
+    except ImportError:
+        return CheckResult(
+            name="pymupdf",
+            status=FAIL,
+            detail="pymupdf not importable",
+            hint=PYMUPDF_HELP,
+        )
+    version = getattr(pymupdf, "__version__", None) or "unknown version"
+    try:
+        doc = pymupdf.open()
+        doc.close()
+    except Exception as exc:
+        return CheckResult(
+            name="pymupdf",
+            status=FAIL,
+            detail=f"pymupdf {version} present but cannot open a document ({exc})",
+            hint="The install may be broken; reinstall it with "
+            "`uv sync --reinstall-package pymupdf` in scribe/, "
+            "then re-run `scribe doctor`.",
+        )
+    return CheckResult(
+        name="pymupdf",
+        status=PASS,
+        detail=f"pymupdf {version} (open ok)",
+    )
+
+
 def check_gpu() -> CheckResult:
     """Report NVIDIA/CUDA presence. Informational: CPU-only builds work (SW0)."""
     nvidia_smi = shutil.which("nvidia-smi")
@@ -322,6 +363,7 @@ def run_checks(models_dir: Path) -> list[CheckResult]:
         check_engine(),
         check_models(models_dir),
         check_spacy(),
+        check_pymupdf(),
         check_gpu(),
     ]
 
@@ -365,7 +407,7 @@ def draft(
         exists=True,
         dir_okay=False,
         readable=True,
-        help="EPUB file to draft from.",
+        help="EPUB or PDF file to draft from.",
     ),
     work_dir: Path = typer.Option(
         Path(".scribe"),
@@ -395,7 +437,7 @@ def build(
         exists=True,
         dir_okay=False,
         readable=True,
-        help="EPUB file to build from.",
+        help="EPUB or PDF file to build from.",
     ),
     work_dir: Path = typer.Option(
         Path(".scribe"),

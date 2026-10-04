@@ -39,6 +39,12 @@ data class ReaderState(
     val isTextLoading: Boolean = false,
     val textError: String? = null,
     /**
+     * CP3 follow-up: tapped sentence awaiting jump confirmation (null when no
+     * prompt is open). The screen shows a confirm dialog instead of seeking
+     * immediately, so accidental taps never move playback.
+     */
+    val pendingTapSid: Int? = null,
+    /**
      * RA9: highlight lag (position at change minus sentence start), average
      * and max over the last [LagTracker.LAG_WINDOW] changes. Null until the
      * first change after a chapter load. Debug overlay only.
@@ -53,7 +59,7 @@ data class ReaderState(
     val textKind: TextKind? = null
 )
 
-/** Missing file, corrupt content, or a PDF form that reads later. */
+/** Missing file, corrupt content, or a page-only PDF chapter (listening still works). */
 enum class TextKind {
     Missing,
     Corrupt,

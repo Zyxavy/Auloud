@@ -64,7 +64,7 @@ def test_golden_pins_book_id_and_chapters() -> None:
     """Fixed id, two chapters, exact durations — a swapped fixture fails."""
     manifest = _manifest()
     assert manifest["id"] == GOLDEN_BOOK_ID
-    assert manifest["spec_version"] == "1.0"
+    assert manifest["spec_version"] == "1.1"
     assert manifest["type"] == "epub"
     assert len(manifest["chapters"]) == 2
     for pos, entry in enumerate(manifest["chapters"], start=1):

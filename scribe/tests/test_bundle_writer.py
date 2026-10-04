@@ -221,7 +221,7 @@ def test_mini_book_writes_valid_bundle_real_probe(tmp_path: Path) -> None:
 
     manifest = _read_manifest(bundle)
     book_id, sha = book_id_for_file(epub_path)
-    assert manifest["spec_version"] == "1.0"
+    assert manifest["spec_version"] == "1.1"
     assert manifest["id"] == book_id == result.book_id
     assert result.sha256 == sha
     assert manifest["title"] == "Writer Test Book"

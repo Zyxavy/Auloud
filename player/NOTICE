@@ -1,0 +1,15 @@
+Auloud Player
+=============
+
+Copyright (c) 2026 Zyxavy.
+
+The Player's own license is still to be decided (Apache-2.0 or MIT, see
+D-015 and docs/08-Liscenses.md section 1). Until then, all rights reserved
+on the app code itself.
+
+This app ships no GPL code. Open-source libraries it uses are listed in
+THIRD_PARTY_LICENSES.md with their versions and licenses; the same list is
+shown in the app under Settings > Licenses.
+
+The voice models that made the audiobooks (Kokoro-82M, espeak-ng,
+en_core_web_sm) run on the PC (Scribe) and are not bundled in this app.

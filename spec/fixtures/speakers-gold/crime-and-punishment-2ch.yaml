@@ -1,0 +1,1166 @@
+# Crime and Punishment, Part I chapters 1-2 (local 2-chapter EPUB).## Hand-verified 2026-10-02: every speaker field checked against the text;# machine guesses live only in the per-entry machine comments.# Convention: lines no speaker can be assigned (interior thought,# unattributed shouts) keep the generic voice the pipeline renders# (default_female/default_male); supersedes crime-and-punishment-ch01.yaml.# Excerpts are full quote texts; the anchor is (book, chapter, block, quote).# Uncertain lines would carry uncertain: true (none in this file).# machine: unknown (unknown, low)
+# machine: unknown (unknown, low)
+- block: 8
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “I want to attempt a thing like that and am frightened by these trifles,”
+  quote: 1
+  speaker: default_female
+  surface: unknown
+# machine: unknown (pronoun, medium)
+- block: 8
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “Hm… yes, all is in a man’s hands and he lets it all slip from cowardice,
+    that’s an axiom. It would be interesting to know what it is men are most afraid
+    of. Taking a new step, uttering a new word is what they fear most…. But I am talking
+    too much. It’s because I chatter that I do nothing. Or perhaps it is that I chatter
+    because I do nothing. I’ve learned to chatter this last month, lying for days together
+    in my den thinking… of Jack the Giant-killer. Why am I going there now? Am I capable
+    of that? Is that serious? It is not serious at all. It’s simply a fantasy to amuse
+    myself; a plaything! Yes, maybe it is a plaything.”
+  quote: 2
+  speaker: default_male
+  surface: unknown
+# machine: unknown (fallback, low)
+- block: 10
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “Hey there, German hatter”
+  quote: 1
+  speaker: default_male
+  surface: unknown
+# machine: unknown (pronoun, medium)
+- block: 11
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “I knew it,”
+  quote: 1
+  speaker: default_male
+  surface: unknown
+# machine: unknown (pronoun, medium)
+- block: 11
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “I thought so! That’s the worst of all! Why, a stupid thing like this, the
+    most trivial detail might spoil the whole plan. Yes, my hat is too noticeable….
+    It looks absurd and that makes it noticeable…. With my rags I ought to wear a cap,
+    any sort of old pancake, but not this grotesque thing. Nobody wears such a hat,
+    it would be noticed a mile off, it would be remembered…. What matters is that people
+    would remember it, and that would give them a clue. For this business one should
+    be as little conspicuous as possible…. Trifles, trifles are what matter! Why, it’s
+    just such trifles that always ruin everything….”
+  quote: 2
+  speaker: default_male
+  surface: unknown
+# machine: unknown (fallback, low)
+- block: 14
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “If I am so scared now, what would it be if it somehow came to pass that
+    I were really going to do it?”
+  quote: 1
+  speaker: default_male
+  surface: unknown
+# machine: unknown (pronoun, medium)
+- block: 14
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “That’s a good thing anyway,”
+  quote: 2
+  speaker: default_male
+  surface: unknown
+# machine: unknown (fallback, low)
+- block: 15
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “Raskolnikov, a student, I came here a month ago,”
+  quote: 1
+  speaker: default_male
+  surface: unknown
+# machine: the old woman (explicit, high)
+- block: 16
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “I remember, my good sir, I remember quite well your coming here,”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: Raskolnikov (explicit, high)
+- block: 17
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “And here… I am again on the same errand,”
+  quote: 1
+  speaker: Raskolnikov
+  surface: Raskolnikov
+# machine: Raskolnikov (explicit, high)
+- block: 17
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “Perhaps she is always like that though, only I did not notice it the other
+    time,”
+  quote: 2
+  speaker: Raskolnikov
+  surface: Raskolnikov
+# machine: Raskolnikov (fallback, low)
+- block: 19
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “Step in, my good sir.”
+  quote: 1
+  speaker: Raskolnikov
+  surface: Raskolnikov
+# machine: Raskolnikov (fallback, low)
+- block: 21
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “So the sun will shine like this then too!”
+  quote: 1
+  speaker: Raskolnikov
+  surface: Raskolnikov
+# machine: Raskolnikov (fallback, low)
+- block: 22
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “Lizaveta’s work,”
+  quote: 1
+  speaker: Raskolnikov
+  surface: Raskolnikov
+# machine: Raskolnikov (explicit, high)
+- block: 23
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “It’s in the houses of spiteful old widows that one finds such cleanliness,”
+  quote: 1
+  speaker: Raskolnikov
+  surface: Raskolnikov
+# machine: the old woman (explicit, high)
+- block: 24
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “What do you want?”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 25
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “I’ve brought something to pawn here,”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 26
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “But the time is up for your last pledge. The month was up the day before
+    yesterday.”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 27
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “I will bring you the interest for another month; wait a little.”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 28
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “But that’s for me to do as I please, my good sir, to wait or to sell your
+    pledge at once.”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 29
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “How much will you give me for the watch, Alyona Ivanovna?”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 30
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “You come with such trifles, my good sir, it’s scarcely worth anything. I
+    gave you two roubles last time for your ring and one could buy it quite new at a
+    jeweler’s for a rouble and a half.”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 31
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “Give me four roubles for it, I shall redeem it, it was my father’s. I shall
+    be getting some money soon.”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 32
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “A rouble and a half, and interest in advance, if you like!”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 33
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “A rouble and a half!”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (pronoun, medium)
+- block: 35
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “Hand it over,”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 37
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “It must be the top drawer,”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 37
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “So she carries the keys in a pocket on the right. All in one bunch on a
+    steel ring…. And there’s one key there, three times as big as all the others, with
+    deep notches; that can’t be the key of the chest of drawers… then there must be
+    some other chest or strong-box… that’s worth knowing. Strong-boxes always have keys
+    like that… but how degrading it all is.”
+  quote: 2
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 39
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: '“Here, sir: as we say ten copecks the rouble a month, so I must take fifteen
+    copecks from a rouble and a half for the month in advance. But for the two roubles
+    I lent you before, you owe me now twenty copecks on the same reckoning in advance.
+    That makes thirty-five copecks altogether. So I must give you a rouble and fifteen
+    copecks for the watch. Here it is.”'
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 40
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “What! only a rouble and fifteen copecks now!”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 41
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “Just so.”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 43
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “I may be bringing you something else in a day or two, Alyona Ivanovna—a
+    valuable thing—silver—a cigarette-box, as soon as I get it back from a friend…”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 44
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “Well, we will talk about it then, sir.”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (pronoun, medium)
+- block: 45
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “Good-bye—are you always at home alone, your sister is not here with you?”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 46
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “What business is she of yours, my good sir?”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 47
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “Oh, nothing particular, I simply asked. You are too quick…. Good-day, Alyona
+    Ivanovna.”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (pronoun, medium)
+- block: 48
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “Oh, God, how loathsome it all is! and can I, can I possibly…. No, it’s nonsense,
+    it’s rubbish!”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (pronoun, medium)
+- block: 48
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “And how could such an atrocious thing come into my head? What filthy things
+    my heart is capable of. Yes, filthy above all, disgusting, loathsome, loathsome!—and
+    for a whole month I’ve been….”
+  quote: 2
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (pronoun, medium)
+- block: 49
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “All that’s nonsense,”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (pronoun, medium)
+- block: 49
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “and there is nothing in it all to worry about! It’s simply physical derangement.
+    Just a glass of beer, a piece of dry bread—and in one moment the brain is stronger,
+    the mind is clearer and the will is firm! Phew, how utterly petty it all is!”
+  quote: 2
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 52
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “His wife a year he fondly loved
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 53
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: His wife a—a year he—fondly loved.”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 55
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: “Walking along the crowded row
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 56
+  book: crime-and-punishment
+  chapter: 1
+  excerpt: He met the one he used to know.”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 5
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “May I venture, honoured sir, to engage you in polite conversation? Forasmuch
+    as, though your exterior would not command respect, my experience admonishes me
+    that you are a man of education and not accustomed to drinking. I have always respected
+    education when in conjunction with genuine sentiments, and I am besides a titular
+    counsellor in rank. Marmeladov—such is my name; titular counsellor. I make bold
+    to inquire—have you been in the service?”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 6
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “No, I am studying,”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 7
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “A student then, or formerly a student,”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 7
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Just what I thought! I’m a man of experience, immense experience, sir,”
+  quote: 2
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 7
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “You’ve been a student or have attended some learned institution!… But allow
+    me….”
+  quote: 3
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (pronoun, medium)
+- block: 8
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Honoured sir,”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (pronoun, medium)
+- block: 8
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: '“poverty is not a vice, that’s a true saying. Yet I know too that drunkenness
+    is not a virtue, and that that’s even truer. But beggary, honoured sir, beggary
+    is a vice. In poverty you may still retain your innate nobility of soul, but in
+    beggary—never—no one. For beggary a man is not chased out of human society with
+    a stick, he is swept out with a broom, so as to make it as humiliating as possible;
+    and quite right, too, forasmuch as in beggary I am ready to be the first to humiliate
+    myself. Hence the pot-house! Honoured sir, a month ago Mr. Lebeziatnikov gave my
+    wife a beating, and my wife is a very different matter from me! Do you understand?
+    Allow me to ask you another question out of simple curiosity: have you ever spent
+    a night on a hay barge, on the Neva?”'
+  quote: 2
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 9
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “No, I have not happened to,”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 9
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “What do you mean?”
+  quote: 2
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 10
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Well, I’ve just come from one and it’s the fifth night I’ve slept so….”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 12
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Funny fellow!”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 12
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “And why don’t you work, why aren’t you at your duty, if you are in the service?”
+  quote: 2
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 13
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Why am I not at my duty, honoured sir,”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 13
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Why am I not at my duty? Does not my heart ache to think what a useless
+    worm I am? A month ago when Mr. Lebeziatnikov beat my wife with his own hands, and
+    I lay drunk, didn’t I suffer? Excuse me, young man, has it ever happened to you…
+    hm… well, to petition hopelessly for a loan?”
+  quote: 2
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 14
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Yes, it has. But what do you mean by hopelessly?”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 15
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Hopelessly in the fullest sense, when you know beforehand that you will
+    get nothing by it. You know, for instance, beforehand with positive certainty that
+    this man, this most reputable and exemplary citizen, will on no consideration give
+    you money; and indeed I ask you why should he? For he knows of course that I shan’t
+    pay it back. From compassion? But Mr. Lebeziatnikov who keeps up with modern ideas
+    explained the other day that compassion is forbidden nowadays by science itself,
+    and that that’s what is done now in England, where there is political economy. Why,
+    I ask you, should he give it to me? And yet though I know beforehand that he won’t,
+    I set off to him and…”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (continuation, low)
+- block: 16
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Why do you go?”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (pronoun, medium)
+- block: 17
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Well, when one has no one, nowhere else one can go! For every man must have
+    somewhere to go. Since there are times when one absolutely must go somewhere! When
+    my own daughter first went out with a yellow ticket, then I had to go… (for my daughter
+    has a yellow passport),”
+  quote: 1
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (pronoun, medium)
+- block: 17
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “No matter, sir, no matter!”
+  quote: 2
+  speaker: the old woman
+  surface: the old woman
+# machine: the old woman (fallback, low)
+- block: 17
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “No matter, I am not confounded by the wagging of their heads; for everyone
+    knows everything about it already, and all that is secret is made open. And I accept
+    it all, not with contempt, but with humility. So be it! So be it! ‘Behold the man!’
+    Excuse me, young man, can you…. No, to put it more strongly and more distinctly;
+    not can you but dare you, looking upon me, assert that I am not a pig?”
+  quote: 3
+  speaker: the old woman
+  surface: the old woman
+# machine: the orator (explicit, high)
+- block: 19
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Well,”
+  quote: 1
+  speaker: the orator
+  surface: the orator
+# machine: the orator (explicit, high)
+- block: 19
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Well, so be it, I am a pig, but she is a lady! I have the semblance of a
+    beast, but Katerina Ivanovna, my spouse, is a person of education and an officer’s
+    daughter. Granted, granted, I am a scoundrel, but she is a woman of a noble heart,
+    full of sentiments, refined by education. And yet… oh, if only she felt for me!
+    Honoured sir, honoured sir, you know every man ought to have at least one place
+    where people feel for him! But Katerina Ivanovna, though she is magnanimous, she
+    is unjust…. And yet, although I realise that when she pulls my hair she only does
+    it out of pity—for I repeat without being ashamed, she pulls my hair, young man,”
+  quote: 2
+  speaker: the orator
+  surface: the orator
+# machine: the orator (pronoun, medium)
+- block: 19
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “but, my God, if she would but once…. But no, no! It’s all in vain and it’s
+    no use talking! No use talking! For more than once, my wish did come true and more
+    than once she has felt for me but… such is my fate and I am a beast by nature!”
+  quote: 3
+  speaker: the orator
+  surface: the orator
+# machine: the orator (continuation, medium)
+- block: 20
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Rather!”
+  quote: 1
+  speaker: the orator
+  surface: the orator
+# machine: the orator (fallback, low)
+- block: 21
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Such is my fate! Do you know, sir, do you know, I have sold her very stockings
+    for drink? Not her shoes—that would be more or less in the order of things, but
+    her stockings, her stockings I have sold for drink! Her mohair shawl I sold for
+    drink, a present to her long ago, her own property, not mine; and we live in a cold
+    room and she caught cold this winter and has begun coughing and spitting blood too.
+    We have three little children and Katerina Ivanovna is at work from morning till
+    night; she is scrubbing and cleaning and washing the children, for she’s been used
+    to cleanliness from a child. But her chest is weak and she has a tendency to consumption
+    and I feel it! Do you suppose I don’t feel it? And the more I drink the more I feel
+    it. That’s why I drink too. I try to find sympathy and feeling in drink…. I drink
+    so that I may suffer twice as much!”
+  quote: 1
+  speaker: the orator
+  surface: the orator
+# machine: the orator (fallback, low)
+- block: 22
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Young man,”
+  quote: 1
+  speaker: the orator
+  surface: the orator
+# machine: the orator (fallback, low)
+- block: 22
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: '“in your face I seem to read some trouble of mind. When you came in I read
+    it, and that was why I addressed you at once. For in unfolding to you the story
+    of my life, I do not wish to make myself a laughing-stock before these idle listeners,
+    who indeed know all about it already, but I am looking for a man of feeling and
+    education. Know then that my wife was educated in a high-class school for the daughters
+    of noblemen, and on leaving she danced the shawl dance before the governor and other
+    personages for which she was presented with a gold medal and a certificate of merit.
+    The medal… well, the medal of course was sold—long ago, hm… but the certificate
+    of merit is in her trunk still and not long ago she showed it to our landlady. And
+    although she is most continually on bad terms with the landlady, yet she wanted
+    to tell someone or other of her past honours and of the happy days that are gone.
+    I don’t condemn her for it, I don’t blame her, for the one thing left her is recollection
+    of the past, and all the rest is dust and ashes. Yes, yes, she is a lady of spirit,
+    proud and determined. She scrubs the floors herself and has nothing but black bread
+    to eat, but won’t allow herself to be treated with disrespect. That’s why she would
+    not overlook Mr. Lebeziatnikov’s rudeness to her, and so when he gave her a beating
+    for it, she took to her bed more from the hurt to her feelings than from the blows.
+    She was a widow when I married her, with three children, one smaller than the other.
+    She married her first husband, an infantry officer, for love, and ran away with
+    him from her father’s house. She was exceedingly fond of her husband; but he gave
+    way to cards, got into trouble and with that he died. He used to beat her at the
+    end: and although she paid him back, of which I have authentic documentary evidence,
+    to this day she speaks of him with tears and she throws him up to me; and I am glad,
+    I am glad that, though only in imagination, she should think of herself as having
+    once been happy…. And she was left at his death with three children in a wild and
+    remote district where I happened to be at the time; and she was left in such hopeless
+    poverty that, although I have seen many ups and downs of all sort, I don’t feel
+    equal to describing it even. Her relations had all thrown her off. And she was proud,
+    too, excessively proud…. And then, honoured sir, and then, I, being at the time
+    a widower, with a daughter of fourteen left me by my first wife, offered her my
+    hand, for I could not bear the sight of such suffering. You can judge the extremity
+    of her calamities, that she, a woman of education and culture and distinguished
+    family, should have consented to be my wife. But she did! Weeping and sobbing and
+    wringing her hands, she married me! For she had nowhere to turn! Do you understand,
+    sir, do you understand what it means when you have absolutely nowhere to turn? No,
+    that you don’t understand yet…. And for a whole year, I performed my duties conscientiously
+    and faithfully, and did not touch this”'
+  quote: 2
+  speaker: the orator
+  surface: the orator
+# machine: the orator (fallback, low)
+- block: 22
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: '“for I have feelings. But even so, I could not please her; and then I lost
+    my place too, and that through no fault of mine but through changes in the office;
+    and then I did touch it!… It will be a year and a half ago soon since we found ourselves
+    at last after many wanderings and numerous calamities in this magnificent capital,
+    adorned with innumerable monuments. Here I obtained a situation…. I obtained it
+    and I lost it again. Do you understand? This time it was through my own fault I
+    lost it: for my weakness had come out…. We have now part of a room at Amalia Fyodorovna
+    Lippevechsel’s; and what we live upon and what we pay our rent with, I could not
+    say. There are a lot of people living there besides ourselves. Dirt and disorder,
+    a perfect Bedlam… hm… yes… And meanwhile my daughter by my first wife has grown
+    up; and what my daughter has had to put up with from her step-mother whilst she
+    was growing up, I won’t speak of. For, though Katerina Ivanovna is full of generous
+    feelings, she is a spirited lady, irritable and short-tempered…. Yes. But it’s no
+    use going over that! Sonia, as you may well fancy, has had no education. I did make
+    an effort four years ago to give her a course of geography and universal history,
+    but as I was not very well up in those subjects myself and we had no suitable books,
+    and what books we had… hm, anyway we have not even those now, so all our instruction
+    came to an end. We stopped at Cyrus of Persia. Since she has attained years of maturity,
+    she has read other books of romantic tendency and of late she had read with great
+    interest a book she got through Mr. Lebeziatnikov, Lewes’ Physiology—do you know
+    it?—and even recounted extracts from it to us: and that’s the whole of her education.
+    And now may I venture to address you, honoured sir, on my own account with a private
+    question. Do you suppose that a respectable poor girl can earn much by honest work?
+    Not fifteen farthings a day can she earn, if she is respectable and has no special
+    talent and that without putting her work down for an instant! And what’s more, Ivan
+    Ivanitch Klopstock the civil counsellor—have you heard of him?—has not to this day
+    paid her for the half-dozen linen shirts she made him and drove her roughly away,
+    stamping and reviling her, on the pretext that the shirt collars were not made like
+    the pattern and were put in askew. And there are the little ones hungry…. And Katerina
+    Ivanovna walking up and down and wringing her hands, her cheeks flushed red, as
+    they always are in that disease: ‘Here you live with us,’ says she, ‘you eat and
+    drink and are kept warm and you do nothing to help.’ And much she gets to eat and
+    drink when there is not a crust for the little ones for three days! I was lying
+    at the time… well, what of it! I was lying drunk and I heard my Sonia speaking (she
+    is a gentle creature with a soft little voice… fair hair and such a pale, thin little
+    face). She said: ‘Katerina Ivanovna, am I really to do a thing like that?’ And Darya
+    Frantsovna, a woman of evil character and very well known to the police, had two
+    or three times tried to get at her through the landlady. ‘And why not?’ said Katerina
+    Ivanovna with a jeer, ‘you are something mighty precious to be so careful of!’ But
+    don’t blame her, don’t blame her, honoured sir, don’t blame her! She was not herself
+    when she spoke, but driven to distraction by her illness and the crying of the hungry
+    children; and it was said more to wound her than anything else…. For that’s Katerina
+    Ivanovna’s character, and when children cry, even from hunger, she falls to beating
+    them at once. At six o’clock I saw Sonia get up, put on her kerchief and her cape,
+    and go out of the room and about nine o’clock she came back. She walked straight
+    up to Katerina Ivanovna and she laid thirty roubles on the table before her in silence.
+    She did not utter a word, she did not even look at her, she simply picked up our
+    big green drap de dames shawl (we have a shawl, made of drap de dames), put it over
+    her head and face and lay down on the bed with her face to the wall; only her little
+    shoulders and her body kept shuddering…. And I went on lying there, just as before….
+    And then I saw, young man, I saw Katerina Ivanovna, in the same silence go up to
+    Sonia’s little bed; she was on her knees all the evening kissing Sonia’s feet, and
+    would not get up, and then they both fell asleep in each other’s arms… together,
+    together… yes… and I… lay drunk.”'
+  quote: 3
+  speaker: the orator
+  surface: the orator
+# machine: the orator (fallback, low)
+- block: 24
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Since then, sir,”
+  quote: 1
+  speaker: the orator
+  surface: the orator
+# machine: the orator (fallback, low)
+- block: 24
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: '“Since then, owing to an unfortunate occurrence and through information
+    given by evil-intentioned persons—in all which Darya Frantsovna took a leading part
+    on the pretext that she had been treated with want of respect—since then my daughter
+    Sofya Semyonovna has been forced to take a yellow ticket, and owing to that she
+    is unable to go on living with us. For our landlady, Amalia Fyodorovna would not
+    hear of it (though she had backed up Darya Frantsovna before) and Mr. Lebeziatnikov
+    too… hm…. All the trouble between him and Katerina Ivanovna was on Sonia’s account.
+    At first he was for making up to Sonia himself and then all of a sudden he stood
+    on his dignity: ‘how,’ said he, ‘can a highly educated man like me live in the same
+    rooms with a girl like that?’ And Katerina Ivanovna would not let it pass, she stood
+    up for her… and so that’s how it happened. And Sonia comes to us now, mostly after
+    dark; she comforts Katerina Ivanovna and gives her all she can…. She has a room
+    at the Kapernaumovs’ the tailors, she lodges with them; Kapernaumov is a lame man
+    with a cleft palate and all of his numerous family have cleft palates too. And his
+    wife, too, has a cleft palate. They all live in one room, but Sonia has her own,
+    partitioned off…. Hm… yes… very poor people and all with cleft palates… yes. Then
+    I got up in the morning, and put on my rags, lifted up my hands to heaven and set
+    off to his excellency Ivan Afanasyvitch. His excellency Ivan Afanasyvitch, do you
+    know him? No? Well, then, it’s a man of God you don’t know. He is wax… wax before
+    the face of the Lord; even as wax melteth!… His eyes were dim when he heard my story.
+    ‘Marmeladov, once already you have deceived my expectations… I’ll take you once
+    more on my own responsibility’—that’s what he said, ‘remember,’ he said, ‘and now
+    you can go.’ I kissed the dust at his feet—in thought only, for in reality he would
+    not have allowed me to do it, being a statesman and a man of modern political and
+    enlightened ideas. I returned home, and when I announced that I’d been taken back
+    into the service and should receive a salary, heavens, what a to-do there was!…”'
+  quote: 2
+  speaker: the orator
+  surface: the orator
+# machine: the orator (fallback, low)
+- block: 26
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: '“That was five weeks ago, sir. Yes…. As soon as Katerina Ivanovna and Sonia
+    heard of it, mercy on us, it was as though I stepped into the kingdom of Heaven.
+    It used to be: you can lie like a beast, nothing but abuse. Now they were walking
+    on tiptoe, hushing the children. ‘Semyon Zaharovitch is tired with his work at the
+    office, he is resting, shh!’ They made me coffee before I went to work and boiled
+    cream for me! They began to get real cream for me, do you hear that? And how they
+    managed to get together the money for a decent outfit—eleven roubles, fifty copecks,
+    I can’t guess. Boots, cotton shirt-fronts—most magnificent, a uniform, they got
+    up all in splendid style, for eleven roubles and a half. The first morning I came
+    back from the office I found Katerina Ivanovna had cooked two courses for dinner—soup
+    and salt meat with horse radish—which we had never dreamed of till then. She had
+    not any dresses… none at all, but she got herself up as though she were going on
+    a visit; and not that she’d anything to do it with, she smartened herself up with
+    nothing at all, she’d done her hair nicely, put on a clean collar of some sort,
+    cuffs, and there she was, quite a different person, she was younger and better looking.
+    Sonia, my little darling, had only helped with money ‘for the time,’ she said, ‘it
+    won’t do for me to come and see you too often. After dark maybe when no one can
+    see.’ Do you hear, do you hear? I lay down for a nap after dinner and what do you
+    think: though Katerina Ivanovna had quarrelled to the last degree with our landlady
+    Amalia Fyodorovna only a week before, she could not resist then asking her in to
+    coffee. For two hours they were sitting, whispering together. ‘Semyon Zaharovitch
+    is in the service again, now, and receiving a salary,’ says she, ‘and he went himself
+    to his excellency and his excellency himself came out to him, made all the others
+    wait and led Semyon Zaharovitch by the hand before everybody into his study.’ Do
+    you hear, do you hear? ‘To be sure,’ says he, ‘Semyon Zaharovitch, remembering your
+    past services,’ says he, ‘and in spite of your propensity to that foolish weakness,
+    since you promise now and since moreover we’ve got on badly without you,’ (do you
+    hear, do you hear;) ‘and so,’ says he, ‘I rely now on your word as a gentleman.’
+    And all that, let me tell you, she has simply made up for herself, and not simply
+    out of wantonness, for the sake of bragging; no, she believes it all herself, she
+    amuses herself with her own fancies, upon my word she does! And I don’t blame her
+    for it, no, I don’t blame her!… Six days ago when I brought her my first earnings
+    in full—twenty-three roubles forty copecks altogether—she called me her poppet:
+    ‘poppet,’ said she, ‘my little poppet.’ And when we were by ourselves, you understand?
+    You would not think me a beauty, you would not think much of me as a husband, would
+    you?… Well, she pinched my cheek, ‘my little poppet,’ said she.”'
+  quote: 1
+  speaker: the orator
+  surface: the orator
+# machine: the orator (fallback, low)
+- block: 28
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Honoured sir, honoured sir,”
+  quote: 1
+  speaker: the orator
+  surface: the orator
+# machine: the orator (fallback, low)
+- block: 28
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Oh, sir, perhaps all this seems a laughing matter to you, as it does to
+    others, and perhaps I am only worrying you with the stupidity of all the trivial
+    details of my home life, but it is not a laughing matter to me. For I can feel it
+    all…. And the whole of that heavenly day of my life and the whole of that evening
+    I passed in fleeting dreams of how I would arrange it all, and how I would dress
+    all the children, and how I should give her rest, and how I should rescue my own
+    daughter from dishonour and restore her to the bosom of her family…. And a great
+    deal more…. Quite excusable, sir. Well, then, sir”
+  quote: 2
+  speaker: the orator
+  surface: the orator
+# machine: the orator (fallback, low)
+- block: 28
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “well, on the very next day after all those dreams, that is to say, exactly
+    five days ago, in the evening, by a cunning trick, like a thief in the night, I
+    stole from Katerina Ivanovna the key of her box, took out what was left of my earnings,
+    how much it was I have forgotten, and now look at me, all of you! It’s the fifth
+    day since I left home, and they are looking for me there and it’s the end of my
+    employment, and my uniform is lying in a tavern on the Egyptian bridge. I exchanged
+    it for the garments I have on… and it’s the end of everything!”
+  quote: 3
+  speaker: the orator
+  surface: the orator
+# machine: the orator (fallback, low)
+- block: 30
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “This morning I went to see Sonia, I went to ask her for a pick-me-up! He-he-he!”
+  quote: 1
+  speaker: the orator
+  surface: the orator
+# machine: the orator (pronoun, medium)
+- block: 31
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “You don’t say she gave it to you?”
+  quote: 1
+  speaker: the orator
+  surface: the orator
+# machine: Marmeladov (explicit, high)
+- block: 32
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “This very quart was bought with her money,”
+  quote: 1
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (explicit, high)
+- block: 32
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Thirty copecks she gave me with her own hands, her last, all she had, as
+    I saw…. She said nothing, she only looked at me without a word…. Not on earth, but
+    up yonder… they grieve over men, they weep, but they don’t blame them, they don’t
+    blame them! But it hurts more, it hurts more when they don’t blame! Thirty copecks
+    yes! And maybe she needs them now, eh? What do you think, my dear sir? For now she’s
+    got to keep up her appearance. It costs money, that smartness, that special smartness,
+    you know? Do you understand? And there’s pomatum, too, you see, she must have things;
+    petticoats, starched ones, shoes, too, real jaunty ones to show off her foot when
+    she has to step over a puddle. Do you understand, sir, do you understand what all
+    that smartness means? And here I, her own father, here I took thirty copecks of
+    that money for a drink! And I am drinking it! And I have already drunk it! Come,
+    who will have pity on a man like me, eh? Are you sorry for me, sir, or not? Tell
+    me, sir, are you sorry or not? He-he-he!”
+  quote: 2
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (fallback, low)
+- block: 34
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “What are you to be pitied for?”
+  quote: 1
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (fallback, low)
+- block: 36
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “To be pitied! Why am I to be pitied?”
+  quote: 1
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (fallback, low)
+- block: 37
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: '“Why am I to be pitied, you say? Yes! there’s nothing to pity me for! I
+    ought to be crucified, crucified on a cross, not pitied! Crucify me, oh judge, crucify
+    me but pity me! And then I will go of myself to be crucified, for it’s not merry-making
+    I seek but tears and tribulation!… Do you suppose, you that sell, that this pint
+    of yours has been sweet to me? It was tribulation I sought at the bottom of it,
+    tears and tribulation, and have found it, and I have tasted it; but He will pity
+    us Who has had pity on all men, Who has understood all men and all things, He is
+    the One, He too is the judge. He will come in that day and He will ask: ‘Where is
+    the daughter who gave herself for her cross, consumptive step-mother and for the
+    little children of another? Where is the daughter who had pity upon the filthy drunkard,
+    her earthly father, undismayed by his beastliness?’ And He will say, ‘Come to me!
+    I have already forgiven thee once…. I have forgiven thee once…. Thy sins which are
+    many are forgiven thee for thou hast loved much….’ And he will forgive my Sonia,
+    He will forgive, I know it… I felt it in my heart when I was with her just now!
+    And He will judge and will forgive all, the good and the evil, the wise and the
+    meek…. And when He has done with all of them, then He will summon us. ‘You too come
+    forth,’ He will say, ‘Come forth ye drunkards, come forth, ye weak ones, come forth,
+    ye children of shame!’ And we shall all come forth, without shame and shall stand
+    before him. And He will say unto us, ‘Ye are swine, made in the Image of the Beast
+    and with his mark; but come ye also!’ And the wise ones and those of understanding
+    will say, ‘Oh Lord, why dost Thou receive these men?’ And He will say, ‘This is
+    why I receive them, oh ye wise, this is why I receive them, oh ye of understanding,
+    that not one of them believed himself to be worthy of this.’ And He will hold out
+    His hands to us and we shall fall down before him… and we shall weep… and we shall
+    understand all things! Then we shall understand all!… and all will understand, Katerina
+    Ivanovna even… she will understand…. Lord, Thy kingdom come!”'
+  quote: 1
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (fallback, low)
+- block: 38
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “That’s his notion!”
+  quote: 1
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (continuation, low)
+- block: 39
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Talked himself silly!”
+  quote: 1
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (continuation, low)
+- block: 40
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “A fine clerk he is!”
+  quote: 1
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (explicit, high)
+- block: 42
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Let us go, sir,”
+  quote: 1
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (explicit, high)
+- block: 42
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “come along with me… Kozel’s house, looking into the yard. I’m going to Katerina
+    Ivanovna—time I did.”
+  quote: 2
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (pronoun, medium)
+- block: 44
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “It’s not Katerina Ivanovna I am afraid of now,”
+  quote: 1
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (pronoun, medium)
+- block: 44
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “and that she will begin pulling my hair. What does my hair matter! Bother
+    my hair! That’s what I say! Indeed it will be better if she does begin pulling it,
+    that’s not what I am afraid of… it’s her eyes I am afraid of… yes, her eyes… the
+    red on her cheeks, too, frightens me… and her breathing too…. Have you noticed how
+    people in that disease breathe… when they are excited? I am frightened of the children’s
+    crying, too…. For if Sonia has not taken them food… I don’t know what’s happened!
+    I don’t know! But blows I am not afraid of…. Know, sir, that such blows are not
+    a pain to me, but even an enjoyment. In fact I can’t get on without it…. It’s better
+    so. Let her strike me, it relieves her heart… it’s better so… There is the house.
+    The house of Kozel, the cabinet-maker… a German, well-to-do. Lead the way!”
+  quote: 2
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (pronoun, medium)
+- block: 48
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Ah!”
+  quote: 1
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (pronoun, medium)
+- block: 48
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “he has come back! The criminal! the monster!… And where is the money? What’s
+    in your pocket, show me! And your clothes are all different! Where are your clothes?
+    Where is the money! Speak!”
+  quote: 2
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (pronoun, medium)
+- block: 50
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Where is the money?”
+  quote: 1
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (pronoun, medium)
+- block: 50
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Mercy on us, can he have drunk it all? There were twelve silver roubles
+    left in the chest!”
+  quote: 2
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: Marmeladov (pronoun, medium)
+- block: 51
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “And this is a consolation to me! This does not hurt me, but is a positive
+    con-so-la-tion, ho-nou-red sir,”
+  quote: 1
+  speaker: Marmeladov
+  surface: Marmeladov
+# machine: the poor woman (explicit, high)
+- block: 52
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “He’s drunk it! he’s drunk it all,”
+  quote: 1
+  speaker: the poor woman
+  surface: the poor woman
+# machine: the poor woman (explicit, high)
+- block: 52
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “and his clothes are gone! And they are hungry, hungry!”
+  quote: 2
+  speaker: the poor woman
+  surface: the poor woman
+# machine: the poor woman (fallback, low)
+- block: 52
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Oh, accursed life! And you, are you not ashamed?”
+  quote: 3
+  speaker: the poor woman
+  surface: the poor woman
+# machine: the poor woman (fallback, low)
+- block: 52
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “from the tavern! Have you been drinking with him? You have been drinking
+    with him, too! Go away!”
+  quote: 4
+  speaker: the poor woman
+  surface: the poor woman
+# machine: the poor woman (pronoun, medium)
+- block: 54
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “What a stupid thing I’ve done,”
+  quote: 1
+  speaker: the poor woman
+  surface: the poor woman
+# machine: the poor woman (pronoun, medium)
+- block: 54
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “they have Sonia and I want it myself.”
+  quote: 2
+  speaker: the poor woman
+  surface: the poor woman
+# machine: the poor woman (pronoun, medium)
+- block: 54
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “Sonia wants pomatum too,”
+  quote: 3
+  speaker: the poor woman
+  surface: the poor woman
+# machine: the poor woman (pronoun, medium)
+- block: 54
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “such smartness costs money…. Hm! And maybe Sonia herself will be bankrupt
+    to-day, for there is always a risk, hunting big game… digging for gold… then they
+    would all be without a crust to-morrow except for my money. Hurrah for Sonia! What
+    a mine they’ve dug there! And they’re making the most of it! Yes, they are making
+    the most of it! They’ve wept over it and grown used to it. Man grows used to everything,
+    the scoundrel!”
+  quote: 4
+  speaker: the poor woman
+  surface: the poor woman
+# machine: the poor woman (pronoun, medium)
+- block: 56
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “And what if I am wrong,”
+  quote: 1
+  speaker: the poor woman
+  surface: the poor woman
+# machine: the poor woman (pronoun, medium)
+- block: 56
+  book: crime-and-punishment
+  chapter: 2
+  excerpt: “What if man is not really a scoundrel, man in general, I mean, the whole
+    race of mankind—then all the rest is prejudice, simply artificial terrors and there
+    are no barriers and it’s all as it should be.”
+  quote: 2
+  speaker: the poor woman
+  surface: the poor woman

@@ -85,6 +85,40 @@ class LibraryRepositoryTest {
     }
 
     @Test
+    fun importBundle_safCover_resolvesToContentUri() = runBlocking {
+        val tree = "content://com.android.externalstorage.documents/tree/primary%3AAuloud"
+        val safDir = "$tree|saf-book"
+        val safStorage = object : BundleStorage by FakeBundleStorage(
+            existing = setOf("$safDir/manifest.json", "$safDir/cover.jpg")
+        ) {
+            override fun coverUri(bundleDirPath: String, coverRel: String): String? =
+                "content://com.android.externalstorage.documents/document/primary%3AAuloud%2Fsaf-book%2Fcover.jpg"
+        }
+        repo = RoomLibraryRepository(dao, safStorage, now = { clockMs })
+
+        val book = repo.importBundle(safDir, manifest()).getOrThrow()
+
+        assertEquals(
+            "content://com.android.externalstorage.documents/document/primary%3AAuloud%2Fsaf-book%2Fcover.jpg",
+            book.coverPath
+        )
+    }
+
+    @Test
+    fun importBundle_coverEscape_storesNull() = runBlocking {
+        val escaping = object : BundleStorage by FakeBundleStorage(
+            existing = setOf("$bundleDir/manifest.json", "$bundleDir/cover.jpg")
+        ) {
+            override fun coverUri(bundleDirPath: String, coverRel: String): String? = null
+        }
+        repo = RoomLibraryRepository(dao, escaping, now = { clockMs })
+
+        val book = repo.importBundle(bundleDir, manifest()).getOrThrow()
+
+        assertNull(book.coverPath)
+    }
+
+    @Test
     fun importBundle_missingManifest_failsInvalidBundle() = runBlocking {
         storage = FakeBundleStorage(existing = emptySet())
         repo = RoomLibraryRepository(dao, storage, now = { clockMs })
@@ -223,5 +257,9 @@ class LibraryRepositoryTest {
         override fun exists(path: String): Boolean = path in existing
         override fun audioUri(bundleDir: String, relPath: String): Uri =
             throw UnsupportedOperationException("not used by repositories")
+        override fun coverUri(bundleDirPath: String, coverRel: String): String? {
+            if (coverRel.isBlank()) return null
+            return bundleDirPath.trimEnd('/') + '/' + coverRel.trimStart('/')
+        }
     }
 }

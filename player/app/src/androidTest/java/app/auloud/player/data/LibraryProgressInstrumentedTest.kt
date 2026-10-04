@@ -135,5 +135,7 @@ class LibraryProgressInstrumentedTest {
         override fun exists(path: String): Boolean = true
         override fun audioUri(bundleDir: String, relPath: String): Uri =
             throw UnsupportedOperationException()
+        override fun coverUri(bundleDirPath: String, coverRel: String): String? =
+            "$bundleDirPath/$coverRel"
     }
 }

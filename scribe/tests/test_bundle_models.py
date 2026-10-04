@@ -205,12 +205,36 @@ def test_chapter_pdf_pages_form() -> None:
     assert chapter.sentences_in_order() == []
 
 
-def test_chapter_needs_exactly_one_of_blocks_pages() -> None:
-    base = {"spec_version": "1.0", "chapter": 1, "title": "T", "duration_ms": 1000}
+def test_chapter_needs_blocks_or_pages_v11_allows_both() -> None:
+    """v1.1: blocks+pages together is the PDF text path (both allowed)."""
+    base = {"spec_version": "1.1", "chapter": 1, "title": "T", "duration_ms": 1000}
     with pytest.raises(BundleError, match="blocks"):
         ChapterFile.from_dict(dict(base))
-    with pytest.raises(BundleError, match="both"):
-        ChapterFile.from_dict(dict(base, blocks=[], pages=[]))
+    both = ChapterFile.from_dict(dict(base, blocks=[], pages=[]))
+    assert both.blocks == [] and both.pages == []
+    assert ChapterFile.from_dict(both.to_dict()) == both
+
+
+def test_sentence_page_absent_not_null_epub() -> None:
+    """EPUB sentences omit `page` (absent, never null); PDF carries 1-based."""
+    epub_sent = Sentence.from_dict(
+        {"sid": 1, "speaker": "narrator", "start_ms": 0, "end_ms": 100, "text": "Hi."}
+    )
+    assert epub_sent.page is None
+    assert "page" not in epub_sent.to_dict()
+    pdf_sent = Sentence.from_dict(
+        {
+            "sid": 1,
+            "speaker": "narrator",
+            "start_ms": 0,
+            "end_ms": 100,
+            "text": "Hi.",
+            "page": 2,
+        }
+    )
+    assert pdf_sent.page == 2
+    assert pdf_sent.to_dict()["page"] == 2
+    assert Sentence.from_dict(pdf_sent.to_dict()) == pdf_sent
 
 
 def test_chapter_entry_requires_all_fields() -> None:

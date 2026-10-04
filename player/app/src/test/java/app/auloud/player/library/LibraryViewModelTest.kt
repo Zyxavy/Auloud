@@ -62,12 +62,8 @@ class LibraryViewModelTest {
     @Test
     fun rescan_importsValidBundle() = runBlocking {
         storage.dirs = listOf(novelDir)
-        storage.texts = mapOf(manifestPath to manifestJson())
-        storage.existing = setOf(
-            manifestPath,
-            "$novelDir/audio/ch001.mp3",
-            "$novelDir/audio/ch002.mp3"
-        )
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting()
 
         val vm = viewModel()
 
@@ -86,9 +82,39 @@ class LibraryViewModelTest {
     @Test
     fun rescan_invalidBundle_yieldsErrorWithReason_notCrash() = runBlocking {
         storage.dirs = listOf(novelDir)
-        storage.texts = mapOf(manifestPath to manifestJson())
-        // ch002.mp3 absent: WP2 rule "audio file missing" must surface.
-        storage.existing = setOf(manifestPath, "$novelDir/audio/ch001.mp3")
+        storage.texts = validTexts(manifestJson())
+        // ch002.mp3 absent: CP4 partial import — book still imports (ch1 fine)
+        // with one chapter-scoped error naming file+rule.
+        storage.existing = validExisting() - "$novelDir/audio/ch002.mp3"
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertEquals(1, state.books.size)
+            assertEquals("book-1", state.books[0].id)
+            assertEquals(1, state.errors.size)
+            // File paths render in full; SAF tokens collapse to bundle names.
+            assertEquals(novelDir, state.errors[0].bundleDir)
+            assertTrue(
+                "reason names file+rule, was: ${state.errors[0].reason}",
+                state.errors[0].reason.contains("manifest.json") &&
+                    state.errors[0].reason.contains("chapter 2") &&
+                    state.errors[0].reason.contains("audio file missing audio/ch002.mp3")
+            )
+        }
+    }
+
+    @Test
+    fun rescan_allChaptersBad_blocksImport() = runBlocking {
+        storage.dirs = listOf(novelDir)
+        storage.texts = validTexts(manifestJson())
+        // Both audio files absent: no good chapter left, import blocked as before.
+        storage.existing = setOf(
+            manifestPath,
+            "$novelDir/text/ch001.json",
+            "$novelDir/text/ch002.json"
+        )
 
         val vm = viewModel()
 
@@ -96,12 +122,48 @@ class LibraryViewModelTest {
             val state = awaitItem()
             assertTrue(state.books.isEmpty())
             assertEquals(1, state.errors.size)
-            // File paths render in full; SAF tokens collapse to bundle names.
+            assertEquals(novelDir, state.errors[0].bundleDir)
+            assertTrue(state.errors[0].reason.contains("audio file missing"))
+        }
+    }
+
+    @Test
+    fun rescan_manifestProblem_blocksImport_despiteGoodChapters() = runBlocking {
+        storage.dirs = listOf(novelDir)
+        val bad = manifestJson(title = "  ")
+        storage.texts = validTexts(bad)
+        storage.existing = validExisting()
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertTrue(state.books.isEmpty())
+            assertEquals(1, state.errors.size)
+            assertTrue(state.errors[0].reason.contains("manifest.json"))
+        }
+    }
+
+    @Test
+    fun rescan_badTextFile_importsPartiallyWithChapterError() = runBlocking {
+        storage.dirs = listOf(novelDir)
+        val texts = validTexts(manifestJson()).toMutableMap()
+        texts["$novelDir/text/ch002.json"] = "{ truncated"
+        storage.texts = texts
+        storage.existing = validExisting()
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertEquals(1, state.books.size)
+            assertEquals(1, state.errors.size)
             assertEquals(novelDir, state.errors[0].bundleDir)
             assertTrue(
-                "reason names file+rule, was: ${state.errors[0].reason}",
+                "reason names chapter+file+rule, was: ${state.errors[0].reason}",
                 state.errors[0].reason.contains("manifest.json") &&
-                    state.errors[0].reason.contains("audio file missing audio/ch002.mp3")
+                    state.errors[0].reason.contains("chapter 2") &&
+                    state.errors[0].reason.contains("text/ch002.json")
             )
         }
     }
@@ -143,12 +205,8 @@ class LibraryViewModelTest {
     @Test
     fun progressFraction_mapsSavedPositionOverTotal() = runBlocking {
         storage.dirs = listOf(novelDir)
-        storage.texts = mapOf(manifestPath to manifestJson(ch1Ms = 750L, ch2Ms = 250L))
-        storage.existing = setOf(
-            manifestPath,
-            "$novelDir/audio/ch001.mp3",
-            "$novelDir/audio/ch002.mp3"
-        )
+        storage.texts = validTexts(manifestJson(ch1Ms = 750L, ch2Ms = 250L))
+        storage.existing = validExisting()
         progressRepo.positions["book-1"] = ProgressEntity("book-1", 0, 250L, 0L)
 
         val vm = viewModel()
@@ -163,12 +221,8 @@ class LibraryViewModelTest {
     @Test
     fun progressFraction_noSavedPosition_isZero() = runBlocking {
         storage.dirs = listOf(novelDir)
-        storage.texts = mapOf(manifestPath to manifestJson())
-        storage.existing = setOf(
-            manifestPath,
-            "$novelDir/audio/ch001.mp3",
-            "$novelDir/audio/ch002.mp3"
-        )
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting()
 
         val vm = viewModel()
 
@@ -191,12 +245,8 @@ class LibraryViewModelTest {
 
         // Granting via the WP3 launcher result re-scans and fills the library.
         storage.dirs = listOf(novelDir)
-        storage.texts = mapOf(manifestPath to manifestJson())
-        storage.existing = setOf(
-            manifestPath,
-            "$novelDir/audio/ch001.mp3",
-            "$novelDir/audio/ch002.mp3"
-        )
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting()
         permissionGranted = true
         vm.onPermissionResult(true)
 
@@ -210,12 +260,8 @@ class LibraryViewModelTest {
     @Test
     fun selection_hook_setsAndClearsSelectedBook() = runBlocking {
         storage.dirs = listOf(novelDir)
-        storage.texts = mapOf(manifestPath to manifestJson())
-        storage.existing = setOf(
-            manifestPath,
-            "$novelDir/audio/ch001.mp3",
-            "$novelDir/audio/ch002.mp3"
-        )
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting()
 
         val vm = viewModel()
         vm.onBookSelected("book-1")
@@ -239,21 +285,31 @@ class LibraryViewModelTest {
         )
         val routing = FakeRoutingStorage()
         routing.file.dirsByRoot = mapOf(root to listOf(novelDir))
-        routing.file.texts = mapOf(manifestPath to manifestJson())
+        routing.file.texts = mapOf(
+            manifestPath to manifestJson(),
+            "$novelDir/text/ch001.json" to chapterTextJson(),
+            "$novelDir/text/ch002.json" to chapterTextJson()
+        )
         routing.file.existing = setOf(
             manifestPath,
             "$novelDir/audio/ch001.mp3",
-            "$novelDir/audio/ch002.mp3"
+            "$novelDir/audio/ch002.mp3",
+            "$novelDir/text/ch001.json",
+            "$novelDir/text/ch002.json"
         )
         routing.saf = FakeSafBundleStorage(tree)
         routing.saf!!.names = listOf("saf-book")
         routing.saf!!.texts = mapOf(
-            "saf-book/manifest.json" to manifestJson(id = "saf-1", title = "SAF Book")
+            "saf-book/manifest.json" to manifestJson(id = "saf-1", title = "SAF Book"),
+            "saf-book/text/ch001.json" to chapterTextJson(),
+            "saf-book/text/ch002.json" to chapterTextJson()
         )
         routing.saf!!.existing = setOf(
             "saf-book/manifest.json",
             "saf-book/audio/ch001.mp3",
-            "saf-book/audio/ch002.mp3"
+            "saf-book/audio/ch002.mp3",
+            "saf-book/text/ch001.json",
+            "saf-book/text/ch002.json"
         )
 
         val vm = viewModel(storage = routing)
@@ -276,12 +332,8 @@ class LibraryViewModelTest {
             listOf(WatchFolder.FilePath(root), WatchFolder.TreeUri(tree))
         )
         storage.dirs = listOf(novelDir)
-        storage.texts = mapOf(manifestPath to manifestJson())
-        storage.existing = setOf(
-            manifestPath,
-            "$novelDir/audio/ch001.mp3",
-            "$novelDir/audio/ch002.mp3"
-        )
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting()
         storage.dirsByRoot = mapOf(root to listOf(novelDir))
         storage.failRoots = setOf(tree)
 
@@ -306,17 +358,26 @@ class LibraryViewModelTest {
         val tree = "content://com.android.externalstorage.documents/tree/primary%3AAuloud"
         val safDir = "$tree|saf-book"
         folderStore.setWatchFolders(listOf(WatchFolder.TreeUri(tree)))
-        // Manifest text present but ch002.mp3 missing: validation failure
+        // Manifest text present but ch002.mp3 missing: CP4 partial import
         // must label the bundle by name, not by token.
         storage.dirsByRoot = mapOf(tree to listOf(safDir))
-        storage.texts = mapOf("$safDir/manifest.json" to manifestJson(id = "saf-1"))
-        storage.existing = setOf("$safDir/manifest.json", "$safDir/audio/ch001.mp3")
+        storage.texts = mapOf(
+            "$safDir/manifest.json" to manifestJson(id = "saf-1"),
+            "$safDir/text/ch001.json" to chapterTextJson(),
+            "$safDir/text/ch002.json" to chapterTextJson()
+        )
+        storage.existing = setOf(
+            "$safDir/manifest.json",
+            "$safDir/audio/ch001.mp3",
+            "$safDir/text/ch001.json",
+            "$safDir/text/ch002.json"
+        )
 
         val vm = viewModel()
 
         vm.uiState.test {
             val state = awaitItem()
-            assertTrue(state.books.isEmpty())
+            assertEquals(1, state.books.size)
             assertEquals(1, state.errors.size)
             assertEquals("saf-book", state.errors[0].bundleDir)
             assertTrue(state.errors[0].reason.contains("audio file missing"))
@@ -343,15 +404,17 @@ class LibraryViewModelTest {
     @Test
     fun rescan_preservesNotices_alongsideScanFailures() = runBlocking {
         storage.dirs = listOf(novelDir)
-        storage.texts = mapOf(manifestPath to manifestJson())
-        // Invalid bundle AND a host notice: both must be visible, notices first.
-        storage.existing = setOf(manifestPath, "$novelDir/audio/ch001.mp3")
+        storage.texts = validTexts(manifestJson())
+        // Partially-invalid bundle (ch2 audio missing) AND a host notice:
+        // book imports, both must be visible, notices first.
+        storage.existing = validExisting() - "$novelDir/audio/ch002.mp3"
 
         val vm = viewModel()
         vm.addNotice("Book folders", "The folder picker is unavailable on this device.")
 
         vm.uiState.test {
             val state = awaitItem()
+            assertEquals(1, state.books.size)
             assertEquals(2, state.errors.size)
             assertEquals("Book folders", state.errors[0].bundleDir)
             assertEquals(novelDir, state.errors[1].bundleDir)
@@ -409,6 +472,24 @@ class LibraryViewModelTest {
         }
         """.trimIndent()
 
+    /** Minimal valid `text/chNNN.json` payload (single sentence, passes ChapterTextLoader rules). */
+    private fun chapterTextJson(): String =
+        """{"spec_version":"1.0","chapter":1,"title":"Ch","duration_ms":1000,"blocks":[{"id":1,"type":"para","sentences":[{"sid":1,"speaker":"narrator","start_ms":0,"end_ms":1000,"text":"Hi. "}]}]}"""
+
+    private fun validTexts(manifest: String): Map<String, String> = mapOf(
+        manifestPath to manifest,
+        "$novelDir/text/ch001.json" to chapterTextJson(),
+        "$novelDir/text/ch002.json" to chapterTextJson()
+    )
+
+    private fun validExisting(): Set<String> = setOf(
+        manifestPath,
+        "$novelDir/audio/ch001.mp3",
+        "$novelDir/audio/ch002.mp3",
+        "$novelDir/text/ch001.json",
+        "$novelDir/text/ch002.json"
+    )
+
     private class FakeBundleStorage : BundleStorage {
         var dirs: List<String> = emptyList()
         var dirsByRoot: Map<String, List<String>> = emptyMap()
@@ -425,6 +506,10 @@ class LibraryViewModelTest {
         override fun exists(path: String): Boolean = path in existing
         override fun audioUri(bundleDir: String, relPath: String): Uri =
             throw UnsupportedOperationException("not used by the library")
+        override fun coverUri(bundleDirPath: String, coverRel: String): String? {
+            if (coverRel.isBlank()) return null
+            return bundleDirPath.trimEnd('/') + '/' + coverRel.trimStart('/')
+        }
     }
 
     /**
@@ -458,6 +543,13 @@ class LibraryViewModelTest {
 
         override fun audioUri(bundleDir: String, relPath: String): Uri =
             throw UnsupportedOperationException("not used by the library")
+
+        override fun coverUri(bundleDirPath: String, coverRel: String): String? {
+            if (coverRel.isBlank()) return null
+            val rel = bundleDirPath.substringAfter("$tree|", "")
+            if (rel.isBlank()) return null
+            return "content://fake-cover/$rel/$coverRel"
+        }
     }
 
     /** Routes `content://` roots to the SAF fake, the rest to the file fake. */
@@ -486,6 +578,13 @@ class LibraryViewModelTest {
 
         override fun audioUri(bundleDir: String, relPath: String): Uri =
             throw UnsupportedOperationException("not used by the library")
+
+        override fun coverUri(bundleDirPath: String, coverRel: String): String? =
+            if (isSaf(bundleDirPath)) {
+                saf?.coverUri(bundleDirPath, coverRel)
+            } else {
+                file.coverUri(bundleDirPath, coverRel)
+            }
     }
 
     private class FakeWatchFolderStore(initial: List<WatchFolder>) : WatchFolderStore {

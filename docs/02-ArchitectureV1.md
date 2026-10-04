@@ -77,21 +77,21 @@ All three modes share one saved position (chapter and millisecond), so you can s
 
 **Display choice for v1:** the reader view renders Scribe's cleaned text (headings, paragraphs, italics), not the raw EPUB. This gives exact sentence sync and stays light on 1.5 GB RAM. The original EPUB/PDF is still stored in the bundle. True EPUB rendering with the original layout is a later upgrade.
 
-**PDF in v1:** show the page image (Android's `PdfRenderer`, API 21+) and turn pages as the audio passes the page boundaries. Word-level highlighting inside PDFs is out of scope. Better still, convert PDFs to clean text on the PC where possible so they follow the EPUB path.
+**PDF in v1:** convert PDFs to clean text on the PC so they follow the EPUB reader path (sentence sync plus `pages` marks for lookup). The rendered page image (`PdfRenderer`) is a v1.1 option (D-046), not built. Word-level highlighting inside PDFs is out of scope.
 
 ## 6. Scribe (PC or server)
 
 | Stage | Tool |
 | --- | --- |
 | EPUB parse | `ebooklib` + `BeautifulSoup` |
-| PDF text extraction | PyMuPDF (AGPL, fine because Scribe is a separate GPL tool) |
+| PDF text extraction | PyMuPDF (AGPL, fine because Scribe is AGPL-3.0-or-later and never ships in the Player) |
 | Sentence split | `pysbd` or spaCy |
 | Dialogue detect | regex over quotes (straight and curly, multi-paragraph) |
 | Speaker attribution | rules first ("said X", nearest name, two-person alternation); optional local LLM via Ollama for ambiguous lines (v1.1) |
 | Voice config | `cast.yaml` (character to voice, pitch/speed offsets), auto-drafted then hand-editable |
 | TTS | Kokoro (many voices in one model) or Piper multi-speaker models |
 | Assemble/encode | `ffmpeg`, timings from per-sentence audio lengths |
-| CLI | `typer`; `scribe build book.epub --cast cast.yaml` |
+| CLI | `typer`; `scribe draft book.epub`, edit `cast.yaml`, `scribe build book.epub` (both accept EPUB or PDF; flags in `05-ScribeDesign.md` section 1) |
 
 Keep one command with a review step: Scribe writes a draft `cast.yaml` first, you edit voices, then it renders. A PC is enough for v1; a server only matters if others should convert books without running Scribe themselves.
 
@@ -105,9 +105,9 @@ Keep one command with a review step: Scribe writes a draft `cast.yaml` first, yo
 | Controls | Media3 session gives lock screen, notification and Bluetooth buttons |
 | Speed | `PlaybackParameters` (0.75x to 2.0x) |
 | Library/progress | Room (books, chapter, position in ms) |
-| Import | Storage Access Framework folder picker (USB or microSD) |
+| Import | Watch folders via the system folder picker (SAF persistable grants); auto-created default is shared internal `/Auloud` |
 | Reader view | Compose `LazyColumn` of blocks and sentences, synced to player position via a position ticker (about every 200 ms) |
-| PDF pages | `PdfRenderer` |
+| PDF pages | v1.1 option only (`PdfRenderer`), not built; v1 reads PDF text with `pages` marks |
 | Images | Coil (cover art) |
 
 Design rules for 1.5 GB RAM: stream audio, load one chapter's JSON at a time, no large bitmap caches.
@@ -150,7 +150,7 @@ The bundle format stays fixed across slices, so the two sides can be built indep
 
 ## 11. License (recommendation)
 
-Player under **Apache-2.0** (or MIT). Scribe under **GPL-3.0**, because Piper and its espeak-ng phonemizer are GPL. The tablet only plays audio, so no GPL code ships in the app. Verify each model's license; this isn't legal advice.
+Player under **Apache-2.0** (or MIT). Scribe under **AGPL-3.0-or-later**, because ebooklib is AGPL and PyMuPDF is AGPL (Scribe-only, never in the Player). The tablet only plays audio, so no GPL code ships in the app. Verify each model's license; this isn't legal advice.
 
 ## 12. Notes for later versions
 

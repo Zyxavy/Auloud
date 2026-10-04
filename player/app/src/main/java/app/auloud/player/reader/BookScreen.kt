@@ -39,6 +39,7 @@ import app.auloud.player.playback.ReaderDebugOverlay
 import app.auloud.player.playback.SleepOption
 import app.auloud.player.playback.SleepTimerButton
 import app.auloud.player.playback.SpeedButton
+import app.auloud.player.playback.TransientNotice
 import app.auloud.player.playback.cycleSleepOption
 import app.auloud.player.playback.nextSpeed
 import app.auloud.player.playback.readTotalPssMb
@@ -70,18 +71,38 @@ fun BookScreen(
     val appContext = remember(context) { context.applicationContext }
     val modeStore = remember(appContext) { PrefsReaderModeStore.fromContext(appContext) }
     var mode by remember(book.id) { mutableStateOf(modeStore.mode()) }
+    // CP3: shared chapter list for both branches (null = not loaded yet,
+    // emptyList = manifest unreadable). Loaded once per book here; the
+    // reader branch keeps its own textPaths load unchanged below.
+    var chapters by remember(book.id) { mutableStateOf<List<ChapterEntry>?>(null) }
+    var showChapters by remember(book.id) { mutableStateOf(false) }
     // Hoisted persist + state: both branches route mode changes through
     // here, so the setting and the UI can never disagree.
     val changeMode: (ReaderMode) -> Unit = {
         modeStore.setMode(it)
         mode = it
     }
+    LaunchedEffect(book.id) {
+        chapters = withContext(Dispatchers.IO) {
+            try {
+                val root = book.bundleDir.trimEnd('/')
+                val raw = storage.readText("$root/manifest.json")
+                BundleParser.parseText(raw).getOrThrow().chapters.let(::toChapterEntries)
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
+    }
     if (mode == ReaderMode.Listen) {
         PlayerScreen(
             book = book,
             onBack = onBack,
             modifier = modifier,
-            modeSwitcher = { ModeSwitcherRow(mode = mode, onMode = changeMode) }
+            modeSwitcher = { ModeSwitcherRow(mode = mode, onMode = changeMode) },
+            chapters = chapters,
+            showChapters = showChapters,
+            onOpenChapters = { showChapters = true },
+            onDismissChapters = { showChapters = false }
         )
     } else {
         ReaderSession(
@@ -91,7 +112,11 @@ fun BookScreen(
             storage = storage,
             onModeChange = changeMode,
             onBack = onBack,
-            modifier = modifier
+            modifier = modifier,
+            chapters = chapters,
+            showChapters = showChapters,
+            onOpenChapters = { showChapters = true },
+            onDismissChapters = { showChapters = false }
         )
     }
 }
@@ -110,7 +135,16 @@ private fun ReaderSession(
     storage: BundleStorage,
     onModeChange: (ReaderMode) -> Unit,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * CP3: shared chapter list from BookScreen (null = not loaded yet).
+     * Jump uses this session's controller ([PlaybackController.seekToChapter]);
+     * the reader ViewModel reloads text on snapshot chapter change.
+     */
+    chapters: List<ChapterEntry>? = null,
+    showChapters: Boolean = false,
+    onOpenChapters: () -> Unit = {},
+    onDismissChapters: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -203,17 +237,42 @@ private fun ReaderSession(
         if (shouldPauseForMode(mode)) controller.pause()
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
-        ReaderScreen(
-            state = readerState,
-            onBack = onBack,
-            fontSize = fontSize,
-            onUserScroll = viewModel::onUserScrolled,
-            onBackToNow = viewModel::onBackToNow,
+    // CP3: chapter list overlays the reader; this session still owns the
+    // controller, so jumps keep the shared position rules and the
+    // ReaderViewModel reloads text on the snapshot chapter change.
+    if (showChapters) {
+        ChapterListScreen(
+            entries = chapters ?: emptyList(),
+            currentIndex = playbackState.chapterIndex,
+            onJump = {
+                controller.seekToChapter(it)
+                onDismissChapters()
+            },
+            onBack = onDismissChapters,
+            modifier = modifier
+        )
+    } else {
+        Column(modifier = modifier.fillMaxSize()) {
+            // CP4: transient skip/storage notice, shared with the Listen
+            // branch (PlayerContent shows the same state field). Null most
+            // ticks, so this skips recomposition on the slow Tab E.
+            TransientNotice(
+                message = playbackState.skipNotice,
+                onDismiss = controller::clearSkipNotice
+            )
+            ReaderScreen(
+                state = readerState,
+                onBack = onBack,
+                fontSize = fontSize,
+                onUserScroll = viewModel::onUserScrolled,
+                onBackToNow = viewModel::onBackToNow,
             onSentenceTap = viewModel::onSentenceTap,
             onTopVisibleSentence = viewModel::onTopVisibleSid,
-            modifier = Modifier.weight(1f)
-        )
+            onConfirmTapJump = viewModel::confirmTapJump,
+            onDismissTapJump = viewModel::dismissTapJump,
+                onOpenChapters = onOpenChapters,
+                modifier = Modifier.weight(1f)
+            )
         // RA9: debug-build-only sync section (sid, highlight lag, PSS).
         // Gated like PlayerScreen's overlay: unreachable in release builds.
         if (BuildConfig.DEBUG) {
@@ -257,7 +316,8 @@ private fun ReaderSession(
                 sleepOption = cycleSleepOption(sleepOption)
                 sendSleepOption(appContext, sleepOption)
             }
-        )
+            )
+        }
     }
 
     if (showBatteryDialog) {

@@ -50,6 +50,7 @@ def test_doctor_runs_and_prints_table(tmp_path: Path) -> None:
         "tts-engine",
         "models",
         "spacy",
+        "pymupdf",
         "gpu",
     ):
         assert row in result.output
@@ -233,3 +234,22 @@ def test_load_model_cached_returns_same_object() -> None:
     import text.nlp
 
     assert text.nlp.load_model() is text.nlp.load_model()
+
+
+def test_pymupdf_check_passes_with_installed_package() -> None:
+    # pymupdf is a pinned project dependency (CP5), so the real check must
+    # pass in the project environment (like the python check).
+    result = cli.check_pymupdf()
+    assert result.status == cli.PASS
+    assert "open ok" in result.detail
+
+
+def test_pymupdf_missing_is_fail_with_sync_hint(monkeypatch: object) -> None:
+    import sys
+
+    mp = monkeypatch  # type: ignore[union-attr]
+    mp.setitem(sys.modules, "pymupdf", None)  # `import pymupdf` then raises ImportError
+    result = cli.check_pymupdf()
+    assert result.status == cli.FAIL
+    assert "not importable" in result.detail
+    assert "uv sync" in result.hint
