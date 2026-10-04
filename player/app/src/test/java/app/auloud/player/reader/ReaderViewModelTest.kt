@@ -281,7 +281,7 @@ class ReaderViewModelTest {
     }
 
     @Test
-    fun sentenceTap_seeksToStartAndReattaches() = runBlocking {
+    fun sentenceTap_armsPromptWithoutSeeking() = runBlocking {
         val sought = ArrayList<Long>()
         val vm = viewModel(
             playback(positionMs = 100L),
@@ -294,8 +294,53 @@ class ReaderViewModelTest {
             vm.onUserScrolled()
             assertEquals(FollowState.Detached, awaitItem().follow)
             vm.onSentenceTap(2)
+            assertTrue(sought.isEmpty())
+            state = awaitItem()
+            assertEquals(2, state.pendingTapSid)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun confirmTapJump_seeksToStartAndReattaches() = runBlocking {
+        val sought = ArrayList<Long>()
+        val vm = viewModel(
+            playback(positionMs = 100L),
+            mapOf("text/ch001.json" to chapterPayload("Ch 1")),
+            onSeekTo = { sought.add(it) }
+        )
+        vm.collectTest {
+            var state = awaitItem()
+            while (state.chapter == null) state = awaitItem()
+            vm.onUserScrolled()
+            assertEquals(FollowState.Detached, awaitItem().follow)
+            vm.onSentenceTap(2)
+            assertEquals(2, awaitItem().pendingTapSid)
+            vm.confirmTapJump()
             assertEquals(listOf(1500L), sought)
-            assertEquals(FollowState.Following, awaitItem().follow)
+            state = awaitItem()
+            assertNull(state.pendingTapSid)
+            assertEquals(FollowState.Following, state.follow)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun dismissTapJump_closesPromptWithoutSeeking() = runBlocking {
+        val sought = ArrayList<Long>()
+        val vm = viewModel(
+            playback(positionMs = 100L),
+            mapOf("text/ch001.json" to chapterPayload("Ch 1")),
+            onSeekTo = { sought.add(it) }
+        )
+        vm.collectTest {
+            var state = awaitItem()
+            while (state.chapter == null) state = awaitItem()
+            vm.onSentenceTap(2)
+            assertEquals(2, awaitItem().pendingTapSid)
+            vm.dismissTapJump()
+            assertNull(awaitItem().pendingTapSid)
+            assertTrue(sought.isEmpty())
             cancelAndIgnoreRemainingEvents()
         }
     }

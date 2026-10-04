@@ -93,14 +93,36 @@ class ReaderViewModel(
     }
 
     /**
-     * Tap-to-jump (RA6): seek the audio to the tapped sentence's start and
-     * re-attach. Unknown sids are ignored. Read-only position setting (no
-     * audio) is RA7's mode wiring on this same path.
+     * Tap-to-jump (RA6, confirm step added as a CP3 follow-up): arm the
+     * confirm prompt instead of seeking. Unknown sids are ignored. The seek
+     * itself happens in [confirmTapJump]; [dismissTapJump] closes the prompt.
      */
     fun onSentenceTap(sid: Int) {
-        val startMs = index?.startMsOf(sid) ?: return
+        index?.startMsOf(sid) ?: return
+        _state.value = _state.value.copy(pendingTapSid = sid)
+    }
+
+    /** Prompt confirmed: seek to the tapped sentence and re-attach. */
+    fun confirmTapJump() {
+        val pending = _state.value.pendingTapSid ?: return
+        val startMs = index?.startMsOf(pending) ?: run {
+            _state.value = _state.value.copy(pendingTapSid = null)
+            return
+        }
         onSeekTo(startMs)
-        _state.value = _state.value.let { it.copy(follow = reduceFollow(it.follow, FollowEvent.TextJump)) }
+        _state.value = _state.value.let {
+            it.copy(
+                pendingTapSid = null,
+                follow = reduceFollow(it.follow, FollowEvent.TextJump)
+            )
+        }
+    }
+
+    /** Prompt dismissed: close it, playback untouched. */
+    fun dismissTapJump() {
+        if (_state.value.pendingTapSid != null) {
+            _state.value = _state.value.copy(pendingTapSid = null)
+        }
     }
 
     /**
@@ -212,6 +234,7 @@ class ReaderViewModel(
             isTextLoading = true,
             textError = null,
             textKind = null,
+            pendingTapSid = null,
             lagAvgMs = null,
             lagMaxMs = null
         )

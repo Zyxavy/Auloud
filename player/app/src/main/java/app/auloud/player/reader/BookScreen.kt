@@ -258,8 +258,10 @@ private fun ReaderSession(
                 fontSize = fontSize,
                 onUserScroll = viewModel::onUserScrolled,
                 onBackToNow = viewModel::onBackToNow,
-                onSentenceTap = viewModel::onSentenceTap,
-                onTopVisibleSentence = viewModel::onTopVisibleSid,
+            onSentenceTap = viewModel::onSentenceTap,
+            onTopVisibleSentence = viewModel::onTopVisibleSid,
+            onConfirmTapJump = viewModel::confirmTapJump,
+            onDismissTapJump = viewModel::dismissTapJump,
                 onOpenChapters = onOpenChapters,
                 modifier = Modifier.weight(1f)
             )
