@@ -50,6 +50,20 @@ class FileBundleStorage : BundleStorage {
         Uri.fromFile(resolveAudioFile(bundleDir, relPath))
 
     /**
+     * CP4: file-path cover resolves to the in-bundle file path. Returns null
+     * on blank rel or bundle escape (same containment rule as [audioUri]);
+     * callers treat null as "no cover", never an import failure.
+     */
+    override fun coverUri(bundleDirPath: String, coverRel: String): String? {
+        if (coverRel.isBlank()) return null
+        return try {
+            resolveAudioFile(bundleDirPath, coverRel).absolutePath
+        } catch (e: IllegalArgumentException) {
+            null
+        }
+    }
+
+    /**
      * Pure path half of [audioUri], kept `internal` so unit tests can verify
      * in-bundle containment without the Android framework. Not for use outside
      * the storage layer: callers take the [Uri], never the [File].

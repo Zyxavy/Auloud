@@ -1,5 +1,6 @@
 package app.auloud.player.playback
 
+import androidx.media3.common.PlaybackException
 import app.auloud.player.data.ProgressEntity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,7 +26,13 @@ data class ControllerSnapshot(
     /** WP9: service-recorded save time; 0 in release. Defaults keep old call sites compiling. */
     val lastSaveWallMs: Long = 0L,
     /** RA8: sleep timer remaining ms (null = off). Copied, never computed, here. */
-    val sleepRemainingMs: Long? = null
+    val sleepRemainingMs: Long? = null,
+    /**
+     * CP4: fresh skip/storage notice from [SkipNoticeMonitor.consume].
+     * Null means "no new notice" (the holder retains the displayed one
+     * until the UI dismisses it); non-null replaces it.
+     */
+    val skipNotice: String? = null
 )
 
 /**
@@ -50,7 +57,8 @@ fun ControllerSnapshot.toPlaybackState(): PlaybackState {
         chapterCount = count,
         isConnected = isConnected,
         lastSaveWallMs = lastSaveWallMs.coerceAtLeast(0L),
-        sleepRemainingMs = sleepRemainingMs?.coerceAtLeast(0L)
+        sleepRemainingMs = sleepRemainingMs?.coerceAtLeast(0L),
+        skipNotice = skipNotice
     )
 }
 
@@ -151,6 +159,10 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
         val bookTitle = snapshot.bookTitle?.takeIf { it.isNotBlank() } ?: ""
         val lastSave = snapshot.lastSaveWallMs.coerceAtLeast(0L)
         val sleepRemaining = snapshot.sleepRemainingMs?.coerceAtLeast(0L)
+        // CP4: null in a snapshot means "no new notice", never "clear".
+        // The displayed notice survives idle ticks until the UI dismisses
+        // it via clearSkipNotice() (tap or ~6 s timeout).
+        val notice = snapshot.skipNotice ?: cur.skipNotice
         if (snapshot.isPlaying == cur.isPlaying &&
             index == cur.chapterIndex &&
             chapterTitle == cur.chapterTitle &&
@@ -160,7 +172,8 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
             count == cur.chapterCount &&
             snapshot.isConnected == cur.isConnected &&
             lastSave == cur.lastSaveWallMs &&
-            sleepRemaining == cur.sleepRemainingMs
+            sleepRemaining == cur.sleepRemainingMs &&
+            notice == cur.skipNotice
         ) {
             return
         }
@@ -174,11 +187,70 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
             chapterCount = count,
             isConnected = snapshot.isConnected,
             lastSaveWallMs = lastSave,
-            sleepRemainingMs = sleepRemaining
+            sleepRemainingMs = sleepRemaining,
+            skipNotice = notice
         )
+    }
+
+    /**
+     * CP4: UI dismissal for the transient skip/storage notice (tap or
+     * timeout). Clearing here, not on null snapshots, is what keeps
+     * rotation from resurrecting it: a fresh controller starts with no
+     * notice and the monitor slot is already consumed.
+     */
+    fun clearSkipNotice() {
+        if (_state.value.skipNotice != null) {
+            _state.value = _state.value.copy(skipNotice = null)
+        }
     }
 
     fun onDisconnected() {
         _state.value = _state.value.copy(isPlaying = false, isConnected = false)
+    }
+}
+
+/** CP4: what [PlaybackService.onPlayerError] does with one failure. */
+enum class PlayerErrorDecision {
+    /** One bad chapter: record a skip notice and move to the next item. */
+    Skip,
+    /** Storage looks gone: pause, keep the position, show the message. */
+    StorageLoss
+}
+
+/**
+ * CP4: pure skip-vs-pause policy for playback errors.
+ *
+ * Error-code choice: only [PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND]
+ * and [PlaybackException.ERROR_CODE_IO_NO_PERMISSION] count as reliable
+ * missing-file signals (local `file://`/document-URI audio has no HTTP
+ * codes; the exact DataSource mapping for an ejected microSD varies by
+ * device, so a single code is never trusted alone). Everything else rides
+ * on the consecutive-failure heuristic below.
+ *
+ * Heuristic: [consecutiveErrors] counts back-to-back `onPlayerError`
+ * calls with no intervening `STATE_READY`. Two in a row where the latest
+ * is a missing-file signal means storage loss (a single bad chapter only
+ * skips once); any three in a row means storage loss regardless of code,
+ * which also bounds the worst case to 3 skips so the service never loops
+ * through a whole playlist. A chapter that reaches `STATE_READY` resets
+ * the count to 0; handling a storage loss also resets it, so the next
+ * user Play retries the current chapter naturally (files back: plays;
+ * still gone: errors again, one skip at a time).
+ *
+ * Pure Kotlin + Media3 error-code ints (inlined constants, no player);
+ * plain-JVM-testable.
+ */
+object PlaybackErrorPolicy {
+    /** Missing-file signals that fast-path to storage loss on repeat. */
+    fun isMissingFile(errorCode: Int): Boolean =
+        errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ||
+            errorCode == PlaybackException.ERROR_CODE_IO_NO_PERMISSION
+
+    /** Next decision for one error given [consecutiveErrors] prior ones. */
+    fun decide(errorCode: Int, consecutiveErrors: Int): PlayerErrorDecision {
+        val upcoming = (consecutiveErrors.coerceAtLeast(0)) + 1
+        if (isMissingFile(errorCode) && upcoming >= 2) return PlayerErrorDecision.StorageLoss
+        if (upcoming >= 3) return PlayerErrorDecision.StorageLoss
+        return PlayerErrorDecision.Skip
     }
 }

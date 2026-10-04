@@ -55,4 +55,19 @@ class RoutingBundleStorage(
         } else {
             fileStorage.audioUri(bundleDir, relPath)
         }
+
+    override fun coverUri(bundleDirPath: String, coverRel: String): String? =
+        if (SafPaths.isSafPath(bundleDirPath)) {
+            try {
+                safForTree(SafPaths.treeOf(bundleDirPath)).coverUri(bundleDirPath, coverRel)
+            } catch (e: Exception) {
+                null
+            }
+        } else {
+            try {
+                fileStorage.coverUri(bundleDirPath, coverRel)
+            } catch (e: Exception) {
+                null
+            }
+        }
 }

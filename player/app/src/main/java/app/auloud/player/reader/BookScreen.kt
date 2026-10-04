@@ -39,6 +39,7 @@ import app.auloud.player.playback.ReaderDebugOverlay
 import app.auloud.player.playback.SleepOption
 import app.auloud.player.playback.SleepTimerButton
 import app.auloud.player.playback.SpeedButton
+import app.auloud.player.playback.TransientNotice
 import app.auloud.player.playback.cycleSleepOption
 import app.auloud.player.playback.nextSpeed
 import app.auloud.player.playback.readTotalPssMb
@@ -252,6 +253,13 @@ private fun ReaderSession(
         )
     } else {
         Column(modifier = modifier.fillMaxSize()) {
+            // CP4: transient skip/storage notice, shared with the Listen
+            // branch (PlayerContent shows the same state field). Null most
+            // ticks, so this skips recomposition on the slow Tab E.
+            TransientNotice(
+                message = playbackState.skipNotice,
+                onDismiss = controller::clearSkipNotice
+            )
             ReaderScreen(
                 state = readerState,
                 onBack = onBack,

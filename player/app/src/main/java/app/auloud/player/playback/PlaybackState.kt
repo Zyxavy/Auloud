@@ -26,5 +26,12 @@ data class PlaybackState(
     val isConnected: Boolean = false,
     val lastSaveWallMs: Long = 0L,
     /** RA8: sleep timer remaining ms (null = off). Copied from the service snapshot. */
-    val sleepRemainingMs: Long? = null
+    val sleepRemainingMs: Long? = null,
+    /**
+     * CP4: transient skip/storage notice ("Skipped ..." or
+     * "Storage unavailable - playback paused"). Null when nothing is
+     * showing. The UI dismisses it on tap or after ~6 s via
+     * `clearSkipNotice()`; it never blocks controls.
+     */
+    val skipNotice: String? = null
 )

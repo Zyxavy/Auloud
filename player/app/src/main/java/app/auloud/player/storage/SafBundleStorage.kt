@@ -107,6 +107,34 @@ class SafBundleStorage(
         return Uri.parse(backend.documentUri(fullRel))
     }
 
+    /**
+     * CP4: SAF cover resolves to the `content://` document URI string for the
+     * cover inside the tree (via [SafBackend.documentUri], same child-URI
+     * construction as [audioUri]/[FrameworkSafBackend]). Returns null on any
+     * unresolvable input (wrong tree, blank rel, bundle escape) so a bad
+     * cover never fails the import — the book simply has no cover.
+     */
+    override fun coverUri(bundleDirPath: String, coverRel: String): String? {
+        if (coverRel.isBlank()) return null
+        val split = SafPaths.splitToken(bundleDirPath) ?: return null
+        if (split.first != treeUri || split.second.isBlank()) return null
+        val bundleRel = try {
+            SafPaths.sanitizeTreeRel(split.second, "bundle path")
+        } catch (e: IllegalArgumentException) {
+            return null
+        }
+        val fullRel = try {
+            SafPaths.resolveInBundle(bundleRel, coverRel)
+        } catch (e: IllegalArgumentException) {
+            return null
+        }
+        return try {
+            backend.documentUri(fullRel)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private fun isValidBundleName(name: String): Boolean {
         val n = name.trim().trim('/')
         return n.isNotEmpty() && '/' !in n && n != "." && n != ".."

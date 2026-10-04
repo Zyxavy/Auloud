@@ -22,6 +22,7 @@ class ChapterTextLoaderTest {
         override fun exists(path: String): Boolean = files.containsKey(path)
         override fun audioUri(bundleDir: String, relPath: String): Uri =
             throw UnsupportedOperationException("not used by the loader")
+        override fun coverUri(bundleDirPath: String, coverRel: String): String? = null
     }
 
     private fun fixtureDir(name: String): File {

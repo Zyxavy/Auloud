@@ -161,6 +161,7 @@ fun PlayerScreen(
             onDismissChapters()
         },
         onDismissChapters = onDismissChapters,
+        onDismissNotice = controller::clearSkipNotice,
         modifier = modifier
     )
 
@@ -199,7 +200,8 @@ private fun PlayerContent(
     chapters: List<ChapterEntry>? = null,
     chapterIndex: Int = 0,
     onChapterJump: (Int) -> Unit = {},
-    onDismissChapters: () -> Unit = {}
+    onDismissChapters: () -> Unit = {},
+    onDismissNotice: () -> Unit = {}
 ) {
     // CP3: chapter list overlays the player; the controller stays owned by
     // PlayerScreen above, so jumps keep working after dismiss.
@@ -231,6 +233,12 @@ private fun PlayerContent(
             chapterIndex = state.chapterIndex,
             chapterCount = state.chapterCount,
             isConnected = state.isConnected
+        )
+        // CP4: transient skip/storage notice (auto-dismissing, never
+        // blocks controls). Null most ticks, so this skips recomposition.
+        TransientNotice(
+            message = state.skipNotice,
+            onDismiss = onDismissNotice
         )
         Spacer(Modifier.height(16.dp))
         PlayerSeekBar(

@@ -27,6 +27,7 @@ class ReaderViewModelTest {
         override fun exists(path: String): Boolean = files.containsKey(path)
         override fun audioUri(bundleDir: String, relPath: String): Uri =
             throw UnsupportedOperationException("not used by the reader")
+        override fun coverUri(bundleDirPath: String, coverRel: String): String? = null
     }
 
     private fun chapterPayload(title: String, secondStart: Long = 1500L): String {

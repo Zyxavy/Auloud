@@ -35,10 +35,10 @@ data class BookUiModel(
     val title: String,
     val author: String?,
     /**
-     * Absolute cover path, or null when the bundle has no readable cover.
-     * SAF books may carry an opaque `<tree>|<rel>` token here; the library
-     * cover composable explicitly falls back to the placeholder for those
-     * (documented limitation, see `BookCover`).
+     * Resolved cover reference, or null when the bundle has no readable cover.
+     * File books carry the file path; SAF books carry the `content://`
+     * document URI resolved at import via `BundleStorage.coverUri` — both
+     * load through Coil with placeholder fallback.
      */
     val coverPath: String?,
     val durationMs: Long,
@@ -225,9 +225,49 @@ class LibraryViewModel(
                         try {
                             val text = storage.readText(join(dir, MANIFEST_FILE))
                             val manifest = BundleParser.parseText(text).getOrElse { throw it }
-                            val problems = BundleValidator.validate(dir, manifest, storage::exists)
+                            // CP4: text-file check runs through the SAME
+                            // validator rules via the storage seams
+                            // (`exists` + `readText`); huge/missing/invalid
+                            // chapter text becomes chapter-scoped errors.
+                            val problems = BundleValidator.validate(
+                                dir, manifest, storage::exists, storage::readText
+                            )
                             if (problems.isNotEmpty()) {
-                                failures += err(dirLabel, problems.joinToString("; "))
+                                val manifestProblems = problems.filterNot { isChapterFileProblem(it) }
+                                val chapterProblems = problems.filter { isChapterFileProblem(it) }
+                                if (manifestProblems.isNotEmpty()) {
+                                    failures += err(dirLabel, problems.joinToString("; "))
+                                    continue
+                                }
+                                // ONLY chapter-file problems: import when at
+                                // least one chapter is fine, recording one
+                                // ImportError per bad chapter (manifest-level
+                                // problems still block as before).
+                                val badIndexes = chapterProblems.mapNotNull {
+                                    CHAPTER_RE.find(it)?.groupValues?.get(1)?.toIntOrNull()
+                                }.toSet()
+                                val hasGoodChapter =
+                                    manifest.chapters.any { it.index !in badIndexes }
+                                if (!hasGoodChapter) {
+                                    failures += err(dirLabel, problems.joinToString("; "))
+                                    continue
+                                }
+                                val imported = libraryRepository.importBundle(dir, manifest)
+                                if (imported.isFailure) {
+                                    val reason = imported.exceptionOrNull()?.message
+                                        ?: "$dirLabel: manifest.json: import failed"
+                                    failures += err(dirLabel, reason)
+                                } else {
+                                    // One error per bad chapter (a chapter with
+                                    // both audio+text problems joins its
+                                    // messages); each names chapter+file+rule.
+                                    val byChapter = chapterProblems.groupBy {
+                                        CHAPTER_RE.find(it)?.groupValues?.get(1) ?: it
+                                    }
+                                    for ((_, group) in byChapter) {
+                                        failures += err(dirLabel, group.joinToString("; "))
+                                    }
+                                }
                                 continue
                             }
                             val imported = libraryRepository.importBundle(dir, manifest)
@@ -341,8 +381,21 @@ class LibraryViewModel(
 
     companion object {
         private const val MANIFEST_FILE = "manifest.json"
+        private val CHAPTER_RE = Regex("chapter (\\d+)")
     }
 }
+
+/**
+ * CP4: chapter-scoped file problems (bad audio/text file for some chapters)
+ * that allow a partial import when the manifest itself is valid. Everything
+ * else (unparsable manifest, no chapters, missing required fields, bad
+ * durations) is manifest-level and still blocks the import.
+ */
+internal fun isChapterFileProblem(message: String): Boolean =
+    "audio file missing" in message ||
+        "text file missing" in message ||
+        "text file invalid" in message ||
+        "text file too large" in message
 
 /**
  * Maps a saved position to a 0..1 progress fraction. No saved position (or a

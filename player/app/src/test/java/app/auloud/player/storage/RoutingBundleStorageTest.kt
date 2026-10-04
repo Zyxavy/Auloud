@@ -112,6 +112,21 @@ class RoutingBundleStorageTest {
         assertEquals(listOf("$treeB|book1" to "audio/ch001.mp3"), safB.audioCalls)
     }
 
+    @Test
+    fun coverUri_routesByBundleDir() {
+        assertEquals(
+            "file:/storage/emulated/0/Auloud/book1/cover.jpg",
+            routing.coverUri("/storage/emulated/0/Auloud/book1", "cover.jpg")
+        )
+        assertEquals(
+            "safB:content://com.android.externalstorage.documents/tree/1234-ABCD%3AAuloud|book1/cover.jpg",
+            routing.coverUri(
+                "content://com.android.externalstorage.documents/tree/1234-ABCD%3AAuloud|book1",
+                "cover.jpg"
+            )
+        )
+    }
+
     private class RecordingStorage(val name: String) : BundleStorage {
         val listedRoots = mutableListOf<String>()
         val readPaths = mutableListOf<String>()
@@ -135,5 +150,8 @@ class RoutingBundleStorageTest {
             audioCalls.add(bundleDir to relPath)
             return audioResult ?: throw UnsupportedOperationException(name)
         }
+
+        override fun coverUri(bundleDirPath: String, coverRel: String): String? =
+            "$name:$bundleDirPath/$coverRel"
     }
 }

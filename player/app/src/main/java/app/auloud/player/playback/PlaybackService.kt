@@ -59,8 +59,11 @@ import kotlin.coroutines.EmptyCoroutineContext
  * Progress (chapter index + position ms) is saved via [ProgressRepository]
  * every 5 s while playing, on pause, on chapter change
  * (`onMediaItemTransition`), on task-removed and in `onDestroy`. A corrupt
- * chapter file is skipped with a log message, never a crash. At the end of
- * the final chapter the finished position is saved and playback stops.
+ * chapter file is skipped with a transient message (CP4, via
+ * [SkipNoticeMonitor]); repeated back-to-back failures pause with a
+ * "storage unavailable" message instead of looping the playlist. At the
+ * end of the final chapter the finished position is saved and playback
+ * stops.
  *
  * Depends on WP2 (parser), WP3 ([BundleStorage]) and WP4 (repositories)
  * as-is. Player-screen controls and the `MediaController` wrapper arrive in
@@ -101,6 +104,12 @@ class PlaybackService : MediaSessionService() {
     private var loadGeneration = 0
     private var chapterDurations: List<Long> = emptyList()
     private var lastSaveUptimeMs: Long = 0L
+    /**
+     * CP4: back-to-back onPlayerError count with no intervening
+     * STATE_READY (see PlaybackErrorPolicy). Reset on READY and after a
+     * storage-loss pause so the next user Play retries naturally.
+     */
+    private var consecutiveErrors = 0
 
     /** RA8: sleep countdown (service-owned, survives UI closes). */
     private val sleepTimer = SleepTimer()
@@ -133,17 +142,38 @@ class PlaybackService : MediaSessionService() {
 
         override fun onPlaybackStateChanged(playbackState: Int) {
             if (playbackState == Player.STATE_ENDED) saveFinishedNow()
+            // CP4: a chapter that reaches READY actually loads, so the
+            // back-to-back error streak is over.
+            if (playbackState == Player.STATE_READY) consecutiveErrors = 0
         }
 
         override fun onPlayerError(error: PlaybackException) {
             val player = session?.player ?: return
             val index = player.currentMediaItemIndex
-            Log.w(TAG, "chapter $index unreadable (${error.errorCodeName}); skipping")
-            if (player.hasNextMediaItem()) {
-                player.seekToNextMediaItem()
-                player.prepare()
-            } else {
-                player.stop()
+            val label = player.currentMediaItem?.mediaMetadata?.title?.toString()
+                ?.takeIf { it.isNotBlank() } ?: "chapter ${index + 1}"
+            when (PlaybackErrorPolicy.decide(error.errorCode, consecutiveErrors)) {
+                PlayerErrorDecision.StorageLoss -> {
+                    consecutiveErrors = 0
+                    Log.w(TAG, "storage unavailable (${error.errorCodeName}); pausing")
+                    SkipNoticeMonitor.notifyStorageUnavailable()
+                    try {
+                        player.pause()
+                    } catch (e: Exception) {
+                        Log.w(TAG, "storage pause: ${e.message}")
+                    }
+                }
+                PlayerErrorDecision.Skip -> {
+                    consecutiveErrors += 1
+                    Log.w(TAG, "chapter $index unreadable (${error.errorCodeName}); skipping")
+                    SkipNoticeMonitor.notifySkipped(label)
+                    if (player.hasNextMediaItem()) {
+                        player.seekToNextMediaItem()
+                        player.prepare()
+                    } else {
+                        player.stop()
+                    }
+                }
             }
         }
     }

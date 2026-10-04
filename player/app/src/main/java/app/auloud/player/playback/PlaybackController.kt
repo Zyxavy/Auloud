@@ -253,14 +253,20 @@ class PlaybackController(
                 // Cheap read; holder drops the update when nothing changed,
                 // so a paused screen costs no allocations/recompositions.
                 // An active sleep timer keeps ticking while paused so the
-                // remaining display stays live (one volatile read).
-                if (c.isPlaying || SleepTimerMonitor.active) refresh("tick")
+                // remaining display stays live (one volatile read). A
+                // pending skip/storage notice does the same so a paused
+                // error still reaches the UI.
+                if (c.isPlaying || SleepTimerMonitor.active || SkipNoticeMonitor.hasPending) refresh("tick")
             }
         }
     }
 
     private fun refresh(reason: String) {
         val c = controller ?: return
+        // CP4: take the pending skip/storage notice, if any. Each skip
+        // surfaces exactly once (consume clears the slot); the holder
+        // retains it until the UI dismisses it via clearSkipNotice().
+        val freshNotice = SkipNoticeMonitor.consume()
         holder.onSnapshot(
             ControllerSnapshot(
                 isPlaying = c.isPlaying,
@@ -277,9 +283,19 @@ class PlaybackController(
                 // saver, never the UI clock. Gated so release behavior is
                 // unchanged (stays 0, overlay absent); a volatile read,
                 // no allocation on the ticker path.
-                lastSaveWallMs = if (BuildConfig.DEBUG) DebugSaveTracker.lastSaveWallMs else 0L
+                lastSaveWallMs = if (BuildConfig.DEBUG) DebugSaveTracker.lastSaveWallMs else 0L,
+                skipNotice = freshNotice
             )
         )
+    }
+
+    /**
+     * CP4: UI dismissal for the transient skip/storage notice (tap or
+     * ~6 s timeout). Clears the holder field so rotation cannot
+     * resurrect it; the monitor slot is already consumed.
+     */
+    fun clearSkipNotice() {
+        holder.clearSkipNotice()
     }
 
     private fun chapterDurationOf(c: MediaController): Long {

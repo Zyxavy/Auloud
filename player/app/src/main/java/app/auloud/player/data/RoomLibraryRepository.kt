@@ -37,10 +37,26 @@ class RoomLibraryRepository(
             if (!storage.exists(join(bundleDir, MANIFEST_FILE))) {
                 throw DataError.InvalidBundle("$bundleDir: manifest.json not found or not readable")
             }
-            val coverPath = manifest.cover
-                ?.takeIf { it.isNotBlank() }
-                ?.let { join(bundleDir, it) }
-                ?.takeIf { storage.exists(it) }
+            // CP4: covers resolve through BundleStorage.coverUri at import, so
+            // file books store the file path and SAF books store a content://
+            // document URI string (both loadable via Coil). Null stays null;
+            // a bad cover (missing file, bundle escape) also stores null
+            // rather than failing the import.
+            val coverRel = manifest.cover?.takeIf { it.isNotBlank() }
+            val coverPath = if (coverRel == null) {
+                null
+            } else {
+                val fullPath = join(bundleDir, coverRel)
+                if (!storage.exists(fullPath)) {
+                    null
+                } else {
+                    try {
+                        storage.coverUri(bundleDir, coverRel)
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+            }
             val existing = bookDao.getById(manifest.id)
             val book = BookEntity(
                 id = manifest.id,
