@@ -1,6 +1,8 @@
-# Bundle Spec v1.0
+# Bundle Spec v1.1
 
 The **book bundle** is the contract between Scribe (PC) and the Player (Android). Scribe writes it; the Player only reads it. Change this document before changing either program.
+
+Changelog: v1.1 is additive only. PDF text-path chapters keep `blocks` and MAY add `pages: [{page, start_ms}]` plus an optional `page` on each sentence. Old Players ignore the extra fields (`ignoreUnknownKeys`). No existing required field changes. Readers accept `spec_version` "1.0" and "1.1".
 
 ## 1. Folder layout
 
@@ -38,7 +40,7 @@ CBR keeps seeking and timestamps accurate; variable bitrate can make them drift.
 
 ```json
 {
-  "spec_version": "1.0",
+  "spec_version": "1.1",
   "id": "8f0c6c1e-3a8f-4c6e-9d54-0b6a3f1a2b77",
   "title": "Example Novel",
   "author": "A. Author",
@@ -66,7 +68,7 @@ Required fields: `spec_version`, `id`, `title`, `type`, `audio`, `chapters` (eac
 
 ```json
 {
-  "spec_version": "1.0",
+  "spec_version": "1.1",
   "chapter": 1,
   "title": "Chapter One",
   "duration_ms": 1832400,
@@ -98,22 +100,28 @@ Sentence fields:
 | `start_ms`, `end_ms` | yes | position in this chapter's MP3 |
 | `text` | yes | display text, UTF-8 |
 | `spans` | no | inline formatting: `[{"start": 0, "end": 3, "style": "italic"}]`, character offsets into `text`; styles: `italic`, `bold` |
+| `page` | no | 1-based source page in `source/book.pdf` (PDF text path only; absent for EPUB, never null) |
 
 ## 5. Chapter file (PDF books)
 
-For PDFs, either (a) convert to clean text and use the EPUB structure above, or (b) use page-level sync:
+PDF text path (v1.1, preferred): keep `blocks` exactly as in section 4 and MAY add page sync:
 
 ```json
 {
-  "spec_version": "1.0",
+  "spec_version": "1.1",
   "chapter": 1,
-  "title": "Pages 1-24",
+  "title": "Pages 1-2",
   "duration_ms": 1832400,
-  "pages": [ { "page": 1, "start_ms": 0 }, { "page": 2, "start_ms": 93000 } ]
+  "blocks": [ { "id": 1, "type": "para", "sentences": [
+    { "sid": 1, "speaker": "narrator", "start_ms": 0, "end_ms": 4200, "text": "First page text.", "page": 1 },
+    { "sid": 2, "speaker": "narrator", "start_ms": 4200, "end_ms": 6100, "text": "Second page text.", "page": 2 } ] } ],
+  "pages": [ { "page": 1, "start_ms": 0 }, { "page": 2, "start_ms": 4200 } ]
 }
 ```
 
-`page` is the 1-based page number in `source/book.pdf`. The Player shows a page until playback reaches the next page's `start_ms`.
+Rules: `page` on a sentence is the 1-based source page it was extracted from. `pages[].start_ms` is the `start_ms` of the first sentence on that page. `pages` is sorted by `page` (and `start_ms`), starts at 0, and every entry matches a sentence boundary. Readers that only need text ignore `pages` and `page` and render `blocks` as usual.
+
+Legacy page-sync only (v1.0 option (b), still valid): a chapter MAY instead carry `pages` without `blocks` (no sentences). The Player shows a page until playback reaches the next page's `start_ms`.
 
 ## 6. Timing rules
 
@@ -130,6 +138,8 @@ For PDFs, either (a) convert to clean text and use the EPUB structure above, or 
 - `sid` values are consecutive; timing rules in section 6 hold.
 - MP3 is mono, CBR, matches `manifest.audio`, and its duration matches `duration_ms`.
 - Text is valid UTF-8.
+- `spec_version` is "1.0" or "1.1" (both accepted; new bundles write "1.1").
+- When `pages` is present with `blocks`: sorted by `page` and `start_ms`, first `start_ms` 0, each entry matches the first sentence on that page, page numbers 1-based.
 
 Provide this as `scribe validate <bundle>`, and reuse the same checks in the Player's import step (skip a bad chapter with a message rather than crashing).
 
@@ -139,7 +149,8 @@ Provide this as `scribe validate <bundle>`, and reuse the same checks in the Pla
 - Current sentence = the sentence with `start_ms <= position < end_ms`, else the last one whose `start_ms <= position`.
 - Tap a sentence: seek audio to its `start_ms`.
 - Load one chapter's JSON at a time; do not keep other chapters in memory.
-- Missing optional fields (cover, spans) fall back to defaults.
+- Missing optional fields (cover, spans, pages, sentence page) fall back to defaults.
+- Unknown fields are ignored, so v1.0 Players read v1.1 bundles (pages) as text.
 
 ## 9. Test bundle for Slice 1 (hand-made)
 

@@ -599,11 +599,13 @@ def _chapters_from_ranges(
             if not text:
                 continue
             if para.is_heading:
-                blocks.append(ParsedBlock(kind="heading", text=text, level=para.level))
+                blocks.append(
+                    ParsedBlock(kind="heading", text=text, level=para.level, page=para.page)
+                )
             elif is_break_text(text):
-                blocks.append(ParsedBlock(kind="break"))
+                blocks.append(ParsedBlock(kind="break", page=para.page))
             else:
-                blocks.append(ParsedBlock(kind="para", text=text))
+                blocks.append(ParsedBlock(kind="para", text=text, page=para.page))
         href = f"{source_name} pages {start}-{end}"
         if start == end:
             href = f"{source_name} page {start}"

@@ -46,6 +46,8 @@ STREAM_BITRATE_TOLERANCE_BPS = 2000
 FORMAT_BITRATE_TOLERANCE_BPS = 8000
 ALLOWED_SAMPLE_RATES = (24000, 22050)
 ALLOWED_SPAN_STYLES = ("italic", "bold")
+#: Bundle contract versions accepted (spec v1.1 additive: new writes "1.1").
+ALLOWED_SPEC_VERSIONS = ("1.0", "1.1")
 
 FFPROBE_HELP = "Install ffmpeg (provides ffprobe), then re-run: winget install ffmpeg"
 
@@ -283,6 +285,11 @@ def _load_manifest(root: Path, result: ValidationResult) -> Manifest | None:
     for key in ("spec_version", "id", "title", "type"):
         if not getattr(manifest, key).strip():
             result.errors.append(f"manifest.json: missing required field '{key}' (blank)")
+    if manifest.spec_version not in ALLOWED_SPEC_VERSIONS:
+        result.errors.append(
+            f"manifest.json: spec_version {manifest.spec_version!r} "
+            f"must be one of {list(ALLOWED_SPEC_VERSIONS)}"
+        )
     return manifest
 
 
@@ -486,6 +493,11 @@ def _validate_chapter_content(
         result.errors.append(
             f"{label}: chapter is {chapter.chapter}, manifest lists index {entry.index}"
         )
+    if chapter.spec_version not in ALLOWED_SPEC_VERSIONS:
+        result.errors.append(
+            f"{label}: spec_version {chapter.spec_version!r} "
+            f"must be one of {list(ALLOWED_SPEC_VERSIONS)}"
+        )
     if chapter.duration_ms <= 0:
         result.errors.append(f"{label}: non-positive duration_ms {chapter.duration_ms}")
     drift = abs(chapter.duration_ms - entry.duration_ms)
@@ -495,7 +507,7 @@ def _validate_chapter_content(
             f"duration_ms {entry.duration_ms} by {drift} ms "
             f"(tolerance {DURATION_TOLERANCE_MS} ms)"
         )
-    if chapter.pages is not None:
+    if chapter.pages is not None and chapter.blocks is None:
         _validate_pages(label, chapter, result)
         return
     if not _is_nfc(chapter.title):
@@ -545,10 +557,19 @@ def _validate_chapter_content(
             )
         if prev_end is not None and sentence.start_ms < prev_end:
             result.errors.append(f"{label}: sentence {sentence.sid} overlaps sentence {prev_sid}")
+        if sentence.page is not None and (
+            isinstance(sentence.page, bool) or sentence.page < 1
+        ):
+            result.errors.append(
+                f"{label}: sentence {sentence.sid} has invalid page {sentence.page!r} "
+                "(need 1-based source page)"
+            )
         _validate_spans(label, sentence, result)
         prev_end = sentence.end_ms if prev_end is None else max(prev_end, sentence.end_ms)
         prev_sid = sentence.sid
         expected_sid += 1
+    if chapter.pages is not None:
+        _validate_pages_with_blocks(label, chapter, sentences, result)
 
 
 def _validate_spans(label: str, sentence: Sentence, result: ValidationResult) -> None:
@@ -576,6 +597,7 @@ def _validate_spans(label: str, sentence: Sentence, result: ValidationResult) ->
 
 
 def _validate_pages(label: str, chapter: ChapterFile, result: ValidationResult) -> None:
+    """Pure pages-without-blocks (legacy v1.0 option (b)): ordering only."""
     prev_start: int | None = None
     for pos, page in enumerate(chapter.pages or []):
         if page.page < 1:
@@ -593,6 +615,80 @@ def _validate_pages(label: str, chapter: ChapterFile, result: ValidationResult) 
                 f"(previous {prev_start})"
             )
         prev_start = page.start_ms
+
+
+def _validate_pages_with_blocks(
+    label: str,
+    chapter: ChapterFile,
+    sentences: list[Sentence],
+    result: ValidationResult,
+) -> None:
+    """v1.1 blocks+pages: sorted marks matching each page's first sentence.
+
+    Rules: non-empty; page numbers 1-based and strictly increasing;
+    ``start_ms`` within duration, strictly increasing, first 0; every
+    entry equals the ``start_ms`` of its page's first sentence; every
+    paged sentence's page appears in ``pages`` (unpageable EPUB sentences
+    with ``page=None`` are allowed and skipped).
+    """
+    pages = list(chapter.pages or [])
+    if not pages:
+        result.errors.append(f"{label}: pages present but empty (need one entry per page)")
+        return
+    first_start: dict[int, int] = {}
+    for sentence in sentences:
+        if sentence.page is None:
+            continue
+        if sentence.page not in first_start:
+            first_start[sentence.page] = sentence.start_ms
+    prev_page: int | None = None
+    prev_start: int | None = None
+    seen: set[int] = set()
+    for pos, entry in enumerate(pages):
+        if entry.page < 1:
+            result.errors.append(
+                f"{label}: page entry {pos} has non-positive page {entry.page}"
+            )
+        if entry.start_ms < 0 or entry.start_ms > chapter.duration_ms:
+            result.errors.append(
+                f"{label}: page entry {pos} start_ms {entry.start_ms} outside "
+                f"duration_ms {chapter.duration_ms}"
+            )
+        if prev_page is not None and entry.page <= prev_page:
+            result.errors.append(
+                f"{label}: page entry {pos} page {entry.page} out of order "
+                f"(previous {prev_page})"
+            )
+        if prev_start is None and entry.start_ms != 0:
+            result.errors.append(
+                f"{label}: first page start_ms is {entry.start_ms}, expected 0"
+            )
+        if prev_start is not None and entry.start_ms <= prev_start:
+            result.errors.append(
+                f"{label}: page entry {pos} start_ms {entry.start_ms} out of order "
+                f"(previous {prev_start})"
+            )
+        if entry.page in seen:
+            result.errors.append(f"{label}: page entry {pos} duplicates page {entry.page}")
+        seen.add(entry.page)
+        expected = first_start.get(entry.page)
+        if expected is None:
+            result.errors.append(
+                f"{label}: page entry {pos} page {entry.page} has no sentences"
+            )
+        elif expected != entry.start_ms:
+            result.errors.append(
+                f"{label}: page entry {pos} start_ms {entry.start_ms} "
+                f"does not match first sentence on page {entry.page} ({expected})"
+            )
+        prev_page = entry.page
+        prev_start = entry.start_ms
+    for sentence in sentences:
+        if sentence.page is not None and sentence.page not in seen:
+            result.errors.append(
+                f"{label}: sentence {sentence.sid} page {sentence.page} "
+                "missing from pages marks"
+            )
 
 
 # ---------------------------------------------------------------------------

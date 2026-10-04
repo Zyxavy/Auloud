@@ -56,6 +56,7 @@ class ChapterSummary:
     duration_ms: int
     sentence_count: int
     samples: list[str] = field(default_factory=list)
+    pages: list[tuple[int, int]] = field(default_factory=list)
 
 
 @dataclass
@@ -154,6 +155,11 @@ def inspect_bundle(bundle_dir: Path | str) -> InspectResult:
                 speaker_low.setdefault(sentence.speaker, speaker_low.get(sentence.speaker, 0))
         title = chapter.title if chapter is not None else entry.title
         duration = entry.duration_ms
+        page_marks = (
+            [(p.page, p.start_ms) for p in (chapter.pages or [])]
+            if chapter is not None and chapter.pages is not None
+            else []
+        )
         summaries.append(
             ChapterSummary(
                 index=entry.index,
@@ -161,6 +167,7 @@ def inspect_bundle(bundle_dir: Path | str) -> InspectResult:
                 duration_ms=duration,
                 sentence_count=len(sentences),
                 samples=[s.text for s in sentences[:SAMPLE_SENTENCES]],
+                pages=page_marks,
             )
         )
 
@@ -206,6 +213,11 @@ def format_inspect(result: InspectResult, *, speakers_detail: bool = False) -> s
             f"{format_duration(summary.duration_ms / 1000.0)} "
             f"({summary.duration_ms} ms), {summary.sentence_count} {noun}"
         )
+        if summary.pages:
+            first_page = summary.pages[0][0]
+            last_page = summary.pages[-1][0]
+            span = f"{first_page}-{last_page}" if last_page != first_page else f"{first_page}"
+            lines.append(f"    pages: {span} ({len(summary.pages)} pages)")
         if summary.samples:
             for sample in summary.samples:
                 lines.append(f'    "{sample}"')

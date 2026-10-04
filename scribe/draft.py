@@ -324,6 +324,7 @@ def _apply_attribution(
                             confidence=confidence,
                             quote=quote_key,
                             split_pair=tagged.split_pair,
+                            page=tagged.page,
                         )
                     )
                     if normalize_name(speaker) and normalize_name(speaker) != "unknown":
@@ -346,6 +347,7 @@ def _apply_attribution(
                             confidence="high",
                             quote=None,
                             split_pair=tagged.split_pair,
+                            page=tagged.page,
                         )
                     )
             new_blocks.append(
@@ -364,6 +366,9 @@ def _apply_attribution(
                 title=dialogue.chapter.title,
                 duration_ms=dialogue.chapter.duration_ms,
                 blocks=new_blocks,
+                pages=list(dialogue.chapter.pages)
+                if dialogue.chapter.pages is not None
+                else None,
             )
         )
 

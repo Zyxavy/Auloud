@@ -490,11 +490,15 @@ def _narrator_voice_fallback(cast: dict[str, Any]) -> tuple[str, float]:
 def remap_chapter_speakers(chapter: ChapterFile, plan: dict[int, ResolvedVoice]) -> ChapterFile:
     """Copy ``chapter`` with sentence ``speaker`` set to the resolved key.
 
-    Timings, text, spans and draft fields ride along untouched; only
+    Timings, text, spans, page and draft fields ride along untouched; only
     ``speaker`` changes (raw surface -> resolved character key). Render
     artifacts keep the raw speakers (so :func:`chapter_up_to_date` still
     compares raw against raw); the bundle chapters are separate copies
     made from the timed chapters just before :func:`write_bundle`.
+    EPUB-only in the D-039 triage sense: it carries ``page`` through when
+    present but never validates it and drops ``ChapterFile.pages`` (EPUB
+    has none; the writer recomputes authoritative marks from timings).
+    PDF blocks-form chapters must use :func:`remap_pdf_chapter_speakers`.
     """
     blocks: list[Block] = []
     for block in chapter.blocks or []:
@@ -510,6 +514,7 @@ def remap_chapter_speakers(chapter: ChapterFile, plan: dict[int, ResolvedVoice])
                 confidence=s.confidence,
                 quote=dict(s.quote) if s.quote is not None else None,
                 split_pair=s.split_pair,
+                page=s.page,
             )
             for s in block.sentences
         ]
@@ -528,6 +533,39 @@ def remap_chapter_speakers(chapter: ChapterFile, plan: dict[int, ResolvedVoice])
         title=chapter.title,
         duration_ms=chapter.duration_ms,
         blocks=blocks,
+    )
+
+
+def remap_pdf_chapter_speakers(
+    chapter: ChapterFile, plan: dict[int, ResolvedVoice]
+) -> ChapterFile:
+    """PDF-safe speaker remap: like :func:`remap_chapter_speakers` plus page rules.
+
+    Block/sid addressing is identical (deterministic 1..N ids in both EPUB
+    and PDF text path), so the sid-keyed ``plan`` lookup is shared logic.
+    The exact difference (D-043): the EPUB function drops ``pages`` and
+    never validates ``page`` (EPUB has neither); this variant requires
+    every sentence to carry a 1-based ``page`` (else :class:`BuildError`,
+    since the writer could not compute ``pages`` marks) and carries
+    ``ChapterFile.pages`` through (the writer recomputes authoritative
+    marks from final timings, so this is a placeholder, never trusted).
+    Attribution/cast/multivoice resolution is otherwise unchanged.
+    """
+    for sentence in chapter.sentences_in_order():
+        page = sentence.page
+        if not isinstance(page, int) or isinstance(page, bool) or page < 1:
+            raise BuildError(
+                f"chapter {chapter.chapter}: sentence {sentence.sid} "
+                f"missing 1-based page (got {page!r}): PDF remap needs provenance"
+            )
+    remapped = remap_chapter_speakers(chapter, plan)
+    return ChapterFile(
+        spec_version=remapped.spec_version,
+        chapter=remapped.chapter,
+        title=remapped.title,
+        duration_ms=remapped.duration_ms,
+        blocks=remapped.blocks,
+        pages=list(chapter.pages) if chapter.pages is not None else None,
     )
 
 
@@ -584,7 +622,9 @@ def _fingerprint(cast: dict[str, Any], engine: TTSEngine, chapter: ChapterFile) 
     }
 
 
-def _sentence_key(sentence: Sentence) -> tuple[int, str, str, tuple[tuple[int, int, str], ...]]:
+def _sentence_key(
+    sentence: Sentence,
+) -> tuple[int, str, str, tuple[tuple[int, int, str], ...], int | None]:
     """Identity of one script sentence for the up-to-date check (text and
     spans included: both flow into the chapter JSON the bundle ships).
 
@@ -592,10 +632,12 @@ def _sentence_key(sentence: Sentence) -> tuple[int, str, str, tuple[tuple[int, i
     JSON is written without draft fields (see ``Sentence.to_dict``), so
     the stored side could never match them. Assembly inputs ride in the
     render fingerprint instead (``_fingerprint`` voices carry
-    ``kind``/``split_pair`` per sentence).
+    ``kind``/``split_pair`` per sentence). CP6 ``page`` IS part of the key:
+    provenance flows into the shipped JSON (and the writer's ``pages``
+    marks), so a page-only change must re-render, never reuse stale timing.
     """
     spans = tuple((s.start, s.end, s.style) for s in sentence.spans)
-    return (sentence.sid, sentence.speaker, sentence.text, spans)
+    return (sentence.sid, sentence.speaker, sentence.text, spans, sentence.page)
 
 
 def chapter_up_to_date(
@@ -656,10 +698,12 @@ def chapter_up_to_date(
 def _with_timings(chapter: ChapterFile, timings: list[Any], duration_ms: int) -> ChapterFile:
     """Copy ``chapter`` blocks, filling sentence timings in document order.
 
-    Draft fields (``kind``/``confidence``/``quote``/``split_pair``) ride
-    along untouched: assembly reads ``kind``/``split_pair`` off the script
-    sentences, and the timed copy stays faithful to them (the bundle dict
-    still excludes them — spec law, see ``Sentence.to_dict``).
+    Draft fields (``kind``/``confidence``/``quote``/``split_pair``) and CP6
+    ``page`` ride along untouched: assembly reads ``kind``/``split_pair``
+    off the script sentences, and the timed copy stays faithful to them
+    (the bundle dict still excludes draft fields but includes ``page`` —
+    spec v1.1, see ``Sentence.to_dict``). New timed chapters are
+    ``spec_version`` "1.1" (readers accept "1.0" and "1.1").
     """
     timing_iter = iter(timings)
     blocks: list[Block] = []
@@ -676,6 +720,7 @@ def _with_timings(chapter: ChapterFile, timings: list[Any], duration_ms: int) ->
                 confidence=s.confidence,
                 quote=dict(s.quote) if s.quote is not None else None,
                 split_pair=s.split_pair,
+                page=s.page,
             )
             for s, t in zip(block.sentences, [next(timing_iter) for _ in block.sentences])
         ]
@@ -689,11 +734,12 @@ def _with_timings(chapter: ChapterFile, timings: list[Any], duration_ms: int) ->
             )
         )
     return ChapterFile(
-        spec_version="1.0",
+        spec_version="1.1",
         chapter=chapter.chapter,
         title=chapter.title,
         duration_ms=duration_ms,
         blocks=blocks,
+        pages=list(chapter.pages) if chapter.pages is not None else None,
     )
 
 
@@ -1000,8 +1046,25 @@ def run_build(
     # plans used for synthesis/leveling/fingerprint — never re-resolve),
     # and the manifest voices map ships exactly those characters.
     voices_map = build_voices_map(cast, ordered_plans)
+
+    def _remap_for_bundle(
+        timed_chapter: ChapterFile, plan: dict[int, ResolvedVoice]
+    ) -> ChapterFile:
+        """EPUB remap, or the PDF-safe variant when pages are present.
+
+        Blocks-form PDF chapters share block/sid addressing, so the same
+        sid-keyed plan applies; the PDF variant additionally requires
+        1-based ``page`` on every sentence (provenance for the writer's
+        ``pages`` marks). EPUB chapters (no ``page`` anywhere) use the
+        original.
+        """
+        sentences = timed_chapter.sentences_in_order()
+        if any(s.page is not None for s in sentences):
+            return remap_pdf_chapter_speakers(timed_chapter, plan)
+        return remap_chapter_speakers(timed_chapter, plan)
+
     bundle_chapters = [
-        remap_chapter_speakers(timed[i], plans[i]) for i in range(1, len(chapters) + 1)
+        _remap_for_bundle(timed[i], plans[i]) for i in range(1, len(chapters) + 1)
     ]
     bundle_dir = Path(out_dir) if out_dir is not None else Path("bundles") / script.book_id
     write_bundle(bundle_chapters, ordered_audio, source, bundle_dir, voices=voices_map)

@@ -1,0 +1,68 @@
+{
+  "blocks": [
+    {
+      "id": 1,
+      "sentences": [
+        {
+          "end_ms": 100,
+          "page": 1,
+          "sid": 1,
+          "speaker": "narrator",
+          "start_ms": 0,
+          "text": "The amber lamp glowed softly above the quiet river bend."
+        }
+      ],
+      "type": "para"
+    },
+    {
+      "id": 2,
+      "sentences": [
+        {
+          "end_ms": 700,
+          "page": 1,
+          "sid": 2,
+          "speaker": "Alice",
+          "start_ms": 600,
+          "text": "\"We should leave,\""
+        },
+        {
+          "end_ms": 1050,
+          "page": 1,
+          "sid": 3,
+          "speaker": "narrator",
+          "start_ms": 950,
+          "text": " Alice said."
+        }
+      ],
+      "type": "para"
+    },
+    {
+      "id": 3,
+      "sentences": [
+        {
+          "end_ms": 1650,
+          "page": 2,
+          "sid": 4,
+          "speaker": "narrator",
+          "start_ms": 1550,
+          "text": "Morning came at last over the mossy hill."
+        }
+      ],
+      "type": "para"
+    }
+  ],
+  "chapter": 1,
+  "duration_ms": 2150,
+  "pages": [
+    {
+      "page": 1,
+      "start_ms": 0
+    },
+    {
+      "page": 2,
+      "start_ms": 1550
+    }
+  ],
+  "spec_version": "1.1",
+  "title": "Chapter 1"
+}

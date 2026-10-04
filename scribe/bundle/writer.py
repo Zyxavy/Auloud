@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Bundle writer: manifest, MP3s, text JSON, source, cover (SW8, CP5 PDF).
+"""Bundle writer: manifest, MP3s, text JSON, source, cover (SW8, CP6 v1.1).
 
 Given split chapters with SW7 timings, their encoded MP3s, and the source
 EPUB or PDF, writes the bundle layout from ``docs/03-BundleSpec.md`` section 1::
@@ -27,7 +27,8 @@ EPUB or PDF, writes the bundle layout from ``docs/03-BundleSpec.md`` section 1::
       audio/chNNN.mp3      # zero-padded (3 digits, 4 once past 999 chapters)
       text/chNNN.json
 
-Manifest contents: ``spec_version`` ``"1.0"``, deterministic ``id`` (reuses
+Manifest contents: ``spec_version`` ``"1.1"`` (readers accept "1.0" and
+"1.1"), deterministic ``id`` (reuses
 SW5 :func:`draft.book_id_for_file`, so the same source bytes always yield
 the same bundle id and the Player keeps its saved progress), title/author
 from the EPUB Dublin Core or the PDF metadata (reuses
@@ -80,16 +81,24 @@ from pathlib import Path
 from typing import Any
 
 from audio.encode import BITRATE_KBPS
-from bundle.models import AudioSpec, ChapterEntry, ChapterFile, Manifest, SourceInfo, Voice
+from bundle.models import (
+    AudioSpec,
+    ChapterEntry,
+    ChapterFile,
+    Manifest,
+    PageEntry,
+    SourceInfo,
+    Voice,
+)
 from bundle.validate import validate_bundle
 from draft import book_id_for_file, read_book_metadata
 from text.cast import NARRATOR, NARRATOR_ENGINE, NARRATOR_SPEED, NARRATOR_VOICE
 from tts.base import SAMPLE_RATE
 
-#: Bundle contract version (spec section 3).
-SPEC_VERSION = "1.0"
-#: Book types by source suffix (CP5: PDF sources ride the same blocks
-#: chapters; the full 1.1 ``pages`` amendment lands in CP6).
+#: Bundle contract version (spec section 3; v1.1 additive PDF pages).
+SPEC_VERSION = "1.1"
+#: Book types by source suffix (CP6: PDF text-path chapters carry blocks
+#: plus computed ``pages``; pure pages-without-blocks is never written).
 BOOK_TYPE_EPUB = "epub"
 BOOK_TYPE_PDF = "pdf"
 #: Fixed relative paths inside the bundle (forward slashes, spec section 1).
@@ -187,6 +196,32 @@ def extract_cover(epub_path: Path | str) -> bytes | None:
     return None
 
 
+def pages_from_sentences(chapter: ChapterFile) -> list[PageEntry] | None:
+    """CP6 ``pages`` marks from final sentence timings (writer-authoritative).
+
+    Groups ``sentences_in_order()`` by ``page`` in first-appearance order
+    (reading order, which matches page order for valid extraction); each
+    entry's ``start_ms`` is its page's first sentence ``start_ms``.
+    Returns ``None`` when no sentence carries a ``page`` (EPUB path:
+    no ``pages`` key is written). Sentences without a ``page`` in a
+    mixed chapter are skipped (validation later requires coverage when
+    ``pages`` is present, so a bad mix fails loudly at the gate).
+    """
+    marks: list[PageEntry] = []
+    seen: set[int] = set()
+    for sentence in chapter.sentences_in_order():
+        page = sentence.page
+        if page is None:
+            continue
+        if not isinstance(page, int) or isinstance(page, bool):
+            continue
+        if page in seen:
+            continue
+        seen.add(page)
+        marks.append(PageEntry(page=page, start_ms=sentence.start_ms))
+    return marks or None
+
+
 def write_bundle(
     chapters: Sequence[ChapterFile],
     audio_paths: Sequence[Path | str],
@@ -205,8 +240,10 @@ def write_bundle(
     :param audio_paths: one already-encoded CBR MP3 per chapter, same order.
     :param source_file: original EPUB or PDF (copied byte-identical, read
         for id/title/author/cover). PDFs are stored as ``source/book.pdf``
-        with manifest ``type`` ``"pdf"`` (CP5; ``pages`` sync marks arrive
-        in CP6).
+        with manifest ``type`` ``"pdf"``; CP6 computes ``pages`` marks from
+        final sentence timings (first sentence per page) when sentences
+        carry ``page`` provenance (PDF text path), else no ``pages`` key
+        (EPUB).
     :param out_dir: bundle root (created; existing files are overwritten).
     :param voices: explicit manifest voices map (MV8 multi-voice path:
         ``name -> Voice`` or plain ``name -> {engine, voice, speed,
@@ -300,7 +337,17 @@ def write_bundle(
             raise BundleWriteError(
                 f"{audio_rel}: cannot copy chapter audio: {exc.strerror or exc}"
             ) from exc
-        _write_json(bundle / text_rel, chapter.to_dict())
+        # CP6 authoritative pages: recomputed from final timings, never
+        # trusted from upstream (which may predate timing fill-in).
+        out_chapter = ChapterFile(
+            spec_version=SPEC_VERSION,
+            chapter=chapter.chapter,
+            title=chapter.title,
+            duration_ms=chapter.duration_ms,
+            blocks=chapter.blocks,
+            pages=pages_from_sentences(chapter),
+        )
+        _write_json(bundle / text_rel, out_chapter.to_dict())
         entries.append(
             ChapterEntry(
                 index=chapter.chapter,

@@ -30,7 +30,7 @@
     "file": "source/book.epub",
     "sha256": "a5963254577b9f582983a7c86bc1d8a9bc421389dcef841f4fc399260159d88b"
   },
-  "spec_version": "1.0",
+  "spec_version": "1.1",
   "title": "Scribe Golden Bundle",
   "type": "epub",
   "voices": {

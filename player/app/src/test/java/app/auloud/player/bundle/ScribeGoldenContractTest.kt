@@ -37,7 +37,7 @@ class ScribeGoldenContractTest {
         val result = BundleParser.parse(dir)
         assertTrue("expected success but got: ${result.exceptionOrNull()?.message}", result.isSuccess)
         val manifest = result.getOrThrow()
-        assertEquals("1.0", manifest.specVersion)
+        assertEquals("1.1", manifest.specVersion)
         assertEquals("6d23921c-b53a-5429-964c-05c42413ce93", manifest.id)
         assertEquals("Scribe Golden Bundle", manifest.title)
         assertEquals("epub", manifest.type)

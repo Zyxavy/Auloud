@@ -13,11 +13,16 @@ import kotlinx.serialization.json.jsonObject
  * Returns `Result.success(ChapterText)` on valid input, `Result.failure`
  * otherwise — never throws. Error types let callers (RA3/RA10) pick the UI:
  *
- * - [ChapterTextUnavailable]: missing/unreadable file, or a PDF page-sync
- *   chapter (`pages` instead of `blocks`). Reader shows "text unavailable",
- *   listening still works.
+ * - [ChapterTextUnavailable]: missing/unreadable file.
+ * - [ChapterTextPdfForm]: pure PDF page-sync chapter (`pages` instead of
+ *   `blocks`, legacy v1.0 option (b)). Reader shows "text unavailable",
+ *   listening still works. CP6: `blocks`+`pages` (v1.1 text path) is NOT
+ *   PdfForm — it parses as text with [ChapterText.pages] available for the
+ *   Page view; only pure pages-without-blocks stays PdfForm.
  * - [ChapterTextInvalid]: malformed JSON or a spec rule broken. Names the
- *   file and every rule violated.
+ *   file and every rule violated. Truncated JSON, wrong-type `pages`
+ *   (e.g. a string, null entries, non-integer fields) and huge values
+ *   all land here, never crash.
  *
  * Parsing runs on `Dispatchers.IO`, never the caller's thread.
  *
@@ -92,6 +97,9 @@ object ChapterTextLoader {
     /** Spec section 4/6 rules: consecutive sids, ordered non-overlapping timings. */
     internal fun validate(textPath: String, chapter: ChapterText): Result<Unit> {
         val errors = ArrayList<String>()
+        if (chapter.specVersion != "1.0" && chapter.specVersion != "1.1") {
+            errors.add("spec_version \"${chapter.specVersion}\" must be \"1.0\" or \"1.1\"")
+        }
         if (chapter.durationMs <= 0) {
             errors.add("duration_ms ${chapter.durationMs} must be positive")
         }
@@ -117,6 +125,9 @@ object ChapterTextLoader {
         var prevEnd = -1L
         var prevSid = 0
         sentences.forEach { sentence ->
+            if (sentence.page != null && sentence.page < 1) {
+                errors.add("sid ${sentence.sid}: page ${sentence.page} must be 1-based")
+            }
             if (sentence.startMs < 0 || sentence.startMs >= sentence.endMs) {
                 errors.add(
                     "sid ${sentence.sid}: [${sentence.startMs}, ${sentence.endMs}] " +
@@ -136,10 +147,75 @@ object ChapterTextLoader {
             prevEnd = sentence.endMs
             prevSid = sentence.sid
         }
+        validatePages(chapter, sentences, errors)
         return if (errors.isEmpty()) {
             Result.success(Unit)
         } else {
             Result.failure(ChapterTextInvalid("$textPath: ${errors.joinToString("; ")}"))
+        }
+    }
+
+    /** CP6 v1.1 `pages` rules (light, never throws): sorted, first 0, match. */
+    private fun validatePages(
+        chapter: ChapterText,
+        sentences: List<Sentence>,
+        errors: MutableList<String>
+    ) {
+        val pages = chapter.pages ?: return
+        if (pages.isEmpty()) {
+            errors.add("pages present but empty (need one entry per page)")
+            return
+        }
+        val firstStartByPage = LinkedHashMap<Int, Long>()
+        for (sentence in sentences) {
+            val page = sentence.page ?: continue
+            if (!firstStartByPage.containsKey(page)) {
+                firstStartByPage[page] = sentence.startMs
+            }
+        }
+        var prevPage: Int? = null
+        var prevStart: Long? = null
+        val seen = HashSet<Int>()
+        for ((pos, mark) in pages.withIndex()) {
+            if (mark.page < 1) {
+                errors.add("page entry $pos has non-positive page ${mark.page}")
+            }
+            if (mark.startMs < 0 || mark.startMs > chapter.durationMs) {
+                errors.add(
+                    "page entry $pos start_ms ${mark.startMs} outside duration ${chapter.durationMs}"
+                )
+            }
+            if (prevPage != null && mark.page <= prevPage) {
+                errors.add("page entry $pos page ${mark.page} out of order (previous $prevPage)")
+            }
+            if (prevStart == null && mark.startMs != 0L) {
+                errors.add("first page start_ms is ${mark.startMs}, expected 0")
+            }
+            if (prevStart != null && mark.startMs <= prevStart) {
+                errors.add(
+                    "page entry $pos start_ms ${mark.startMs} out of order (previous $prevStart)"
+                )
+            }
+            if (!seen.add(mark.page)) {
+                errors.add("page entry $pos duplicates page ${mark.page}")
+            }
+            val expected = firstStartByPage[mark.page]
+            if (expected == null) {
+                errors.add("page entry $pos page ${mark.page} has no sentences")
+            } else if (expected != mark.startMs) {
+                errors.add(
+                    "page entry $pos start_ms ${mark.startMs} does not match " +
+                        "first sentence on page ${mark.page} ($expected)"
+                )
+            }
+            prevPage = mark.page
+            prevStart = mark.startMs
+        }
+        for (sentence in sentences) {
+            val page = sentence.page ?: continue
+            if (!seen.contains(page)) {
+                errors.add("sid ${sentence.sid} page $page missing from pages marks")
+            }
         }
     }
 }

@@ -48,7 +48,7 @@ from extract.epub import ParsedBlock, SpineDocument, read_spine_documents
 
 logger = logging.getLogger(__name__)
 
-SPEC_VERSION = "1.0"
+SPEC_VERSION = "1.1"
 TINY_CHAPTER_WORDS = 200
 NARRATOR = "narrator"
 
@@ -150,14 +150,16 @@ def _clean_document(doc: SpineDocument, drops: list[str]) -> RawChapter | None:
                 continue
             if first_heading is None:
                 first_heading = text
-            kept.append(ParsedBlock(kind="heading", text=text, level=block.level or 1))
+            kept.append(
+                ParsedBlock(kind="heading", text=text, level=block.level or 1, page=block.page)
+            )
             continue
         # Para / quote: drop empty, boilerplate, and divider leftovers.
         if not text:
             _record(drops, f"{label}: dropped empty paragraph")
             continue
         if block.kind == "para" and is_break_text(text):
-            kept.append(ParsedBlock(kind="break"))
+            kept.append(ParsedBlock(kind="break", page=block.page))
             continue
         if is_boilerplate(text):
             preview = text[:60] + ("…" if len(text) > 60 else "")
@@ -166,7 +168,7 @@ def _clean_document(doc: SpineDocument, drops: list[str]) -> RawChapter | None:
         # Re-trim spans to the normalized text (epub already normalized,
         # so this is a no-op safety net that also drops out-of-range spans).
         spans = [s for s in block.spans if 0 <= s.start <= s.end <= len(text)]
-        kept.append(ParsedBlock(kind=block.kind, text=text, spans=spans))
+        kept.append(ParsedBlock(kind=block.kind, text=text, spans=spans, page=block.page))
     if not [b for b in kept if b.kind in ("heading", "para", "quote") and b.text.strip()]:
         if doc.has_images:
             _record(drops, f"{label}: dropped image-only page (no text)")
@@ -291,6 +293,7 @@ def _to_chapter_file(index: int, raw: RawChapter) -> ChapterFile:
                             end_ms=0,
                             text=parsed.text,
                             spans=list(parsed.spans),
+                            page=parsed.page,
                         )
                     ],
                 )

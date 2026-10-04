@@ -266,4 +266,15 @@ class BundleValidatorTest {
         assertTrue(joined.contains("audio file missing"))
         assertTrue(!joined.contains("text file"))
     }
+
+    @Test
+    fun unknownSpecVersion_failsWithNamedError() {
+        val dir = fixtureDir("valid-bundle")
+        assertTrue("fixture missing: ${dir.path}", dir.isDirectory)
+        val manifest = BundleParser.parse(dir).getOrThrow().copy(specVersion = "2.0")
+        val errors = BundleValidator.validate(dir, manifest)
+        assertTrue("spec 2.0 must fail, got: $errors", errors.isNotEmpty())
+        assertTrue(errors.joinToString().contains("spec_version"))
+        assertTrue(errors.joinToString().contains("2.0"))
+    }
 }

@@ -1,0 +1,43 @@
+{
+  "audio": {
+    "bitrate_kbps": 64,
+    "cbr": true,
+    "channels": 1,
+    "format": "mp3",
+    "sample_rate": 24000
+  },
+  "author": "Auloud Test",
+  "chapters": [
+    {
+      "audio": "audio/ch001.mp3",
+      "duration_ms": 2150,
+      "index": 1,
+      "text": "text/ch001.json",
+      "title": "Chapter 1"
+    }
+  ],
+  "created_at": "2026-10-04T01:51:54Z",
+  "generator": "scribe 0.1.0",
+  "id": "4636f63e-50e5-576d-8cfc-c26e82d659d3",
+  "source": {
+    "file": "source/book.pdf",
+    "sha256": "ee1262f8418f44d79dcabc04e8842aa52822e3cbddfb94559943a2acf0a79c3a"
+  },
+  "spec_version": "1.1",
+  "title": "PDF Golden Miniature",
+  "type": "pdf",
+  "voices": {
+    "Alice": {
+      "engine": "kokoro",
+      "pitch": 1.0,
+      "speed": 1.0,
+      "voice": "bf_isabella"
+    },
+    "narrator": {
+      "engine": "kokoro",
+      "pitch": 1.0,
+      "speed": 1.0,
+      "voice": "am_onyx"
+    }
+  }
+}

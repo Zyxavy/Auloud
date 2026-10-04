@@ -143,4 +143,16 @@ class ChapterTextLoaderTest {
         assertTrue("expected success but got: ${result.exceptionOrNull()?.message}", result.isSuccess)
         assertEquals(1, result.getOrThrow().sentencesInOrder().size)
     }
+
+    @Test
+    fun unknownSpecVersion_failsInvalid() = runBlocking {
+        val payload = """{"spec_version": "2.0", "chapter": 1, "title": "Ch",
+            "duration_ms": 1000, "blocks": [{"id": 1, "type": "para",
+            "sentences": [{"sid": 1, "speaker": "narrator", "start_ms": 0,
+            "end_ms": 1000, "text": "Hi. "}]}]}"""
+        val result = ChapterTextLoader.load(FakeStorage(mapOf("t" to payload)), "t")
+        assertTrue("spec 2.0 must fail", result.isFailure)
+        assertTrue(result.exceptionOrNull() is ChapterTextInvalid)
+        assertTrue((result.exceptionOrNull()?.message ?: "").contains("2.0"))
+    }
 }
