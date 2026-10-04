@@ -359,3 +359,10 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Status: Accepted
 - Decision: The user judged clean-text reading sufficient for their PDFs, so the CP7 Page view (`PdfRenderer`, Text/Page toggle) is not built; the "Page-only chapter" message and the unpopulated `pageRange` stay as they are. If a future PDF with figures/tables/layout that clean text loses arrives, reopen the gate then.
 - Why: Per plan decision 3, the Page view exists only on demonstrated need; cutting it keeps Slice 5 on the release path (SLC: simple and complete beats extra features).
+
+### D-046: Page view deferred to v1.1 as a reader option
+
+- Date: 2026-10-04
+- Status: Accepted
+- Decision: The CP7 Page view is not dropped but deferred: v1.1 backlog gains "PDF Page view (`PdfRenderer`, one page at a time) as a Text/Page reader option". When built, it reuses the spec 1.1 `pages` marks (already emitted) and the display-ready `pageRange` plumbing (CP7). Text view remains the default.
+- Why: The user's PDFs read fine as clean text today, but rendered pages stay a legitimate option for figure/table-heavy PDFs later; parking it in the backlog keeps the decision visible instead of silent.

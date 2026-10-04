@@ -141,6 +141,7 @@ Goal: fit for a full novel and daily use.
 
 - LLM speaker attribution via Ollama for ambiguous lines
 - Real EPUB rendering with original layout
+- PDF Page view (`PdfRenderer`, one page at a time) as a Text/Page reader option
 - Wi-Fi transfer from PC to tablet
 - Bookmarks and highlights
 - Themes, font size and line spacing options
