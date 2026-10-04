@@ -352,3 +352,10 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: The audit found no EPUB-assumption breakage (verified by the new pdf-golden reader tests); the only truthful change was messaging plus the display-ready page range.
 - Alternatives considered: loading all chapter JSONs in BookScreen to fill ranges now (rejected: O(N) IO at list open, holds against the memory rule with no reader benefit yet); a Text/Page toggle now (rejected: explicitly gated, plan says cut it first).
 - Consequences / revisit when: gate question for the user stays pending real-PDF experience on the Tab E (read + listen, memory stability); revisit range population only if the Page view is approved.
+
+### D-045: Page-view gate closed
+
+- Date: 2026-10-04
+- Status: Accepted
+- Decision: The user judged clean-text reading sufficient for their PDFs, so the CP7 Page view (`PdfRenderer`, Text/Page toggle) is not built; the "Page-only chapter" message and the unpopulated `pageRange` stay as they are. If a future PDF with figures/tables/layout that clean text loses arrives, reopen the gate then.
+- Why: Per plan decision 3, the Page view exists only on demonstrated need; cutting it keeps Slice 5 on the release path (SLC: simple and complete beats extra features).
