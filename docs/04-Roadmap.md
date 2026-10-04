@@ -128,6 +128,22 @@ Goal: fit for a full novel and daily use.
 
 Automated evidence (no device claimed): CP3 chapter list + jump (JVM suite green); CP4 import validation + skip notices + storage-loss pause (JVM suites green); CP5 PDF extraction incl. scanned-fail + determinism (unit); CP6 spec 1.1 + pdf-golden contract both suites; CP7 Text view reader path + page lookup (JVM); CP8 release APK `1.0.0` minified with no INTERNET; CP9 clean `uv` install builds a short bundle end to end. Device remainder for the user: battery-whitelist flow, eject-and-reinsert pause/resume, bad-bundle import on device, read + listen on a real PDF with memory stability, Slice 1-4 smoke on the release build, licenses screen legibility, launcher icon render, sideload + upgrade-install, README fresh-follow zero to playing book, full soak below.
 
+## Slice 6: Scribe Web UI (standalone, after v1.0.0)
+
+Goal: `scribe ui` covers ingest, cast review, render, validate and tablet hand-off in a localhost web app; the CLI stays the headless interface. Plan: `docs/plans/Slice6.md`.
+
+- [x] UI1 library: events, chapter/page ranges, `plan_build`, cooperative stop, per-book lock, `--device`, spec 1.2 range bundles (482 baseline untouched, 498 green)
+- [x] UI2 server skeleton: `scribe[ui]` extra, 127.0.0.1-only + Host check + per-run token + traversal guards, doctor row (531 green)
+- [ ] UI3 books and book detail
+- [ ] UI4 job runner and jobs tray
+- [ ] UI5 render step with ranges and preflight
+- [ ] UI6 cast view with audition and overrides
+- [ ] UI7 voices view and audition service
+- [ ] UI8 validate and transfer
+- [ ] UI9 design system and polish
+- [ ] UI10 tests and hardening
+- [ ] UI11 docs and acceptance (spec section 9 by the user, tag `slice-6`)
+
 **Done when (v1 release criteria):** the soak test passes.
 
 ### Soak test (v1 acceptance)
