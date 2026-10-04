@@ -271,7 +271,14 @@ def test_skeleton_routes_are_minimal(tmp_path: Path) -> None:
     from ui.app import create_app
 
     paths = sorted({route.path for route in create_app(tmp_path).routes})
-    assert paths == ["/", "/api/echo", "/api/health"]
+    assert paths == [
+        "/",
+        "/api/books",
+        "/api/books/upload",
+        "/api/books/{book_id}",
+        "/api/echo",
+        "/api/health",
+    ]
 
 
 # --- doctor + CLI wiring -------------------------------------------------------

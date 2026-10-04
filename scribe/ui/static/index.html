@@ -4,21 +4,301 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="auloud-token" content="{{AULOUD_TOKEN}}">
-<title>Auloud Scribe UI</title>
+<title>Auloud Scribe</title>
 <style>
-  body { font-family: "Segoe UI", system-ui, sans-serif; background: #FAF8F3;
-         color: #1C1917; max-width: 720px; margin: 0 auto; padding: 16px; }
-  h1 { font-family: Georgia, serif; }
-  .meta { color: #78716C; font-size: 13px; }
+:root {
+  --paper: #FAF8F3;
+  --raised: #FFFFFF;
+  --ink: #1C1917;
+  --muted: #78716C;
+  --oxblood: #7F1D1D;
+  --sage: #5F7166;
+  --success: #2F6B3A;
+  --warn: #8A5A00;
+  --hairline: #E7E0D4;
+  --radius: 4px;
+  --space: 8px;
+}
+* { box-sizing: border-box; }
+body {
+  font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  background: var(--paper);
+  color: var(--ink);
+  max-width: 960px;
+  margin: 0 auto;
+  padding: calc(var(--space) * 2);
+  line-height: 1.45;
+}
+h1, h2.brand {
+  font-family: Georgia, "Times New Roman", serif;
+  color: var(--ink);
+  margin: 0 0 var(--space);
+}
+.muted { color: var(--muted); font-size: 13px; }
+.card {
+  background: var(--raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgba(28,25,23,.12);
+  padding: calc(var(--space) * 2);
+  margin: calc(var(--space) * 2) 0;
+}
+button, input[type="file"] { font: inherit; }
+button {
+  background: var(--oxblood);
+  color: #fff;
+  border: 0;
+  border-radius: var(--radius);
+  padding: var(--space) calc(var(--space) * 2);
+  cursor: pointer;
+}
+button.ghost { background: transparent; color: var(--oxblood); border: 1px solid var(--hairline); }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--oxblood); outline-offset: 2px; }
+#drop {
+  border: 1px dashed var(--sage);
+  border-radius: var(--radius);
+  padding: calc(var(--space) * 3);
+  text-align: center;
+  color: var(--muted);
+}
+#drop.over { border-color: var(--oxblood); color: var(--ink); }
+table.auloud-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table.auloud-table th, table.auloud-table td {
+  text-align: left;
+  padding: var(--space);
+  border-bottom: 1px solid var(--hairline);
+  vertical-align: top;
+}
+table.auloud-table th { color: var(--muted); font-weight: 600; font-size: 13px; }
+.chips { display: flex; flex-wrap: wrap; gap: var(--space); margin-top: var(--space); }
+.chip {
+  display: inline-block;
+  font-size: 12px;
+  padding: 2px 10px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.chip.on { color: var(--ink); border-color: var(--sage); background: #EFF2ED; }
+.chip.good { color: var(--success); border-color: var(--success); }
+.chip.busy { color: var(--warn); border-color: var(--warn); }
+.stepper { list-style: none; margin: var(--space) 0; padding: 0; }
+.stepper li {
+  border-left: 3px solid var(--hairline);
+  padding: var(--space) calc(var(--space) * 2);
+  margin: 0;
+}
+.stepper li.done { border-color: var(--sage); }
+.stepper li.active { border-color: var(--oxblood); }
+.stepper .step-title { font-weight: 650; }
+.stepper .step-body { color: var(--ink); font-size: 14px; }
+pre.errors {
+  background: var(--paper);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: var(--space);
+  overflow: auto;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+.empty { color: var(--muted); border: 1px solid var(--hairline); border-radius: var(--radius); padding: calc(var(--space) * 2); }
+.row-actions { display: flex; gap: var(--space); margin-top: var(--space); }
+.num { font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
-<h1>Auloud Scribe UI</h1>
-<p>Server skeleton (Slice 6 UI2). Real views arrive in UI3+.</p>
-<p class="meta">Health: <a href="/api/health">/api/health</a></p>
+<h1 class="brand">Auloud Scribe</h1>
+<p class="muted">Books and book detail. Jobs tray and audition rows arrive in later steps.</p>
+
+<section class="card" id="upload-card" aria-label="Upload a book">
+<h2>Add a book</h2>
+<div id="drop">Drop an EPUB or PDF here, or pick one below.<br>Drafting starts at once; the list below shows it.</div>
+<p><input type="file" id="file" accept=".epub,.pdf" aria-label="Pick an EPUB or PDF"></p>
+<p class="row-actions"><button id="send" type="button">Upload and draft</button>
+<button id="refresh" class="ghost" type="button">Refresh list</button></p>
+<p class="muted" id="upload-status" role="status"></p>
+</section>
+
+<section class="card" aria-label="Books">
+<h2>Books</h2>
+<div id="books-empty" class="empty" hidden>No books yet. Add an EPUB or PDF above to start.</div>
+<table class="auloud-table" id="books-table" hidden>
+<thead><tr><th>Title</th><th>Source</th><th class="num">Chapters</th><th>Status</th></tr></thead>
+<tbody id="books-body"></tbody>
+</table>
+</section>
+
+<section class="card" aria-label="Book detail">
+<h2>Book detail</h2>
+<div id="detail-empty" class="empty">Pick a book from the list to see its steps. Uploaded books appear above first.</div>
+<div id="detail" hidden>
+<p><button id="back" class="ghost" type="button">Back to books</button></p>
+<h3 id="d-title"></h3>
+<p class="muted" id="d-meta"></p>
+<div class="chips" id="d-chips"></div>
+<ol class="stepper" id="d-steps"></ol>
+</div>
+</section>
+
+<div id="tray" hidden></div>
+<div id="player-row" hidden></div>
+
 <script type="module">
-  const token = document.querySelector('meta[name="auloud-token"]').content;
-  window.auloudToken = token;
+const token = document.querySelector('meta[name="auloud-token"]').content;
+async function api(path, opts = {}) {
+  const init = { ...opts };
+  init.headers = { ...(opts.headers || {}) };
+  const method = (opts.method || "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") init.headers["X-Auloud-Token"] = token;
+  const res = await fetch(path, init);
+  const text = await res.text();
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text }; }
+  return { ok: res.ok, status: res.status, data };
+}
+function chip(label, on, extra = "") {
+  return '<span class="chip' + (on ? ' on' : '') + (extra ? ' ' + extra : '') + '">' + label + '</span>';
+}
+function chipsFor(b) {
+  const out = [];
+  out.push(chip(b.drafted ? "Drafted" : "Not drafted", !!b.drafted, b.drafted ? "good" : ""));
+  out.push(chip(b.cast_edited ? "Cast edited" : "Cast untouched", !!b.cast_edited));
+  if (b.rendering) out.push(chip(b.rendering_percent == null ? "Rendering" : ("Rendering " + b.rendering_percent + "%"), true, "busy"));
+  out.push(chip(b.valid ? "Valid" : "Not valid", !!b.valid, b.valid ? "good" : ""));
+  out.push(chip(b.on_tablet ? "On tablet" : "Not on tablet", !!b.on_tablet));
+  if (b.draft_status && b.draft_status !== "none" && b.draft_status !== "done") out.push(chip("Draft: " + b.draft_status, true, "busy"));
+  return out.join("");
+}
+function fmtClock(sec) {
+  const s = Math.round(sec || 0);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m + ":" + String(r).padStart(2, "0");
+}
+async function loadBooks() {
+  const { ok, data } = await api("/api/books");
+  const body = document.getElementById("books-body");
+  const table = document.getElementById("books-table");
+  const empty = document.getElementById("books-empty");
+  body.innerHTML = "";
+  if (!ok || !data || !Array.isArray(data.books)) {
+    empty.hidden = false; table.hidden = true;
+    empty.textContent = "Could not load books. Check the server, then press Refresh list.";
+    return;
+  }
+  if (!data.books.length) { empty.hidden = false; table.hidden = true; return; }
+  empty.hidden = true; table.hidden = false;
+  for (const b of data.books) {
+    const tr = document.createElement("tr");
+    const link = "#/books/" + encodeURIComponent(b.id);
+    tr.innerHTML = "";
+    const tdTitle = document.createElement("td");
+    const a = document.createElement("a");
+    a.href = link; a.textContent = b.title || b.id;
+    tdTitle.appendChild(a);
+    const tdSrc = document.createElement("td");
+    tdSrc.textContent = b.source_file || "(no source file)";
+    const tdCh = document.createElement("td");
+    tdCh.className = "num"; tdCh.textContent = String(b.chapters || 0);
+    const tdSt = document.createElement("td");
+    tdSt.innerHTML = chipsFor(b);
+    tr.append(tdTitle, tdSrc, tdCh, tdSt);
+    body.appendChild(tr);
+  }
+}
+function stepLi(title, state, bodyHtml) {
+  return '<li class="' + state + '"><div class="step-title">' + title + '</div><div class="step-body">' + bodyHtml + '</div></li>';
+}
+function esc(s) {
+  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+async function loadDetail(id) {
+  const box = document.getElementById("detail");
+  const empty = document.getElementById("detail-empty");
+  const { ok, status, data } = await api("/api/books/" + encodeURIComponent(id));
+  if (!ok) {
+    box.hidden = true; empty.hidden = false;
+    empty.textContent = status === 404 ? "That book is gone. Go back and pick another." : "Could not load this book. Go back and try again.";
+    return;
+  }
+  empty.hidden = true; box.hidden = false;
+  document.getElementById("d-title").textContent = data.title || data.id;
+  document.getElementById("d-meta").textContent =
+    (data.author ? data.author + " — " : "") + (data.source_file || "(no source file)");
+  document.getElementById("d-chips").innerHTML = chipsFor({
+    drafted: data.drafted, cast_edited: data.cast_edited, rendering: data.rendering,
+    rendering_percent: data.rendering_percent, valid: data.valid, on_tablet: data.on_tablet,
+    draft_status: data.draft_status
+  });
+  const steps = [];
+  const chRows = (data.chapters || []).map((c) =>
+    "[" + c.index + "] " + esc(c.title) + " — " + (c.sentences || 0) + " sentences, about " + fmtClock(c.est_seconds || 0)
+  ).join("\n");
+  steps.push(stepLi("1 · Draft", data.drafted ? "done" : "active",
+    data.drafted ? ("<pre class='errors'>" + esc(chRows || "(no chapters)") + "</pre>")
+      : "Draft has not finished yet. If it says failed below, fix the file and upload again."));
+  const names = (data.cast && data.cast.character_names || []).map(esc).join(", ");
+  steps.push(stepLi("2 · Cast", (data.cast && data.cast.characters) ? "done" : "",
+    "Characters: " + ((data.cast && data.cast.characters) || 0) +
+    " · aliases: " + ((data.cast && data.cast.aliases) || 0) +
+    " · overrides: " + ((data.cast && data.cast.overrides) || 0) +
+    (names ? "<br>Cast: " + names : "<br>No named characters yet. Cast editing arrives in a later step.")));
+  const bRows = (data.bundles || []).map((b) =>
+    esc(b.path) + " — " + b.chapters + " chapters" + (b.valid ? " (valid)" : " (not valid)")
+  ).join("\n");
+  steps.push(stepLi("3 · Render", (data.bundles || []).length ? "done" : (data.rendering ? "active" : ""),
+    data.rendering ? ("Rendering" + (data.rendering_percent == null ? "." : " " + data.rendering_percent + "%.")) + " Rendering controls arrive with the jobs tray."
+      : ((bRows ? ("<pre class='errors'>" + esc(bRows) + "</pre>") : "No bundle yet. Rendering starts in a later step."))));
+  const vRows = (data.validation || []).map((e) => esc(e.file) + ": " + esc(e.message)).join("\n");
+  steps.push(stepLi("4 · Validate", data.valid ? "done" : "active",
+    data.valid ? "At least one bundle passes validation."
+      : (vRows ? ("<pre class='errors'>" + vRows + "</pre>") : "Nothing valid yet. Validate and transfer arrive in a later step.")));
+  steps.push(stepLi("5 · On tablet", data.on_tablet ? "done" : "",
+    data.on_tablet ? "Recorded on a tablet." : "Not on a tablet yet. Transfer arrives in a later step."));
+  if (data.draft_error) steps.push(stepLi("Draft problem", "active",
+    "<pre class='errors'>" + esc(data.draft_error.file) + ": " + esc(data.draft_error.message) + "</pre>"));
+  document.getElementById("d-steps").innerHTML = steps.join("");
+}
+function route() {
+  const h = location.hash || "#/";
+  if (h.startsWith("#/books/")) loadDetail(decodeURIComponent(h.slice("#/books/".length)));
+  else loadBooks();
+}
+async function upload() {
+  const input = document.getElementById("file");
+  const status = document.getElementById("upload-status");
+  if (!input.files || !input.files.length) { status.textContent = "Pick an EPUB or PDF first."; return; }
+  const form = new FormData();
+  form.append("file", input.files[0], input.files[0].name);
+  status.textContent = "Uploading…";
+  const { ok, status: code, data } = await api("/api/books/upload", { method: "POST", body: form });
+  if (!ok) {
+    const msg = data && data.message ? (data.file + ": " + data.message) : ("Upload failed with code " + code + ".");
+    status.textContent = msg;
+    return;
+  }
+  status.textContent = "Saved " + (data.filename || "") + ". Drafting… watch the list.";
+  input.value = "";
+  await loadBooks();
+  location.hash = "#/books/" + encodeURIComponent(data.book_id);
+}
+document.getElementById("send").addEventListener("click", upload);
+document.getElementById("refresh").addEventListener("click", loadBooks);
+document.getElementById("back").addEventListener("click", () => { location.hash = "#/"; });
+const drop = document.getElementById("drop");
+drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+drop.addEventListener("drop", (e) => {
+  e.preventDefault(); drop.classList.remove("over");
+  if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+    document.getElementById("file").files = e.dataTransfer.files;
+    upload();
+  }
+});
+window.addEventListener("hashchange", route);
+route();
 </script>
 </body>
 </html>
