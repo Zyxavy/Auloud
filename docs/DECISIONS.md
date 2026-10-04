@@ -398,3 +398,10 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: CP10 Verify is a fresh README follow zero to playing book, which only the user can do on hardware; the agent's part is accurate docs plus every quoted flag proven against the real CLI.
 - Alternatives considered: ticking the README/soak boxes now (rejected: fresh-follow and multi-day listening are device work by definition).
 - Consequences / revisit when: open contradictions logged, not fixed (docs-only WP): root `LICENSE` is MIT while 08 section 7 expects per-component Player Apache-2.0 (only `scribe/LICENSE` AGPL exists; `player/NOTICE` says Apache-2.0-or-MIT undecided); README License line still says "Player: Apache-2.0" matching the original wording while NOTICE says undecided. Revisit when the D-015 license choice is made.
+
+### D-050: Slice 6 UI0 skipped, chapter parallelism scrapped
+
+- Date: 2026-10-04
+- Status: Accepted
+- Decision: UI0 spikes skipped per user direction: build straight on the plan defaults (one detached `scribe build` process per job, sequential chapters, CPU default). D1 accepted on reasoning (Windows detach proven by UI4 tests instead of a prototype); D2 license check moves to UI2; D5 resolved without measurement. `--workers` / chapter-parallel rendering is removed from Slice 6 entirely: onnxruntime already saturates several cores per call, and the added complexity buys nothing at 4-25x CPU RTF.
+- Why: The user's call; measurements would only have confirmed the defaults the plan already recommended.

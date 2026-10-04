@@ -22,12 +22,12 @@ Project: Auloud Scribe (Python, AGPL-3.0, Windows 11). Source of truth for requi
 | Draft, render (with chapter and page ranges), validate, transfer | Editing book text |
 | Cast view with audition, overrides editor, cast report | Page-view rendering (Player side) |
 | Background jobs: pause, resume, cancel, reattach | Docker (v2/v3) |
-| Device selector (Auto/CPU/CUDA) and worker count | Anything on-device |
+| Device selector (Auto/CPU/CUDA, CPU default) | Anything on-device |
 | Scribe design system (tokens and five components) |  |
 
 ## 3. Decisions (log in `DECISIONS.md`; recommendations are mine)
 
-**D1: Job runner model.** The spec says worker threads. I recommend **one detached `scribe build` process per job**, writing progress as JSON lines to `events.jsonl` in a job folder; the server tails that file and streams it as SSE. Why: a native crash in inference can't take down the server; closing the browser, and even restarting the server, never touches a running job (the UI just reattaches); cancel is a clean process stop; the UI really is a thin layer over the CLI. Chapter-level parallelism happens inside the build process (`--workers N`). Pause means a graceful stop at a sentence boundary and resume means a new run that skips cached sentences (the MV7 path), costing a few seconds of model load. Real "frozen process" pause is not worth the Windows complexity.
+**D1: Job runner model.** The spec says worker threads. I recommend **one detached `scribe build` process per job**, writing progress as JSON lines to `events.jsonl` in a job folder; the server tails that file and streams it as SSE. Why: a native crash in inference can't take down the server; closing the browser, and even restarting the server, never touches a running job (the UI just reattaches); cancel is a clean process stop; the UI really is a thin layer over the CLI. Pause means a graceful stop at a sentence boundary and resume means a new run that skips cached sentences (the MV7 path), costing a few seconds of model load. Real "frozen process" pause is not worth the Windows complexity.
 
 **D2: Server framework.** FastAPI + uvicorn, shipped as an optional extra (`scribe[ui]`) so the plain CLI install stays light. Reasons: file upload needs multipart (Python's stdlib support for it is gone in 3.13), SSE is simple with a streaming response, and the test client is excellent. Licenses (MIT/BSD/Apache-2.0 for FastAPI, Starlette, uvicorn, python-multipart, pydantic) get checked and pinned like PyMuPDF was.
 
@@ -35,7 +35,7 @@ Project: Auloud Scribe (Python, AGPL-3.0, Windows 11). Source of truth for requi
 
 **D4: Job store.** A folder per job: `job.json` (state), `events.jsonl`, `build.log`. History is a directory scan. No database.
 
-**D5: Parallelism and GPU are measured, not assumed.** UI0 measures both; defaults come from the numbers. The spec's own pushback holds: CPU already renders at 4-25x real time, so a GPU selector may end up "advanced/experimental".
+**D5: No chapter parallelism; CPU default.** Per user decision, `--workers` is scrapped: chapters render sequentially (onnxruntime already saturates several cores per call). The device selector stays as a simple Auto/CPU/CUDA setting defaulting to CPU; no CUDA packaging fight in this slice.
 
 **D6: Cast file edits.** The file stays the source of truth. The UI uses structured patch operations through the MV5 merge functions, plus a modified-time check so a hand edit made meanwhile produces a conflict message instead of a silent overwrite. If the current writer drops YAML comments, either preserve them (a round-trip YAML library) or document it.
 
@@ -45,12 +45,9 @@ Project: Auloud Scribe (Python, AGPL-3.0, Windows 11). Source of truth for requi
 
 ## 4. Work packages
 
-### UI0: Spikes (S-M), do first
+### UI0: Spikes (SKIPPED by user decision)
 
-- **Job model:** prototype `scribe build --events` and a minimal server that spawns it detached and tails the file as SSE; confirm Windows detaching works (server restart reattach, browser close)
-- **Parallelism:** time 1, 2, 3 and 4 chapters in parallel on your CPU: aggregate RTF and RAM (watch thread oversubscription: onnxruntime already uses several cores per call)
-- **GPU:** measure CUDA vs CPU for Kokoro-82M on your RTX 4050 (needs the GPU build of onnxruntime and matching CUDA libraries, and it conflicts with the CPU package); decide whether the selector ships as advanced or hidden
-- **Verify:** numbers in `docs/test-log.md`; D1, D2, D5 logged
+Skipped 2026-10-04: straight to building on the plan's recommended defaults (detached process per job, sequential chapters, CPU default). D1 accepted on reasoning; D2 license check moves to UI2; D5 resolved as CPU-default with the device selector kept but non-prioritized. Windows detaching gets proven in UI4 tests instead of a prototype. Chapter-parallel workers (`--workers`) are SCRAPPED from this slice entirely (see D-050).
 
 ### UI1: Library groundwork (M)
 
@@ -61,7 +58,7 @@ Changes in the library, not the UI. The CLI's behavior and outputs must stay ide
 - `plan_build()` dry run: counts of cached vs to-render sentences and a time estimate from recent RTF (also exposed as `scribe build --plan`)
 - Cooperative stop (pause/cancel) at sentence boundaries; atomic partial-chapter cleanup on cancel
 - Lock file per book so a UI render and a CLI render can't run at once; stale-lock detection
-- `--workers` and `--device` options; unified error shape `{file, rule, message}` shared by CLI and API
+- `--device` option (CPU default; CUDA only if already usable, no packaging fight); unified error shape `{file, rule, message}` shared by CLI and API
 - Spec 1.2 amendment for D7, validator, fixtures, tiny partial-bundle golden
 - **Verify:** existing 482 tests unchanged; a full build is byte-identical to before; a range build validates; the Player contract test still parses the golden bundles
 
@@ -140,12 +137,11 @@ Changes in the library, not the UI. The CLI's behavior and outputs must stay ide
 
 | Step | Work packages | You can then... |
 | --- | --- | --- |
-| 1 | UI0 | know the job model, worker count and whether the GPU matters |
-| 2 | UI1 | use ranges and `--plan` from the CLI already |
-| 3 | UI2, UI3 | open the UI, see books, upload and draft |
-| 4 | UI4, UI5 | render from the UI with a live tray and ranges |
-| 5 | UI6, UI7 | cast and audition without editing YAML |
-| 6 | UI8, UI9, UI10, UI11 | transfer, polish, harden and accept |
+| 1 | UI1 | use ranges and `--plan` from the CLI already |
+| 2 | UI2, UI3 | open the UI, see books, upload and draft |
+| 3 | UI4, UI5 | render from the UI with a live tray and ranges |
+| 4 | UI6, UI7 | cast and audition without editing YAML |
+| 5 | UI8, UI9, UI10, UI11 | transfer, polish, harden and accept |
 
 ## 6. Definition of done
 
@@ -161,7 +157,7 @@ Changes in the library, not the UI. The CLI's behavior and outputs must stay ide
 | --- | --- |
 | Parallel chapter workers don't speed things up (CPU already saturated) or use too much RAM | UI0 measurement; default to the measured best, allow 1 |
 | GPU path is fragile on Windows (package conflicts, CUDA versions) | Treat as advanced/experimental or hide it; CPU is already fast |
-| Detached processes behave differently on Windows | UI0 prototype before building on it |
+| Detached processes behave differently on Windows | UI4 tests prove reattach/resume on Windows instead of a UI0 prototype |
 | Laptop sleeps during a long render | Keep-awake while a job runs; `interrupted` state resumes from cache |
 | UI and CLI touch the same book at once | Lock file in the library, honored by both |
 | Partial-range bundles confuse the Player's saved progress | D7: renumber, `source_index`, range-aware id |
