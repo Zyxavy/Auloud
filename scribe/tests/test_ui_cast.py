@@ -766,6 +766,8 @@ def test_frontend_cast_view_offline_tokens_and_mounts() -> None:
         'id="cast-save"',
         'id="cast-conflict"',
         'id="cast-report"',
+        'id="cast-report-drop"',
+        "Cast report — show",
         'id="cast-low"',
         "cast-minor",
         'id="cast-first-person"',

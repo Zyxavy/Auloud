@@ -296,7 +296,7 @@ async function loadDetail(id) {
     "[" + c.index + "] " + esc(c.title) + " — " + (c.sentences || 0) + " sentences, about " + fmtClock(c.est_seconds || 0)
   );
   const chBody = data.drafted
-    ? (chLines.length > 8
+    ? (chLines.length > 4
       ? "<details><summary>Chapters (" + chLines.length + ") — show</summary><pre class='errors'>" + esc(chLines.join("\n")) + "</pre></details>"
       : "<pre class='errors'>" + esc(chLines.join("\n") || "(no chapters)") + "</pre>")
     : "Draft has not finished yet. If it says failed below, fix the file and upload again.";
@@ -933,7 +933,7 @@ function paintCastStep(box, doc) {
     "An override re-voices that one line; the next render re-synths only changed lines.</p>";
   html += '<h4>Low-confidence lines (' + (doc.low_confidence_total || 0) + " of " + (doc.quotes_total || 0) + " quotes)</h4>";
   html += '<div id="cast-low"><p class="muted">Loading low-confidence lines…</p></div>';
-  html += '<h4>Cast report</h4><pre class="errors" id="cast-report">Loading…</pre>';
+  html += '<h4>Cast report</h4><details id="cast-report-drop"><summary>Cast report — show</summary><pre class="errors" id="cast-report">Loading…</pre></details>';
   html += '<p class="muted" id="cast-affected" role="status"></p>';
   html += '<pre class="errors" id="cast-errors" hidden role="alert"></pre>';
   if (Array.isArray(doc.validation) && doc.validation.length) {
