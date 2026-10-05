@@ -14,15 +14,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Keep Windows awake while a job runs (Slice 6 UI4).
+"""Keep Windows awake while a job runs (Slice 6 UI4) plus compute settings (UI5).
 
 While any job runs (and the persisted setting is on), the server holds
 ``SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED)`` so a
-3-hour render is not slept away; the flag is released when idle. The
-setting lives in ``<workspace>/.scribe-ui-settings.json`` as
-``{"keep_awake": bool}`` (default on when the file is missing or
-unreadable). Non-Windows or a missing API degrades cleanly: every call
-is a best-effort no-op that never raises.
+3-hour render is not slept away; the flag is released when idle. Settings
+live in ``<workspace>/.scribe-ui-settings.json`` as
+``{"keep_awake": bool, "device": "auto"|"cpu"|"cuda"}`` (defaults apply
+when the file is missing or unreadable). UI5 adds the ``device`` compute
+setting in the same file (per-machine persistence): the build-create
+route uses it when a request omits ``device``. Non-Windows or a missing
+API degrades cleanly: every call is a best-effort no-op that never raises.
 """
 
 from __future__ import annotations
@@ -34,6 +36,13 @@ from typing import Any
 
 #: Workspace settings filename (next to the jobs/ store, never committed).
 SETTINGS_FILENAME = ".scribe-ui-settings.json"
+
+#: Default compute device (matches the library/CLI ``--device auto``: CUDA
+#: only when onnxruntime reports it, else CPU — D-051).
+DEVICE_DEFAULT = "auto"
+#: Valid compute devices (mirrors ``device.DEVICE_CHOICES``; the API layer
+#: validates live against onnxruntime too, with CLI-identical wording).
+VALID_DEVICES = frozenset({"auto", "cpu", "cuda"})
 
 #: ``SetThreadExecutionState`` flags (Win32, documented values).
 _ES_CONTINUOUS = 0x80000000
@@ -61,15 +70,62 @@ def is_enabled(workspace: Path | str) -> bool:
     return bool(value) if isinstance(value, bool) else True
 
 
+def get_device(workspace: Path | str) -> str:
+    """Persisted compute device (``auto`` unless a valid one was stored)."""
+    path = settings_path(workspace)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return DEVICE_DEFAULT
+    if not isinstance(data, dict):
+        return DEVICE_DEFAULT
+    value = data.get("device", DEVICE_DEFAULT)
+    if isinstance(value, str) and value.strip().lower() in VALID_DEVICES:
+        return value.strip().lower()
+    return DEVICE_DEFAULT
+
+
 def get_settings(workspace: Path | str) -> dict[str, Any]:
-    """``{"keep_awake": bool}`` (default on; never raises)."""
-    return {"keep_awake": is_enabled(workspace)}
+    """``{"keep_awake": bool, "device": str}`` (defaults; never raises)."""
+    return {"keep_awake": is_enabled(workspace), "device": get_device(workspace)}
 
 
 def set_enabled(workspace: Path | str, enabled: bool) -> dict[str, Any]:
-    """Persist the keep-awake toggle (atomic write; never raises)."""
+    """Persist the keep-awake toggle (keeps the stored device; never raises)."""
+    return set_settings(workspace, keep_awake=bool(enabled))
+
+
+def set_settings(
+    workspace: Path | str,
+    *,
+    keep_awake: bool | None = None,
+    device: str | None = None,
+) -> dict[str, Any]:
+    """Persist the given settings fields (merge; atomic write; never raises).
+
+    Only the provided (non-None) fields are updated; validation lives in
+    the API layer so error wording stays CLI-identical there. ``device``
+    is normalized to lowercase when it names a valid choice, else stored
+    verbatim (readers fall back to ``auto`` via :func:`get_device`).
+    """
     path = settings_path(workspace)
-    payload = {"keep_awake": bool(enabled)}
+    try:
+        current = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        current = {}
+    if not isinstance(current, dict):
+        current = {}
+    if keep_awake is not None:
+        current["keep_awake"] = bool(keep_awake)
+    if device is not None:
+        text = str(device)
+        current["device"] = text.strip().lower() if text.strip().lower() in VALID_DEVICES else text
+    payload = {
+        "keep_awake": bool(current.get("keep_awake", True))
+        if isinstance(current.get("keep_awake", True), bool)
+        else True,
+        "device": get_device_from(current),
+    }
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
@@ -78,6 +134,14 @@ def set_enabled(workspace: Path | str, enabled: bool) -> dict[str, Any]:
     except OSError:
         pass
     return dict(payload)
+
+
+def get_device_from(data: dict[str, Any]) -> str:
+    """Device from an in-memory settings dict (same fallback as files)."""
+    value = data.get("device", DEVICE_DEFAULT)
+    if isinstance(value, str) and value.strip().lower() in VALID_DEVICES:
+        return value.strip().lower()
+    return DEVICE_DEFAULT
 
 
 def _apply_system_required() -> None:

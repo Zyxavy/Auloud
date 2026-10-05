@@ -653,12 +653,19 @@ def test_jobs_list_and_settings_round_trip(tmp_path: Path) -> None:
     client, token, _app = _api_client(tmp_path, spawner)
     headers = _auth(token)
     assert client.get("/api/jobs", headers=headers).json() == {"jobs": []}
-    assert client.get("/api/settings", headers=headers).json() == {"keep_awake": True}
+    # UI5 extends settings with the compute device (default auto).
+    assert client.get("/api/settings", headers=headers).json() == {
+        "keep_awake": True,
+        "device": "auto",
+    }
     updated = client.put("/api/settings", json={"keep_awake": False}, headers=headers)
     assert updated.status_code == 200
-    assert updated.json() == {"keep_awake": False}
+    assert updated.json() == {"keep_awake": False, "device": "auto"}
     assert (tmp_path / ".scribe-ui-settings.json").is_file()
-    assert client.get("/api/settings", headers=headers).json() == {"keep_awake": False}
+    assert client.get("/api/settings", headers=headers).json() == {
+        "keep_awake": False,
+        "device": "auto",
+    }
     bad = client.put("/api/settings", json={"keep_awake": "yes"}, headers=headers)
     assert bad.status_code == 400
 

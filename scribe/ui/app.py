@@ -14,13 +14,26 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""UI4 app factory: UI3 books routes plus the job runner (plan UI4).
+"""UI5 app factory: UI4 job runner plus the Render step (plan UI5).
 
 Kept from UI2/UI3: ``GET /api/health``, ``GET /`` (Books UI with the
 ``{{AULOUD_TOKEN}}`` slot filled per run) and ``POST /api/echo`` (the tested
 token example). No CORS middleware anywhere; the Host/token middleware
 answers 421/403 with generic bodies that never echo the offending Host or
 the expected token.
+
+UI5 adds (thin operators over :mod:`build`; no render-semantics change):
+
+- ``POST /api/books/{id}/plan {chapters?, pages?}`` — preflight from
+  :func:`build.plan_build` (cached vs to-render sentences/chapters, time
+  estimate plus its RTF basis, resolved chapter list, page resolution).
+  Errors reuse the CLI's ``{file, rule, message}`` shapes (``bad-range``,
+  ``chapters-pages-exclusive``, ``pages-need-pdf``).
+- ``GET/PUT /api/settings`` — now ``{keep_awake, device}`` (device
+  ``auto``/``cpu``/``cuda``, default ``auto``); ``PUT`` validates with the
+  CLI-identical ``bad-device``/``cuda-unavailable`` wording. The
+  build-create route below uses the stored device when a request omits it.
+  ``PUT`` needs the token (middleware covers PUT).
 
 UI4 adds (thin operators over :mod:`ui.jobs`; no library behavior change):
 
@@ -35,8 +48,8 @@ UI4 adds (thin operators over :mod:`ui.jobs`; no library behavior change):
   cleans the in-progress chapter's torn files.
 - ``GET /api/jobs/{id}/events`` — SSE over the job's ``events.jsonl``
   (``Last-Event-ID`` reconnect, heartbeat comments, file replay).
-- ``GET/PUT /api/settings`` — the keep-awake toggle (persisted workspace
-  JSON, default on). ``PUT`` needs the token (middleware covers PUT).
+- ``GET/PUT /api/settings`` — the keep-awake toggle plus the compute
+  device (persisted workspace JSON, defaults on / ``auto``).
 - Upload ``POST /api/books/upload`` now creates a draft *job* (same store,
   same FIFO, ``draft_start``/``draft_done``/``draft_failed`` lines in the
   UI1 key contract, mirrored to the work-dir seam for UI3 readers) instead
@@ -119,7 +132,9 @@ def _job_error_response(exc: Exception, fallback_file: str) -> JSONResponse:
     if rule in ("bad-state", "work-lock-held", "cannot-pause", "name-taken"):
         return JSONResponse(shaped, status_code=409)
     if rule in ("path-traversal", "bad-job-id", "bad-device", "bad-request",
-                "bad-extension", "chapters-pages-exclusive"):
+                "bad-extension", "chapters-pages-exclusive", "bad-range",
+                "pages-need-pdf", "pages-no-cover", "cuda-unavailable",
+                "plan-failed", "draft-failed"):
         return JSONResponse(shaped, status_code=400)
     # Unknown ValueErrors from the manager are conflicts when they name a
     # busy book, else bad requests.
@@ -206,14 +221,19 @@ def create_app(
     job_manager: JobManager | None = None,
     spawn_fn: Any | None = None,
     pid_alive_fn: Any | None = None,
+    plan_engine: Any | None = None,
 ) -> FastAPI:
-    """Build the UI4 app bound to ``workspace`` (confined root).
+    """Build the UI5 app bound to ``workspace`` (confined root).
 
     :param workspace: file access below this root only (see ``safe_join``).
     :param token: per-run token; a fresh ``secrets`` token when omitted.
     :param job_manager: injected manager (tests); otherwise one is created.
     :param spawn_fn: fake detached spawner for ``JobManager`` (tests only).
     :param pid_alive_fn: fake PID liveness for ``JobManager`` (tests only).
+    :param plan_engine: TTS engine for the preflight route (tests inject a
+        fake so fingerprints resolve without models; production passes None
+        and :func:`build.plan_build` tries the real engine, falling back to
+        an all-to-render preflight when models are missing).
     """
     root = Path(workspace).resolve()
     run_token = token or generate_token()
@@ -251,6 +271,7 @@ def create_app(
     app.state.draft_jobs = {}
     manager = job_manager or JobManager(root, spawn_fn=spawn_fn, pid_alive_fn=pid_alive_fn)
     app.state.jobs = manager
+    app.state.plan_engine = plan_engine
 
     @app.middleware("http")
     async def _local_only(request: Request, call_next: Any) -> Any:
@@ -413,7 +434,13 @@ def create_app(
 
     @app.post("/api/books/{book_id}/build")
     async def _build(book_id: str, payload: dict[str, Any] | None = None) -> JSONResponse:
-        """Queue a detached build job (202 + job id; 409 when the book is busy)."""
+        """Queue a detached build job (202 + job id; 409 when the book is busy).
+
+        ``device`` defaults to the persisted compute setting (``auto`` when
+        never stored); an explicit request value wins. Validation
+        (``bad-device`` and friends) lives in the manager/child with the
+        CLI-identical ``{file, rule, message}`` shapes.
+        """
         from .books import check_book_id
 
         try:
@@ -425,7 +452,14 @@ def create_app(
         body = payload or {}
         chapters = body.get("chapters")
         pages = body.get("pages")
-        device = body.get("device") or "cpu"
+        device = body.get("device")
+        if device is None:
+            try:
+                from . import keepawake as _keepawake
+
+                device = _keepawake.get_device(root)
+            except Exception:
+                device = "auto"
         for key in ("chapters", "pages", "device"):
             value = body.get(key)
             if value is not None and not isinstance(value, str):
@@ -454,6 +488,104 @@ def create_app(
         return JSONResponse(
             {"job_id": job["id"], "book_id": book_id, "state": job["state"]},
             status_code=202,
+        )
+
+    @app.post("/api/books/{book_id}/plan")
+    async def _plan(book_id: str, payload: dict[str, Any] | None = None) -> JSONResponse:
+        """Preflight for the Render step: cached vs to-render plus estimate.
+
+        Pure (renders no audio, writes no render files, takes no lock).
+        Returns the :func:`build.plan_build` numbers with ``message`` set to
+        :func:`build.format_plan` output, so the panel wording matches
+        ``scribe build --plan``. Selection errors reuse the CLI's
+        ``{file, rule, message}`` shapes verbatim (``bad-range``,
+        ``chapters-pages-exclusive``, ``pages-need-pdf``, ``pages-no-cover``).
+        """
+        from .books import WORK_DIRNAME, check_book_id
+
+        try:
+            check_book_id(book_id)
+        except ValueError as exc:
+            return JSONResponse(
+                _split_shaped(str(exc), book_id, "path-traversal"), status_code=400
+            )
+        body = payload or {}
+        chapters = body.get("chapters")
+        pages = body.get("pages")
+        for key in ("chapters", "pages"):
+            value = body.get(key)
+            if value is not None and not isinstance(value, str):
+                return JSONResponse(
+                    _error_shape(
+                        book_id, "bad-request", f"{book_id}: bad-request: {key} must be a string"
+                    ),
+                    status_code=400,
+                )
+        source_rel = _source_rel_for_book(root, book_id)
+        if source_rel is None:
+            return JSONResponse(
+                _error_shape(
+                    book_id,
+                    "book-not-found",
+                    f"{book_id}: book-not-found: no source file matches",
+                ),
+                status_code=404,
+            )
+        try:
+            from build import format_plan, plan_build
+            from draft import DraftError
+
+            try:
+                source_abs = safe_join(root, source_rel)
+            except ValueError as exc:
+                return JSONResponse(
+                    _split_shaped(str(exc), book_id, "path-traversal"), status_code=400
+                )
+            models_dir = root / "models"
+            if not models_dir.is_dir():
+                models_dir = Path("models")
+            plan = plan_build(
+                source_abs,
+                work_root=root / WORK_DIRNAME,
+                chapters=chapters,
+                pages=pages,
+                engine=app.state.plan_engine,
+                models_dir=models_dir,
+            )
+        except DraftError as exc:
+            # DraftError subclasses ValueError: catch first so stale-source
+            # failures keep the draft-failed rule, not bad-request.
+            return JSONResponse(
+                _split_shaped(str(exc), book_id, "draft-failed"), status_code=400
+            )
+        except ValueError as exc:
+            # BuildError + selection errors are already shaped
+            # ``file: rule: message`` by the library (bad-range,
+            # chapters-pages-exclusive, pages-need-pdf, pages-no-cover).
+            return JSONResponse(
+                _split_shaped(str(exc), book_id, "bad-request"), status_code=400
+            )
+        except Exception as exc:  # plan never leaks a traceback
+            return JSONResponse(
+                _error_shape(book_id, "plan-failed", f"{book_id}: plan-failed: {exc}"),
+                status_code=500,
+            )
+        return JSONResponse(
+            {
+                "book_id": plan.book_id,
+                "title": plan.title,
+                "source_chapters_total": plan.source_chapters_total,
+                "selected_chapters": plan.selected_chapters,
+                "cached_chapters": plan.cached_chapters,
+                "to_render_chapters": plan.to_render_chapters,
+                "cached_sentences": plan.cached_sentences,
+                "to_render_sentences": plan.to_render_sentences,
+                "estimated_seconds": plan.estimated_seconds,
+                "rtf_used": plan.rtf_used,
+                "page_resolution": plan.page_resolution,
+                "is_range": plan.is_range,
+                "message": format_plan(plan),
+            }
         )
 
     @app.get("/api/jobs")
@@ -607,31 +739,77 @@ def create_app(
 
     @app.get("/api/settings")
     async def _settings_get() -> dict[str, Any]:
-        """Keep-awake toggle (default on; persisted workspace JSON)."""
+        """Compute settings (keep-awake default on, device default auto)."""
         from . import keepawake as _keepawake
 
         return _keepawake.get_settings(root)
 
     @app.put("/api/settings")
     async def _settings_put(payload: dict[str, Any]) -> JSONResponse:
-        """Persist the keep-awake toggle (token-guarded via the middleware)."""
+        """Persist compute settings (token-guarded via the middleware).
+
+        Accepts ``{keep_awake?: bool, device?: "auto"|"cpu"|"cuda"}`` (at
+        least one required); unmentioned fields keep their stored values.
+        ``device`` is validated live with the CLI-identical wording
+        (``bad-device`` for unknown values, ``cuda-unavailable`` when this
+        machine's onnxruntime has no CUDA provider).
+        """
         from . import keepawake as _keepawake
 
-        if not isinstance(payload, dict) or "keep_awake" not in payload:
+        if not isinstance(payload, dict) or (
+            "keep_awake" not in payload and "device" not in payload
+        ):
             return JSONResponse(
                 _error_shape(
-                    "settings", "bad-request", "settings: bad-request: need {keep_awake: bool}"
+                    "settings",
+                    "bad-request",
+                    'settings: bad-request: need {keep_awake?: bool, device?: "auto"|"cpu"|"cuda"}',
                 ),
                 status_code=400,
             )
-        value = payload["keep_awake"]
-        if not isinstance(value, bool):
-            return JSONResponse(
-                _error_shape(
-                    "settings", "bad-request", "settings: bad-request: keep_awake must be bool"
-                ),
-                status_code=400,
-            )
+        keep_awake: bool | None = None
+        if "keep_awake" in payload:
+            if not isinstance(payload["keep_awake"], bool):
+                return JSONResponse(
+                    _error_shape(
+                        "settings",
+                        "bad-request",
+                        "settings: bad-request: keep_awake must be bool",
+                    ),
+                    status_code=400,
+                )
+            keep_awake = payload["keep_awake"]
+        device: str | None = None
+        if "device" in payload:
+            raw_device = payload["device"]
+            if not isinstance(raw_device, str):
+                return JSONResponse(
+                    _error_shape(
+                        "device",
+                        "bad-device",
+                        f"device: bad-device: {raw_device!r} must be one of "
+                        "['auto', 'cpu', 'cuda']",
+                    ),
+                    status_code=400,
+                )
+            try:
+                from device import resolve_device_providers
+            except ImportError as exc:
+                return JSONResponse(
+                    _error_shape(
+                        "settings", "plan-failed", f"settings: plan-failed: {exc}"
+                    ),
+                    status_code=500,
+                )
+            try:
+                resolve_device_providers(raw_device)
+            except ValueError as exc:
+                # Already shaped ``device: bad-device|cuda-unavailable: ...``
+                # by the library (wording identical to the CLI).
+                return JSONResponse(
+                    _split_shaped(str(exc), "device", "bad-device"), status_code=400
+                )
+            device = raw_device.strip().lower()
         # Confine explicitly (defense in depth; the manager never leaves root).
         try:
             safe_join(root, _keepawake.SETTINGS_FILENAME)
@@ -639,6 +817,8 @@ def create_app(
             return JSONResponse(
                 _split_shaped(str(exc), "settings", "path-traversal"), status_code=400
             )
-        return JSONResponse(_keepawake.set_enabled(root, value))
+        return JSONResponse(
+            _keepawake.set_settings(root, keep_awake=keep_awake, device=device)
+        )
 
     return app

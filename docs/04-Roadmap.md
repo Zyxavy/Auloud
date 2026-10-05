@@ -136,7 +136,7 @@ Goal: `scribe ui` covers ingest, cast review, render, validate and tablet hand-o
 - [x] UI2 server skeleton: `scribe[ui]` extra, 127.0.0.1-only + Host check + per-run token + traversal guards, doctor row (531 green)
 - [x] UI3 books and book detail
 - [x] UI4 job runner and jobs tray (unit/API verified: 17 new job tests + route list green, full suite green; tray visuals and browser-closed build left for the user)
-- [ ] UI5 render step with ranges and preflight
+- [x] UI5 render step with ranges and preflight (API verified: 10 new render tests + route list green, full suite 578 green; picker/preflight/start/pause/resume/delta-rebuild visuals left for the user in Edge)
 - [ ] UI6 cast view with audition and overrides
 - [ ] UI7 voices view and audition service
 - [ ] UI8 validate and transfer
