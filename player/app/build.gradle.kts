@@ -103,6 +103,10 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.coil.compose)
     implementation(libs.coroutines.android)
+    // PW7b (Slice 7 S7B approval covers this artifact): sherpa-onnx JitPack
+    // AAR for the Piper tier (minSdk 21, Apache-2.0 POM). Native libs
+    // statically link espeak-ng — SHIP decision stays open (D-066).
+    implementation(libs.sherpa.onnx)
     ksp(libs.room.compiler)
 
     testImplementation(libs.junit)

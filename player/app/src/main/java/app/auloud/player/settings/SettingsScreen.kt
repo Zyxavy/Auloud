@@ -41,6 +41,7 @@ import app.auloud.player.tts.EngineRegistry
 import app.auloud.player.tts.ModelPack
 import app.auloud.player.tts.ModelPacks
 import app.auloud.player.tts.PrefsTtsStore
+import app.auloud.player.tts.SherpaPiperEngine
 import app.auloud.player.tts.SystemTtsAdapter
 import app.auloud.player.tts.VoiceAuditionScreen
 import app.auloud.player.tts.VoiceAuditionViewModel
@@ -451,16 +452,27 @@ private fun VoiceAuditionHost(
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
+    val sherpaHolder = remember(appContext) { arrayOfNulls<SherpaPiperEngine>(1) }
     val viewModel = remember(appContext) {
         val scratch = File(appContext.cacheDir, "tts-audition")
         val driver = AndroidSystemTtsDriver(appContext)
         val adapter = SystemTtsAdapter(driver, scratch)
-        val registry = EngineRegistry(listOf(adapter))
+        // PW7b: sherpa Piper joins the registry when complete packs are
+        // present (constructor never loads models; voices stay lazy).
+        // No packs, no engine — System tier alone, exactly as before.
+        val packs = scanModelPacks(appContext)
+        val sherpa = SherpaPiperEngine(packs).takeIf { it.voices().isNotEmpty() }
+        sherpaHolder[0] = sherpa
+        val registry = EngineRegistry(listOfNotNull(adapter, sherpa))
         val store = PrefsTtsStore.fromContext(appContext)
         VoiceAuditionViewModel(registry, store, AudioTrackAudioPlayer())
     }
     DisposableEffect(viewModel) {
-        onDispose { viewModel.clear() }
+        onDispose {
+            viewModel.clear()
+            sherpaHolder[0]?.release()
+            sherpaHolder[0] = null
+        }
     }
     val state by viewModel.state.collectAsState()
     // Re-poll once the async TTS init lands (cheap: registry + prefs read).
