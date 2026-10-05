@@ -34,9 +34,12 @@ import app.auloud.player.battery.PrefsBatteryPromptStore
 import app.auloud.player.reader.ReaderFontSize
 import app.auloud.player.storage.WatchFolder
 import app.auloud.player.storage.WatchFolders
+import app.auloud.player.storage.BooksRootResolver
 import app.auloud.player.tts.AndroidSystemTtsDriver
 import app.auloud.player.tts.AudioTrackAudioPlayer
 import app.auloud.player.tts.EngineRegistry
+import app.auloud.player.tts.ModelPack
+import app.auloud.player.tts.ModelPacks
 import app.auloud.player.tts.PrefsTtsStore
 import app.auloud.player.tts.SystemTtsAdapter
 import app.auloud.player.tts.VoiceAuditionScreen
@@ -124,6 +127,10 @@ fun SettingsScreen(
         )
         VoiceSettingsEntry(
             onClick = { showVoices = true },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        )
+        ModelPacksSection(
+            packs = remember(appContext) { scanModelPacks(appContext) },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         )
         // RA0 throwaway: debug builds only, deleted with the spike screen.
@@ -355,6 +362,61 @@ private fun BatteryOptimizationEntry(
     }
 }
 
+/** PW7a: sideloaded model packs (files only; engine binding is PW7b). */
+@Composable
+private fun ModelPacksSection(
+    packs: List<ModelPack>,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.padding(vertical = 8.dp)) {
+        Text(
+            text = "Model packs",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(Modifier.height(4.dp))
+        if (packs.isEmpty()) {
+            Text(
+                text = "No voice models found. Copy a pack folder " +
+                    "(.onnx files) into /Auloud/models/ here or " +
+                    "Auloud/models/ on the SD card with a file manager.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        } else {
+            packs.forEach { pack ->
+                Text(
+                    text = pack.label,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = "${pack.voices.size} voice(s), " +
+                        "%.1f MB".format(pack.bytesTotal / 1048576.0),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    text = pack.voices.joinToString(", "),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+    }
+}
+
+private fun scanModelPacks(appContext: android.content.Context): List<ModelPack> {
+    return try {
+        val internal = java.io.File(BooksRootResolver.defaultBooksRoot(appContext))
+        val removable = try {
+            BooksRootResolver.findRemovableRoot(appContext)
+        } catch (_: Exception) {
+            null
+        }
+        ModelPacks.scan(ModelPacks.roots(internal, removable))
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
 /** PW8: narrator/dialogue voices entry (pushes the audition screen). */
 @Composable
 private fun VoiceSettingsEntry(
