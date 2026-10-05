@@ -22,7 +22,7 @@ If you host Scribe as a network service for other people, check the AGPL points 
 | Coil | Apache-2.0 | [x] |
 | JUnit (test only) | EPL-1.0 | [x] |
 | MockK, Turbine (test only) | Apache-2.0 | [x] |
-| jsoup (planned, pin in IN4) | MIT | \[ \] |
+| jsoup (planned, pin in IN4) | MIT | [ ] |
 
 In-app: add a "Licenses" screen listing these (a Gradle license plugin can generate it), and ship a `NOTICE` file.
 
