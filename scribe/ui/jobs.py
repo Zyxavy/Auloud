@@ -52,6 +52,13 @@ files (best effort; ``chapter_up_to_date`` would re-render them anyway).
 Draft jobs run the same detached ``scribe draft`` with manager-written
 ``draft_start``/``draft_done``/``draft_failed`` lines (UI3 thread subsumed;
 the work-dir ``events.jsonl`` seam is mirrored for UI3 readers).
+
+UI7 adds a third kind, ``voices-sample`` (audition clips): a detached
+``scribe voices --sample`` writing the versioned cache
+(``voice-samples/<version>/<text-hash>/``). These jobs take no per-book
+lock, queue on the same FIFO, support cancel/resume but never pause, and
+coalesce (same version/hash with a superset voice list reuses the running
+job instead of starting a second).
 """
 
 from __future__ import annotations
@@ -89,6 +96,13 @@ PAUSE_GRACE_S = 30.0
 TAIL_POLL_S = 0.5
 
 _VALID_DEVICES = frozenset({"auto", "cpu", "cuda"})
+
+#: Slice 6 UI7: audition-clip generation jobs (detached ``scribe voices``).
+VOICES_KIND = "voices-sample"
+#: Sentinel book id for global voices jobs (no per-book lock, no work dir).
+VOICES_BOOK_ID = "__voices__"
+#: States that count as active for voices coalescing (queued/running/paused).
+VOICES_ACTIVE = frozenset({"queued", "running", "paused"})
 
 
 def check_job_id(job_id: str) -> str:
@@ -419,6 +433,10 @@ class JobManager:
             "pages": job.get("pages"),
             "device": job.get("device"),
             "source_file": job.get("source_file"),
+            # UI7 voices-sample fields (None for build/draft jobs).
+            "voices": job.get("voices"),
+            "engine_version": job.get("engine_version"),
+            "text_hash": job.get("text_hash"),
         }
 
     def _job_ids_for_book(self, book_id: str, states: set[str] | None = None) -> list[str]:
@@ -551,6 +569,103 @@ class JobManager:
         loaded = self._load(job_id)
         return self._public(loaded or job)
 
+    def create_voices_sample(
+        self,
+        voices: list[str],
+        engine_version: str,
+        text_hash: str,
+    ) -> dict[str, Any]:
+        """Queue a voices-sample job (UI7; same global FIFO, no book lock).
+
+        ``voices`` is the sorted unique voice list to render with the fixed
+        audition sentence; ``engine_version``/``text_hash`` select the
+        versioned cache dir the detached child writes. Callers coalesce
+        first (see :meth:`find_active_voices_job`); this method always
+        creates (queued behind whatever runs, never refused).
+        """
+        from .cast import check_voice_name
+
+        wanted = sorted({check_voice_name(v) for v in (voices or [])})
+        if not wanted:
+            raise ValueError("voices: bad-request: need at least one voice")
+        version = str(engine_version or "").strip()
+        if not version:
+            raise ValueError("voices: bad-request: need an engine version")
+        thash = str(text_hash or "").strip()
+        if not thash:
+            raise ValueError("voices: bad-request: need a sample text hash")
+        job_id = self._new_id()
+        now = _now_iso()
+        job: dict[str, Any] = {
+            "id": job_id,
+            "book_id": VOICES_BOOK_ID,
+            "kind": VOICES_KIND,
+            "state": "queued",
+            "created": now,
+            "updated": now,
+            "pid": None,
+            "exit": None,
+            "summary": {"cached": 0, "rendered": 0, "audio_ms": 0, "wall_s": 0.0},
+            "error": None,
+            "chapters": None,
+            "pages": None,
+            "device": None,
+            "source_file": None,
+            "voices": wanted,
+            "engine_version": version,
+            "text_hash": thash,
+        }
+        folder = job_dir(self.workspace, job_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        _atomic_write_json(folder / JOB_FILENAME, job)
+        try:
+            (folder / EVENTS_FILENAME).write_text("", encoding="utf-8")
+        except OSError:
+            pass
+        self._pump_queue()
+        loaded = self._load(job_id)
+        return self._public(loaded or job)
+
+    def find_active_voices_job(
+        self,
+        voices: list[str],
+        engine_version: str,
+        text_hash: str,
+    ) -> dict[str, Any] | None:
+        """Newest active voices job covering ``voices`` (None when none).
+
+        Covering means same ``engine_version`` + ``text_hash`` with a stored
+        voice set that is a superset of the wanted set, so a running
+        regenerate-all coalesces single-voice retries, while disjoint sets
+        queue separately. Active means queued/running/paused.
+        """
+        try:
+            wanted = {str(v) for v in (voices or [])}
+        except TypeError:
+            return None
+        if not wanted:
+            return None
+        best: dict[str, Any] | None = None
+        for folder in self._all_job_dirs():
+            data = _read_job_file(folder / JOB_FILENAME)
+            if not isinstance(data, dict):
+                continue
+            if data.get("kind") != VOICES_KIND:
+                continue
+            if data.get("state") not in VOICES_ACTIVE:
+                continue
+            if str(data.get("engine_version") or "") != str(engine_version or ""):
+                continue
+            if str(data.get("text_hash") or "") != str(text_hash or ""):
+                continue
+            stored = data.get("voices")
+            stored_set = {str(v) for v in stored} if isinstance(stored, list) else set()
+            if not wanted.issubset(stored_set):
+                continue
+            if best is None or str(data.get("created", "")) > str(best.get("created", "")):
+                best = data
+        return self._public(best) if best is not None else None
+
     # -- queue pump ----------------------------------------------------------
 
     def _running_id(self) -> str | None:
@@ -635,36 +750,57 @@ class JobManager:
     # -- spawn ---------------------------------------------------------------
 
     def _spawn_detached(self, job: dict[str, Any], folder: Path) -> Any:
-        """Production spawner: detached ``scribe build``/``draft`` (stdio to log)."""
+        """Production spawner: detached ``scribe build``/``draft``/``voices``."""
         from .books import WORK_DIRNAME
 
         cli = _cli_path()
         work_root = self.workspace / WORK_DIRNAME
-        source_rel = str(job.get("source_file") or "")
-        source_abs = safe_join(self.workspace, source_rel) if source_rel else Path(source_rel)
-        events_path = folder / EVENTS_FILENAME
         log_path = folder / LOG_FILENAME
         if job.get("kind") == "draft":
+            source_rel = str(job.get("source_file") or "")
+            source_abs = safe_join(self.workspace, source_rel) if source_rel else Path(source_rel)
             cmd = [sys.executable, str(cli), "draft", str(source_abs), "--work-dir", str(work_root)]
-        else:
+            return _detached_popen(cmd, log_path)
+        if job.get("kind") == VOICES_KIND:
+            from .cast import versioned_samples_dir
+
+            out_dir = versioned_samples_dir(
+                self.workspace,
+                str(job.get("engine_version") or ""),
+                str(job.get("text_hash") or ""),
+            )
             cmd = [
                 sys.executable,
                 str(cli),
-                "build",
-                str(source_abs),
-                "--work-dir",
-                str(work_root),
-                "--events-jsonl",
-                str(events_path),
-                "--stop-file",
-                str(folder / STOP_FILENAME),
-                "--no-progress",
+                "voices",
+                "--sample",
+                "--out-dir",
+                str(out_dir),
             ]
-            if job.get("chapters"):
-                cmd += ["--chapters", str(job["chapters"])]
-            if job.get("pages"):
-                cmd += ["--pages", str(job["pages"])]
-            cmd += ["--device", str(job.get("device") or "cpu")]
+            for voice in (job.get("voices") or []):
+                cmd += ["--voice", str(voice)]
+            return _detached_popen(cmd, log_path)
+        source_rel = str(job.get("source_file") or "")
+        source_abs = safe_join(self.workspace, source_rel) if source_rel else Path(source_rel)
+        events_path = folder / EVENTS_FILENAME
+        cmd = [
+            sys.executable,
+            str(cli),
+            "build",
+            str(source_abs),
+            "--work-dir",
+            str(work_root),
+            "--events-jsonl",
+            str(events_path),
+            "--stop-file",
+            str(folder / STOP_FILENAME),
+            "--no-progress",
+        ]
+        if job.get("chapters"):
+            cmd += ["--chapters", str(job["chapters"])]
+        if job.get("pages"):
+            cmd += ["--pages", str(job["pages"])]
+        cmd += ["--device", str(job.get("device") or "cpu")]
         return _detached_popen(cmd, log_path)
 
     # -- draft event mirror (UI3 seam) -------------------------------------------
@@ -921,6 +1057,11 @@ class JobManager:
         job = self._load(job_id)
         if job is None:
             raise KeyError(f"{job_id}: job-not-found: no such job")
+        if job.get("kind") == VOICES_KIND:
+            raise ValueError(
+                f"{job_id}: bad-state: voices-sample jobs cannot pause "
+                "(cancel and retry instead; samples render in seconds)"
+            )
         if job.get("state") != "running":
             raise ValueError(f"{job_id}: bad-state: only running jobs can pause")
         folder = job_dir(self.workspace, job_id)
@@ -1126,6 +1267,9 @@ __all__ = [
     "JOBS_DIRNAME",
     "LOG_FILENAME",
     "STOP_FILENAME",
+    "VOICES_ACTIVE",
+    "VOICES_BOOK_ID",
+    "VOICES_KIND",
     "JobManager",
     "check_job_id",
     "job_dir",

@@ -123,7 +123,7 @@ body { padding-bottom: calc(var(--space) * 12); }
 </head>
 <body>
 <h1 class="brand">Auloud Scribe</h1>
-<p class="muted">Books and book detail. The jobs tray below tracks drafts and builds. The voices palette arrives in a later step.</p>
+<p class="muted">Books and book detail. The jobs tray below tracks drafts, builds and voice samples. The voices palette below lists every voice with audition clips.</p>
 
 <section class="card" id="upload-card" aria-label="Upload a book">
 <h2>Add a book</h2>
@@ -153,6 +153,20 @@ body { padding-bottom: calc(var(--space) * 12); }
 <div class="chips" id="d-chips"></div>
 <ol class="stepper" id="d-steps"></ol>
 </div>
+</section>
+
+<section class="card" aria-label="Voices">
+<h2>Voices</h2>
+<p class="muted" id="voices-meta">Loading the palette…</p>
+<p class="muted">Clips cache under .scribe/voice-samples by engine version. Press Play to hear a voice; missing clips generate in the background.</p>
+<div id="voices-empty" class="empty" hidden>No voices listed. Check the server, then press Refresh voices.</div>
+<table class="auloud-table" id="voices-table" hidden>
+<thead><tr><th>Voice</th><th>Locale</th><th>Gender</th><th>Audition</th><th>Regenerate</th></tr></thead>
+<tbody id="voices-body"></tbody>
+</table>
+<p class="row-actions"><button id="voices-refresh" class="ghost" type="button">Refresh voices</button>
+<button id="voices-regen-all" type="button">Regenerate all</button></p>
+<p class="muted" id="voices-status" role="status"></p>
 </section>
 
 <section class="card" aria-label="Jobs history">
@@ -815,32 +829,195 @@ async function auditionVoice(voice, btn) {
   if (!voice) return;
   const prev = btn ? btn.textContent : "";
   if (btn) btn.textContent = "…";
-  try {
-    const res = await fetch("/api/voices/" + encodeURIComponent(voice) + ".wav", {
+  async function playBlob(blob, label) {
+    mount.hidden = false;
+    mount.innerHTML = "";
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.src = URL.createObjectURL(blob);
+    audio.setAttribute("aria-label", "Audition " + label);
+    mount.appendChild(audio);
+    await audio.play().catch(() => {});
+  }
+  async function fetchClip(label) {
+    const res = await fetch("/api/voices/" + encodeURIComponent(label) + ".wav", {
       headers: { "X-Auloud-Token": token }
     });
+    return res;
+  }
+  try {
+    const res = await fetchClip(voice);
     if (res.ok) {
-      const blob = await res.blob();
-      mount.hidden = false;
-      mount.innerHTML = "";
-      const audio = document.createElement("audio");
-      audio.controls = true;
-      audio.src = URL.createObjectURL(blob);
-      audio.setAttribute("aria-label", "Audition " + voice);
-      mount.appendChild(audio);
-      await audio.play().catch(() => {});
-    } else if (res.status === 409) {
-      mount.hidden = false;
-      mount.textContent = "No cached clip for " + voice + ". Run: scribe voices --sample --out-dir <workspace>/.scribe/voice-samples";
-    } else {
+      await playBlob(await res.blob(), voice);
+      return;
+    }
+    if (res.status !== 409) {
       mount.hidden = false;
       mount.textContent = "Audition failed with code " + res.status + ".";
+      return;
     }
+    let data = null;
+    try { data = await res.json(); } catch { data = null; }
+    let jobId = data && data.job_id ? data.job_id : null;
+    if (!jobId) {
+      const made = await api("/api/voices/" + encodeURIComponent(voice) + "/sample", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({})
+      });
+      if (made.ok && made.data && made.data.cached) {
+        const retry = await fetchClip(voice);
+        if (retry.ok) { await playBlob(await retry.blob(), voice); return; }
+        mount.hidden = false;
+        mount.textContent = "Still missing a clip for " + voice + ". Press Regenerate in Voices.";
+        return;
+      }
+      if (made.ok && made.data && made.data.job_id) jobId = made.data.job_id;
+      else {
+        mount.hidden = false;
+        mount.textContent = "Could not start generation for " + voice + ". Try Regenerate in Voices.";
+        return;
+      }
+    }
+    mount.hidden = false;
+    mount.textContent = "Generating a clip for " + voice + ". Waiting for the job…";
+    const final = await pollJobDone(jobId);
+    if (!final || final.state !== "done") {
+      mount.textContent = "Generation did not finish for " + voice + ". Try Regenerate in Voices.";
+      return;
+    }
+    const retry = await fetchClip(voice);
+    if (retry.ok) { await playBlob(await retry.blob(), voice); return; }
+    mount.textContent = "Still missing a clip for " + voice + ". Press Regenerate in Voices.";
   } catch {
     mount.hidden = false;
     mount.textContent = "Audition failed. Check the server.";
   } finally {
     if (btn) btn.textContent = prev || "Play";
+  }
+}
+// --- Voices view (UI7) -----------------------------------------------------
+// Palette grid with audition clips. Play reuses auditionVoice above (the one
+// player-row mount); missing clips queue a voices-sample job, poll it, retry.
+let voicesDoc = null;
+async function pollJobDone(jobId) {
+  const deadline = Date.now() + 120000;
+  while (Date.now() < deadline) {
+    const { ok, data } = await api("/api/jobs/" + encodeURIComponent(jobId));
+    if (!ok || !data) return null;
+    const state = data.state || "";
+    if (state === "done" || state === "failed" || state === "cancelled") return data;
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return null;
+}
+async function loadVoices() {
+  const meta = document.getElementById("voices-meta");
+  const empty = document.getElementById("voices-empty");
+  const table = document.getElementById("voices-table");
+  const body = document.getElementById("voices-body");
+  const status = document.getElementById("voices-status");
+  if (!meta || !body) return;
+  const { ok, data } = await api("/api/cast/voices");
+  if (!ok || !data || !Array.isArray(data.voices)) {
+    if (empty) { empty.hidden = false; if (table) table.hidden = true; }
+    if (meta) meta.textContent = "Could not load voices. Check the server, then press Refresh voices.";
+    return;
+  }
+  voicesDoc = data;
+  const details = {};
+  for (const d of (data.details || [])) details[d.name] = d;
+  if (empty) empty.hidden = true;
+  if (table) table.hidden = false;
+  body.innerHTML = "";
+  for (const name of data.voices) {
+    const d = details[name] || {};
+    const tr = document.createElement("tr");
+    const tdName = document.createElement("td");
+    tdName.textContent = name;
+    const tdLoc = document.createElement("td");
+    tdLoc.textContent = d.locale || "unknown";
+    const tdGen = document.createElement("td");
+    tdGen.textContent = d.gender || "unknown";
+    const tdPlay = document.createElement("td");
+    const play = document.createElement("button");
+    play.type = "button"; play.className = "ghost"; play.textContent = "Play";
+    play.setAttribute("aria-label", "Audition " + name);
+    play.addEventListener("click", () => auditionVoice(name, play));
+    tdPlay.appendChild(play);
+    const tdRegen = document.createElement("td");
+    const regen = document.createElement("button");
+    regen.type = "button"; regen.className = "ghost"; regen.textContent = "Regenerate";
+    regen.setAttribute("aria-label", "Regenerate " + name);
+    regen.addEventListener("click", () => regenVoice(name, regen));
+    tdRegen.appendChild(regen);
+    tr.append(tdName, tdLoc, tdGen, tdPlay, tdRegen);
+    body.appendChild(tr);
+  }
+  if (meta) {
+    meta.textContent = data.voices.length + " voices · engine " + (data.engine_version || "?")
+      + " · sample " + (data.text_hash || "?");
+  }
+  if (status && !status.textContent) status.textContent = "";
+}
+async function regenVoice(voice, btn) {
+  const status = document.getElementById("voices-status");
+  const prev = btn ? btn.textContent : "";
+  if (btn) btn.textContent = "…";
+  try {
+    if (status) status.textContent = "Regenerating " + voice + "…";
+    const { ok, data } = await api("/api/voices/" + encodeURIComponent(voice) + "/sample", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ regenerate: true })
+    });
+    if (!ok) {
+      if (status) status.textContent = "Regenerate failed for " + voice + ".";
+      return;
+    }
+    if (data && data.cached) {
+      if (status) status.textContent = voice + " is already cached.";
+      return;
+    }
+    const jobId = data && data.job_id ? data.job_id : null;
+    if (!jobId) {
+      if (status) status.textContent = "Regenerate failed for " + voice + ".";
+      return;
+    }
+    const final = await pollJobDone(jobId);
+    if (status) status.textContent = (final && final.state === "done")
+      ? voice + " ready. Press Play to hear it."
+      : "Regenerate did not finish for " + voice + ".";
+    await loadJobs();
+  } finally {
+    if (btn) btn.textContent = prev || "Regenerate";
+  }
+}
+async function regenAllVoices(btn) {
+  const status = document.getElementById("voices-status");
+  const prev = btn ? btn.textContent : "";
+  if (btn) btn.textContent = "…";
+  try {
+    if (status) status.textContent = "Regenerating all voices…";
+    const { ok, data } = await api("/api/voices/sample", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ regenerate: true })
+    });
+    if (!ok) {
+      if (status) status.textContent = "Regenerate-all failed.";
+      return;
+    }
+    if (data && data.cached) {
+      if (status) status.textContent = "All voices already cached.";
+      return;
+    }
+    const jobId = data && data.job_id ? data.job_id : null;
+    if (!jobId) {
+      if (status) status.textContent = "Regenerate-all failed.";
+      return;
+    }
+    const final = await pollJobDone(jobId);
+    if (status) status.textContent = (final && final.state === "done")
+      ? "All voices ready. Press Play on any row."
+      : "Regenerate-all did not finish.";
+    await loadJobs();
+  } finally {
+    if (btn) btn.textContent = prev || "Regenerate all";
   }
 }
 async function loadCastLow() {
@@ -1052,8 +1229,11 @@ document.getElementById("jobs-refresh").addEventListener("click", loadJobs);
 document.getElementById("keep-awake").addEventListener("change", async (e) => {
   await api("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep_awake: e.target.checked }) });
 });
+document.getElementById("voices-refresh").addEventListener("click", loadVoices);
+document.getElementById("voices-regen-all").addEventListener("click", (e) => regenAllVoices(e.target));
 loadJobs();
 loadKeepAwake();
+loadVoices();
 setInterval(loadJobs, 2000);
 </script>
 </body>

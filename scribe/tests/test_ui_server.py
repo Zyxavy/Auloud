@@ -275,6 +275,7 @@ def test_skeleton_routes_are_minimal(tmp_path: Path) -> None:
     # UI5 adds the render preflight (additive, not a behavior change).
     # UI6 adds the cast view, quotes picker, report, palette and audition
     # clip routes (additive, not a behavior change).
+    # UI7 adds the voices-sample generation posts (additive).
     # (no auto docs/openapi/redoc anywhere; still no CORS middleware).
     assert paths == [
         "/",
@@ -296,7 +297,9 @@ def test_skeleton_routes_are_minimal(tmp_path: Path) -> None:
         "/api/jobs/{job_id}/pause",
         "/api/jobs/{job_id}/resume",
         "/api/settings",
+        "/api/voices/sample",
         "/api/voices/{name}.wav",
+        "/api/voices/{name}/sample",
     ]
 
 

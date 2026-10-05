@@ -684,6 +684,11 @@ def voices(
         "--speed",
         help="Speech rate for the samples (the palette compares timbre).",
     ),
+    voice: list[str] | None = typer.Option(
+        None,
+        "--voice",
+        help="Render only this voice (repeatable for a subset; default all).",
+    ),
 ) -> None:
     """List Kokoro voices, or audition them all with --sample (MV0)."""
     from build import BuildError, create_engine
@@ -697,11 +702,23 @@ def voices(
     except BuildError as exc:
         typer.echo(f"voices failed: {exc}", err=True)
         raise typer.Exit(code=1)
+    wanted = [str(v) for v in (voice or []) if str(v).strip()] or None
     if not sample:
-        for name in list_voices(engine):
+        names = list_voices(engine)
+        if wanted is not None:
+            unknown = [v for v in wanted if v not in names]
+            if unknown:
+                typer.echo(f"voices failed: unknown voice(s): {', '.join(unknown)}.", err=True)
+                raise typer.Exit(code=1)
+            names = [v for v in names if v in set(wanted)]
+        for name in names:
             typer.echo(name)
         return
-    result = sample_voices(engine, out_dir, text=SAMPLE_TEXT, speed=speed)
+    try:
+        result = sample_voices(engine, out_dir, text=SAMPLE_TEXT, speed=speed, voices=wanted)
+    except ValueError as exc:
+        typer.echo(f"voices failed: {exc}", err=True)
+        raise typer.Exit(code=1)
     for name in result.voices:
         typer.echo(name)
     typer.echo(f"wrote {len(result.files)} WAVs to {result.out_dir}")

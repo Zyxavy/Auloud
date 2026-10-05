@@ -48,6 +48,16 @@ documented here, in the ``GET`` response (``has_comments`` plus
 :const:`COMMENT_WARNING`, so the Cast view can banner it only when the file
 actually has comments), and in ``docs/DECISIONS.md``. The mtime guard is what
 protects hand edits from silent destruction, not comment preservation.
+
+UI7 versioned audition cache (added, flat UI6 lookup kept for seeding):
+clips are keyed by ``(voice, engine version, sample text)`` under
+``<workspace>/.scribe/voice-samples/<safe-version>/<text-hash>/`` (see
+:func:`versioned_samples_dir`). The engine version comes from package
+metadata only (never a model load), the text hash from the fixed audition
+sentence, and the ``GET`` path serves versioned first with a legacy flat
+fallback. Generation runs as a detached ``voices-sample`` job (never inside
+the server process); concurrent requests for the same missing clip coalesce
+to one job (see the UI7 D-entry).
 """
 
 from __future__ import annotations
@@ -247,9 +257,9 @@ def find_sample_file(directory: Path | str, voice: str) -> Path | None:
     Exact ``<voice>.wav`` wins; otherwise the first ``*-<voice>.wav`` (the
     ``scribe voices --sample`` zero-padded ``NN-<voice>.wav`` shape), so the
     workspace cache can be seeded by pointing ``--out-dir`` at it or by
-    copying files in. UI7 keeps this lookup and adds an
-    ``<engine-version>/`` segment plus a generation job; the ``GET`` path
-    itself is the contract UI7 extends.
+    copying files in. UI7 keeps this lookup for the legacy flat cache and
+    adds a versioned lookup (see :func:`find_versioned_sample`); the ``GET``
+    path serves versioned first with this flat shape as the fallback.
     """
     name = check_voice_name(voice)
     folder = Path(directory)
@@ -261,6 +271,141 @@ def find_sample_file(directory: Path | str, voice: str) -> Path | None:
         if candidate.is_file():
             return candidate
     return None
+
+
+# --- UI7 versioned audition cache -------------------------------------------
+# Keyed by (voice, engine version, sample text) so an engine upgrade
+# regenerates exactly once. The server never loads the TTS model: the
+# version comes from package metadata, the text hash from the fixed
+# audition sentence, and synthesis runs in a detached job.
+
+
+def sample_text() -> str:
+    """Fixed audition sentence (no model load; mirrors ``tts.voices``)."""
+    from tts.voices import SAMPLE_TEXT as _TEXT
+
+    return str(_TEXT)
+
+
+def sample_text_hash(text: str | None = None) -> str:
+    """12-hex sha256 of the audition sentence (cache-key segment)."""
+    import hashlib
+
+    content = text if text is not None else sample_text()
+    return hashlib.sha256(str(content).encode("utf-8")).hexdigest()[:12]
+
+
+def get_engine_version() -> str:
+    """Engine version identity without loading the model (package metadata).
+
+    Matches :attr:`tts.kokoro.KokoroEngine.engine_version`
+    (``kokoro-onnx <pkg>``) without importing the engine, onnxruntime, or
+    any model file, so the server process stays model-free. Tests inject a
+    fake version through the app seam instead of patching this.
+    """
+    import importlib.metadata
+
+    try:
+        pkg = importlib.metadata.version("kokoro-onnx")
+    except Exception:
+        pkg = "unknown"
+    return f"kokoro-onnx {pkg}"
+
+
+def sanitize_engine_version(version: str) -> str:
+    """Filesystem-safe version segment ( traversal-proof, never empty)."""
+    text = re.sub(r"[^A-Za-z0-9]+", "-", str(version or "").strip())
+    text = text.strip("-")
+    return text or "unknown-version"
+
+
+def versioned_samples_dir(
+    workspace: Path | str,
+    engine_version: str | None = None,
+    text_hash: str | None = None,
+) -> Path:
+    """``<workspace>/.scribe/voice-samples/<safe-version>/<text-hash>/``."""
+    version = sanitize_engine_version(
+        engine_version if engine_version is not None else get_engine_version()
+    )
+    thash = str(text_hash or sample_text_hash())
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", thash) is None:
+        raise ValueError(f"{thash}: path-traversal: bad sample text hash")
+    return samples_dir(workspace) / version / thash
+
+
+def find_versioned_sample(
+    workspace: Path | str,
+    voice: str,
+    engine_version: str | None = None,
+    text_hash: str | None = None,
+) -> Path | None:
+    """Versioned clip lookup (exact then ``*-<voice>.wav``; None absent)."""
+    name = check_voice_name(voice)
+    folder = versioned_samples_dir(workspace, engine_version, text_hash)
+    exact = folder / f"{name}.wav"
+    if exact.is_file():
+        return exact
+    for candidate in sorted(folder.glob(f"*-{name}.wav")):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def find_cached_clip(
+    workspace: Path | str,
+    voice: str,
+    engine_version: str | None = None,
+    text_hash: str | None = None,
+) -> tuple[Path | None, bool]:
+    """``(path, is_versioned)``: versioned hit wins, else the legacy flat.
+
+    Returns ``(None, False)`` when absent. The flag drives caching headers
+    (versioned clips are immutable; legacy flat clips are not).
+    """
+    hit = find_versioned_sample(workspace, voice, engine_version, text_hash)
+    if hit is not None:
+        return hit, True
+    legacy = find_sample_file(samples_dir(workspace), voice)
+    if legacy is not None:
+        return legacy, False
+    return None, False
+
+
+#: Kokoro voice-prefix locales (first id letter; heuristic, display only).
+_VOICE_LOCALES = {
+    "a": "American",
+    "b": "British",
+    "e": "Spanish",
+    "h": "Hindi",
+    "i": "Italian",
+    "j": "Japanese",
+    "p": "Portuguese",
+    "z": "Chinese",
+}
+
+#: Kokoro voice-prefix genders (second id letter; heuristic, display only).
+_VOICE_GENDERS = {"f": "female", "m": "male"}
+
+
+def describe_voice(voice: str) -> dict[str, str]:
+    """``{name, locale, gender}`` from the Kokoro id prefix (display only).
+
+    ``af_bella`` reads American female, ``bm_lewis`` British male,
+    ``jf_alpha`` Japanese female, ``zf_xiaoxiao`` Chinese female,
+    ``im_nicola`` Italian male. Unknown prefixes stay ``unknown`` rather
+    than failing; the audition never depends on these hints.
+    """
+    name = str(voice or "")
+    prefix = name.split("_", 1)[0].lower() if "_" in name else name[:2].lower()
+    locale = _VOICE_LOCALES.get(prefix[:1], "unknown") if prefix else "unknown"
+    gender = _VOICE_GENDERS.get(prefix[1:2], "unknown") if len(prefix) >= 2 else "unknown"
+    return {"name": name, "locale": locale, "gender": gender}
+
+
+def palette_details() -> list[dict[str, str]]:
+    """One :func:`describe_voice` entry per :data:`PALETTE_VOICES` (sorted)."""
+    return [describe_voice(voice) for voice in PALETTE_VOICES]
 
 
 # --- patch ops (pure: dict in, new dict out, never mutating the input) -------

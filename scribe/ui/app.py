@@ -14,13 +14,33 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""UI6 app factory: UI5 plus the Cast view (plan UI6).
+"""UI7 app factory: UI6 plus the Voices view and audition service (plan UI7).
 
 Kept from UI2/UI3: ``GET /api/health``, ``GET /`` (Books UI with the
 ``{{AULOUD_TOKEN}}`` slot filled per run) and ``POST /api/echo`` (the tested
 token example). No CORS middleware anywhere; the Host/token middleware
 answers 421/403 with generic bodies that never echo the offending Host or
 the expected token.
+
+UI7 adds (thin operators over :mod:`ui.cast` versioned cache plus the UI4
+job store; the server never loads the TTS model):
+
+- ``GET /api/cast/voices`` — now with ``engine_version`` (package metadata,
+  never a model load), ``sample_text``/``text_hash`` and per-voice
+  ``details`` (``{name, locale, gender}`` from the Kokoro id prefix).
+- ``GET /api/voices/{name}.wav`` — versioned clip first
+  (``voice-samples/<version>/<text-hash>/`` with immutable caching), then
+  the legacy flat UI6 cache; absent clips are 409 ``sample-missing`` with
+  the seeding command plus, when a generation job already covers the clip,
+  its ``job_id`` (coalesced: the UI polls the job, then retries; ``GET``
+  never starts a job itself, so no token bypass).
+- ``POST /api/voices/sample {voices?, regenerate?}`` — queue a detached
+  ``voices-sample`` job (202 + job id; 200 ``cached`` when every requested
+  clip is already versioned-cached). Concurrent posts for the same missing
+  clips coalesce to the running job (202 with the same id plus
+  ``coalesced: true`` — queued-on-same, see the UI7 D-entry).
+- ``POST /api/voices/{name}/sample {regenerate?}`` — per-voice convenience
+  for the same job (same 200/202 contract).
 
 UI6 adds (thin operators over :mod:`ui.cast` and :mod:`text.cast`; the
 ``cast.yaml`` model, merge and validation stay in the library):
@@ -42,13 +62,14 @@ UI6 adds (thin operators over :mod:`ui.cast` and :mod:`text.cast`; the
   overrides picker (chapter/block/quote/text/raw speaker/confidence plus
   the resolved character); paged with a total (novels have thousands).
 - ``GET /api/cast/voices`` — the D-036 palette dropdown (no model loaded;
-  UI7 extends to full engine enumeration).
+  UI7 adds the engine version plus locale/gender details; full engine
+  enumeration beyond the palette stays deferred).
 - ``GET /api/voices/{name}.wav`` — cached audition clip (exact
   ``<voice>.wav`` or ``*-<voice>.wav`` from ``scribe voices --sample``);
   absent clips are 409 ``sample-missing`` with the seeding command — the
   server never synths inline (one Kokoro clip costs seconds plus model
   load), and UI7 owns the generation job. The ``GET`` path is the contract
-  UI7 extends.
+  UI7 extends (versioned first, flat fallback, coalesced job reference).
 
 
 Kept from UI2/UI3: ``GET /api/health``, ``GET /`` (Books UI with the
@@ -262,8 +283,9 @@ def create_app(
     spawn_fn: Any | None = None,
     pid_alive_fn: Any | None = None,
     plan_engine: Any | None = None,
+    voices_version: str | None = None,
 ) -> FastAPI:
-    """Build the UI5 app bound to ``workspace`` (confined root).
+    """Build the UI7 app bound to ``workspace`` (confined root).
 
     :param workspace: file access below this root only (see ``safe_join``).
     :param token: per-run token; a fresh ``secrets`` token when omitted.
@@ -274,6 +296,10 @@ def create_app(
         fake so fingerprints resolve without models; production passes None
         and :func:`build.plan_build` tries the real engine, falling back to
         an all-to-render preflight when models are missing).
+    :param voices_version: engine version for the audition cache (tests
+        inject ``fake-1`` then ``fake-2`` to prove version-bump regen;
+        production passes None and the package metadata is read live,
+        never loading the model).
     """
     root = Path(workspace).resolve()
     run_token = token or generate_token()
@@ -312,6 +338,7 @@ def create_app(
     manager = job_manager or JobManager(root, spawn_fn=spawn_fn, pid_alive_fn=pid_alive_fn)
     app.state.jobs = manager
     app.state.plan_engine = plan_engine
+    app.state.voices_version = voices_version
 
     @app.middleware("http")
     async def _local_only(request: Request, call_next: Any) -> Any:
@@ -975,25 +1002,157 @@ def create_app(
             _split_shaped(str(exc), fallback_file, "bad-request"), status_code=400
         )
 
+    def _voices_version() -> str:
+        """Audition engine version (injected fake in tests; else live metadata)."""
+        from . import cast as _castmod
+
+        try:
+            injected = app.state.voices_version
+        except AttributeError:
+            injected = None
+        if isinstance(injected, str) and injected.strip():
+            return injected
+        return _castmod.get_engine_version()
+
+    def _voices_hash() -> str:
+        from . import cast as _castmod
+
+        return _castmod.sample_text_hash()
+
+    def _wanted_or_palette(raw: Any) -> tuple[list[str] | None, JSONResponse | None]:
+        """Validate an optional ``voices`` list (None means the palette)."""
+        from .cast import PALETTE_VOICES, check_voice_name
+
+        if raw is None:
+            return None, None
+        if not isinstance(raw, list) or not raw:
+            return None, JSONResponse(
+                _error_shape(
+                    "voices",
+                    "bad-request",
+                    "voices: bad-request: voices must be a non-empty list (or omit for all)",
+                ),
+                status_code=400,
+            )
+        wanted: list[str] = []
+        for entry in raw:
+            if not isinstance(entry, str):
+                return None, JSONResponse(
+                    _error_shape(
+                        "voices",
+                        "bad-request",
+                        f"voices: bad-request: voice must be a string (got {entry!r})",
+                    ),
+                    status_code=400,
+                )
+            try:
+                name = check_voice_name(entry)
+            except ValueError as exc:
+                return None, JSONResponse(
+                    _split_shaped(str(exc), entry, "path-traversal"), status_code=400
+                )
+            if name not in PALETTE_VOICES:
+                return None, JSONResponse(
+                    _error_shape(
+                        f"{name}.wav",
+                        "unknown-voice",
+                        f"{name}.wav: unknown-voice: {name!r} is not in the UI7 palette "
+                        "(full engine enumeration stays deferred)",
+                    ),
+                    status_code=400,
+                )
+            wanted.append(name)
+        return sorted(set(wanted)), None
+
+    def _sample_job_response(
+        wanted: list[str], *, regenerate: bool
+    ) -> JSONResponse:
+        """200-cached or 202-job for ``wanted`` (coalesced when covered)."""
+        from . import cast as _castmod
+
+        version = _voices_version()
+        thash = _voices_hash()
+        if not regenerate and all(
+            _castmod.find_versioned_sample(root, voice, version, thash) is not None
+            for voice in wanted
+        ):
+            return JSONResponse(
+                {
+                    "cached": True,
+                    "voices": wanted,
+                    "engine_version": version,
+                    "text_hash": thash,
+                }
+            )
+        active = manager.find_active_voices_job(wanted, version, thash)
+        if active is not None:
+            return JSONResponse(
+                {
+                    "job_id": active["id"],
+                    "state": active.get("state"),
+                    "voices": wanted,
+                    "engine_version": version,
+                    "text_hash": thash,
+                    "coalesced": True,
+                },
+                status_code=202,
+            )
+        try:
+            created = manager.create_voices_sample(wanted, version, thash)
+        except (ValueError, KeyError) as exc:
+            return _job_error_response(exc, "voices")
+        return JSONResponse(
+            {
+                "job_id": created["id"],
+                "state": created.get("state"),
+                "voices": wanted,
+                "engine_version": version,
+                "text_hash": thash,
+                "coalesced": False,
+            },
+            status_code=202,
+        )
+
     @app.get("/api/cast/voices")
     async def _cast_voices() -> dict[str, Any]:
-        """Voice dropdown source (D-036 palette; no model loaded)."""
-        from .cast import PALETTE_VOICES
+        """Voice dropdown + grid source (D-036 palette; no model loaded)."""
+        from .cast import PALETTE_VOICES, palette_details
 
+        try:
+            from tts.voices import SAMPLE_TEXT as _SAMPLE_TEXT
+        except ImportError:
+            from .cast import sample_text as _sample_text_fn
+
+            _SAMPLE_TEXT = _sample_text_fn()
+        version = _voices_version()
+        thash = _voices_hash()
         return {
             "voices": list(PALETTE_VOICES),
             "source": "palette",
-            "engine_version": None,
+            "engine_version": version,
+            "sample_text": _SAMPLE_TEXT,
+            "text_hash": thash,
+            "details": palette_details(),
             "note": (
-                "UI6 palette only (the voices draft assigns, plus legacy "
-                "af_heart). UI7 extends this to full engine enumeration with "
-                "cached audition clips."
+                "UI7 palette grid source (D-036 plus legacy af_heart) with "
+                "the engine version and locale/gender hints. Clips are "
+                "versioned by (voice, engine version, sample text); full "
+                "engine enumeration beyond the palette stays deferred."
             ),
         }
 
     @app.get("/api/voices/{name}.wav")
     async def _voice_sample(name: str) -> Any:
-        """Cached audition clip, or 409 sample-missing (never synths inline)."""
+        """Versioned audition clip, legacy flat fallback, or 409 + job ref.
+
+        Cached clips stream immediately (the server never synths inline).
+        Missing clips are 409 ``sample-missing``: with ``job_id`` when a
+        generation job already covers the clip (coalesced — poll the job,
+        then retry), else without one (POST ``/api/voices/sample`` first).
+        ``GET`` never starts a job itself, so the token exemption for GET
+        cannot trigger state changes. Range requests ride the framework's
+        ``FileResponse`` (not hand-rolled).
+        """
         from . import cast as _castmod
 
         try:
@@ -1002,19 +1161,102 @@ def create_app(
             return JSONResponse(
                 _split_shaped(str(exc), name, "path-traversal"), status_code=400
             )
-        found = _castmod.find_sample_file(_castmod.samples_dir(root), voice)
-        if found is None:
+        version = _voices_version()
+        thash = _voices_hash()
+        found, is_versioned = _castmod.find_cached_clip(root, voice, version, thash)
+        if found is not None:
+            cache = (
+                "public, max-age=31536000, immutable"
+                if is_versioned
+                else "no-cache"
+            )
+            return FileResponse(
+                str(found),
+                media_type="audio/wav",
+                filename=f"{voice}.wav",
+                headers={"Cache-Control": cache},
+            )
+        active = manager.find_active_voices_job([voice], version, thash)
+        body: dict[str, Any] = _error_shape(
+            f"{voice}.wav",
+            "sample-missing",
+            f"{voice}.wav: sample-missing: no cached clip; run "
+            "`scribe voices --sample --out-dir <workspace>/.scribe/voice-samples` "
+            "or POST /api/voices/sample to generate it (UI polls the job, then retries)",
+        )
+        body["engine_version"] = version
+        body["text_hash"] = thash
+        if active is not None:
+            body["job_id"] = active["id"]
+            body["job_state"] = active.get("state")
+        else:
+            body["job_id"] = None
+        return JSONResponse(body, status_code=409)
+
+    @app.post("/api/voices/sample")
+    async def _voices_sample(payload: dict[str, Any] | None = None) -> JSONResponse:
+        """Queue a detached audition render (202 + job; 200 when cached).
+
+        Body ``{voices?: [...], regenerate?: bool}`` (token-guarded via the
+        middleware). Omitted ``voices`` means the whole palette. Concurrent
+        posts for the same missing clips coalesce to the running job (202
+        with the same id plus ``coalesced: true`` — queued-on-same).
+        """
+        from .cast import PALETTE_VOICES
+
+        body = payload or {}
+        wanted, bad = _wanted_or_palette(body.get("voices"))
+        if bad is not None:
+            return bad
+        if wanted is None:
+            wanted = list(PALETTE_VOICES)
+        regenerate = body.get("regenerate", False)
+        if not isinstance(regenerate, bool):
+            return JSONResponse(
+                _error_shape(
+                    "voices",
+                    "bad-request",
+                    "voices: bad-request: regenerate must be bool",
+                ),
+                status_code=400,
+            )
+        return _sample_job_response(wanted, regenerate=regenerate)
+
+    @app.post("/api/voices/{name}/sample")
+    async def _voice_sample_one(
+        name: str, payload: dict[str, Any] | None = None
+    ) -> JSONResponse:
+        """Per-voice convenience for the same generation job (same contract)."""
+        from .cast import PALETTE_VOICES, check_voice_name
+
+        try:
+            voice = check_voice_name(name)
+        except ValueError as exc:
+            return JSONResponse(
+                _split_shaped(str(exc), name, "path-traversal"), status_code=400
+            )
+        if voice not in PALETTE_VOICES:
             return JSONResponse(
                 _error_shape(
                     f"{voice}.wav",
-                    "sample-missing",
-                    f"{voice}.wav: sample-missing: no cached clip; run "
-                    "`scribe voices --sample --out-dir <workspace>/.scribe/voice-samples` "
-                    "(UI7 adds a one-click generation job)",
+                    "unknown-voice",
+                    f"{voice}.wav: unknown-voice: {voice!r} is not in the UI7 palette "
+                    "(full engine enumeration stays deferred)",
                 ),
-                status_code=409,
+                status_code=400,
             )
-        return FileResponse(str(found), media_type="audio/wav", filename=f"{voice}.wav")
+        body = payload or {}
+        regenerate = body.get("regenerate", False)
+        if not isinstance(regenerate, bool):
+            return JSONResponse(
+                _error_shape(
+                    "voices",
+                    "bad-request",
+                    "voices: bad-request: regenerate must be bool",
+                ),
+                status_code=400,
+            )
+        return _sample_job_response([voice], regenerate=regenerate)
 
     @app.get("/api/books/{book_id}/cast")
     async def _cast_get(book_id: str) -> JSONResponse:
