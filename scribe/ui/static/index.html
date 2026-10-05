@@ -288,17 +288,217 @@ async function loadDetail(id) {
     '<div id="cast-step"><div class="empty">Loading the cast…</div></div>'));
   steps.push(stepLi("3 · Render", (data.bundles || []).length ? "done" : (data.rendering ? "active" : ""),
     '<div id="render-step"><div class="empty">Loading the render step…</div></div>'));
-  const vRows = (data.validation || []).map((e) => esc(e.file) + ": " + esc(e.message)).join("\n");
   steps.push(stepLi("4 · Validate", data.valid ? "done" : "active",
-    data.valid ? "At least one bundle passes validation."
-      : (vRows ? ("<pre class='errors'>" + vRows + "</pre>") : "Nothing valid yet. Validate and transfer arrive in a later step.")));
+    '<div id="validate-step"><div class="empty">Loading validation…</div></div>'));
   steps.push(stepLi("5 · On tablet", data.on_tablet ? "done" : "",
-    data.on_tablet ? "Recorded on a tablet." : "Not on a tablet yet. Transfer arrives in a later step."));
+    '<div id="transfer-step"><div class="empty">Loading transfer…</div></div>'));
   if (data.draft_error) steps.push(stepLi("Draft problem", "active",
     "<pre class='errors'>" + esc(data.draft_error.file) + ": " + esc(data.draft_error.message) + "</pre>"));
   document.getElementById("d-steps").innerHTML = steps.join("");
   setupRenderStep(data);
   setupCastStep(data);
+  setupValidateStep(data);
+  setupTransferStep(data);
+}
+// --- Validate step (UI8) ---------------------------------------------------
+// Inline re-validate button plus the shaped results list. Errors name the
+// file and the rule (file: rule: message), wording identical to the CLI.
+let validateBookId = null;
+async function setupValidateStep(data) {
+  validateBookId = data.id;
+  const box = document.getElementById("validate-step");
+  if (!box) return;
+  const rows = (data.validation || []).map((e) =>
+    esc(e.file) + ": " + esc(e.rule) + ": " + esc(e.message)).join("\n");
+  const bundles = (data.bundles || []).map((b) =>
+    esc(b.path) + " — " + b.chapters + " chapters" + (b.valid ? " (valid)" : " (not valid)")).join("\n");
+  let html = "";
+  if (data.valid) html += "<p>At least one bundle passes validation.</p>";
+  else if (rows) html += "<p>Nothing valid yet. Fix the errors, re-render, then validate again.</p>";
+  else html += "<p>Nothing valid yet. Render first, then validate.</p>";
+  if (bundles) html += "<pre class='errors'>" + esc(bundles) + "</pre>";
+  if (rows) html += "<pre class='errors'>" + rows + "</pre>";
+  html += '<p class="row-actions"><button id="validate-run" type="button">Validate now</button></p>';
+  html += '<p class="muted" id="validate-status" role="status"></p>';
+  html += '<div id="validate-results" aria-live="polite"></div>';
+  box.innerHTML = html;
+  document.getElementById("validate-run").addEventListener("click", runValidate);
+}
+async function runValidate() {
+  const status = document.getElementById("validate-status");
+  const out = document.getElementById("validate-results");
+  if (!validateBookId) return;
+  if (status) status.textContent = "Validating…";
+  if (out) out.innerHTML = "";
+  const { ok, status: code, data } = await api("/api/books/" + encodeURIComponent(validateBookId) + "/validate", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({})
+  });
+  if (!ok) {
+    if (status) status.textContent = "Validate failed with code " + code + ".";
+    if (out && data && data.message) out.innerHTML = "<pre class='errors'>" + esc(data.file + ": " + data.rule + ": " + data.message) + "</pre>";
+    return;
+  }
+  if (status) status.textContent = data.valid ? "Valid." : "Not valid. See the errors below.";
+  if (out) {
+    const rows = (data.validation || []).map((e) =>
+      esc(e.file) + ": " + esc(e.rule) + ": " + esc(e.message)).join("\n");
+    out.innerHTML = rows ? "<pre class='errors'>" + rows + "</pre>" : "<p>Valid. No errors.</p>";
+  }
+  await loadDetail(validateBookId);
+}
+// --- Transfer step (UI8) ---------------------------------------------------
+// Drive picker (detected removables) plus a typed absolute path, copy with
+// byte progress, size+sha256 verification tick, the On-tablet record, the
+// Player watch-folder instructions, and an Open-folder button.
+let transferBookId = null;
+let transferDetail = null;
+let transferJobSeen = new Set();
+async function setupTransferStep(data) {
+  transferBookId = data.id;
+  transferDetail = data;
+  const box = document.getElementById("transfer-step");
+  if (!box) return;
+  if (!data.valid) {
+    box.innerHTML = '<div class="empty">Nothing valid to transfer yet. Render and validate first.</div>';
+    return;
+  }
+  let html = "";
+  html += '<p class="muted">Pick a removable drive or type an absolute folder path. The bundle copies to a new folder inside it; existing folders need the overwrite tick.</p>';
+  html += '<p><label for="transfer-drive">Removable drives</label> <select id="transfer-drive" aria-label="Removable drives"><option value="">Loading…</option></select> ';
+  html += '<button id="transfer-drives-refresh" type="button" class="ghost">Refresh drives</button></p>';
+  html += '<p><label for="transfer-path">Folder path</label><br><input id="transfer-path" size="44" placeholder="e.g. E:\\" aria-describedby="transfer-path-help"><br><span class="muted" id="transfer-path-help">Absolute path on a real drive. Relative paths, .., NUL and shell characters are rejected.</span></p>';
+  html += '<p><label><input type="checkbox" id="transfer-force"> Overwrite the destination bundle folder if it exists</label></p>';
+  const bOpts = (data.bundles || []).filter((b) => b.valid).map((b) =>
+    '<option value="' + esc(b.path) + '">' + esc(b.path) + " (" + b.chapters + " ch)</option>").join("");
+  if (bOpts) html += '<p><label for="transfer-bundle">Bundle</label> <select id="transfer-bundle">' + bOpts + "</select></p>";
+  html += '<p class="row-actions"><button id="transfer-start" type="button">Copy to tablet folder</button> <button id="transfer-open" type="button" class="ghost">Open folder</button></p>';
+  html += '<p class="muted" id="transfer-error" role="alert"></p>';
+  html += '<div id="transfer-live" aria-live="polite"></div>';
+  const rec = data.transfer;
+  if (data.on_tablet && rec) {
+    html += "<p>On tablet: " + esc(rec.destination || "") + " at " + esc(rec.time || "") + " (verified).</p>";
+  } else if (rec && rec.destination) {
+    html += "<p>Last copy: " + esc(rec.destination || "") + " at " + esc(rec.time || "") + " (not verified or bundle rebuilt).</p>";
+  } else {
+    html += '<p class="muted">Not on a tablet yet.</p>';
+  }
+  html += "<p class='muted'>Player import: copy the bundle folder to /Auloud on the tablet (or any watch folder), then in the Player pick that folder with the folder picker to import. Keep the bundle folder name unchanged.</p>";
+  html += '<p class="muted" id="transfer-dest" role="status"></p>';
+  box.innerHTML = html;
+  document.getElementById("transfer-drives-refresh").addEventListener("click", loadDrives);
+  document.getElementById("transfer-drive").addEventListener("change", (e) => {
+    const p = document.getElementById("transfer-path");
+    if (e.target.value && p) p.value = e.target.value;
+  });
+  document.getElementById("transfer-start").addEventListener("click", startTransfer);
+  document.getElementById("transfer-open").addEventListener("click", openTransferFolder);
+  await loadDrives();
+  paintTransferRecord();
+}
+async function loadDrives() {
+  const sel = document.getElementById("transfer-drive");
+  if (!sel) return;
+  const { ok, data } = await api("/api/drives");
+  sel.innerHTML = "";
+  if (!ok || !data || !Array.isArray(data.drives) || !data.drives.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "(no removable drives; type a path)";
+    sel.appendChild(opt);
+    return;
+  }
+  for (const d of data.drives) {
+    const opt = document.createElement("option");
+    opt.value = d.path || "";
+    opt.textContent = (d.path || "") + (d.removable ? "" : " (fixed)");
+    sel.appendChild(opt);
+  }
+  const pathEl = document.getElementById("transfer-path");
+  if (pathEl && !pathEl.value && sel.value) pathEl.value = sel.value;
+}
+function transferBytesLine(job) {
+  const total = job.bytes_total || 0;
+  const done = job.bytes_copied || 0;
+  const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((100 * done) / total))) : null;
+  let line = "Job " + (job.id || "") + " · " + (job.state || "");
+  if (pct != null) line += " · " + done + "/" + total + " bytes (" + pct + "%)";
+  else if (done) line += " · " + done + " bytes";
+  const v = job.verification;
+  if (job.state === "done" && v && v.ok) line += " · verified";
+  if (job.state === "failed" && job.error) line += " · " + job.error.rule + ": " + job.error.message;
+  return line;
+}
+async function startTransfer() {
+  const err = document.getElementById("transfer-error");
+  const live = document.getElementById("transfer-live");
+  if (!transferBookId) return;
+  const pathEl = document.getElementById("transfer-path");
+  const forceEl = document.getElementById("transfer-force");
+  const bundleEl = document.getElementById("transfer-bundle");
+  const destination = pathEl ? pathEl.value.trim() : "";
+  if (!destination) {
+    if (err) err.textContent = "Type a destination folder first (absolute path).";
+    return;
+  }
+  const body = { destination, force: !!(forceEl && forceEl.checked) };
+  if (bundleEl && bundleEl.value) body.bundle = bundleEl.value;
+  if (err) err.textContent = "Copying…";
+  if (live) live.textContent = "";
+  const { ok, status, data } = await api("/api/books/" + encodeURIComponent(transferBookId) + "/transfer", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+  });
+  if (!ok) {
+    if (err) err.textContent = (data && data.message) ? (data.file + ": " + data.rule + ": " + data.message) : ("Copy failed with code " + status + ".");
+    return;
+  }
+  if (err) err.textContent = "";
+  toast("Transfer started for this book.", transferBookId);
+  await loadJobs();
+  await pollTransferJob(data.job_id);
+}
+async function pollTransferJob(jobId) {
+  const live = document.getElementById("transfer-live");
+  const deadline = Date.now() + 120000;
+  while (Date.now() < deadline) {
+    const { ok, data } = await api("/api/jobs/" + encodeURIComponent(jobId));
+    if (!ok || !data) {
+      if (live) live.textContent = "Could not read the transfer job.";
+      return;
+    }
+    if (live) live.textContent = transferBytesLine(data);
+    if (data.state === "done" || data.state === "failed" || data.state === "cancelled") {
+      if (transferBookId && (location.hash || "") === "#/books/" + encodeURIComponent(transferBookId)) {
+        await loadDetail(transferBookId);
+      }
+      await loadJobs();
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  if (live) live.textContent = "Still copying. Watch the jobs tray below.";
+}
+function paintTransferRecord() {
+  const el = document.getElementById("transfer-dest");
+  if (!el || !transferDetail) return;
+  const rec = transferDetail.transfer;
+  if (rec && rec.destination) el.textContent = "Last destination: " + rec.destination;
+  else el.textContent = "";
+}
+async function openTransferFolder() {
+  const err = document.getElementById("transfer-error");
+  if (!transferBookId) return;
+  const pathEl = document.getElementById("transfer-path");
+  const body = {};
+  if (pathEl && pathEl.value.trim()) body.destination = pathEl.value.trim();
+  const { ok, status, data } = await api("/api/books/" + encodeURIComponent(transferBookId) + "/open-folder", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+  });
+  if (!ok) {
+    if (err) err.textContent = (data && data.message) ? (data.file + ": " + data.rule + ": " + data.message + " (path: " + (body.destination || "last transfer") + ")") : ("Open failed with code " + status + ".");
+    return;
+  }
+  if (err) err.textContent = "";
+  toast("Opened " + (data.opened || "folder") + ".", transferBookId);
 }
 // --- Render step (UI5) -----------------------------------------------------
 // Chapter picker, page-range preview, preflight panel, start, and live
@@ -1134,14 +1334,25 @@ async function renderTrayLive(jobs) {
   const tray = document.getElementById("tray");
   const running = jobs.find((j) => j.state === "running") || jobs.find((j) => j.state === "queued");
   let pct = null;
+  let labelExtra = null;
   if (running && running.state === "running" && running.kind === "build" && running.book_id) {
     const total = await totalFor(running.book_id);
     const n = sentCount(running);
     if (total > 0) pct = Math.max(0, Math.min(100, Math.round((100 * n) / total)));
   }
-  renderTrayInner(tray, jobs, running, pct);
+  if (running && running.kind === "transfer" && running.state === "running") {
+    const total = running.bytes_total || 0;
+    const done = running.bytes_copied || 0;
+    if (total > 0) {
+      pct = Math.max(0, Math.min(100, Math.round((100 * done) / total)));
+      labelExtra = done + "/" + total + " bytes";
+    } else if (done) {
+      labelExtra = done + " bytes";
+    }
+  }
+  renderTrayInner(tray, jobs, running, pct, labelExtra);
 }
-function renderTrayInner(tray, jobs, running, pct) {
+function renderTrayInner(tray, jobs, running, pct, labelExtra) {
   tray.innerHTML = "";
   if (!jobs.length) {
     const span = document.createElement("span");
@@ -1164,7 +1375,7 @@ function renderTrayInner(tray, jobs, running, pct) {
   label.id = "tray-text";
   const n = sentCount(running);
   label.textContent = jobLabel(running) + " · " + running.state
-    + (pct != null ? " · " + pct + "%" : (n ? " · " + n + " sent" : ""));
+    + (pct != null ? " · " + pct + "%" : (labelExtra ? " · " + labelExtra : (n ? " · " + n + " sent" : "")));
   row.appendChild(label);
   const bar = document.createElement("div"); bar.className = "tray-prog";
   const fill = document.createElement("span");

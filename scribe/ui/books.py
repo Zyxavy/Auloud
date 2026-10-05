@@ -43,8 +43,9 @@ Status chips (all derived from files; this module never triggers work):
   ``events.jsonl`` tail when present (cached+rendered over the script
   sentence total, clamped 0-100); otherwise the chip is bare.
 - Valid: any mapped bundle passes :func:`bundle.validate.validate_bundle`.
-- On tablet: always False in UI3 (UI8 owns transfer persistence; stub with
-  a TODO, no invented record).
+- On tablet (UI8): the ``.scribe-transfers.json`` record with a matching
+  bundle manifest id and ``verified`` true (a rebuild with a new id clears
+  the chip; no match means False).
 
 Draft-as-job seam (UI4 owns the machinery): the upload route saves the file
 and creates a draft job; progress persists as ``events.jsonl`` in the work
@@ -458,6 +459,17 @@ def scan_books(
         book_id_for_sha256 = None  # type: ignore[assignment]
 
     books: dict[str, dict[str, Any]] = {}
+    bundle_ids: dict[str, list[str]] = {}
+    try:
+        from .transfer import is_on_tablet as _is_on_tablet
+        from .transfer import read_transfers as _read_transfers
+
+        transfer_records = _read_transfers(root)
+        if not isinstance(transfer_records, dict):
+            transfer_records = {}
+    except Exception:
+        transfer_records = {}
+        _is_on_tablet = None  # type: ignore[assignment]
 
     def _ensure(book_id: str) -> dict[str, Any]:
         entry = books.get(book_id)
@@ -477,8 +489,10 @@ def scan_books(
                 "draft_status": "none",
                 "valid": False,
                 "bundles": 0,
-                # TODO(UI8): transfer record owns this; stubbed False, no persistence invented.
+                # UI8: transfer record owns this (None until a verified
+                # transfer with a matching bundle id).
                 "on_tablet": False,
+                "transfer": None,
             }
             books[book_id] = entry
         return entry
@@ -602,6 +616,9 @@ def scan_books(
             entry["bundles"] = int(entry["bundles"]) + 1
             if ok:
                 entry["valid"] = True
+            bundle_ids.setdefault(target, [])
+            if manifest_id not in bundle_ids[target]:
+                bundle_ids[target].append(manifest_id)
 
     # In-memory draft states for books with no work dir yet (just uploaded).
     for book_id, job in jobs.items():
@@ -616,6 +633,23 @@ def scan_books(
         if isinstance(filename, str) and filename:
             entry["source_file"] = filename
             entry["title"] = Path(filename).stem
+
+    # UI8 transfer records: On tablet only with a matching bundle id.
+    for book_id, entry in books.items():
+        record = transfer_records.get(book_id)
+        if not isinstance(record, dict):
+            entry["on_tablet"] = False
+            entry["transfer"] = None
+            continue
+        entry["transfer"] = dict(record)
+        try:
+            entry["on_tablet"] = bool(
+                _is_on_tablet(record, bundle_ids.get(book_id, []))
+                if _is_on_tablet is not None
+                else False
+            )
+        except Exception:
+            entry["on_tablet"] = False
 
     ordered = sorted(books.values(), key=lambda b: str(b["title"]).lower())
     # Drafting books without files sort with the rest; chips stay False.
@@ -808,6 +842,30 @@ def get_book_detail(
         validation_errors.extend(bundle["errors"])
     valid = any(b["valid"] for b in mapped_bundles)
 
+    # UI8 transfer record: On tablet only when the recorded bundle id still
+    # matches one of the mapped bundles (a rebuild clears the chip).
+    try:
+        from .transfer import get_transfer_record as _get_record
+        from .transfer import is_on_tablet as _is_on_tablet_detail
+
+        record = _get_record(root, book_id)
+    except Exception:
+        record = None
+        _is_on_tablet_detail = None  # type: ignore[assignment]
+    mapped_ids = [
+        str(b.get("id"))
+        for b in mapped_bundles
+        if isinstance(b.get("id"), str) and b.get("id")
+    ]
+    try:
+        on_tablet = bool(
+            _is_on_tablet_detail(record, mapped_ids)
+            if _is_on_tablet_detail is not None
+            else False
+        )
+    except Exception:
+        on_tablet = False
+
     return {
         "id": book_id,
         "title": title,
@@ -826,6 +884,6 @@ def get_book_detail(
         "bundles": mapped_bundles,
         "valid": valid,
         "validation": validation_errors,
-        # TODO(UI8): transfer record owns this; stubbed False, no persistence invented.
-        "on_tablet": False,
+        "on_tablet": on_tablet,
+        "transfer": dict(record) if isinstance(record, dict) else None,
     }

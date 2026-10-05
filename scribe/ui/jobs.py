@@ -104,6 +104,12 @@ VOICES_BOOK_ID = "__voices__"
 #: States that count as active for voices coalescing (queued/running/paused).
 VOICES_ACTIVE = frozenset({"queued", "running", "paused"})
 
+#: Slice 6 UI8: bundle copy jobs (in-process thread, same ``job.json`` shape).
+#: Transfers take no per-book lock (source is read-only, destination is
+#: outside the workspace), queue on the same global FIFO, support
+#: cancel/resume but never pause (copies finish in seconds).
+TRANSFER_KIND = "transfer"
+
 
 def check_job_id(job_id: str) -> str:
     """Validate a job id (strict charset; raises ``bad-job-id`` when bad)."""
@@ -437,6 +443,14 @@ class JobManager:
             "voices": job.get("voices"),
             "engine_version": job.get("engine_version"),
             "text_hash": job.get("text_hash"),
+            # UI8 transfer fields (None for build/draft/voices jobs).
+            "bundle": job.get("bundle"),
+            "destination": job.get("destination"),
+            "dest_bundle": job.get("dest_bundle"),
+            "bundle_id": job.get("bundle_id"),
+            "bytes_total": job.get("bytes_total"),
+            "bytes_copied": job.get("bytes_copied"),
+            "verification": job.get("verification"),
         }
 
     def _job_ids_for_book(self, book_id: str, states: set[str] | None = None) -> list[str]:
@@ -666,6 +680,105 @@ class JobManager:
                 best = data
         return self._public(best) if best is not None else None
 
+    def create_transfer(
+        self,
+        book_id: str,
+        bundle_rel: str,
+        destination_abs: str,
+        *,
+        force: bool = False,
+        bundle_id: str = "",
+    ) -> dict[str, Any]:
+        """Queue a bundle-copy job (UI8; same FIFO, no per-book lock).
+
+        ``bundle_rel`` is the workspace-relative bundle dir (confined via
+        ``safe_join``; must hold ``manifest.json``). ``destination_abs`` is
+        an already-validated absolute destination dir (validated by
+        :func:`transfer.validate_destination` in the API layer; rechecked
+        here defensively). The bundle copies to
+        ``<destination>/<bundle-dirname>``; when that dir exists and
+        ``force`` is False this raises ``ValueError`` shaped ``exists``
+        (the API maps it to 409). ``force=True`` deletes that one dir
+        first (explicit overwrite; nothing else is ever deleted).
+        """
+        from .books import check_book_id
+
+        check_book_id(book_id)
+        try:
+            from .transfer import validate_destination as _validate_dest
+        except ImportError as exc:
+            raise ValueError(f"{book_id}: bad-destination: transfer helpers missing: {exc}")
+        try:
+            dest = _validate_dest(destination_abs)
+        except ValueError:
+            raise
+        # Source confinement: only inside the workspace, must be a bundle.
+        try:
+            src = safe_join(self.workspace, bundle_rel)
+        except ValueError as exc:
+            raise ValueError(str(exc)) from exc
+        manifest_path = src / "manifest.json"
+        if not src.is_dir() or not manifest_path.is_file():
+            raise ValueError(
+                f"{bundle_rel}: bad-request: no bundle at {bundle_rel} (need manifest.json)"
+            )
+        bundle_dirname = src.name
+        dest_bundle = Path(str(dest)) / bundle_dirname
+        if dest_bundle.exists() and not force:
+            raise ValueError(
+                f"{dest_bundle}: exists: destination bundle dir already exists "
+                "(pass force=true to overwrite)"
+            )
+        try:
+            manifest_id = bundle_id.strip() if isinstance(bundle_id, str) else ""
+            if not manifest_id:
+                import json as _json
+
+                manifest_id = str(
+                    _json.loads(manifest_path.read_text(encoding="utf-8")).get("id", "")
+                )
+        except (OSError, ValueError):
+            manifest_id = bundle_id if isinstance(bundle_id, str) else ""
+        job_id = self._new_id()
+        now = _now_iso()
+        job: dict[str, Any] = {
+            "id": job_id,
+            "book_id": book_id,
+            "kind": TRANSFER_KIND,
+            "state": "queued",
+            "created": now,
+            "updated": now,
+            "pid": None,
+            "exit": None,
+            "summary": {"cached": 0, "rendered": 0, "audio_ms": 0, "wall_s": 0.0},
+            "error": None,
+            "chapters": None,
+            "pages": None,
+            "device": None,
+            "source_file": None,
+            "voices": None,
+            "engine_version": None,
+            "text_hash": None,
+            "bundle": bundle_rel,
+            "destination": str(dest),
+            "dest_bundle": str(dest_bundle),
+            "bundle_id": manifest_id,
+            "bytes_total": None,
+            "bytes_copied": 0,
+            "verification": None,
+            "force": bool(force),
+        }
+        folder = job_dir(self.workspace, job_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        _atomic_write_json(folder / JOB_FILENAME, job)
+        try:
+            (folder / EVENTS_FILENAME).write_text("", encoding="utf-8")
+        except OSError:
+            pass
+        self._pump_queue()
+        loaded = self._load(job_id)
+        return self._public(loaded or job)
+
     # -- queue pump ----------------------------------------------------------
 
     def _running_id(self) -> str | None:
@@ -711,6 +824,21 @@ class JobManager:
             (folder / STOP_FILENAME).unlink(missing_ok=True)
         except OSError:
             pass
+        if job.get("kind") == TRANSFER_KIND:
+            # Transfers copy in a background thread (seconds of IO, no
+            # native crash risk, so no detached process). Progress polls
+            # via GET /api/jobs/{id} (bytes_copied/bytes_total).
+            job["state"] = "running"
+            job["pid"] = None
+            job["exit"] = None
+            job["error"] = None
+            job["bytes_copied"] = 0
+            self._save(job)
+            thread = threading.Thread(
+                target=self._run_transfer_job, args=(job_id,), daemon=True
+            )
+            thread.start()
+            return
         if job.get("kind") == "draft":
             self._write_draft_event(job, folder, "draft_start")
         try:
@@ -802,6 +930,224 @@ class JobManager:
             cmd += ["--pages", str(job["pages"])]
         cmd += ["--device", str(job.get("device") or "cpu")]
         return _detached_popen(cmd, log_path)
+
+    # -- transfer runner (UI8, in-process thread) ---------------------------
+
+    def _run_transfer_job(self, job_id: str) -> None:
+        """Copy one bundle, verify size+sha256, record, finalize.
+
+        Progress updates ``bytes_copied``/``bytes_total`` on the stored
+        record (polled via ``GET /api/jobs/{id}``). Cancel is cooperative
+        (``_cancelling`` flag checked per chunk); verification re-hashes
+        the DESTINATION after the copy, so a truncated file always fails.
+        """
+        import shutil
+
+        from .transfer import (
+            copy_bundle_with_hashes,
+            verify_transfer,
+            write_transfer_record,
+        )
+
+        job = self._load(job_id)
+        if job is None or job.get("state") != "running":
+            self._pump_queue()
+            return
+        folder = job_dir(self.workspace, job_id)
+        book_id = str(job.get("book_id") or "")
+        bundle_rel = str(job.get("bundle") or "")
+        dest_bundle = Path(str(job.get("dest_bundle") or ""))
+        force = bool(job.get("force"))
+        try:
+            src = safe_join(self.workspace, bundle_rel)
+        except ValueError as exc:
+            self._finish_failed(
+                {**job, "id": job_id},
+                folder,
+                exit_code=-1,
+                error={
+                    "file": bundle_rel,
+                    "rule": "path-traversal",
+                    "message": str(exc),
+                },
+            )
+            self._pump_queue()
+            return
+        # Explicit overwrite only: force deletes the one dest bundle dir.
+        if force and dest_bundle.exists():
+            try:
+                if dest_bundle.is_file():
+                    dest_bundle.unlink()
+                else:
+                    shutil.rmtree(dest_bundle)
+            except OSError as exc:
+                self._finish_failed(
+                    {**self._load(job_id), "id": job_id} if self._load(job_id) else job,
+                    folder,
+                    exit_code=-1,
+                    error={
+                        "file": str(dest_bundle),
+                        "rule": "unwritable",
+                        "message": f"{dest_bundle}: unwritable: {exc}",
+                    },
+                )
+                self._pump_queue()
+                return
+
+        def _cancelled() -> bool:
+            with self._mu:
+                return job_id in self._cancelling
+
+        def _progress(done: int, total: int) -> None:
+            current = self._load(job_id)
+            if current is None:
+                return
+            current["bytes_total"] = total
+            current["bytes_copied"] = done
+            try:
+                self._save(current)
+            except OSError:
+                pass
+
+        try:
+            copy_bundle_with_hashes(
+                src, dest_bundle, progress_cb=_progress, cancel_cb=_cancelled
+            )
+        except InterruptedError:
+            current = self._load(job_id) or job
+            # Best-effort cleanup of the partial copy we created.
+            try:
+                if dest_bundle.exists():
+                    if dest_bundle.is_file():
+                        dest_bundle.unlink()
+                    else:
+                        shutil.rmtree(dest_bundle)
+            except OSError:
+                pass
+            with self._mu:
+                self._cancelling.discard(job_id)
+            self._finish_cancelled(current, folder, -1)
+            self._pump_queue()
+            return
+        except FileExistsError:
+            current = self._load(job_id) or job
+            self._finish_failed(
+                current,
+                folder,
+                exit_code=-1,
+                error={
+                    "file": str(dest_bundle),
+                    "rule": "exists",
+                    "message": (
+                        f"{dest_bundle}: exists: destination bundle dir already "
+                        "exists (pass force=true to overwrite)"
+                    ),
+                },
+            )
+            self._pump_queue()
+            return
+        except OSError as exc:
+            current = self._load(job_id) or job
+            self._finish_failed(
+                current,
+                folder,
+                exit_code=-1,
+                error={
+                    "file": bundle_rel,
+                    "rule": "unwritable",
+                    "message": f"{bundle_rel}: unwritable: {exc}",
+                },
+            )
+            self._pump_queue()
+            return
+        ok, verify_errors = verify_transfer(src, dest_bundle)
+        current = self._load(job_id) or job
+        # Cancel racing the verify still cancels (partial dest already cleaned
+        # above only on copy-cancel; a verify-time cancel cleans here).
+        with self._mu:
+            was_cancelling = job_id in self._cancelling
+            if was_cancelling:
+                self._cancelling.discard(job_id)
+        if was_cancelling:
+            try:
+                if dest_bundle.exists():
+                    if dest_bundle.is_file():
+                        dest_bundle.unlink()
+                    else:
+                        shutil.rmtree(dest_bundle)
+            except OSError:
+                pass
+            self._finish_cancelled(current, folder, -1)
+            self._pump_queue()
+            return
+        current["bytes_total"] = current.get("bytes_total")
+        verification: dict[str, Any] = {"ok": ok, "errors": verify_errors}
+        current["verification"] = verification
+        if ok:
+            try:
+                total_bytes = 0
+                for path in sorted(dest_bundle.rglob("*")):
+                    if path.is_file():
+                        try:
+                            total_bytes += path.stat().st_size
+                        except OSError:
+                            pass
+                current["bytes_total"] = total_bytes
+            except OSError:
+                pass
+            record = write_transfer_record(
+                self.workspace,
+                book_id,
+                {
+                    "destination": str(job.get("destination") or ""),
+                    "dest_bundle": str(dest_bundle),
+                    "bundle_path": bundle_rel,
+                    "bundle_id": str(job.get("bundle_id") or ""),
+                    "verified": True,
+                    "bytes_total": current.get("bytes_total"),
+                    "job_id": job_id,
+                },
+            )
+            current["verification"] = {
+                "ok": True,
+                "errors": [],
+                "destination": record.get("destination"),
+                "time": record.get("time"),
+            }
+            self._finish_done(current, folder, None)
+        else:
+            # Record the failed outcome too (chip still requires verified).
+            try:
+                write_transfer_record(
+                    self.workspace,
+                    book_id,
+                    {
+                        "destination": str(job.get("destination") or ""),
+                        "dest_bundle": str(dest_bundle),
+                        "bundle_path": bundle_rel,
+                        "bundle_id": str(job.get("bundle_id") or ""),
+                        "verified": False,
+                        "bytes_total": current.get("bytes_total"),
+                        "job_id": job_id,
+                    },
+                )
+            except Exception:
+                pass
+            first = verify_errors[0] if verify_errors else None
+            if isinstance(first, dict) and first.get("file"):
+                error = {
+                    "file": str(first.get("file")),
+                    "rule": str(first.get("rule") or "verify-failed"),
+                    "message": str(first.get("message") or "verification failed"),
+                }
+            else:
+                error = {
+                    "file": bundle_rel,
+                    "rule": "verify-failed",
+                    "message": f"{bundle_rel}: verify-failed: copy verification failed",
+                }
+            self._finish_failed(current, folder, exit_code=-1, error=error)
+        self._pump_queue()
 
     # -- draft event mirror (UI3 seam) -------------------------------------------
 
@@ -1062,6 +1408,11 @@ class JobManager:
                 f"{job_id}: bad-state: voices-sample jobs cannot pause "
                 "(cancel and retry instead; samples render in seconds)"
             )
+        if job.get("kind") == TRANSFER_KIND:
+            raise ValueError(
+                f"{job_id}: bad-state: transfer jobs cannot pause "
+                "(cancel and retry instead; copies finish in seconds)"
+            )
         if job.get("state") != "running":
             raise ValueError(f"{job_id}: bad-state: only running jobs can pause")
         folder = job_dir(self.workspace, job_id)
@@ -1093,6 +1444,23 @@ class JobManager:
             raise ValueError(
                 f"{job_id}: bad-state: only paused, interrupted, failed or cancelled resume"
             )
+        if job.get("kind") == TRANSFER_KIND:
+            # Transfers take no book lock (read-only source, outside dest);
+            # a retry overwrites the partial copy, so force the rerun.
+            folder = job_dir(self.workspace, job_id)
+            try:
+                (folder / STOP_FILENAME).unlink(missing_ok=True)
+            except OSError:
+                pass
+            job["state"] = "queued"
+            job["pid"] = None
+            job["exit"] = None
+            job["error"] = None
+            job["force"] = True
+            self._save(job)
+            self._pump_queue()
+            loaded = self._load(job_id)
+            return self._public(loaded or job)
         # Resuming a book another run locked meanwhile must fail fast.
         book_id = str(job.get("book_id") or "")
         others = [
@@ -1267,6 +1635,7 @@ __all__ = [
     "JOBS_DIRNAME",
     "LOG_FILENAME",
     "STOP_FILENAME",
+    "TRANSFER_KIND",
     "VOICES_ACTIVE",
     "VOICES_BOOK_ID",
     "VOICES_KIND",

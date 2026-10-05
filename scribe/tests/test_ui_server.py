@@ -276,6 +276,7 @@ def test_skeleton_routes_are_minimal(tmp_path: Path) -> None:
     # UI6 adds the cast view, quotes picker, report, palette and audition
     # clip routes (additive, not a behavior change).
     # UI7 adds the voices-sample generation posts (additive).
+    # UI8 adds validate (inline), drives, transfer and open-folder (additive).
     # (no auto docs/openapi/redoc anywhere; still no CORS middleware).
     assert paths == [
         "/",
@@ -285,9 +286,13 @@ def test_skeleton_routes_are_minimal(tmp_path: Path) -> None:
         "/api/books/{book_id}/build",
         "/api/books/{book_id}/cast",
         "/api/books/{book_id}/cast/report",
+        "/api/books/{book_id}/open-folder",
         "/api/books/{book_id}/plan",
         "/api/books/{book_id}/quotes",
+        "/api/books/{book_id}/transfer",
+        "/api/books/{book_id}/validate",
         "/api/cast/voices",
+        "/api/drives",
         "/api/echo",
         "/api/health",
         "/api/jobs",

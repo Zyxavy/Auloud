@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""UI7 app factory: UI6 plus the Voices view and audition service (plan UI7).
+"""UI8 app factory: UI7 plus Validate and Transfer (plan UI8).
 
 Kept from UI2/UI3: ``GET /api/health``, ``GET /`` (Books UI with the
 ``{{AULOUD_TOKEN}}`` slot filled per run) and ``POST /api/echo`` (the tested
@@ -190,17 +190,19 @@ def _job_error_response(exc: Exception, fallback_file: str) -> JSONResponse:
         return JSONResponse(shaped, status_code=404)
     shaped = _split_shaped(str(exc), fallback_file, "bad-request")
     rule = shaped.get("rule", "")
-    if rule in ("bad-state", "work-lock-held", "cannot-pause", "name-taken"):
+    if rule in ("bad-state", "work-lock-held", "cannot-pause", "name-taken",
+                "exists", "no-valid-bundle"):
         return JSONResponse(shaped, status_code=409)
     if rule in ("path-traversal", "bad-job-id", "bad-device", "bad-request",
                 "bad-extension", "chapters-pages-exclusive", "bad-range",
                 "pages-need-pdf", "pages-no-cover", "cuda-unavailable",
-                "plan-failed", "draft-failed"):
+                "plan-failed", "draft-failed", "bad-destination",
+                "open-unsupported", "unwritable", "verify-failed"):
         return JSONResponse(shaped, status_code=400)
     # Unknown ValueErrors from the manager are conflicts when they name a
     # busy book, else bad requests.
     text = str(exc)
-    if "work-lock-held" in text or "bad-state" in text:
+    if "work-lock-held" in text or "bad-state" in text or ": exists:" in text:
         return JSONResponse(shaped, status_code=409)
     return JSONResponse(shaped, status_code=400)
 
@@ -284,8 +286,11 @@ def create_app(
     pid_alive_fn: Any | None = None,
     plan_engine: Any | None = None,
     voices_version: str | None = None,
+    validate_probe: Any | None = None,
+    drives_fn: Any | None = None,
+    open_fn: Any | None = None,
 ) -> FastAPI:
-    """Build the UI7 app bound to ``workspace`` (confined root).
+    """Build the UI8 app bound to ``workspace`` (confined root).
 
     :param workspace: file access below this root only (see ``safe_join``).
     :param token: per-run token; a fresh ``secrets`` token when omitted.
@@ -300,6 +305,15 @@ def create_app(
         inject ``fake-1`` then ``fake-2`` to prove version-bump regen;
         production passes None and the package metadata is read live,
         never loading the model).
+    :param validate_probe: ffprobe seam for the validate route and the
+        book readers (tests inject a stub so no real ffprobe runs;
+        production passes None and the real ffprobe path is used).
+    :param drives_fn: removable-drive lister for ``GET /api/drives``
+        (tests inject a fake; production passes None and
+        :func:`transfer.list_drives` runs the ctypes probe).
+    :param open_fn: folder opener for the open-folder route (tests inject
+        a recorder; production passes None and ``os.startfile`` runs on
+        Windows only).
     """
     root = Path(workspace).resolve()
     run_token = token or generate_token()
@@ -339,6 +353,9 @@ def create_app(
     app.state.jobs = manager
     app.state.plan_engine = plan_engine
     app.state.voices_version = voices_version
+    app.state.validate_probe = validate_probe
+    app.state.drives_fn = drives_fn
+    app.state.open_fn = open_fn
 
     @app.middleware("http")
     async def _local_only(request: Request, call_next: Any) -> Any:
@@ -369,15 +386,23 @@ def create_app(
     @app.get("/api/books")
     async def _books() -> dict[str, Any]:
         """Workspace scan: sources, work folders, bundles (read-only)."""
-        books = scan_books(root, draft_jobs=_effective_draft_jobs(app))
+        try:
+            probe = app.state.validate_probe
+        except AttributeError:
+            probe = None
+        books = scan_books(root, draft_jobs=_effective_draft_jobs(app), probe=probe)
         return {"books": books}
 
     @app.get("/api/books/{book_id}")
     async def _book_detail(book_id: str) -> JSONResponse:
         """Stepper state for one book, from work-dir files only."""
         try:
+            probe = app.state.validate_probe
+        except AttributeError:
+            probe = None
+        try:
             detail = get_book_detail(
-                root, book_id, draft_jobs=_effective_draft_jobs(app)
+                root, book_id, draft_jobs=_effective_draft_jobs(app), probe=probe
             )
         except ValueError as exc:
             return JSONResponse(
@@ -1514,5 +1539,319 @@ def create_app(
                 "quotes": items,
             }
         )
+
+    # --- UI8: Validate and Transfer --------------------------------------
+    # Validate runs INLINE (read-only, seconds even on large books; see
+    # ui/transfer.py for the measured verdict). Transfer copies one bundle
+    # to an explicit outside-workspace destination with size+sha256
+    # verification and a persisted record that owns the On-tablet chip.
+
+    def _validate_probe() -> Any | None:
+        try:
+            return app.state.validate_probe
+        except AttributeError:
+            return None
+
+    @app.post("/api/books/{book_id}/validate")
+    async def _validate(book_id: str) -> JSONResponse:
+        """Re-run the bundle validator for one book (inline, read-only).
+
+        Returns ``{book_id, valid, validation, bundles}`` with
+        validation errors shaped ``{file, rule, message}`` (wording
+        identical to ``scribe validate``; rule is ``validation``). Never
+        writes; a missing book is 404, a bad id is 400.
+        """
+        from .books import check_book_id
+
+        try:
+            check_book_id(book_id)
+        except ValueError as exc:
+            return JSONResponse(
+                _split_shaped(str(exc), book_id, "path-traversal"), status_code=400
+            )
+        try:
+            detail = get_book_detail(
+                root,
+                book_id,
+                draft_jobs=_effective_draft_jobs(app),
+                probe=_validate_probe(),
+            )
+        except ValueError as exc:
+            return JSONResponse(
+                _split_shaped(str(exc), book_id, "path-traversal"), status_code=400
+            )
+        except KeyError:
+            return JSONResponse(
+                _error_shape(
+                    book_id,
+                    "book-not-found",
+                    f"{book_id}: book-not-found: no source, work folder or bundle matches",
+                ),
+                status_code=404,
+            )
+        return JSONResponse(
+            {
+                "book_id": book_id,
+                "valid": detail.get("valid", False),
+                "validation": detail.get("validation", []),
+                "bundles": detail.get("bundles", []),
+            }
+        )
+
+    @app.get("/api/drives")
+    async def _drives() -> dict[str, Any]:
+        """Detected removable drives (Windows ctypes only; ``[]`` elsewhere).
+
+        Shape ``{drives: [{path, removable}]}``. Read-only; the typed path
+        stays available when no drives are present.
+        """
+        try:
+            fn = app.state.drives_fn
+        except AttributeError:
+            fn = None
+        if callable(fn):
+            try:
+                drives = fn()
+            except Exception:
+                drives = []
+        else:
+            try:
+                from .transfer import list_drives as _list_drives
+
+                drives = _list_drives()
+            except Exception:
+                drives = []
+        if not isinstance(drives, list):
+            drives = []
+        return {"drives": drives}
+
+    @app.post("/api/books/{book_id}/transfer")
+    async def _transfer(
+        book_id: str, payload: dict[str, Any] | None = None
+    ) -> JSONResponse:
+        """Copy the book's valid bundle to an outside destination (202+job).
+
+        Body ``{destination: <absolute path>, force?: bool, bundle?: <rel>}``.
+        ``destination`` is validated as an absolute path on a real drive
+        (relative/``..``/NUL/shell metachars are 400 ``bad-destination``);
+        only the SOURCE side is workspace-confined. The bundle copies to
+        ``<destination>/<bundle-dirname>``; an existing dir is 409
+        ``exists`` unless ``force`` is true (explicit overwrite of that one
+        dir only). Progress polls via ``GET /api/jobs/{job_id}``
+        (``bytes_copied``/``bytes_total``); verification is size + sha256
+        per file and the record owns the On-tablet chip.
+        """
+        from .books import check_book_id
+
+        try:
+            check_book_id(book_id)
+        except ValueError as exc:
+            return JSONResponse(
+                _split_shaped(str(exc), book_id, "path-traversal"), status_code=400
+            )
+        body = payload or {}
+        destination = body.get("destination")
+        force = body.get("force", False)
+        wanted_bundle = body.get("bundle")
+        if not isinstance(destination, str) or not destination.strip():
+            return JSONResponse(
+                _error_shape(
+                    book_id,
+                    "bad-destination",
+                    f"{book_id}: bad-destination: need {destination!r} as an absolute path",
+                ),
+                status_code=400,
+            )
+        if not isinstance(force, bool):
+            return JSONResponse(
+                _error_shape(
+                    book_id,
+                    "bad-request",
+                    f"{book_id}: bad-request: force must be bool",
+                ),
+                status_code=400,
+            )
+        if wanted_bundle is not None and not isinstance(wanted_bundle, str):
+            return JSONResponse(
+                _error_shape(
+                    book_id,
+                    "bad-request",
+                    f"{book_id}: bad-request: bundle must be a string",
+                ),
+                status_code=400,
+            )
+        try:
+            from .transfer import validate_destination as _validate_dest
+        except ImportError as exc:
+            return JSONResponse(
+                _error_shape(
+                    book_id, "plan-failed", f"{book_id}: plan-failed: {exc}"
+                ),
+                status_code=500,
+            )
+        try:
+            _validate_dest(destination)
+        except ValueError as exc:
+            return JSONResponse(
+                _split_shaped(str(exc), "dest", "bad-destination"), status_code=400
+            )
+        try:
+            detail = get_book_detail(
+                root,
+                book_id,
+                draft_jobs=_effective_draft_jobs(app),
+                probe=_validate_probe(),
+            )
+        except ValueError as exc:
+            return JSONResponse(
+                _split_shaped(str(exc), book_id, "path-traversal"), status_code=400
+            )
+        except KeyError:
+            return JSONResponse(
+                _error_shape(
+                    book_id,
+                    "book-not-found",
+                    f"{book_id}: book-not-found: no source, work folder or bundle matches",
+                ),
+                status_code=404,
+            )
+        bundles = detail.get("bundles") or []
+        if wanted_bundle:
+            picked = next(
+                (b for b in bundles if b.get("path") == wanted_bundle), None
+            )
+            if picked is None:
+                return JSONResponse(
+                    _error_shape(
+                        book_id,
+                        "book-not-found",
+                        f"{book_id}: book-not-found: no bundle at {wanted_bundle}",
+                    ),
+                    status_code=404,
+                )
+            if not picked.get("valid"):
+                return JSONResponse(
+                    _error_shape(
+                        wanted_bundle,
+                        "no-valid-bundle",
+                        f"{wanted_bundle}: no-valid-bundle: bundle is not valid (validate first)",
+                    ),
+                    status_code=409,
+                )
+        else:
+            picked = next(
+                (b for b in bundles if b.get("valid") and b.get("path")), None
+            )
+            if picked is None:
+                return JSONResponse(
+                    _error_shape(
+                        book_id,
+                        "no-valid-bundle",
+                        f"{book_id}: no-valid-bundle: "
+                        "no valid bundle yet (render and validate first)",
+                    ),
+                    status_code=409,
+                )
+        bundle_rel = str(picked.get("path") or "")
+        bundle_id = str(picked.get("id") or "")
+        # Source confinement (defense in depth; the manager rechecks).
+        try:
+            safe_join(root, bundle_rel)
+        except ValueError as exc:
+            return JSONResponse(
+                _split_shaped(str(exc), bundle_rel, "path-traversal"), status_code=400
+            )
+        try:
+            job = manager.create_transfer(
+                book_id,
+                bundle_rel,
+                destination,
+                force=force,
+                bundle_id=bundle_id,
+            )
+        except (ValueError, KeyError) as exc:
+            return _job_error_response(exc, book_id)
+        return JSONResponse(
+            {
+                "job_id": job["id"],
+                "book_id": book_id,
+                "state": job.get("state"),
+                "bundle": bundle_rel,
+                "destination": job.get("destination"),
+            },
+            status_code=202,
+        )
+
+    @app.post("/api/books/{book_id}/open-folder")
+    async def _open_folder(
+        book_id: str, payload: dict[str, Any] | None = None
+    ) -> JSONResponse:
+        """Open the transfer destination in the OS file manager (Windows).
+
+        Body ``{destination?: <absolute path>}`` (defaults to the book's
+        last transfer record). Token-guarded POST because server-side open
+        is a state change. Windows calls ``os.startfile``; elsewhere this
+        is 400 ``open-unsupported`` with the printed path still returned.
+        """
+        from .books import check_book_id
+
+        try:
+            check_book_id(book_id)
+        except ValueError as exc:
+            return JSONResponse(
+                _split_shaped(str(exc), book_id, "path-traversal"), status_code=400
+            )
+        body = payload or {}
+        destination = body.get("destination")
+        if destination is None:
+            try:
+                from .transfer import get_transfer_record as _get_record
+
+                record = _get_record(root, book_id)
+            except Exception:
+                record = None
+            destination = (
+                record.get("destination") if isinstance(record, dict) else None
+            )
+            if not destination:
+                return JSONResponse(
+                    _error_shape(
+                        book_id,
+                        "bad-destination",
+                        f"{book_id}: bad-destination: no transfer yet (transfer first)",
+                    ),
+                    status_code=400,
+                )
+        if not isinstance(destination, str):
+            return JSONResponse(
+                _error_shape(
+                    book_id,
+                    "bad-destination",
+                    f"{book_id}: bad-destination: destination must be a string",
+                ),
+                status_code=400,
+            )
+        try:
+            fn = app.state.open_fn
+        except AttributeError:
+            fn = None
+        try:
+            from .transfer import open_folder as _open_folder_fn
+
+            opened = _open_folder_fn(
+                destination, opener=fn if callable(fn) else None
+            )
+        except ValueError as exc:
+            text = str(exc)
+            if "open-unsupported" in text:
+                return JSONResponse(
+                    _split_shaped(text, str(destination), "open-unsupported"),
+                    status_code=400,
+                )
+            return JSONResponse(
+                _split_shaped(text, str(destination), "bad-destination"),
+                status_code=400,
+            )
+        return JSONResponse({"opened": opened, "book_id": book_id})
 
     return app
