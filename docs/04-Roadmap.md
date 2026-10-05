@@ -141,7 +141,7 @@ Goal: `scribe ui` covers ingest, cast review, render, validate and tablet hand-o
 - [x] UI7 voices view and audition service (API verified: 17 new voices tests + route list green, full suite 615 green; grid/play/regenerate/coalescing visuals left for the user in Edge)
 - [x] UI8 validate and transfer (API verified: 12 new transfer tests + route list green, full suite 627 green; validate-now/drive-picker/copy-progress/verified-tick/record/chip plus the tablet Player import left for the user in Edge)
 - [x] UI9 design system and polish (tokens/contrast/component/offline: 8 new design tests green, full suite 635 green + ruff clean; 3-browser runbook + zoom/keyboard/dark left for the user in Edge/Chrome/Firefox)
-- [ ] UI10 tests and hardening
+- [x] UI10 tests and hardening (API/security/SSE/state-machine: 22 new hardening tests green, full suite 657 green + ruff clean; no model load, no slowdown to existing suites; browser runbook untouched, no UI bugs found)
 - [ ] UI11 docs and acceptance (spec section 9 by the user, tag `slice-6`)
 
 **Done when (v1 release criteria):** the soak test passes.

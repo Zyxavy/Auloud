@@ -122,12 +122,14 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
     JSONResponse,
     StreamingResponse,
 )
+from starlette.exceptions import HTTPException as _HTTPException
 
 from .books import (
     find_source_files,
@@ -356,6 +358,51 @@ def create_app(
     app.state.validate_probe = validate_probe
     app.state.drives_fn = drives_fn
     app.state.open_fn = open_fn
+
+    @app.exception_handler(RequestValidationError)
+    async def _shaped_validation(request: Request, exc: RequestValidationError) -> JSONResponse:
+        """Framework body errors as shaped 400 (UI10: never bare 422).
+
+        Non-dict JSON bodies, missing multipart files and similar FastAPI
+        validation failures previously returned 422 ``{"detail": [...]}``.
+        The UI contract is ``{file, rule, message}``, so validation is
+        reshaped here (best effort, no traceback, no token/host echo).
+        """
+        try:
+            detail = str(exc.errors())[:300]
+        except Exception:
+            detail = "invalid request body"
+        return JSONResponse(
+            _error_shape(
+                "request",
+                "bad-request",
+                f"request: bad-request: invalid body ({detail})",
+            ),
+            status_code=400,
+        )
+
+    @app.exception_handler(Exception)
+    async def _shaped_internal(request: Request, exc: Exception) -> JSONResponse:
+        """Unexpected failures as shaped 500 (UI10: never traceback).
+
+        Framework HTTP errors (404/405 for unknown routes) keep their
+        ``{"detail": ...}`` shape; everything else becomes
+        ``{file, rule, message}`` with rule ``internal`` and no stack.
+        """
+        if isinstance(exc, _HTTPException):
+            return JSONResponse(
+                {"detail": str(exc.detail)}, status_code=exc.status_code
+            )
+        try:
+            kind = type(exc).__name__
+            msg = str(exc)[:300] or kind
+        except Exception:
+            kind = "Error"
+            msg = "internal error"
+        return JSONResponse(
+            _error_shape("server", "internal", f"server: internal: {kind}: {msg}"),
+            status_code=500,
+        )
 
     @app.middleware("http")
     async def _local_only(request: Request, call_next: Any) -> Any:
