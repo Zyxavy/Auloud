@@ -14,10 +14,14 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -30,6 +34,14 @@ import app.auloud.player.battery.PrefsBatteryPromptStore
 import app.auloud.player.reader.ReaderFontSize
 import app.auloud.player.storage.WatchFolder
 import app.auloud.player.storage.WatchFolders
+import app.auloud.player.tts.AndroidSystemTtsDriver
+import app.auloud.player.tts.AudioTrackAudioPlayer
+import app.auloud.player.tts.EngineRegistry
+import app.auloud.player.tts.PrefsTtsStore
+import app.auloud.player.tts.SystemTtsAdapter
+import app.auloud.player.tts.VoiceAuditionScreen
+import app.auloud.player.tts.VoiceAuditionViewModel
+import java.io.File
 
 /**
  * WP8 minimal settings UI plus the WP3/WP5 refinement watch-folder list.
@@ -61,6 +73,7 @@ fun SettingsScreen(
     }
     var showBatteryDialog by remember { mutableStateOf(false) }
     var showLicenses by remember { mutableStateOf(false) }
+    var showVoices by remember { mutableStateOf(false) }
     // RA10: reader settings live in the shared prefs store (read once per
     // Settings visit; the reader re-reads on open, so changes apply then).
     val readerStore = remember(appContext) {
@@ -71,6 +84,10 @@ fun SettingsScreen(
 
     if (showLicenses) {
         LicensesScreen(onBack = { showLicenses = false })
+        return
+    }
+    if (showVoices) {
+        VoiceAuditionHost(onBack = { showVoices = false })
         return
     }
     Column(modifier = modifier.fillMaxSize()) {
@@ -103,6 +120,10 @@ fun SettingsScreen(
                 readerStore.setKeepScreenOn(it)
                 keepScreenOn = it
             },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        )
+        VoiceSettingsEntry(
+            onClick = { showVoices = true },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         )
         // RA0 throwaway: debug builds only, deleted with the spike screen.
@@ -332,4 +353,67 @@ private fun BatteryOptimizationEntry(
         Spacer(Modifier.height(8.dp))
         Button(onClick = onClick) { Text("Battery settings help") }
     }
+}
+
+/** PW8: narrator/dialogue voices entry (pushes the audition screen). */
+@Composable
+private fun VoiceSettingsEntry(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.padding(vertical = 8.dp)) {
+        Text(
+            text = "Voices",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Narrator and dialogue voices for on-device reading.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = onClick) { Text("Choose voices") }
+    }
+}
+
+/**
+ * PW8: audition host — builds the TTS graph by hand (P3) and tears it
+ * down on dispose. The driver starts the system TTS service async;
+ * [VoiceAuditionViewModel.refresh] picks up voices when it reports
+ * ready (the screen shows the empty state until then).
+ */
+@Composable
+private fun VoiceAuditionHost(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val appContext = remember(context) { context.applicationContext }
+    val viewModel = remember(appContext) {
+        val scratch = File(appContext.cacheDir, "tts-audition")
+        val driver = AndroidSystemTtsDriver(appContext)
+        val adapter = SystemTtsAdapter(driver, scratch)
+        val registry = EngineRegistry(listOf(adapter))
+        val store = PrefsTtsStore.fromContext(appContext)
+        VoiceAuditionViewModel(registry, store, AudioTrackAudioPlayer())
+    }
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.clear() }
+    }
+    val state by viewModel.state.collectAsState()
+    // Re-poll once the async TTS init lands (cheap: registry + prefs read).
+    LaunchedEffect(Unit) {
+        delay(2000)
+        viewModel.refresh()
+    }
+    VoiceAuditionScreen(
+        state = state,
+        onBack = onBack,
+        onSelectEngine = viewModel::selectEngine,
+        onSelectVoice = viewModel::selectVoice,
+        onSetSpeed = viewModel::setSpeed,
+        onPreview = viewModel::preview,
+        onStop = viewModel::stop,
+        modifier = modifier
+    )
 }
