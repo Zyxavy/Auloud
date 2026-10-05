@@ -46,8 +46,8 @@ STREAM_BITRATE_TOLERANCE_BPS = 2000
 FORMAT_BITRATE_TOLERANCE_BPS = 8000
 ALLOWED_SAMPLE_RATES = (24000, 22050)
 ALLOWED_SPAN_STYLES = ("italic", "bold")
-#: Bundle contract versions accepted (spec v1.1 additive: new writes "1.1").
-ALLOWED_SPEC_VERSIONS = ("1.0", "1.1")
+#: Bundle contract versions accepted (spec v1.2 additive: range builds write "1.2").
+ALLOWED_SPEC_VERSIONS = ("1.0", "1.1", "1.2")
 
 FFPROBE_HELP = "Install ffmpeg (provides ffprobe), then re-run: winget install ffmpeg"
 
@@ -315,7 +315,7 @@ def _validate_manifest_declarations(manifest: Manifest, result: ValidationResult
     if not audio.cbr:
         result.errors.append("manifest.json: audio.cbr must be true (constant bitrate required)")
     prev_index: int | None = None
-    for entry in manifest.chapters:
+    for pos, entry in enumerate(manifest.chapters, start=1):
         if entry.index <= 0:
             result.errors.append(
                 f"manifest.json: chapter entry has non-positive index {entry.index}"
@@ -327,6 +327,18 @@ def _validate_manifest_declarations(manifest: Manifest, result: ValidationResult
             )
         else:
             prev_index = entry.index
+        if entry.index != pos:
+            result.errors.append(
+                f"manifest.json: chapter entry {pos} has index {entry.index}, "
+                f"expected {pos} (indices must be consecutive 1..N in bundle order)"
+            )
+        if entry.source_index is not None and (
+            isinstance(entry.source_index, bool) or entry.source_index < 1
+        ):
+            result.errors.append(
+                f"manifest.json: chapter {entry.index} has invalid source_index "
+                f"{entry.source_index!r} (need 1-based source chapter)"
+            )
         if not entry.title.strip():
             result.errors.append(
                 f"manifest.json: chapter {entry.index} missing required field 'title' (blank)"
@@ -344,6 +356,43 @@ def _validate_manifest_declarations(manifest: Manifest, result: ValidationResult
                 f"manifest.json: chapter {entry.index} has "
                 f"non-positive duration_ms {entry.duration_ms}"
             )
+    _validate_source_indices(manifest, result)
+
+
+def _validate_source_indices(manifest: Manifest, result: ValidationResult) -> None:
+    """Spec v1.2 range rules: ``source_index`` uniqueness and ordering.
+
+    When any entry carries ``source_index`` (range bundle): every entry
+    must carry one, values must be unique and strictly increasing in
+    bundle order (bundle ``index`` is already consecutive 1..N above).
+    Full builds omit the field entirely (no error when all are absent).
+    Mixed (some present, some absent) is an error naming the file and rule.
+    """
+    indices = [e.source_index for e in manifest.chapters]
+    if all(v is None for v in indices):
+        return
+    for entry in manifest.chapters:
+        if entry.source_index is None:
+            result.errors.append(
+                f"manifest.json: chapter {entry.index} missing source_index "
+                "(range bundles need source_index on every chapter)"
+            )
+    present = [v for v in indices if v is not None]
+    if len(set(present)) != len(present):
+        result.errors.append(
+            "manifest.json: duplicate source_index values "
+            f"{sorted(present)} (need unique 1-based source chapters)"
+        )
+    prev: int | None = None
+    for entry in manifest.chapters:
+        if entry.source_index is None:
+            continue
+        if prev is not None and entry.source_index <= prev:
+            result.errors.append(
+                f"manifest.json: source_index {entry.source_index} out of order "
+                f"(previous {prev}; need strictly increasing in bundle order)"
+            )
+        prev = entry.source_index
 
 
 def _validate_voices(
@@ -497,6 +546,28 @@ def _validate_chapter_content(
         result.errors.append(
             f"{label}: spec_version {chapter.spec_version!r} "
             f"must be one of {list(ALLOWED_SPEC_VERSIONS)}"
+        )
+    if chapter.source_index is not None and (
+        isinstance(chapter.source_index, bool) or chapter.source_index < 1
+    ):
+        result.errors.append(
+            f"{label}: invalid source_index {chapter.source_index!r} "
+            "(need 1-based source chapter)"
+        )
+    if (entry.source_index is None) != (chapter.source_index is None):
+        result.errors.append(
+            f"{label}: source_index mismatch: manifest entry has "
+            f"{entry.source_index!r}, chapter file has {chapter.source_index!r} "
+            "(both present or both absent)"
+        )
+    elif (
+        entry.source_index is not None
+        and chapter.source_index is not None
+        and entry.source_index != chapter.source_index
+    ):
+        result.errors.append(
+            f"{label}: source_index {chapter.source_index} does not match "
+            f"manifest entry source_index {entry.source_index}"
         )
     if chapter.duration_ms <= 0:
         result.errors.append(f"{label}: non-positive duration_ms {chapter.duration_ms}")

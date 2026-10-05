@@ -93,6 +93,75 @@ Notes:
 - `build` is resumable: editing `cast.yaml` re-synthesizes only changed lines (cache keyed by text + voice + speed + engine). A 10-hour novel takes hours (CP9 RTF about 1.28x on GPU; CPU-only SW0 measured 1.38x), so run it detached and poll.
 - espeak-ng must be 1.52.0 from the `.msi` at the default path; `ffmpeg`/`ffprobe` come from `winget install ffmpeg` plus a new terminal for PATH.
 
+### Scribe Web UI (`scribe ui`)
+
+The UI covers the whole flow without the CLI: upload, draft, cast review,
+render with ranges, validate, hand off to the tablet. The CLI stays the
+headless interface; the UI is a thin operator over the same library
+(spec: `docs/14-ScribeWebUI-Spec.md`).
+
+```powershell
+cd scribe
+uv sync --extra ui
+uv run scribe doctor            # new `ui` row: fastapi + uvicorn import + versions
+uv run scribe ui --workspace <path>   # binds 127.0.0.1 only, opens the browser, prints the URL
+```
+
+Flags (verified against `scribe ui --help`; there is deliberately no `--host`
+flag): `--port <int>` (default 8137, next free port when busy), `--workspace
+<path>` (default `.`, all file access stays inside it), `--no-browser` (print
+the URL without opening a browser). One instance per workspace; a second
+`scribe ui` on the same workspace refuses to start.
+
+What you get:
+
+- **Four views:** Books (status chips per book), Book detail stepper (draft
+  report, cast, render, bundle card), Voices (every engine voice with audition),
+  Jobs tray (live progress, pause/resume/cancel) plus a small Settings panel
+  (keep-awake, device `auto`/`cpu`/`cuda` defaulting to `auto`).
+- **Background jobs + reattach:** builds run as detached processes, so closing
+  the browser (or restarting the server) never stops them; reopening
+  reattaches to the live progress. A job whose process died reads as
+  `interrupted` and resumes from the sentence cache.
+- **Ranges:** chapter dropdown or page-range input for PDFs
+  with a resolved preview; preflight shows will-render vs cached counts plus a
+  time estimate before you start.
+- **Cast without YAML:** voice dropdowns, per-row audition, speed, overrides
+  picker with low-confidence filter and re-voice counts. Saves keep every
+  hand-edited value but drop `#` comment lines (PyYAML cannot round-trip
+  them); editing `cast.yaml` by hand mid-session gives a conflict message,
+  never a silent overwrite.
+- **Transfer to tablet:** removable drives detected plus a typed path, copy
+  with progress and size + sha256 verification, a recorded "On tablet" entry,
+  and an open-folder button; import the copied bundle in the Player via a
+  watch folder as usual.
+
+#### Fresh-user walkthrough (upload to valid bundle)
+
+1. Install and start: `uv sync --extra ui`, then `uv run scribe ui`. Expected:
+   the terminal prints a `http://127.0.0.1:<port>` URL and the browser opens
+   on the Books view (empty state names the upload action).
+2. Upload an EPUB or PDF (drag and drop). Expected: `202` with a `job_id`; the
+   draft job runs in the tray; the book row reads `drafting`, then `Drafted`.
+3. Open the book detail. Expected: chapter list with durations, draft quality
+   report inline, cast summary.
+4. Review the cast (no YAML): pick voices, press audition per row, add an
+   override for a low-confidence line. Expected: the re-voice count names the
+   affected lines; report view is read-only.
+5. Render: pick a chapter range (or a PDF page range with the resolved
+   preview), check the preflight (will-render/cached/estimate), press Start.
+   Expected: the tray shows live progress with RTF, ETA and cache-hit rate;
+   pause and resume keep the cache; closing the browser mid-build and
+   reopening reattaches to the same job.
+6. Validate: press validate on the finished build. Expected: `valid: true`
+   plus the bundle card (duration, voices, validate badge); errors list
+   `{file, rule, message}` naming file and rule.
+7. Transfer: pick a removable drive (or type a path), copy, watch the byte
+   progress to the verified tick. Expected: the book chip reads `On tablet`
+   with destination and time; copying that folder to `/Auloud/` (or a microSD
+   `Auloud/` watch folder) imports in the Player exactly like a CLI-built
+    bundle.
+
 ### Getting bundles onto the device
 
 - **Shared internal (simplest):** copy the bundle folder (the whole `<BookName>/` with `manifest.json`, `audio/`, `text/`, `source/`) to `/Auloud/` on shared internal storage. The app auto-creates this default.
@@ -129,9 +198,11 @@ Start here, then follow the map:
 - `docs/05-ScribeDesign.md` - Scribe commands, pipeline, cast.yaml
 - `docs/06-PlayerDesign.md` - Player screens, service, reader, storage
 - `docs/07-TestPlan.md` - section 6 device checklist, section 7 soak, section 10 release checklist
-- `docs/08-Liscenses.md` - licenses and per-voice table (Player deps verified; Scribe rows partly unverified)
-- `docs/DECISIONS.md` - D-001 through D-048 current (D-045 gate closed, D-046 Page view to v1.1, D-047 release, D-048 clean install)
-- `docs/test-log.md` - device log plus CP0-CP9 automated evidence
+- `docs/08-Liscenses.md` - licenses and per-voice table (Player deps verified; Scribe rows partly unverified; UI extra verified with versions)
+- `docs/DECISIONS.md` - D-001 through D-061 current (Slice 6 D1-D8 disposition in D-061)
+- `docs/test-log.md` - device log plus CP0-CP9 and Slice 6 UI1-UI10 automated evidence
+- `docs/14-ScribeWebUI-Spec.md` - Scribe Web UI spec, v1 as built (Slice 6 amendments)
+- `docs/UI9-BrowserRunbook.md` - 3-browser manual runbook (Edge, Chrome, Firefox; user runs)
 - `docs/Slice3-Runbook.md` - Tab E checks C13 onward (beep/long bundles, overlay readings)
 - `docs/ReleaseSigning.md` - generate the key once outside the repo, wire `player\local.properties`, verify no INTERNET
 - `docs/plans/Slice5.md` - CP0-CP12 work packages for this slice (CP10 is this docs pass)

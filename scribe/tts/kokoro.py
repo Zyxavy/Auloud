@@ -86,6 +86,22 @@ class KokoroEngine(TTSEngine):
                 raise FileNotFoundError(f"Kokoro file not found: {path}")
         self._kokoro: Any = Kokoro(str(self._model_path), str(self._voices_path))
 
+    @classmethod
+    def from_session(
+        cls, kokoro: Any, model_path: Path | str, voices_path: Path | str
+    ) -> KokoroEngine:
+        """Wrap an existing ``kokoro_onnx.Kokoro`` (e.g. CUDA session) as an engine.
+
+        UI1 ``--device cuda`` builds the session with explicit providers via
+        ``Kokoro.from_session``; this keeps the :class:`TTSEngine` contract
+        (``synth``/``voices``/``engine_version``) identical on every device.
+        """
+        self = cls.__new__(cls)
+        self._model_path = Path(model_path)
+        self._voices_path = Path(voices_path)
+        self._kokoro = kokoro
+        return self
+
     @property
     def sample_rate(self) -> int:
         return SAMPLE_RATE

@@ -97,8 +97,10 @@ object ChapterTextLoader {
     /** Spec section 4/6 rules: consecutive sids, ordered non-overlapping timings. */
     internal fun validate(textPath: String, chapter: ChapterText): Result<Unit> {
         val errors = ArrayList<String>()
-        if (chapter.specVersion != "1.0" && chapter.specVersion != "1.1") {
-            errors.add("spec_version \"${chapter.specVersion}\" must be \"1.0\" or \"1.1\"")
+        if (chapter.specVersion != "1.0" && chapter.specVersion != "1.1" &&
+            chapter.specVersion != "1.2"
+        ) {
+            errors.add("spec_version \"${chapter.specVersion}\" must be \"1.0\", \"1.1\" or \"1.2\"")
         }
         if (chapter.durationMs <= 0) {
             errors.add("duration_ms ${chapter.durationMs} must be positive")

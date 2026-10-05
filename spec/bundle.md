@@ -1,8 +1,8 @@
-# Bundle Spec v1.1
+# Bundle Spec v1.2
 
 The **book bundle** is the contract between Scribe (PC) and the Player (Android). Scribe writes it; the Player only reads it. Change this document before changing either program.
 
-Changelog: v1.1 is additive only. PDF text-path chapters keep `blocks` and MAY add `pages: [{page, start_ms}]` plus an optional `page` on each sentence. Old Players ignore the extra fields (`ignoreUnknownKeys`). No existing required field changes. Readers accept `spec_version` "1.0" and "1.1".
+Changelog: v1.2 is additive only for range builds (D7). A range render lists only rendered chapters, renumbered consecutively 1..K, each MAY carry `source_index` (1-based chapter number in the source book), and the bundle `id` is derived from the source hash **plus the range** (full builds keep the existing id). Old Players ignore the extra field (`ignoreUnknownKeys`). No existing required field changes. Readers accept `spec_version` "1.0", "1.1" and "1.2". Scribe writes "1.1" for full builds (no `source_index`, byte-identical to v1.1) and "1.2" for range builds (with `source_index`).
 
 ## 1. Folder layout
 
@@ -62,7 +62,7 @@ CBR keeps seeking and timestamps accurate; variable bitrate can make them drift.
 }
 ```
 
-Required fields: `spec_version`, `id`, `title`, `type`, `audio`, `chapters` (each with `index`, `title`, `audio`, `text`, `duration_ms`). Everything else is optional. `id` is a UUID that never changes for a given book; the Player keys saved progress by it.
+Required fields: `spec_version`, `id`, `title`, `type`, `audio`, `chapters` (each with `index`, `title`, `audio`, `text`, `duration_ms`). Everything else is optional. `id` is a UUID that never changes for a given book; the Player keys saved progress by it. Range builds (Slice 6 D7): the bundle lists only rendered chapters, renumbered consecutively 1..K (`index` and file stems `ch001` follow the bundle order, not the source order). Each entry MAY carry `source_index` (1-based chapter number in the source book; absent for full builds, never null). The bundle `id` for a range build is UUIDv5 over `auloud:book:<sha256-hex>:chapters:<a-b,c>` (source hash plus the selected source indices); a full build keeps the existing id (UUIDv5 over `auloud:book:<sha256-hex>`), so the Player keeps saved progress across rebuilds and different ranges never collide.
 
 ## 4. Chapter file (EPUB books): `text/chNNN.json`
 
@@ -123,6 +123,8 @@ Rules: `page` on a sentence is the 1-based source page it was extracted from. `p
 
 Legacy page-sync only (v1.0 option (b), still valid): a chapter MAY instead carry `pages` without `blocks` (no sentences). The Player shows a page until playback reaches the next page's `start_ms`.
 
+Range bundles (v1.2, D7): a chapter file's `chapter` is the consecutive bundle index (1..K) and it MAY carry `source_index` (the 1-based source-book chapter it was rendered from; absent for full builds, never null). Example: source chapters 3-4 rendered as a range become bundle chapters 1-2 with `source_index` 3 and 4. Readers ignore `source_index` for layout and playback; it exists so operators can map a range bundle back to the source book.
+
 ## 6. Timing rules
 
 1. `start_ms` of the first sentence in a chapter is 0.
@@ -138,7 +140,9 @@ Legacy page-sync only (v1.0 option (b), still valid): a chapter MAY instead carr
 - `sid` values are consecutive; timing rules in section 6 hold.
 - MP3 is mono, CBR, matches `manifest.audio`, and its duration matches `duration_ms`.
 - Text is valid UTF-8.
-- `spec_version` is "1.0" or "1.1" (both accepted; new bundles write "1.1").
+- `spec_version` is "1.0", "1.1" or "1.2" (all accepted; full builds write "1.1", range builds with `source_index` write "1.2").
+- Manifest chapter `index` values are consecutive 1..N in bundle order.
+- When `source_index` is present (manifest entry or chapter file): 1-based, unique, strictly increasing in bundle order; the chapter file `source_index` matches its manifest entry when both are present.
 - When `pages` is present with `blocks`: sorted by `page` and `start_ms`, first `start_ms` 0, each entry matches the first sentence on that page, page numbers 1-based.
 
 Provide this as `scribe validate <bundle>`, and reuse the same checks in the Player's import step (skip a bad chapter with a message rather than crashing).
@@ -149,8 +153,8 @@ Provide this as `scribe validate <bundle>`, and reuse the same checks in the Pla
 - Current sentence = the sentence with `start_ms <= position < end_ms`, else the last one whose `start_ms <= position`.
 - Tap a sentence: seek audio to its `start_ms`.
 - Load one chapter's JSON at a time; do not keep other chapters in memory.
-- Missing optional fields (cover, spans, pages, sentence page) fall back to defaults.
-- Unknown fields are ignored, so v1.0 Players read v1.1 bundles (pages) as text.
+- Missing optional fields (cover, spans, pages, sentence page, source_index) fall back to defaults.
+- Unknown fields are ignored, so v1.0 Players read v1.1 bundles (pages) and v1.2 range bundles (source_index, renumbered) as text. Position stays `{book id, chapter index, position_ms}` where chapter index is the bundle-consecutive index; because range bundles carry a range-derived id, saved progress never points at the wrong chapter.
 
 ## 9. Test bundle for Slice 1 (hand-made)
 

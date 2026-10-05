@@ -87,6 +87,11 @@ PYMUPDF_HELP = (
     "in scribe/, then re-run `scribe doctor`."
 )
 
+UI_EXTRA_HINT = (
+    "The UI needs the optional 'ui' extra: run `uv sync --extra ui` "
+    "in scribe/, then re-run the command."
+)
+
 SPACY_MODEL_HELP = (
     "The spaCy English model (about 12 MB) is URL-pinned in "
     "pyproject.toml + uv.lock; run `uv sync` in scribe/ first, "
@@ -332,6 +337,50 @@ def check_pymupdf() -> CheckResult:
     )
 
 
+def check_ui() -> CheckResult:
+    """Check the UI extra (FastAPI + uvicorn) imports (Slice 6 UI2).
+
+    Probes importability plus versions, mirroring the engine check: a
+    missing extra is a graceful FAIL with the sync hint, never an error.
+    """
+    if importlib.util.find_spec("fastapi") is None:
+        return CheckResult(
+            name="ui",
+            status=FAIL,
+            detail="fastapi not importable (ui extra not installed)",
+            hint=UI_EXTRA_HINT,
+        )
+    if importlib.util.find_spec("uvicorn") is None:
+        return CheckResult(
+            name="ui",
+            status=FAIL,
+            detail="uvicorn not importable (ui extra not installed)",
+            hint=UI_EXTRA_HINT,
+        )
+    if importlib.util.find_spec("ui.app") is None:
+        return CheckResult(
+            name="ui",
+            status=FAIL,
+            detail="scribe install broken: ui.app missing",
+            hint="The installed scribe wheel is missing the ui package; "
+            "reinstall it with `uv sync --reinstall-package auloud-scribe` "
+            "in scribe/, then re-run `scribe doctor`.",
+        )
+    try:
+        fastapi_ver = importlib.metadata.version("fastapi")
+    except importlib.metadata.PackageNotFoundError:
+        fastapi_ver = "unknown version"
+    try:
+        uvicorn_ver = importlib.metadata.version("uvicorn")
+    except importlib.metadata.PackageNotFoundError:
+        uvicorn_ver = "unknown version"
+    return CheckResult(
+        name="ui",
+        status=PASS,
+        detail=f"fastapi {fastapi_ver} + uvicorn {uvicorn_ver} (import ok)",
+    )
+
+
 def check_gpu() -> CheckResult:
     """Report NVIDIA/CUDA presence. Informational: CPU-only builds work (SW0)."""
     nvidia_smi = shutil.which("nvidia-smi")
@@ -364,6 +413,7 @@ def run_checks(models_dir: Path) -> list[CheckResult]:
         check_models(models_dir),
         check_spacy(),
         check_pymupdf(),
+        check_ui(),
         check_gpu(),
     ]
 
@@ -387,7 +437,8 @@ def doctor(
         help="Directory holding kokoro-v1.0.onnx + voices-v1.0.bin.",
     ),
 ) -> None:
-    """Check Python, ffmpeg/ffprobe, espeak-ng, TTS engine, models, spaCy, GPU."""
+    """Check Python, ffmpeg/ffprobe, espeak-ng, TTS engine, models, spaCy,
+    PyMuPDF, UI extra, GPU."""
     results = run_checks(models_dir)
     typer.echo(format_table(results))
     failures = [r for r in results if r.status == FAIL]
@@ -447,7 +498,8 @@ def build(
     out_dir: Path | None = typer.Option(
         None,
         "--out-dir",
-        help="Bundle output dir (default bundles/<book-id>).",
+        help="Bundle output dir (default bundles/<book-id>, "
+        "bundles/<range-id> for --chapters/--pages).",
     ),
     models_dir: Path = typer.Option(
         Path("models"),
@@ -464,13 +516,70 @@ def build(
         "--no-progress",
         help="Disable the rich progress bar.",
     ),
+    chapters: str | None = typer.Option(
+        None,
+        "--chapters",
+        help="Chapter selection 1-based (e.g. --chapters 3-5,7); "
+        "bundle lists only rendered chapters consecutively.",
+    ),
+    pages: str | None = typer.Option(
+        None,
+        "--pages",
+        help="PDF page range (e.g. --pages 40-90); resolves to covering "
+        "chapters via sentence page provenance (whole chapters render).",
+    ),
+    device: str = typer.Option(
+        "auto",
+        "--device",
+        help="TTS device: auto (CUDA when onnxruntime reports it, else CPU), "
+        "cpu, or cuda.",
+    ),
+    plan: bool = typer.Option(
+        False,
+        "--plan",
+        help="Dry run: print cached vs to-render counts plus a time "
+        "estimate from recent RTF; render no audio.",
+    ),
+    events_jsonl: Path | None = typer.Option(
+        None,
+        "--events-jsonl",
+        help="Append progress events as JSON lines "
+        "({event, chapter, sid, cached, rendered, audio_ms, wall_s}) "
+        "for detached-job tailing.",
+    ),
+    stop_file: Path | None = typer.Option(
+        None,
+        "--stop-file",
+        help="Cross-process stop sentinel (UI4 pause): when the file exists, "
+        "the build stops at the next sentence boundary (partial cleaned).",
+    ),
 ) -> None:
     """Render audio chapter by chapter (resumable) and write the bundle."""
-    from build import BuildError, format_summary, run_build
+    from build import BuildError, format_plan, format_summary, plan_build, run_build
     from bundle.writer import BundleWriteError
     from draft import DraftError
 
+    if plan:
+        try:
+            preflight = plan_build(
+                book,
+                work_root=work_dir,
+                chapters=chapters,
+                pages=pages,
+                models_dir=models_dir,
+                device=device,
+            )
+        except (BuildError, DraftError, BundleWriteError, ValueError) as exc:
+            typer.echo(f"build failed: {exc}", err=True)
+            raise typer.Exit(code=1)
+        typer.echo(format_plan(preflight))
+        return
+    jsonl_writer = None
     try:
+        if events_jsonl is not None:
+            from progress import JsonlProgressWriter
+
+            jsonl_writer = JsonlProgressWriter(events_jsonl)
         result = run_build(
             book,
             work_root=work_dir,
@@ -478,12 +587,25 @@ def build(
             models_dir=models_dir,
             strict=strict,
             show_progress=not no_progress,
+            chapters=chapters,
+            pages=pages,
+            device=device,
+            progress_listener=jsonl_writer,
+            stop_file=stop_file,
         )
-    except (BuildError, DraftError, BundleWriteError) as exc:
+    except (BuildError, DraftError, BundleWriteError, ValueError) as exc:
         typer.echo(f"build failed: {exc}", err=True)
         raise typer.Exit(code=1)
+    finally:
+        if jsonl_writer is not None:
+            try:
+                jsonl_writer.close()
+            except Exception:
+                pass
     typer.echo(f"book id: {result.book_id}")
     typer.echo(f"title: {result.title}")
+    if result.page_resolution:
+        typer.echo(result.page_resolution)
     typer.echo(format_summary(result))
 
 
@@ -562,6 +684,11 @@ def voices(
         "--speed",
         help="Speech rate for the samples (the palette compares timbre).",
     ),
+    voice: list[str] | None = typer.Option(
+        None,
+        "--voice",
+        help="Render only this voice (repeatable for a subset; default all).",
+    ),
 ) -> None:
     """List Kokoro voices, or audition them all with --sample (MV0)."""
     from build import BuildError, create_engine
@@ -575,11 +702,23 @@ def voices(
     except BuildError as exc:
         typer.echo(f"voices failed: {exc}", err=True)
         raise typer.Exit(code=1)
+    wanted = [str(v) for v in (voice or []) if str(v).strip()] or None
     if not sample:
-        for name in list_voices(engine):
+        names = list_voices(engine)
+        if wanted is not None:
+            unknown = [v for v in wanted if v not in names]
+            if unknown:
+                typer.echo(f"voices failed: unknown voice(s): {', '.join(unknown)}.", err=True)
+                raise typer.Exit(code=1)
+            names = [v for v in names if v in set(wanted)]
+        for name in names:
             typer.echo(name)
         return
-    result = sample_voices(engine, out_dir, text=SAMPLE_TEXT, speed=speed)
+    try:
+        result = sample_voices(engine, out_dir, text=SAMPLE_TEXT, speed=speed, voices=wanted)
+    except ValueError as exc:
+        typer.echo(f"voices failed: {exc}", err=True)
+        raise typer.Exit(code=1)
     for name in result.voices:
         typer.echo(name)
     typer.echo(f"wrote {len(result.files)} WAVs to {result.out_dir}")
@@ -589,6 +728,53 @@ def voices(
 def version() -> None:
     """Print the Scribe version."""
     typer.echo(__version__)
+
+
+@app.command()
+def ui(
+    port: int = typer.Option(
+        8137,
+        "--port",
+        help="Preferred port; the next free port is used when busy.",
+    ),
+    workspace: Path = typer.Option(
+        Path("."),
+        "--workspace",
+        help="Workspace root; all file access stays inside it.",
+    ),
+    no_browser: bool = typer.Option(
+        False,
+        "--no-browser",
+        help="Print the URL without opening a browser.",
+    ),
+) -> None:
+    """Start the localhost web UI (thin operator over the library).
+
+    Binds 127.0.0.1 only (there is deliberately no --host flag); FastAPI
+    and uvicorn lazy-import here so the plain CLI install never needs the
+    optional ``ui`` extra.
+    """
+    if (
+        importlib.util.find_spec("fastapi") is None
+        or importlib.util.find_spec("uvicorn") is None
+    ):
+        typer.echo(f"ui failed: the 'ui' extra is not installed.\n{UI_EXTRA_HINT}", err=True)
+        raise typer.Exit(code=1)
+    try:
+        from ui.server import run_server
+    except ImportError as exc:
+        typer.echo(
+            f"ui failed: scribe install broken: cannot import ui.server ({exc}); "
+            "reinstall it with `uv sync --reinstall-package auloud-scribe` "
+            "in scribe/, then re-run `scribe ui`.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        run_server(workspace, port=port, open_browser=not no_browser)
+    except ValueError as exc:
+        typer.echo(f"ui failed: {exc}", err=True)
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
