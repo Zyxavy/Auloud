@@ -599,3 +599,10 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Status: Accepted
 - Decision: `scribe voices --engine kokoro|piper` (default kokoro; unknown is exit 1) lists and samples through the chosen engine; the UI mirrors it (`available_voices(workspace, engine)`, `GET /api/cast/voices?engine=`, sample POSTs take an optional `engine`, jobs store it and spawn `voices --sample --engine`, versioned clip cache separates by engine version string, clip serving tries each supported engine). Two deliberate semantics: Piper has no palette fallback (no pairs means an honest empty list, never Kokoro names under a piper label), and Piper ids describe as the raw `en-US` tag with gender unknown (the Kokoro prefix heuristic would mislabel them, e.g. Spanish). Frontend unchanged (calls default kokoro; engine selector is future work). Suite 706 green.
 - Why: Listing and audition follow the engine without a model load anywhere on the list path; the job layer reuses the version-keyed machinery unchanged.
+
+### D-076: SW4 mixed-engine proof (one Piper voice, Kokoro narrator)
+
+- Date: 2026-10-05
+- Status: Accepted
+- Decision: SW4 proves Kokoro narrator + Piper Alice (`en_US-lessac-low`) + Kokoro Bob in one chapter: bundle validates, every shipped sentence window is non-silent in the real MP3, peak capped, both engine versions in the build log. Numbers: 32 s audio in 3.0 s wall (RTF 10.6, CPU). One Piper voice suffices: the second voice would add model-loading breadth only (lazy per-voice loading is unit-tested with fakes in SW1/SW2). License revision to D-073/D-075: the link delivered ~15 KB/s with resets (all Piper voices are 45-65 MB; ljspeech-medium stalled at 9 MB and keeps downloading in background), so the proof uses lessac locally under its research terms (gitignored, never committed or distributed) instead of waiting hours for permissive voices. Surprise: a plain `uv sync` pruned the `ui` extra a second time (108 UI tests silently skipped) — fixed with `uv sync --extra ui` and recorded durably in the repo `scribe-python` skill.
+- Why: Routing across engines in one render is the whole SW4 claim; voice count is not.
