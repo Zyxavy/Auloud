@@ -22,8 +22,16 @@ If you host Scribe as a network service for other people, check the AGPL points 
 | Coil | Apache-2.0 | [x] |
 | JUnit (test only) | EPL-1.0 | [x] |
 | MockK, Turbine (test only) | Apache-2.0 | [x] |
+| jsoup (planned, pin in IN4) | MIT | \[ \] |
 
 In-app: add a "Licenses" screen listing these (a Gradle license plugin can generate it), and ship a `NOTICE` file.
+
+jsoup note (Slice 9): HTML parser for sloppy EPUB XHTML, planned for IN4.
+MIT per https://jsoup.org/license. Runs on Java 8 and up including Android
+with core library desugaring (NIO spec) per https://jsoup.org/download.
+Floor 1.23.2 (current release confirmed 2026-10-05); minSdk 24 is above the
+API 21 baseline jsoup validates against. No Gradle pin in this task (IN4
+pins `org.jsoup:jsoup` in `player/gradle/libs.versions.toml`); see D-079.
 
 ## 3. Scribe dependencies (Python)
 
