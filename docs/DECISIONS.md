@@ -398,3 +398,10 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: CP10 Verify is a fresh README follow zero to playing book, which only the user can do on hardware; the agent's part is accurate docs plus every quoted flag proven against the real CLI.
 - Alternatives considered: ticking the README/soak boxes now (rejected: fresh-follow and multi-day listening are device work by definition).
 - Consequences / revisit when: open contradictions logged, not fixed (docs-only WP): root `LICENSE` is MIT while 08 section 7 expects per-component Player Apache-2.0 (only `scribe/LICENSE` AGPL exists; `player/NOTICE` says Apache-2.0-or-MIT undecided); README License line still says "Player: Apache-2.0" matching the original wording while NOTICE says undecided. Revisit when the D-015 license choice is made.
+
+### D-050: Player license decided (Apache-2.0), per-component LICENSE files
+
+- Date: 2026-10-05 (release/v1.0 branch; note: dev/slice6 carries a different D-050 — reconcile numbers if the lines ever merge)
+- Status: Accepted
+- Decision: D-015 resolved as Apache-2.0 for the Player (patent grant, AndroidX norm). `player/LICENSE` added (full Apache-2.0 text, 2026 Zyxavy appendix); `player/NOTICE` updated from undecided to Apache-2.0. Root `LICENSE` stays MIT (repo default); `scribe/LICENSE` stays AGPL-3.0-or-later. README "Player: Apache-2.0" line is now accurate. Contribution policy (DCO/CLA) still undecided — the only remaining open box in 08 section 7.
+- Why: Release checklist CP12 needs the files; the choice is the author's.
