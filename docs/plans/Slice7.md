@@ -79,3 +79,20 @@ Device: SDK 25 / 7.1.1, `armeabi-v7a,armeabi`, 32-bit (`is64=false`), 1427 MB RA
 System TTS: 239 voices, default en-US. Warmed RTF **0.39** (2.6 s wall per 1 s audio on short sentences — per-call overhead included; longer sentences may amortize, note for Slice 13), voice-switch gap **804 ms** (two-voice switching is expensive — Slice 10 should minimize switches), PSS 46 MB, battery 54% temp 35.6 C at start.
 
 Piper/Battery: not run yet — the pack landed in the wrong folder (spike reads `/Auloud/spike-models/piper/*.onnx` directly, not nested). Kokoro button fails as designed (D-077, no folder).
+
+Run 2 (2026-10-05 22:21, same tablet). NOTE on units: the spike prints
+wall-seconds per audio-second (lower is better); standard RTF
+(audio/wall, higher is better) is converted here:
+- Piper lessac-medium: load 12.4 s, PSS 42 MB idle to 125 MB loaded
+  (+~220 MB with runtime, 260 MB peak in-run). 58.9 s audio in
+  165.6 s wall = **RTF 0.36** — well below the 1.0 background target
+  (a 10 h book would need ~28 h). FIRST of the 3 protocol runs; needs
+  two confirmatory runs on a cool tablet before judging (thermal
+  state unknown, debug build).
+- Two Piper at once: PSS 133 to 304 (one) to 415 MB (two) — fits in
+  1.5 GB but heavy; combined 0.23x (CPU contention, as expected).
+- System TTS rerun: 1.16 wall/audio = **RTF 0.86** vs run 1's 0.39
+  (= 2.56x). Noisy across runs (engine state? thermals?) — needs a
+  third run; longer sentences may also amortize the per-call overhead.
+- Battery 10-min: not run yet (needs the Piper pack in place; run 1
+  failed on the missing folder, run 2 did not include it).
