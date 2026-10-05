@@ -123,7 +123,7 @@ body { padding-bottom: calc(var(--space) * 12); }
 </head>
 <body>
 <h1 class="brand">Auloud Scribe</h1>
-<p class="muted">Books and book detail. The jobs tray below tracks drafts and builds. Audition rows arrive in a later step.</p>
+<p class="muted">Books and book detail. The jobs tray below tracks drafts and builds. The voices palette arrives in a later step.</p>
 
 <section class="card" id="upload-card" aria-label="Upload a book">
 <h2>Add a book</h2>
@@ -265,11 +265,13 @@ async function loadDetail(id) {
     data.drafted ? ("<pre class='errors'>" + esc(chRows || "(no chapters)") + "</pre>")
       : "Draft has not finished yet. If it says failed below, fix the file and upload again."));
   const names = (data.cast && data.cast.character_names || []).map(esc).join(", ");
-  steps.push(stepLi("2 · Cast", (data.cast && data.cast.characters) ? "done" : "",
+  const castState = (data.cast && (data.cast.characters || data.cast.has_narrator)) ? "done" : "";
+  steps.push(stepLi("2 · Cast", castState,
     "Characters: " + ((data.cast && data.cast.characters) || 0) +
     " · aliases: " + ((data.cast && data.cast.aliases) || 0) +
     " · overrides: " + ((data.cast && data.cast.overrides) || 0) +
-    (names ? "<br>Cast: " + names : "<br>No named characters yet. Cast editing arrives in a later step.")));
+    (names ? "<br>Cast: " + names : "") +
+    '<div id="cast-step"><div class="empty">Loading the cast…</div></div>'));
   steps.push(stepLi("3 · Render", (data.bundles || []).length ? "done" : (data.rendering ? "active" : ""),
     '<div id="render-step"><div class="empty">Loading the render step…</div></div>'));
   const vRows = (data.validation || []).map((e) => esc(e.file) + ": " + esc(e.message)).join("\n");
@@ -282,6 +284,7 @@ async function loadDetail(id) {
     "<pre class='errors'>" + esc(data.draft_error.file) + ": " + esc(data.draft_error.message) + "</pre>"));
   document.getElementById("d-steps").innerHTML = steps.join("");
   setupRenderStep(data);
+  setupCastStep(data);
 }
 // --- Render step (UI5) -----------------------------------------------------
 // Chapter picker, page-range preview, preflight panel, start, and live
@@ -566,6 +569,314 @@ function renderLiveStep(jobs) {
     renderSeenTerminal.add(job.id + ":" + job.updated);
     loadDetail(renderBookId);
   }
+}
+// --- Cast step (UI6) -------------------------------------------------------
+// Table (voice dropdown, audition, speed, lines + minutes), first-person
+// row, minor-voices collapsible, overrides editor with a low-confidence
+// quote picker, read-only cast report, and PATCH op saves with an mtime
+// conflict guard. Edits accumulate as ops locally; Save sends them
+// atomically. Audition reuses the #player-row mount (one <audio>).
+let castBookId = null;
+let castDoc = null;
+let castVoices = [];
+let castOps = [];
+let castSaving = false;
+function castOpKey(op) {
+  if (op.op === "set_voice") return "voice:" + op.character;
+  if (op.op === "set_speed") return "speed:" + op.character;
+  if (op.op === "set_first_person") return "first_person";
+  return "";
+}
+function pushCastOp(op) {
+  const key = castOpKey(op);
+  if (key) {
+    const at = castOps.findIndex((o) => castOpKey(o) === key);
+    if (at >= 0) castOps[at] = op;
+    else castOps.push(op);
+  } else {
+    castOps.push(op);
+  }
+  paintCastState();
+}
+function paintCastState() {
+  const el = document.getElementById("cast-state");
+  if (!el) return;
+  if (castSaving) { el.textContent = "Saving…"; return; }
+  if (!castOps.length) el.textContent = "No unsaved changes.";
+  else el.textContent = "Unsaved changes (" + castOps.length + " op" + (castOps.length === 1 ? "" : "s") + "). Save sends them atomically.";
+}
+async function setupCastStep(data) {
+  castBookId = data.id;
+  castDoc = null;
+  castOps = [];
+  castSaving = false;
+  const box = document.getElementById("cast-step");
+  if (!box) return;
+  if (!data.drafted) {
+    box.innerHTML = '<div class="empty">Draft has not finished yet. The cast editor appears after drafting.</div>';
+    return;
+  }
+  box.innerHTML = '<p class="muted">Loading the cast…</p>';
+  const [castRes, voicesRes] = await Promise.all([
+    api("/api/books/" + encodeURIComponent(data.id) + "/cast"),
+    api("/api/cast/voices")
+  ]);
+  if (box.id !== "cast-step" || castBookId !== data.id) return;
+  if (!castRes.ok) {
+    const d = castRes.data || {};
+    box.innerHTML = '<div class="empty">' + esc(d.message || ("Could not load the cast (code " + castRes.status + ").")) + "</div>";
+    return;
+  }
+  castVoices = (voicesRes.ok && voicesRes.data && voicesRes.data.voices) || [];
+  paintCastStep(box, castRes.data);
+}
+function castVoiceOptions(selected) {
+  const seen = new Set(castVoices);
+  let html = "";
+  if (selected && !seen.has(selected)) {
+    html += '<option value="' + esc(selected) + '" selected>' + esc(selected) + " (hand-set)</option>";
+  }
+  for (const v of castVoices) {
+    html += '<option value="' + esc(v) + '"' + (v === selected ? " selected" : "") + ">" + esc(v) + "</option>";
+  }
+  if (!selected) html = '<option value="" selected>(none)</option>' + html;
+  return html;
+}
+function paintCastStep(box, doc) {
+  castDoc = doc;
+  castOps = [];
+  const cast = doc.cast || {};
+  const stats = doc.stats || [];
+  const minor = doc.minor || [];
+  const characters = (cast.characters && typeof cast.characters === "object") ? Object.keys(cast.characters) : [];
+  const fpTargets = ["narrator", ...characters, "default_female", "default_male"];
+  let html = "";
+  html += '<div id="cast-conflict" hidden></div>';
+  if (doc.has_comments) {
+    html += '<div class="empty" id="cast-comments">' + esc(doc.comment_warning || "This cast.yaml has # comments; saving here rewrites the file and drops comment lines.") + "</div>";
+  }
+  html += '<p class="muted" id="cast-state" role="status">No unsaved changes.</p>';
+  html += '<table class="auloud-table" id="cast-table" aria-label="Cast voices"><thead><tr><th>Character</th><th>Voice</th><th>Audition</th><th>Speed</th><th class="num">Lines</th><th class="num">Minutes</th></tr></thead><tbody>';
+  for (const row of stats) {
+    const name = row.character || "";
+    const fp = (cast.first_person || "narrator") === name ? ' <span class="chip on">first person</span>' : "";
+    const low = row.low ? ' <span class="chip busy">' + row.low + " low</span>" : "";
+    html += '<tr data-character="' + esc(name) + '"><td>' + esc(name) + fp + low + "</td>";
+    html += '<td><select data-voice-for="' + esc(name) + '" aria-label="Voice for ' + esc(name) + '">' + castVoiceOptions(row.voice) + "</select></td>";
+    html += '<td><button type="button" class="ghost" data-audition="' + esc(row.voice || "") + '" aria-label="Audition ' + esc(name) + '">Play</button></td>';
+    html += '<td><input data-speed-for="' + esc(name) + '" type="number" min="0.1" step="0.1" value="' + esc(String(row.speed == null ? 1 : row.speed)) + '" aria-label="Speed for ' + esc(name) + '" size="5"></td>';
+    html += '<td class="num">' + esc(String(row.lines == null ? 0 : row.lines)) + "</td>";
+    html += '<td class="num">' + esc(String(row.minutes == null ? 0 : row.minutes)) + "</td></tr>";
+  }
+  html += "</tbody></table>";
+  if (!doc.has_audio) html += '<p class="muted">Minutes need a valid bundle; lines come from the draft. Render once to fill minutes.</p>';
+  html += '<p><label for="cast-first-person">First person ("I said" lines)</label> <select id="cast-first-person">' +
+    fpTargets.map((t) => '<option value="' + esc(t) + '"' + (t === (cast.first_person || "narrator") ? " selected" : "") + ">" + esc(t) + "</option>").join("") +
+    "</select></p>";
+  if (minor.length) {
+    html += "<details id=\"cast-minor\"><summary>Minor voices (" + minor.length + ", at most 3 lines each)</summary><ul>" +
+      minor.map((m) => "<li>" + esc(m.speaker) + " — " + m.lines + " line" + (m.lines === 1 ? "" : "s") +
+        ", renders as " + esc(m.resolved || "?") + " " +
+        "(quote " + m.example.chapter + "/" + m.example.block + "/" + m.example.quote + "). " +
+        "To promote one, add a characters entry by hand, then pick its voice here.</li>").join("") +
+      "</ul></details>";
+  }
+  const overrides = Array.isArray(cast.overrides) ? cast.overrides : [];
+  html += '<h4>Overrides (' + overrides.length + ")</h4>";
+  html += '<ul id="cast-overrides">' + overrides.map((o) => {
+    const key = o.match ? ("match " + o.match) : ("quote " + o.chapter + "/" + o.block + "/" + o.quote);
+    return "<li>" + esc(key) + " → " + esc(o.speaker) +
+      ' <button type="button" class="ghost" data-remove-override=\'' + esc(JSON.stringify(o)) + "'>Remove</button></li>";
+  }).join("") + "</ul>";
+  html += '<p class="row-actions"><input id="ov-chapter" size="4" placeholder="ch" aria-label="Override chapter"> ' +
+    '<input id="ov-block" size="4" placeholder="block" aria-label="Override block"> ' +
+    '<input id="ov-quote" size="4" placeholder="quote" aria-label="Override quote"> ' +
+    '<input id="ov-speaker" size="14" placeholder="speaker" aria-label="Override speaker"> ' +
+    '<button id="ov-add" type="button">Add override</button></p>';
+  html += '<p class="muted">Quote keys come from the low-confidence picker below, or the cast report. ' +
+    "An override re-voices that one line; the next render re-synths only changed lines.</p>";
+  html += '<h4>Low-confidence lines (' + (doc.low_confidence_total || 0) + " of " + (doc.quotes_total || 0) + " quotes)</h4>";
+  html += '<div id="cast-low"><p class="muted">Loading low-confidence lines…</p></div>';
+  html += '<h4>Cast report</h4><pre class="errors" id="cast-report">Loading…</pre>';
+  html += '<p class="muted" id="cast-affected" role="status"></p>';
+  html += '<pre class="errors" id="cast-errors" hidden></pre>';
+  if (Array.isArray(doc.validation) && doc.validation.length) {
+    html += "<pre class='errors' id='cast-file-errors'>" + esc(doc.validation.map((e) => e.file + ": " + e.rule + ": " + e.message).join("\n")) + "</pre>";
+  }
+  html += '<p class="row-actions"><button id="cast-save" type="button">Save cast</button> ' +
+    '<button id="cast-reload" type="button" class="ghost">Reload</button></p>';
+  box.innerHTML = html;
+  paintCastState();
+  box.querySelectorAll("[data-voice-for]").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      pushCastOp({ op: "set_voice", character: sel.getAttribute("data-voice-for"), voice: sel.value });
+    });
+  });
+  box.querySelectorAll("[data-speed-for]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const speed = Number(input.value);
+      if (!(speed > 0)) { input.value = "1"; return; }
+      pushCastOp({ op: "set_speed", character: input.getAttribute("data-speed-for"), speed });
+    });
+  });
+  document.getElementById("cast-first-person").addEventListener("change", (e) => {
+    pushCastOp({ op: "set_first_person", value: e.target.value });
+  });
+  box.querySelectorAll("[data-audition]").forEach((btn) => {
+    btn.addEventListener("click", () => auditionVoice(btn.getAttribute("data-audition"), btn));
+  });
+  box.querySelectorAll("[data-remove-override]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      let entry = null;
+      try { entry = JSON.parse(btn.getAttribute("data-remove-override")); } catch { entry = null; }
+      if (!entry) return;
+      const op = entry.match
+        ? { op: "remove_override", match: entry.match }
+        : { op: "remove_override", chapter: entry.chapter, block: entry.block, quote: entry.quote };
+      pushCastOp(op);
+      btn.closest("li").remove();
+    });
+  });
+  document.getElementById("ov-add").addEventListener("click", () => {
+    const chapter = Number(document.getElementById("ov-chapter").value);
+    const block = Number(document.getElementById("ov-block").value);
+    const quote = Number(document.getElementById("ov-quote").value);
+    const speaker = document.getElementById("ov-speaker").value.trim();
+    const err = document.getElementById("cast-errors");
+    if (!(chapter >= 1) || !(block >= 0) || !(quote >= 1) || !speaker) {
+      err.hidden = false;
+      err.textContent = "Add override needs chapter (>= 1), block (>= 0), quote (>= 1) and a speaker name.";
+      return;
+    }
+    err.hidden = true; err.textContent = "";
+    pushCastOp({ op: "add_override", chapter, block, quote, speaker });
+    const li = document.createElement("li");
+    li.textContent = "quote " + chapter + "/" + block + "/" + quote + " → " + speaker + " (unsaved)";
+    document.getElementById("cast-overrides").appendChild(li);
+  });
+  document.getElementById("cast-save").addEventListener("click", saveCast);
+  document.getElementById("cast-reload").addEventListener("click", () => setupCastStep({ id: castBookId, drafted: true }));
+  loadCastLow();
+  loadCastReport();
+}
+function castShowErrors(list) {
+  const err = document.getElementById("cast-errors");
+  if (!err) return;
+  if (!list || !list.length) { err.hidden = true; err.textContent = ""; return; }
+  err.hidden = false;
+  err.textContent = list.map((e) => (e.file || "cast.yaml") + ": " + (e.rule ? e.rule + ": " : "") + (e.message || "")).join("\n");
+}
+async function saveCast() {
+  if (!castBookId || !castDoc || castSaving) return;
+  if (!castOps.length) return;
+  castSaving = true; paintCastState();
+  castShowErrors(null);
+  const { ok, status, data } = await api("/api/books/" + encodeURIComponent(castBookId) + "/cast", {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ops: castOps, expected_mtime: castDoc.mtime })
+  });
+  castSaving = false;
+  if (ok) {
+    castDoc = data;
+    castOps = [];
+    paintCastState();
+    const n = data.affected ? data.affected.quotes : 0;
+    const done = document.getElementById("cast-affected");
+    if (done) done.textContent = "Saved. This re-voices " + n + " line" + (n === 1 ? "" : "s") + ". Re-render from the Render step below (cached lines are reused).";
+    setupCastStepRefreshSilent(data);
+    return;
+  }
+  paintCastState();
+  if (status === 409) paintCastConflict(data);
+  else castShowErrors((data && data.errors) || [data]);
+}
+function setupCastStepRefreshSilent(data) {
+  const box = document.getElementById("cast-step");
+  if (box) paintCastStep(box, data);
+}
+function paintCastConflict(data) {
+  const slot = document.getElementById("cast-conflict");
+  if (!slot) return;
+  slot.hidden = false;
+  slot.innerHTML = "";
+  const div = document.createElement("div");
+  div.className = "empty";
+  const p = document.createElement("p");
+  p.textContent = "Conflict: the file changed on disk (for example a hand edit). Your unsaved ops were kept, but nothing was written. " + ((data && data.message) || "");
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.textContent = "Load the server version (drops my unsaved ops)";
+  btn.addEventListener("click", () => setupCastStep({ id: castBookId, drafted: true }));
+  div.append(p, btn);
+  slot.appendChild(div);
+}
+async function auditionVoice(voice, btn) {
+  const mount = document.getElementById("player-row");
+  if (!voice) return;
+  const prev = btn ? btn.textContent : "";
+  if (btn) btn.textContent = "…";
+  try {
+    const res = await fetch("/api/voices/" + encodeURIComponent(voice) + ".wav", {
+      headers: { "X-Auloud-Token": token }
+    });
+    if (res.ok) {
+      const blob = await res.blob();
+      mount.hidden = false;
+      mount.innerHTML = "";
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.src = URL.createObjectURL(blob);
+      audio.setAttribute("aria-label", "Audition " + voice);
+      mount.appendChild(audio);
+      await audio.play().catch(() => {});
+    } else if (res.status === 409) {
+      mount.hidden = false;
+      mount.textContent = "No cached clip for " + voice + ". Run: scribe voices --sample --out-dir <workspace>/.scribe/voice-samples";
+    } else {
+      mount.hidden = false;
+      mount.textContent = "Audition failed with code " + res.status + ".";
+    }
+  } catch {
+    mount.hidden = false;
+    mount.textContent = "Audition failed. Check the server.";
+  } finally {
+    if (btn) btn.textContent = prev || "Play";
+  }
+}
+async function loadCastLow() {
+  const slot = document.getElementById("cast-low");
+  if (!slot || !castBookId) return;
+  const { ok, data } = await api("/api/books/" + encodeURIComponent(castBookId) + "/quotes?confidence=low&per_page=100");
+  if (!ok || !data) { slot.innerHTML = '<p class="muted">Could not load low-confidence lines.</p>'; return; }
+  if (!data.quotes.length) { slot.innerHTML = "<p>None — every dialogue line attributed high or medium.</p>"; return; }
+  slot.innerHTML = "";
+  const list = document.createElement("ul");
+  const total = document.createElement("p");
+  total.className = "muted";
+  total.textContent = "Showing " + data.quotes.length + " of " + data.total + " low-confidence quotes.";
+  slot.append(total, list);
+  for (const q of data.quotes) {
+    const li = document.createElement("li");
+    li.textContent = "quote " + q.chapter + "/" + q.block + "/" + q.quote + " speaker " + q.speaker + " (" + q.confidence + ", now " + (q.resolved || "?") + "): " + (q.text || "").slice(0, 160) + " ";
+    const use = document.createElement("button");
+    use.type = "button"; use.className = "ghost"; use.textContent = "Use in override";
+    use.addEventListener("click", () => {
+      document.getElementById("ov-chapter").value = q.chapter;
+      document.getElementById("ov-block").value = q.block;
+      document.getElementById("ov-quote").value = q.quote;
+      document.getElementById("ov-speaker").value = q.speaker;
+      document.getElementById("ov-speaker").focus();
+    });
+    li.appendChild(use);
+    list.appendChild(li);
+  }
+}
+async function loadCastReport() {
+  const pre = document.getElementById("cast-report");
+  if (!pre || !castBookId) return;
+  const { ok, data } = await api("/api/books/" + encodeURIComponent(castBookId) + "/cast/report");
+  if (!ok) { pre.textContent = "No cast report yet."; return; }
+  pre.textContent = data.markdown || "";
 }
 function route() {
   const h = location.hash || "#/";

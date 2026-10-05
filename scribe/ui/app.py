@@ -14,7 +14,42 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""UI5 app factory: UI4 job runner plus the Render step (plan UI5).
+"""UI6 app factory: UI5 plus the Cast view (plan UI6).
+
+Kept from UI2/UI3: ``GET /api/health``, ``GET /`` (Books UI with the
+``{{AULOUD_TOKEN}}`` slot filled per run) and ``POST /api/echo`` (the tested
+token example). No CORS middleware anywhere; the Host/token middleware
+answers 421/403 with generic bodies that never echo the offending Host or
+the expected token.
+
+UI6 adds (thin operators over :mod:`ui.cast` and :mod:`text.cast`; the
+``cast.yaml`` model, merge and validation stay in the library):
+
+- ``GET /api/books/{id}/cast`` — parsed cast, file mtime (the conflict
+  guard), ``has_comments`` save warning, per-character stats (lines from
+  draft resolution, minutes from bundle timings when a valid bundle exists),
+  the minor-voices collapsible source, and the current validation errors.
+- ``PUT /api/books/{id}/cast {cast, expected_mtime}`` — full replace with
+  the mtime guard (409 + current state on conflict).
+- ``PATCH /api/books/{id}/cast {ops, expected_mtime}`` — preferred; typed
+  ops (``set_voice``, ``set_speed``, ``set_first_person``, ``add_override``,
+  ``remove_override``), atomic: every op validates before any write, and the
+  response names how many quote lines re-voice (the Render-step delta).
+- ``GET /api/books/{id}/cast/report`` — ``cast_report.md`` as escaped text
+  (``markdown`` raw plus ``html`` fully escaped; the view renders
+  ``textContent``, so no raw HTML ever executes) with low-confidence keys.
+- ``GET /api/books/{id}/quotes?confidence=low&page=&per_page=`` — the
+  overrides picker (chapter/block/quote/text/raw speaker/confidence plus
+  the resolved character); paged with a total (novels have thousands).
+- ``GET /api/cast/voices`` — the D-036 palette dropdown (no model loaded;
+  UI7 extends to full engine enumeration).
+- ``GET /api/voices/{name}.wav`` — cached audition clip (exact
+  ``<voice>.wav`` or ``*-<voice>.wav`` from ``scribe voices --sample``);
+  absent clips are 409 ``sample-missing`` with the seeding command — the
+  server never synths inline (one Kokoro clip costs seconds plus model
+  load), and UI7 owns the generation job. The ``GET`` path is the contract
+  UI7 extends.
+
 
 Kept from UI2/UI3: ``GET /api/health``, ``GET /`` (Books UI with the
 ``{{AULOUD_TOKEN}}`` slot filled per run) and ``POST /api/echo`` (the tested
@@ -66,7 +101,12 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, File, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    StreamingResponse,
+)
 
 from .books import (
     find_source_files,
@@ -819,6 +859,418 @@ def create_app(
             )
         return JSONResponse(
             _keepawake.set_settings(root, keep_awake=keep_awake, device=device)
+        )
+
+    # --- UI6: Cast view ----------------------------------------------------
+    # Thin operators over ui.cast (pure ops) and text.cast (model/merge/
+    # validation). cast.yaml stays the source of truth; every write is
+    # validated verbatim and mtime-guarded (409 + current state on conflict).
+
+    def _cast_work_dir(book_id: str) -> tuple[Path | None, JSONResponse | None]:
+        """``.scribe/<book_id>`` confined, or the 400 for a bad id."""
+        from .books import WORK_DIRNAME, check_book_id
+
+        try:
+            check_book_id(book_id)
+        except ValueError as exc:
+            return None, JSONResponse(
+                _split_shaped(str(exc), book_id, "path-traversal"), status_code=400
+            )
+        try:
+            return safe_join(root, WORK_DIRNAME, book_id), None
+        except ValueError as exc:
+            return None, JSONResponse(
+                _split_shaped(str(exc), book_id, "path-traversal"), status_code=400
+            )
+
+    def _read_script(work_dir: Path) -> dict[str, Any] | None:
+        path = work_dir / "script.json"
+        if not path.is_file():
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+        return data if isinstance(data, dict) else None
+
+    def _narration_lines(script: dict[str, Any] | None) -> int:
+        if not script or not isinstance(script.get("chapters"), list):
+            return 0
+        total = 0
+        for chapter in script["chapters"]:
+            if not isinstance(chapter, dict):
+                continue
+            for block in chapter.get("blocks") or []:
+                if not isinstance(block, dict):
+                    continue
+                for sentence in block.get("sentences") or []:
+                    if isinstance(sentence, dict) and sentence.get("kind") != "dialogue":
+                        total += 1
+        return total
+
+    def _bundle_speaker_ms(book_id: str) -> tuple[dict[str, int], bool]:
+        """``(speaker_ms, has_audio)`` from the first valid mapped bundle.
+
+        Only the first valid bundle counts (a book can hold a full plus
+        range bundles; summing all of them would double-count shared
+        chapters). Read-only; any inspection problem means no minutes.
+        """
+        from .books import get_book_detail
+
+        try:
+            detail = get_book_detail(root, book_id)
+        except (ValueError, KeyError):
+            return {}, False
+        for bundle in detail.get("bundles") or []:
+            if isinstance(bundle, dict) and bundle.get("valid") and bundle.get("path"):
+                break
+        else:
+            return {}, False
+        try:
+            from bundle.inspect import inspect_bundle
+
+            result = inspect_bundle(root / str(bundle["path"]))
+        except Exception:
+            return {}, False
+        return dict(result.speaker_ms), True
+
+    def _cast_payload(
+        book_id: str, work_dir: Path, cast: dict[str, Any], mtime: float, has_comments: bool
+    ) -> dict[str, Any]:
+        from . import cast as _castmod
+
+        script = _read_script(work_dir)
+        quotes = _castmod.read_script_quotes(script) if script is not None else []
+        speaker_ms, has_audio = _bundle_speaker_ms(book_id)
+        rows, minor = _castmod.build_cast_stats(
+            cast, quotes, _narration_lines(script), speaker_ms
+        )
+        low_total = sum(1 for q in quotes if q.get("confidence") == "low")
+        validation = _castmod.shaped_validation_errors(cast)
+        payload: dict[str, Any] = {
+            "book_id": book_id,
+            "mtime": mtime,
+            "has_comments": has_comments,
+            "cast": cast,
+            "first_person": cast.get("first_person", "narrator"),
+            "stats": rows,
+            "minor": minor,
+            "quotes_total": len(quotes),
+            "low_confidence_total": low_total,
+            "has_audio": has_audio,
+            "validation": validation,
+        }
+        if has_comments:
+            payload["comment_warning"] = _castmod.COMMENT_WARNING
+        return payload
+
+    def _cast_patch_error(exc: Exception, fallback_file: str) -> JSONResponse:
+        from .cast import CastPatchError
+
+        if isinstance(exc, CastPatchError):
+            body = exc.shaped()
+            status = 404 if exc.rule == "cast-not-found" else 400
+            return JSONResponse(body, status_code=status)
+        return JSONResponse(
+            _split_shaped(str(exc), fallback_file, "bad-request"), status_code=400
+        )
+
+    @app.get("/api/cast/voices")
+    async def _cast_voices() -> dict[str, Any]:
+        """Voice dropdown source (D-036 palette; no model loaded)."""
+        from .cast import PALETTE_VOICES
+
+        return {
+            "voices": list(PALETTE_VOICES),
+            "source": "palette",
+            "engine_version": None,
+            "note": (
+                "UI6 palette only (the voices draft assigns, plus legacy "
+                "af_heart). UI7 extends this to full engine enumeration with "
+                "cached audition clips."
+            ),
+        }
+
+    @app.get("/api/voices/{name}.wav")
+    async def _voice_sample(name: str) -> Any:
+        """Cached audition clip, or 409 sample-missing (never synths inline)."""
+        from . import cast as _castmod
+
+        try:
+            voice = _castmod.check_voice_name(name)
+        except ValueError as exc:
+            return JSONResponse(
+                _split_shaped(str(exc), name, "path-traversal"), status_code=400
+            )
+        found = _castmod.find_sample_file(_castmod.samples_dir(root), voice)
+        if found is None:
+            return JSONResponse(
+                _error_shape(
+                    f"{voice}.wav",
+                    "sample-missing",
+                    f"{voice}.wav: sample-missing: no cached clip; run "
+                    "`scribe voices --sample --out-dir <workspace>/.scribe/voice-samples` "
+                    "(UI7 adds a one-click generation job)",
+                ),
+                status_code=409,
+            )
+        return FileResponse(str(found), media_type="audio/wav", filename=f"{voice}.wav")
+
+    @app.get("/api/books/{book_id}/cast")
+    async def _cast_get(book_id: str) -> JSONResponse:
+        """Parsed cast plus stats, mtime guard token and save warnings."""
+        from . import cast as _castmod
+
+        work_dir, bad = _cast_work_dir(book_id)
+        if bad is not None or work_dir is None:
+            return bad  # type: ignore[return-value]
+        try:
+            cast, mtime, has_comments = _castmod.read_cast_state(work_dir)
+        except FileNotFoundError as exc:
+            return JSONResponse(
+                _split_shaped(str(exc), "cast.yaml", "cast-not-found"), status_code=404
+            )
+        except Exception as exc:
+            return _cast_patch_error(exc, "cast.yaml")
+        return JSONResponse(_cast_payload(book_id, work_dir, cast, mtime, has_comments))
+
+    @app.put("/api/books/{book_id}/cast")
+    async def _cast_put(book_id: str, payload: dict[str, Any] | None = None) -> JSONResponse:
+        """Full replace with the mtime guard (token-guarded via middleware)."""
+        from . import cast as _castmod
+
+        work_dir, bad = _cast_work_dir(book_id)
+        if bad is not None or work_dir is None:
+            return bad  # type: ignore[return-value]
+        body = payload or {}
+        new_cast = body.get("cast")
+        if not isinstance(new_cast, dict):
+            return JSONResponse(
+                _error_shape(
+                    "cast.yaml",
+                    "bad-op",
+                    "cast.yaml: bad-op: PUT needs {cast: {...}, expected_mtime: <mtime from GET>}",
+                ),
+                status_code=400,
+            )
+        try:
+            old_cast, _, _ = _castmod.read_cast_state(work_dir)
+        except FileNotFoundError as exc:
+            return JSONResponse(
+                _split_shaped(str(exc), "cast.yaml", "cast-not-found"), status_code=404
+            )
+        except Exception as exc:
+            return _cast_patch_error(exc, "cast.yaml")
+        try:
+            mtime, had_comments = _castmod.write_cast_guarded(
+                work_dir, new_cast, expected_mtime=body.get("expected_mtime")
+            )
+        except _castmod.CastConflictError as exc:
+            return JSONResponse(
+                {
+                    "file": "cast.yaml",
+                    "rule": "conflict",
+                    "message": str(exc),
+                    "current_mtime": exc.current_mtime,
+                    "cast": exc.current_cast,
+                },
+                status_code=409,
+            )
+        except Exception as exc:
+            return _cast_patch_error(exc, "cast.yaml")
+        script = _read_script(work_dir)
+        quotes = _castmod.read_script_quotes(script) if script is not None else []
+        affected = _castmod.count_changed_quotes(old_cast, new_cast, quotes)
+        response = _cast_payload(book_id, work_dir, new_cast, mtime, had_comments)
+        response["affected"] = {"quotes": affected}
+        response["saved_comments"] = had_comments
+        return JSONResponse(response)
+
+    @app.patch("/api/books/{book_id}/cast")
+    async def _cast_patch(book_id: str, payload: dict[str, Any] | None = None) -> JSONResponse:
+        """Atomic op list (all ops validate before any apply; 409 on conflict)."""
+        from . import cast as _castmod
+
+        work_dir, bad = _cast_work_dir(book_id)
+        if bad is not None or work_dir is None:
+            return bad  # type: ignore[return-value]
+        body = payload or {}
+        ops = body.get("ops")
+        try:
+            current, _, _ = _castmod.read_cast_state(work_dir)
+        except FileNotFoundError as exc:
+            return JSONResponse(
+                _split_shaped(str(exc), "cast.yaml", "cast-not-found"), status_code=404
+            )
+        except Exception as exc:
+            return _cast_patch_error(exc, "cast.yaml")
+        staged, errors = _castmod.validate_ops_atomic(current, ops or [])
+        if errors:
+            first = errors[0]
+            response = dict(first)
+            if len(errors) > 1:
+                response["errors"] = errors
+            status = 404 if first.get("rule") == "cast-not-found" else 400
+            return JSONResponse(response, status_code=status)
+        try:
+            mtime, had_comments = _castmod.write_cast_guarded(
+                work_dir, staged, expected_mtime=body.get("expected_mtime")
+            )
+        except _castmod.CastConflictError as exc:
+            return JSONResponse(
+                {
+                    "file": "cast.yaml",
+                    "rule": "conflict",
+                    "message": str(exc),
+                    "current_mtime": exc.current_mtime,
+                    "cast": exc.current_cast,
+                },
+                status_code=409,
+            )
+        except Exception as exc:
+            return _cast_patch_error(exc, "cast.yaml")
+        script = _read_script(work_dir)
+        quotes = _castmod.read_script_quotes(script) if script is not None else []
+        affected = _castmod.count_changed_quotes(current, staged, quotes)
+        response = _cast_payload(book_id, work_dir, staged, mtime, had_comments)
+        response["affected"] = {"quotes": affected}
+        response["applied"] = len(ops or [])
+        response["saved_comments"] = had_comments
+        return JSONResponse(response)
+
+    @app.get("/api/books/{book_id}/cast/report")
+    async def _cast_report(book_id: str) -> JSONResponse:
+        """``cast_report.md`` read-only: raw markdown plus fully-escaped HTML."""
+        from . import cast as _castmod
+
+        work_dir, bad = _cast_work_dir(book_id)
+        if bad is not None or work_dir is None:
+            return bad  # type: ignore[return-value]
+        path = work_dir / _castmod.CAST_REPORT_FILENAME
+        if not path.is_file():
+            return JSONResponse(
+                _error_shape(
+                    _castmod.CAST_REPORT_FILENAME,
+                    "report-not-found",
+                    f"{_castmod.CAST_REPORT_FILENAME}: report-not-found: "
+                    "no cast report yet (draft first)",
+                ),
+                status_code=404,
+            )
+        try:
+            markdown = path.read_text(encoding="utf-8")
+            mtime = path.stat().st_mtime
+        except OSError as exc:
+            return JSONResponse(
+                _error_shape(
+                    _castmod.CAST_REPORT_FILENAME,
+                    "unreadable",
+                    f"{_castmod.CAST_REPORT_FILENAME}: unreadable: {exc}",
+                ),
+                status_code=400,
+            )
+        script = _read_script(work_dir)
+        quotes = _castmod.read_script_quotes(script) if script is not None else []
+        low = [
+            {
+                "chapter": q["chapter"],
+                "block": q["block"],
+                "quote": q["quote"],
+                "text": q["text"],
+                "speaker": q["speaker"],
+                "confidence": q["confidence"],
+            }
+            for q in quotes
+            if q.get("confidence") == "low"
+        ]
+        return JSONResponse(
+            {
+                "book_id": book_id,
+                "mtime": mtime,
+                "markdown": markdown,
+                # Escaped, no raw HTML: the view renders textContent anyway;
+                # this field is the belt to that suspenders (tests pin it).
+                "html": html.escape(markdown, quote=True),
+                "low_confidence": low,
+            }
+        )
+
+    @app.get("/api/books/{book_id}/quotes")
+    async def _quotes(request: Request, book_id: str) -> JSONResponse:
+        """Quote picker data: paged dialogue quotes with a low filter."""
+        from . import cast as _castmod
+
+        work_dir, bad = _cast_work_dir(book_id)
+        if bad is not None or work_dir is None:
+            return bad  # type: ignore[return-value]
+        params = request.query_params
+        confidence = str(params.get("confidence", "all")).strip().lower()
+        if confidence not in ("all", "low"):
+            return JSONResponse(
+                _error_shape(
+                    book_id,
+                    "bad-request",
+                    f"{book_id}: bad-request: confidence must be 'all' or 'low'",
+                ),
+                status_code=400,
+            )
+        try:
+            page = int(str(params.get("page", "1")).strip())
+            default_pp = str(_castmod.QUOTES_DEFAULT_PER_PAGE)
+            per_page_raw = str(params.get("per_page", default_pp)).strip()
+            per_page = int(per_page_raw)
+        except (TypeError, ValueError):
+            return JSONResponse(
+                _error_shape(
+                    book_id,
+                    "bad-request",
+                    f"{book_id}: bad-request: page and per_page must be ints",
+                ),
+                status_code=400,
+            )
+        if page < 1 or per_page < 1 or per_page > _castmod.QUOTES_MAX_PER_PAGE:
+            return JSONResponse(
+                _error_shape(
+                    book_id,
+                    "bad-request",
+                    f"{book_id}: bad-request: need page >= 1 and 1 <= per_page <= "
+                    f"{_castmod.QUOTES_MAX_PER_PAGE}",
+                ),
+                status_code=400,
+            )
+        script = _read_script(work_dir)
+        if script is None:
+            return JSONResponse(
+                _error_shape(
+                    book_id,
+                    "draft-missing",
+                    f"{book_id}: draft-missing: no script.json yet (draft first)",
+                ),
+                status_code=404,
+            )
+        quotes = _castmod.read_script_quotes(script)
+        if confidence == "low":
+            quotes = [q for q in quotes if q.get("confidence") == "low"]
+        try:
+            cast, _, _ = _castmod.read_cast_state(work_dir)
+        except Exception:
+            cast = None
+        resolved = _castmod.resolve_quote_speakers(cast, quotes) if cast is not None else {}
+        total = len(quotes)
+        start = (page - 1) * per_page
+        items: list[dict[str, Any]] = []
+        for entry in quotes[start : start + per_page]:
+            key = (entry["chapter"], entry["block"], entry["quote"])
+            items.append({**entry, "resolved": resolved.get(key)})
+        return JSONResponse(
+            {
+                "book_id": book_id,
+                "total": total,
+                "page": page,
+                "per_page": per_page,
+                "confidence": confidence,
+                "quotes": items,
+            }
         )
 
     return app
