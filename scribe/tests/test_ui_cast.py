@@ -674,9 +674,14 @@ def test_report_escapes_malicious_input(tmp_path: Path) -> None:
 # --- API: voices + audition clips -----------------------------------------------
 
 
-def test_voices_list_is_palette_without_models(tmp_path: Path) -> None:
+def test_voices_list_is_palette_without_models(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from ui.cast import PALETTE_VOICES
 
+    # Isolate CWD: the fallback is CWD models/, which exists when pytest
+    # runs from scribe/ (and then the engine list is the honest answer).
+    monkeypatch.chdir(tmp_path)
     client, _token = _api_client(tmp_path)
     resp = client.get("/api/cast/voices", headers={**LOCAL})
     assert resp.status_code == 200, resp.text
@@ -685,6 +690,44 @@ def test_voices_list_is_palette_without_models(tmp_path: Path) -> None:
     assert doc["source"] == "palette"
     for voice in ("am_onyx", "bf_isabella", "bm_lewis", "af_bella", "am_adam"):
         assert voice in doc["voices"]
+
+
+def _write_voice_archive(models_dir: Path, names: list[str]) -> None:
+    import numpy as np
+
+    from tts.voices import VOICES_ARCHIVE_FILENAME
+
+    models_dir.mkdir(parents=True, exist_ok=True)
+    staged = models_dir / "staged.npz"
+    np.savez(str(staged), **{name: np.zeros(4, dtype=np.float32) for name in names})
+    staged.rename(models_dir / VOICES_ARCHIVE_FILENAME)
+
+
+def test_voices_list_is_engine_with_models(tmp_path: Path) -> None:
+    _write_voice_archive(
+        tmp_path / "models", ["zm_yunxi", "af_heart", "am_adam", "ef_dora"]
+    )
+    client, _token = _api_client(tmp_path)
+    resp = client.get("/api/cast/voices", headers={**LOCAL})
+    assert resp.status_code == 200, resp.text
+    doc = resp.json()
+    assert doc["source"] == "engine"
+    assert doc["voices"] == ["af_heart", "am_adam", "ef_dora", "zm_yunxi"]
+    by_name = {entry["name"]: entry for entry in doc["details"]}
+    assert by_name["ef_dora"]["locale"] == "Spanish"
+    assert by_name["zm_yunxi"]["gender"] == "male"
+
+
+def test_voices_unknown_name_rejected_not_palette_gated(tmp_path: Path) -> None:
+    _write_voice_archive(tmp_path / "models", ["zm_yunxi", "af_heart"])
+    client, token = _api_client(tmp_path)
+    headers = {**LOCAL, "X-Auloud-Token": token}
+    bad = client.post(
+        "/api/voices/no_such_voice_xyz/sample", json={}, headers=headers
+    )
+    assert bad.status_code == 400, bad.text
+    assert bad.json()["rule"] == "unknown-voice"
+    assert "not a known Kokoro voice" in bad.json()["message"]
 
 
 def test_voice_sample_served_missing_and_bad(tmp_path: Path) -> None:

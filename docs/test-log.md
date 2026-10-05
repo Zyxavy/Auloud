@@ -212,3 +212,9 @@ Accuracy by rule (mv4 strict; alias-aware identical, the seed has no
   sides, gender-mismatch rejection, alternation sustain/break, continuation
   chains, fallback/unknown, confidence levels). Retune and re-record when
   the 100-150 line full-novel gold set lands (still owed).
+
+---
+## GPU measurement (2026-10-05, RTX 4050 Laptop, driver CUDA 12.9)
+
+- Throwaway venv (main env untouched): `onnxruntime-gpu 1.30.0` + `nvidia-cublas/cudnn/cuda-runtime-cu12` pip wheels, no system CUDA toolkit. Gotcha: `kokoro-onnx[gpu]` extra is a no-op on Windows (marker `x86_64` vs `AMD64`); install `onnxruntime-gpu` explicitly. PATH must include the wheel `bin` dirs or the CUDA EP never registers (silent, still lists CPU only).
+- Same 7-sentence warmed comparison, model load excluded: **CUDA 3.95x vs CPU 4.03x** - no meaningful difference for Kokoro-82M. Verdict: CPU stays (D-063); `--device cuda` supported for whoever installs the wheels, not recommended.

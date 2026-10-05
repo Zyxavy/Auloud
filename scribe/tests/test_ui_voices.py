@@ -184,9 +184,13 @@ def _versioned_clip(workspace: Path, voice: str, version: str = VERSION_A) -> Pa
 # --- palette list -------------------------------------------------------------
 
 
-def test_palette_list_includes_engine_version_and_details(tmp_path: Path) -> None:
+def test_palette_list_includes_engine_version_and_details(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from ui.cast import PALETTE_VOICES
 
+    # Isolate CWD so the CWD-models fallback cannot promote this to engine.
+    monkeypatch.chdir(tmp_path)
     client, _token = _api_client(tmp_path, voices_version=VERSION_A)
     resp = client.get("/api/cast/voices", headers={**LOCAL})
     assert resp.status_code == 200, resp.text
@@ -417,9 +421,14 @@ def test_per_voice_post_cached_and_regenerate(tmp_path: Path) -> None:
     assert len(spawner.calls) == 2
 
 
-def test_regenerate_all_writes_every_palette_voice(tmp_path: Path) -> None:
+def test_regenerate_all_writes_every_palette_voice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from ui.cast import PALETTE_VOICES, find_versioned_sample
 
+    # Isolate CWD: omitted voices means all available, which is the palette
+    # only without a models dir.
+    monkeypatch.chdir(tmp_path)
     spawner = _VoicesSpawner(tmp_path)
     client, token = _api_client(tmp_path, spawner=spawner, voices_version=VERSION_A)
     headers = _auth(token)

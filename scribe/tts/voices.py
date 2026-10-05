@@ -51,6 +51,29 @@ SAMPLE_SPEED = 1.0
 #: Voice list written next to the WAVs (one id per line, audition order).
 VOICES_LIST_FILENAME = "voices.txt"
 
+#: Kokoro voice archive name inside a models dir (same file the engine
+#: loads; the names are its npz keys, readable without a model load).
+VOICES_ARCHIVE_FILENAME = "voices-v1.0.bin"
+
+
+def engine_voice_names(models_dir: Path | str) -> list[str] | None:
+    """Voice ids from the ``voices-v1.0.bin`` archive keys (no model load).
+
+    Only the npz directory is read (array data stays on disk), so this is
+    milliseconds and never touches onnxruntime. Returns ``None`` when the
+    archive is absent or unreadable — callers fall back to a curated list.
+    """
+    archive = Path(models_dir) / VOICES_ARCHIVE_FILENAME
+    try:
+        import numpy as np
+
+        with np.load(str(archive), allow_pickle=False) as data:
+            names = [str(name) for name in data.files]
+    except Exception:
+        return None
+    names = sorted(set(names))
+    return names or None
+
 
 @dataclass
 class VoicesSample:

@@ -501,6 +501,15 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Alternatives considered: ticking UI11 now (rejected: acceptance plus tag are explicitly the user's); quoting `--voice`/`--stop-file` in the README (rejected: the installed `scribe voices/build --help` outputs run today do not show them, so only live-help-proven flags are quoted).
 - Consequences / revisit when: needs user: spec section 9 acceptance end to end, then tag `slice-6` (do not tag from the agent side). Installed CLI staleness noted again (source has `--voice`/`--stop-file`, installed help lacks them; refresh with `uv sync --reinstall-package auloud-scribe` at will). Revisit the license gap only if vendored full texts are ever required.
 
+### D-063: GPU measured, CPU kept; full voice list; detail collapse + chapter dropdown
+
+- Date: 2026-10-05
+- Status: Accepted
+- Decision: (1) GPU: proven working in a throwaway venv (`onnxruntime-gpu 1.30.0` + NVIDIA `cublas/cudnn/cuda-runtime-cu12` pip wheels, no system CUDA toolkit; note the `kokoro-onnx[gpu]` extra silently installs CPU on Windows because its marker says `x86_64` while Windows reports `AMD64`) — but warmed CUDA measured **3.95x** vs warmed CPU **4.03x** on the RTX 4050 for Kokoro-82M: no gain (small model, per-sentence overhead dominates). Main env stays CPU-only; no package swap. `device.py` gains NVIDIA-wheel DLL registration (`ensure_cuda_dlls`: `os.add_dll_directory` + PATH prepend, best-effort) so `--device cuda` works out of the box for anyone who installs the GPU wheels (`uv pip install onnxruntime-gpu nvidia-cublas-cu12 nvidia-cudnn-cu12 nvidia-cuda-runtime-cu12`, ~2.5 GB); CPU stays the documented recommendation. (2) Voices: `/api/cast/voices`, audition and sample routes now serve the full engine list (54 ids read from the `voices-v1.0.bin` npz keys via `tts.voices.engine_voice_names` — directory read only, never a model load) when a models dir holds the archive, else the D-036 palette fallback; `describe_voice` hints already cover all prefixes. Draft auto-assignment still uses the palette (unchanged). (3) UI: book-detail Draft chapters and Cast names collapse past 8 chapters / 6 names (native `<details>`, no new classes); the render shorthand typing is replaced by a chapters dropdown (checkbox table inside `<details>` with live "N of M" summary; the API keeps accepting `--chapters` strings).
+- Why: User acceptance feedback (clunky detail, typing chapters, GPU, more voices) plus measured evidence over assumptions.
+- Alternatives considered: swapping the main env to onnxruntime-gpu (rejected: zero measured gain for gigabytes of coupling; `auto` would then silently move all builds to CUDA); ruamel.yaml-style voice list hardcoding (rejected: archive keys are truth, palette fallback covers absence).
+- Consequences / revisit when: revisit GPU only with a larger model or evidence it matters; the throwaway proof env (`Temp/opencode/gpu-proof`, ~3 GB) can be deleted.
+
 ### D-062: UI render output lands in the workspace bundles dir
 
 - Date: 2026-10-05

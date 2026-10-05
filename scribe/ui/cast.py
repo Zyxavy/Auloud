@@ -113,7 +113,8 @@ QUOTES_MAX_PER_PAGE = 500
 
 #: Voice dropdown source for UI6: the D-036 palette only (the voices draft
 #: ever assigns, plus the legacy Slice 2 narrator). No model is loaded, so
-#: this stays fast and offline; UI7 extends it to full engine enumeration.
+#: this stays fast and offline; :func:`available_voices` extends it to the
+#: full engine list whenever a models dir holds the archive.
 PALETTE_VOICES: tuple[str, ...] = tuple(
     sorted(
         {
@@ -406,6 +407,43 @@ def describe_voice(voice: str) -> dict[str, str]:
 def palette_details() -> list[dict[str, str]]:
     """One :func:`describe_voice` entry per :data:`PALETTE_VOICES` (sorted)."""
     return [describe_voice(voice) for voice in PALETTE_VOICES]
+
+
+def resolve_models_dir(workspace: Path | str) -> Path:
+    """``<workspace>/models`` when present, else the CWD ``models``.
+
+    Same rule the plan/preflight path uses (see the ``models_dir`` lines in
+    ``ui/app.py``): the workspace wins so accept workspaces are hermetic,
+    the CLI default covers running from ``scribe/``.
+    """
+    candidate = Path(workspace) / "models"
+    return candidate if candidate.is_dir() else Path("models")
+
+
+def available_voices(workspace: Path | str) -> tuple[list[str], str]:
+    """Voice ids for dropdowns and grids plus where they came from.
+
+    The full engine list (archive keys, no model load — see
+    :func:`tts.voices.engine_voice_names`) when a models dir holds the
+    archive, else the D-036 :data:`PALETTE_VOICES` fallback. Returns
+    ``(voices, source)`` with source ``"engine"`` or ``"palette"``.
+    """
+    names = None
+    try:
+        from tts.voices import engine_voice_names
+
+        names = engine_voice_names(resolve_models_dir(workspace))
+    except Exception:
+        names = None
+    if names:
+        return names, "engine"
+    return list(PALETTE_VOICES), "palette"
+
+
+def available_voice_details(workspace: Path | str) -> tuple[list[dict[str, str]], str]:
+    """One :func:`describe_voice` entry per available voice, plus source."""
+    voices, source = available_voices(workspace)
+    return [describe_voice(voice) for voice in voices], source
 
 
 # --- patch ops (pure: dict in, new dict out, never mutating the input) -------

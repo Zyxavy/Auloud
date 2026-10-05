@@ -141,7 +141,7 @@ pre.errors {
 <a class="skip" href="#main">Skip to main content</a>
 <main id="main">
 <h1 class="brand">Auloud Scribe</h1>
-<p class="muted">Books and book detail. The jobs tray below tracks drafts, builds and voice samples. The voices palette below lists every voice with audition clips.</p>
+<p class="muted">Books and book detail. The jobs tray below tracks drafts, builds and voice samples. The voices list below holds every engine voice with audition clips.</p>
 
 <section id="upload-card" aria-label="Upload a book">
 <h2>Add a book</h2>
@@ -175,7 +175,7 @@ pre.errors {
 
 <section aria-label="Voices">
 <h2>Voices</h2>
-<p class="muted" id="voices-meta">Loading the palette…</p>
+<p class="muted" id="voices-meta">Loading the voices…</p>
 <p class="muted">Clips cache under .scribe/voice-samples by engine version. Press Play to hear a voice; missing clips generate in the background.</p>
 <div id="voices-empty" class="empty" hidden>No voices listed. Check the server, then press Refresh voices.</div>
 <table class="auloud-table" id="voices-table" hidden>
@@ -292,13 +292,19 @@ async function loadDetail(id) {
     draft_status: data.draft_status
   });
   const steps = [];
-  const chRows = (data.chapters || []).map((c) =>
+  const chLines = (data.chapters || []).map((c) =>
     "[" + c.index + "] " + esc(c.title) + " — " + (c.sentences || 0) + " sentences, about " + fmtClock(c.est_seconds || 0)
-  ).join("\n");
-  steps.push(stepLi("1 · Draft", data.drafted ? "done" : "active",
-    data.drafted ? ("<pre class='errors'>" + esc(chRows || "(no chapters)") + "</pre>")
-      : "Draft has not finished yet. If it says failed below, fix the file and upload again."));
-  const names = (data.cast && data.cast.character_names || []).map(esc).join(", ");
+  );
+  const chBody = data.drafted
+    ? (chLines.length > 8
+      ? "<details><summary>Chapters (" + chLines.length + ") — show</summary><pre class='errors'>" + esc(chLines.join("\n")) + "</pre></details>"
+      : "<pre class='errors'>" + esc(chLines.join("\n") || "(no chapters)") + "</pre>")
+    : "Draft has not finished yet. If it says failed below, fix the file and upload again.";
+  steps.push(stepLi("1 · Draft", data.drafted ? "done" : "active", chBody));
+  const nameList = (data.cast && data.cast.character_names || []).map(String);
+  const names = nameList.length > 6
+    ? "<details><summary>Cast (" + nameList.length + ") — show</summary>" + nameList.map(esc).join(", ") + "</details>"
+    : nameList.map(esc).join(", ");
   const castState = (data.cast && (data.cast.characters || data.cast.has_narrator)) ? "done" : "";
   steps.push(stepLi("2 · Cast", castState,
     "Characters: " + ((data.cast && data.cast.characters) || 0) +
@@ -550,9 +556,7 @@ function setupRenderStep(data) {
   const isPdf = String(data.source_file || "").toLowerCase().endsWith(".pdf");
   let html = "";
   html += '<p class="muted">Pick chapters or a page range, check the preflight, then start. Partial page edges render whole chapters.</p>';
-  html += '<div id="render-chapters"></div>';
-  html += '<p class="row-actions"><button id="render-all" type="button" class="ghost">Select all</button> <button id="render-clear" type="button" class="ghost">Clear selection</button></p>';
-  html += '<p><label for="render-shorthand">Chapters shorthand</label><br><input id="render-shorthand" size="24" placeholder="e.g. 3-5,7" aria-describedby="render-grammar"><br><span class="muted" id="render-grammar">Grammar: comma-separated N or A-B, e.g. 3-5,7 (same as --chapters).</span></p>';
+  html += '<details id="render-chapters-drop" open><summary id="render-chapters-sum">Chapters</summary><div id="render-chapters"></div><p class="row-actions"><button id="render-all" type="button" class="ghost">Select all</button> <button id="render-clear" type="button" class="ghost">Clear selection</button></p></details>';
   if (isPdf) {
     html += '<p><label for="render-pages">Page range</label><br><input id="render-pages" size="24" placeholder="e.g. 40-90"><br><span class="muted">Pages resolve to whole covering chapters. While a page range is set, the chapter picker is ignored.</span></p><div id="render-pages-preview" class="muted" aria-live="polite"></div>';
   } else {
@@ -572,23 +576,30 @@ function setupRenderStep(data) {
   paintChapterList();
   document.getElementById("render-all").addEventListener("click", () => {
     renderSel = new Set(all);
-    document.getElementById("render-shorthand").value = "";
     rememberSel(); paintChapterList(); schedulePreflight();
   });
   document.getElementById("render-clear").addEventListener("click", () => {
     renderSel = new Set();
     rememberSel(); paintChapterList(); schedulePreflight();
   });
-  document.getElementById("render-shorthand").addEventListener("input", schedulePreflight);
   const pagesEl = document.getElementById("render-pages");
   if (pagesEl) pagesEl.addEventListener("input", schedulePreflight);
   document.getElementById("render-start").addEventListener("click", startRender);
   loadRenderDevice();
   schedulePreflight();
 }
+function updateChapterSummary() {
+  const el = document.getElementById("render-chapters-sum");
+  if (!el || !renderDetail) return;
+  const all = (renderDetail.chapters || []).length;
+  const n = renderSel.size;
+  el.textContent = n === 0 ? "Chapters — none selected"
+    : (n === all ? "Chapters — all " + all : "Chapters — " + n + " of " + all);
+}
 function paintChapterList() {
   const host = document.getElementById("render-chapters");
   if (!host || !renderDetail) return;
+  updateChapterSummary();
   host.innerHTML = "";
   if (!(renderDetail.chapters || []).length) {
     host.innerHTML = '<div class="empty">No chapters found.</div>';
@@ -618,6 +629,7 @@ function paintChapterList() {
     input.addEventListener("change", () => {
       if (input.checked) renderSel.add(c.index); else renderSel.delete(c.index);
       rememberSel();
+      updateChapterSummary();
       schedulePreflight();
     });
     tdBox.appendChild(input);
@@ -641,16 +653,13 @@ function schedulePreflight() {
 }
 function renderPayload() {
   const pagesEl = document.getElementById("render-pages");
-  const shortEl = document.getElementById("render-shorthand");
   const pages = pagesEl ? pagesEl.value.trim() : "";
-  const short = shortEl ? shortEl.value.trim() : "";
-  if (pages) return { payload: { pages }, fromShorthand: false };
-  if (short) return { payload: { chapters: short }, fromShorthand: true };
+  if (pages) return { payload: { pages } };
   const all = ((renderDetail && renderDetail.chapters) || []).map((c) => c.index).sort((a, b) => a - b);
   const sel = [...renderSel].sort((a, b) => a - b);
   const isAll = sel.length === all.length && sel.every((v, i) => v === all[i]);
-  if (!sel.length || isAll) return { payload: {}, fromShorthand: false };
-  return { payload: { chapters: sel.join(",") }, fromShorthand: false };
+  if (!sel.length || isAll) return { payload: {} };
+  return { payload: { chapters: sel.join(",") } };
 }
 async function doPreflight() {
   const pre = document.getElementById("render-preflight");
@@ -665,13 +674,6 @@ async function doPreflight() {
     pre.innerHTML = "<pre class='errors'>" + esc(msg) + "</pre>";
     paintPagesPreview(null);
     return;
-  }
-  if (made.fromShorthand && Array.isArray(data.selected_chapters)) {
-    renderSel = new Set(data.selected_chapters);
-    rememberSel();
-    paintChapterList();
-    const shortEl = document.getElementById("render-shorthand");
-    if (shortEl) shortEl.value = "";
   }
   renderPlan = data;
   paintPreflight(data);

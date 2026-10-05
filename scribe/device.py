@@ -34,6 +34,8 @@ plain CPU path, no new packaging, no GPU deps).
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -77,6 +79,53 @@ def resolve_device_providers(device: str) -> list[str]:
     return ["CPUExecutionProvider"]
 
 
+def _nvidia_dll_dirs() -> list[str]:
+    """``bin`` dirs of NVIDIA pip wheels in this interpreter (Windows only).
+
+    ``onnxruntime-gpu`` needs CUDA/cuDNN DLLs on the loader path, but pip
+    wheels do not touch ``PATH``. Returns existing ``.../nvidia/<pkg>/bin``
+    dirs under ``sys.prefix`` (usually ``cublas``, ``cudnn``,
+    ``cuda_runtime``); empty when absent or off Windows. Never raises.
+    """
+    if os.name != "nt":
+        return []
+    try:
+        root = Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"
+        if not root.is_dir():
+            return []
+        found = [str(d) for d in (root / pkg / "bin" for pkg in os.listdir(root)) if d.is_dir()]
+        return sorted(found)
+    except Exception:
+        return []
+
+
+def ensure_cuda_dlls() -> list[str]:
+    """Put NVIDIA wheel DLLs on the Windows loader path (best effort).
+
+    Uses :func:`os.add_dll_directory` plus a ``PATH`` prepend (the latter
+    covers child processes inheriting the environment). Returns the dirs
+    registered; empty means nothing was done (off Windows, no wheels, or
+    any error — callers must not branch on this, only log it).
+    """
+    dirs = _nvidia_dll_dirs()
+    if not dirs:
+        return []
+    try:
+        if os.name == "nt" and hasattr(os, "add_dll_directory"):
+            for entry in dirs:
+                try:
+                    os.add_dll_directory(entry)
+                except Exception:
+                    pass
+        path = os.environ.get("PATH", "")
+        missing = [entry for entry in dirs if entry.lower() not in path.lower()]
+        if missing:
+            os.environ["PATH"] = os.pathsep.join([*missing, path])
+    except Exception:
+        return []
+    return dirs
+
+
 def create_engine_with_device(
     models_dir: Path | str = Path("models"), *, device: str = "auto"
 ) -> Any:
@@ -105,6 +154,11 @@ def create_engine_with_device(
         from tts.kokoro import KokoroEngine
 
         return KokoroEngine(str(model_path), str(voices_path))
+    # CUDA path: pip wheels ship the DLLs but never touch PATH, so register
+    # them first (no-op without the wheels; measured 2026-10-05: warmed
+    # CUDA 3.95x vs CPU 4.03x on RTX 4050 — no gain for Kokoro-82M, CPU stays
+    # the recommendation, but an installed GPU stack must work).
+    ensure_cuda_dlls()
     try:
         import onnxruntime as rt  # type: ignore[import-untyped]
     except ImportError as exc:

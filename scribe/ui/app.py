@@ -61,9 +61,9 @@ UI6 adds (thin operators over :mod:`ui.cast` and :mod:`text.cast`; the
 - ``GET /api/books/{id}/quotes?confidence=low&page=&per_page=`` — the
   overrides picker (chapter/block/quote/text/raw speaker/confidence plus
   the resolved character); paged with a total (novels have thousands).
-- ``GET /api/cast/voices`` — the D-036 palette dropdown (no model loaded;
-  UI7 adds the engine version plus locale/gender details; full engine
-  enumeration beyond the palette stays deferred).
+- ``GET /api/cast/voices`` — the voice dropdown (engine archive list when a
+  models dir holds it, else the D-036 palette; UI7 adds the engine version
+  plus locale/gender details).
 - ``GET /api/voices/{name}.wav`` — cached audition clip (exact
   ``<voice>.wav`` or ``*-<voice>.wav`` from ``scribe voices --sample``);
   absent clips are 409 ``sample-missing`` with the seeding command — the
@@ -1092,9 +1092,10 @@ def create_app(
         return _castmod.sample_text_hash()
 
     def _wanted_or_palette(raw: Any) -> tuple[list[str] | None, JSONResponse | None]:
-        """Validate an optional ``voices`` list (None means the palette)."""
-        from .cast import PALETTE_VOICES, check_voice_name
+        """Validate an optional ``voices`` list (None means all available)."""
+        from .cast import available_voices, check_voice_name
 
+        known, _source = available_voices(root)
         if raw is None:
             return None, None
         if not isinstance(raw, list) or not raw:
@@ -1123,13 +1124,12 @@ def create_app(
                 return None, JSONResponse(
                     _split_shaped(str(exc), entry, "path-traversal"), status_code=400
                 )
-            if name not in PALETTE_VOICES:
+            if name not in known:
                 return None, JSONResponse(
                     _error_shape(
                         f"{name}.wav",
                         "unknown-voice",
-                        f"{name}.wav: unknown-voice: {name!r} is not in the UI7 palette "
-                        "(full engine enumeration stays deferred)",
+                        f"{name}.wav: unknown-voice: {name!r} is not a known Kokoro voice",
                     ),
                     status_code=400,
                 )
@@ -1187,8 +1187,12 @@ def create_app(
 
     @app.get("/api/cast/voices")
     async def _cast_voices() -> dict[str, Any]:
-        """Voice dropdown + grid source (D-036 palette; no model loaded)."""
-        from .cast import PALETTE_VOICES, palette_details
+        """Voice dropdown + grid source (engine list, palette fallback).
+
+        Full engine enumeration from the voices archive keys (no model
+        load); the D-036 palette only when no models dir holds the archive.
+        """
+        from .cast import available_voice_details
 
         try:
             from tts.voices import SAMPLE_TEXT as _SAMPLE_TEXT
@@ -1198,18 +1202,19 @@ def create_app(
             _SAMPLE_TEXT = _sample_text_fn()
         version = _voices_version()
         thash = _voices_hash()
+        details, source = available_voice_details(root)
         return {
-            "voices": list(PALETTE_VOICES),
-            "source": "palette",
+            "voices": [entry["name"] for entry in details],
+            "source": source,
             "engine_version": version,
             "sample_text": _SAMPLE_TEXT,
             "text_hash": thash,
-            "details": palette_details(),
+            "details": details,
             "note": (
-                "UI7 palette grid source (D-036 plus legacy af_heart) with "
-                "the engine version and locale/gender hints. Clips are "
-                "versioned by (voice, engine version, sample text); full "
-                "engine enumeration beyond the palette stays deferred."
+                "Voice grid source with the engine version and locale/gender "
+                "hints. Clips are versioned by (voice, engine version, sample "
+                "text); source is 'engine' (all archive voices) or 'palette' "
+                "(D-036 shortlist, no models dir found)."
             ),
         }
 
@@ -1270,18 +1275,18 @@ def create_app(
         """Queue a detached audition render (202 + job; 200 when cached).
 
         Body ``{voices?: [...], regenerate?: bool}`` (token-guarded via the
-        middleware). Omitted ``voices`` means the whole palette. Concurrent
+        middleware). Omitted ``voices`` means all available voices. Concurrent
         posts for the same missing clips coalesce to the running job (202
         with the same id plus ``coalesced: true`` — queued-on-same).
         """
-        from .cast import PALETTE_VOICES
+        from .cast import available_voices
 
         body = payload or {}
         wanted, bad = _wanted_or_palette(body.get("voices"))
         if bad is not None:
             return bad
         if wanted is None:
-            wanted = list(PALETTE_VOICES)
+            wanted, _source = available_voices(root)
         regenerate = body.get("regenerate", False)
         if not isinstance(regenerate, bool):
             return JSONResponse(
@@ -1299,7 +1304,7 @@ def create_app(
         name: str, payload: dict[str, Any] | None = None
     ) -> JSONResponse:
         """Per-voice convenience for the same generation job (same contract)."""
-        from .cast import PALETTE_VOICES, check_voice_name
+        from .cast import available_voices, check_voice_name
 
         try:
             voice = check_voice_name(name)
@@ -1307,13 +1312,13 @@ def create_app(
             return JSONResponse(
                 _split_shaped(str(exc), name, "path-traversal"), status_code=400
             )
-        if voice not in PALETTE_VOICES:
+        known, _source = available_voices(root)
+        if voice not in known:
             return JSONResponse(
                 _error_shape(
                     f"{voice}.wav",
                     "unknown-voice",
-                    f"{voice}.wav: unknown-voice: {voice!r} is not in the UI7 palette "
-                    "(full engine enumeration stays deferred)",
+                    f"{voice}.wav: unknown-voice: {voice!r} is not a known Kokoro voice",
                 ),
                 status_code=400,
             )

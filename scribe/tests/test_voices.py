@@ -102,6 +102,32 @@ def test_list_voices_without_attribute_is_type_error() -> None:
         list_voices(VoicelessEngine())  # type: ignore[arg-type]
 
 
+def _write_voice_archive(path: Path, names: list[str]) -> None:
+    arrays = {name: np.zeros(4, dtype=np.float32) for name in names}
+    staged = path.with_suffix(".npz")
+    np.savez(str(staged), **arrays)
+    # np.savez insists on .npz; the engine archive is extension-free bytes.
+    staged.rename(path)
+
+
+def test_engine_voice_names_reads_archive_keys(tmp_path: Path) -> None:
+    from tts.voices import VOICES_ARCHIVE_FILENAME, engine_voice_names
+
+    _write_voice_archive(
+        tmp_path / VOICES_ARCHIVE_FILENAME, ["zm_yunxi", "af_heart", "am_adam"]
+    )
+    assert engine_voice_names(tmp_path) == ["af_heart", "am_adam", "zm_yunxi"]
+
+
+def test_engine_voice_names_missing_is_none(tmp_path: Path) -> None:
+    from tts.voices import VOICES_ARCHIVE_FILENAME, engine_voice_names
+
+    assert engine_voice_names(tmp_path / "no-such-dir") is None
+    assert engine_voice_names(tmp_path) is None
+    (tmp_path / VOICES_ARCHIVE_FILENAME).write_bytes(b"not a zip")
+    assert engine_voice_names(tmp_path) is None
+
+
 def test_sample_writes_one_wav_per_voice(tmp_path: Path) -> None:
     import soundfile as sf
 

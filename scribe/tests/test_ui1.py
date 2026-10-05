@@ -24,6 +24,7 @@ test_build's 20 tests, still green).
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import threading
 from pathlib import Path
@@ -408,6 +409,41 @@ def test_device_invalid_and_cuda_unavailable_are_clean_errors() -> None:
     if "CUDAExecutionProvider" not in rt.get_available_providers():
         with pytest.raises(ValueError, match="cuda-unavailable"):
             resolve_device_providers("cuda")
+
+
+def test_nvidia_dll_dirs_empty_without_wheels(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+
+    import device as _device
+
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    assert _device._nvidia_dll_dirs() == []
+    assert _device.ensure_cuda_dlls() == []
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows wheel layout")
+def test_nvidia_dll_dirs_finds_wheel_bins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sys
+
+    import device as _device
+
+    (tmp_path / "Lib" / "site-packages" / "nvidia" / "cudnn" / "bin").mkdir(parents=True)
+    (tmp_path / "Lib" / "site-packages" / "nvidia" / "cublas" / "bin").mkdir(parents=True)
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    before = os.environ.get("PATH", "")
+    try:
+        found = _device._nvidia_dll_dirs()
+        assert len(found) == 2
+        assert all(entry.endswith("bin") for entry in found)
+        registered = _device.ensure_cuda_dlls()
+        assert registered == found
+        assert found[0].lower() in os.environ.get("PATH", "").lower()
+    finally:
+        os.environ["PATH"] = before
 
 
 # ---------------------------------------------------------------------------
