@@ -769,6 +769,7 @@ def test_frontend_cast_view_offline_tokens_and_mounts() -> None:
         'id="cast-report-drop"',
         "Cast report — show",
         'id="cast-low"',
+        "Low-confidence lines (",
         "cast-minor",
         'id="cast-first-person"',
         'id="cast-overrides"',

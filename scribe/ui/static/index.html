@@ -296,9 +296,7 @@ async function loadDetail(id) {
     "[" + c.index + "] " + esc(c.title) + " — " + (c.sentences || 0) + " sentences, about " + fmtClock(c.est_seconds || 0)
   );
   const chBody = data.drafted
-    ? (chLines.length > 4
-      ? "<details><summary>Chapters (" + chLines.length + ") — show</summary><pre class='errors'>" + esc(chLines.join("\n")) + "</pre></details>"
-      : "<pre class='errors'>" + esc(chLines.join("\n") || "(no chapters)") + "</pre>")
+    ? ("<details><summary>Chapters (" + chLines.length + ") — show</summary><pre class='errors'>" + esc(chLines.join("\n") || "(no chapters)") + "</pre></details>")
     : "Draft has not finished yet. If it says failed below, fix the file and upload again.";
   steps.push(stepLi("1 · Draft", data.drafted ? "done" : "active", chBody));
   const nameList = (data.cast && data.cast.character_names || []).map(String);
@@ -556,7 +554,7 @@ function setupRenderStep(data) {
   const isPdf = String(data.source_file || "").toLowerCase().endsWith(".pdf");
   let html = "";
   html += '<p class="muted">Pick chapters or a page range, check the preflight, then start. Partial page edges render whole chapters.</p>';
-  html += '<details id="render-chapters-drop" open><summary id="render-chapters-sum">Chapters</summary><div id="render-chapters"></div><p class="row-actions"><button id="render-all" type="button" class="ghost">Select all</button> <button id="render-clear" type="button" class="ghost">Clear selection</button></p></details>';
+  html += '<details id="render-chapters-drop"><summary id="render-chapters-sum">Chapters</summary><div id="render-chapters"></div><p class="row-actions"><button id="render-all" type="button" class="ghost">Select all</button> <button id="render-clear" type="button" class="ghost">Clear selection</button></p></details>';
   if (isPdf) {
     html += '<p><label for="render-pages">Page range</label><br><input id="render-pages" size="24" placeholder="e.g. 40-90"><br><span class="muted">Pages resolve to whole covering chapters. While a page range is set, the chapter picker is ignored.</span></p><div id="render-pages-preview" class="muted" aria-live="polite"></div>';
   } else {
@@ -1249,11 +1247,12 @@ async function loadCastLow() {
   if (!ok || !data) { slot.innerHTML = '<p class="muted">Could not load low-confidence lines.</p>'; return; }
   if (!data.quotes.length) { slot.innerHTML = "<p>None — every dialogue line attributed high or medium.</p>"; return; }
   slot.innerHTML = "";
+  const wrap = document.createElement("details");
+  const sum = document.createElement("summary");
+  sum.textContent = "Low-confidence lines (" + data.quotes.length + " of " + data.total + ") — show";
   const list = document.createElement("ul");
-  const total = document.createElement("p");
-  total.className = "muted";
-  total.textContent = "Showing " + data.quotes.length + " of " + data.total + " low-confidence quotes.";
-  slot.append(total, list);
+  wrap.append(sum, list);
+  slot.appendChild(wrap);
   for (const q of data.quotes) {
     const li = document.createElement("li");
     li.textContent = "quote " + q.chapter + "/" + q.block + "/" + q.quote + " speaker " + q.speaker + " (" + q.confidence + ", now " + (q.resolved || "?") + "): " + (q.text || "").slice(0, 160) + " ";
