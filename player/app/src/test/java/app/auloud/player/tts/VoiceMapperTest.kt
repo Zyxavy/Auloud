@@ -62,17 +62,24 @@ class VoiceMapperTest {
     }
 
     @Test
-    fun recommendEngine_prefersSystem() {
+    fun recommendEngine_prefersPiperPerGate() {
         assertEquals(
-            "system",
-            recommendEngine(listOf("piper", "system", "kokoro"))?.namespace
+            "piper",
+            recommendEngine(listOf("system", "kokoro", "piper"))?.namespace
         )
     }
 
     @Test
-    fun recommendEngine_withoutSystem_picksFirstSorted() {
-        val recommendation = recommendEngine(listOf("piper", "kokoro"))
-        assertEquals("kokoro", recommendation?.namespace)
+    fun recommendEngine_withoutPiper_prefersSystem() {
+        val recommendation = recommendEngine(listOf("system", "kokoro"))
+        assertEquals("system", recommendation?.namespace)
+        assertTrue(recommendation?.reason?.isNotBlank() == true)
+    }
+
+    @Test
+    fun recommendEngine_withoutPiperOrSystem_picksFirstSorted() {
+        val recommendation = recommendEngine(listOf("kokoro", "espeak"))
+        assertEquals("espeak", recommendation?.namespace)
         assertTrue(recommendation?.reason?.isNotBlank() == true)
     }
 

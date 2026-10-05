@@ -6,10 +6,10 @@ Project: throwaway Android benchmark app (deleted after the gate) + device runs 
 
 Replace opinions with numbers: which TTS tiers run on the Tab E at which real-time factor, at what RAM/thermal cost, and what exactly the espeak linkage is — then pick the license path and confirm or rewrite the v2 targets.
 
-**Done when** (09-V2Roadmap Slice 7 exit criteria):
+**Done when** (09-V2Roadmap Slice 7 exit criteria, as amended by D-077):
 
-- An engine tier table with measured numbers (warmed RTF, load time, RAM, 10-min battery/thermal) for Piper-low/medium, Kokoro (full), System TTS `synthesizeToFile`, on the Tab E
-- Two-voice measurements: two Piper models at once (RAM), Kokoro two speaker ids (switch cost), System TTS per-utterance voice switching (latency)
+- An engine tier table with measured numbers (warmed RTF, load time, RAM, 10-min battery/thermal) for **Piper and System TTS `synthesizeToFile`** on the Tab E. **Kokoro is gated to faster devices (D-077): no on-tablet run** — the 330 MB model plus runtime on 1.5 GB RAM settles it without a measurement session.
+- Two-voice measurements: two Piper models at once (RAM), System TTS per-utterance voice switching (latency)
 - The espeak-ng/GPL situation established as fact (what each engine path links)
 - D-066 decided (option A/B/C) with the license review; targets confirmed (roughly RTF 1.0 background, 1.3 streaming) or the fallback declared (System TTS + background Piper-low on the tablet, Kokoro for faster devices)
 
@@ -52,9 +52,9 @@ New `player/spike/` module (applicationId `app.auloud.spike`, minSdk 24, debug o
 
 ### S7C: Device runs (user, with a checklist)
 
-1. Copy packs to `/Auloud/spike-models/` (Piper lessac .onnx + generated tokens.txt + espeak-ng-data; Kokoro pack if the download landed)
+1. Copy the Piper pack to `/Auloud/spike-models/` (lessac `.onnx` + `tokens.txt` + `espeak-ng-data`; no Kokoro folder needed — D-077)
 2. Sideload spike APK, run Device screen first (paste ABIs)
-3. Per engine: Bench (warmed RTF x3), Two-voice, Battery 10-min (charging, then unplugged if time allows)
+3. Piper, 2x Piper, System, Battery 10-min (charging, then unplugged if time allows)
 4. Paste `spike-results.txt` back; agent tabulates the tier table
 
 ### S7D: Gate (agent + user)

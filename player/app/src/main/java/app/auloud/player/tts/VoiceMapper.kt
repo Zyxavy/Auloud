@@ -39,12 +39,12 @@ object VoiceMapper {
 }
 
 /**
- * Per-device engine recommendation (plan: from a built-in benchmark).
+ * Per-device engine recommendation (D-077 gate + Slice 7 numbers).
  *
- * Until the Slice 7 measurements land there is exactly one tier
- * (System TTS), so the table recommends `system` whenever present and
- * says why. Slice 7 replaces the table body with measured numbers;
- * callers already read only [namespace] + [reason].
+ * D-077: Piper renders on this tablet, Kokoro is for faster devices —
+ * so Piper wins wherever present. Otherwise System TTS (no download)
+ * until the Slice 7 measurements land; then this table body takes the
+ * measured numbers. Callers read only [namespace] + [reason].
  */
 data class EngineRecommendation(
     val namespace: String,
@@ -53,15 +53,21 @@ data class EngineRecommendation(
 
 fun recommendEngine(namespaces: List<String>): EngineRecommendation? {
     if (namespaces.isEmpty()) return null
+    if ("piper" in namespaces) {
+        return EngineRecommendation(
+            namespace = "piper",
+            reason = "Neural voices that run on this tablet (D-077 gate)."
+        )
+    }
     if ("system" in namespaces) {
         return EngineRecommendation(
             namespace = "system",
-            reason = "System voices need no download (Slice 7 benchmark pending)."
+            reason = "System voices need no download (Slice 7 numbers pending)."
         )
     }
     val first = namespaces.sorted().first()
     return EngineRecommendation(
         namespace = first,
-        reason = "Only engine available (Slice 7 benchmark pending)."
+        reason = "Only engine available (Slice 7 numbers pending)."
     )
 }

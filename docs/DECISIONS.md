@@ -606,3 +606,10 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Status: Accepted
 - Decision: SW4 proves Kokoro narrator + Piper Alice (`en_US-lessac-low`) + Kokoro Bob in one chapter: bundle validates, every shipped sentence window is non-silent in the real MP3, peak capped, both engine versions in the build log. Numbers: 32 s audio in 3.0 s wall (RTF 10.6, CPU). One Piper voice suffices: the second voice would add model-loading breadth only (lazy per-voice loading is unit-tested with fakes in SW1/SW2). License revision to D-073/D-075: the link delivered ~15 KB/s with resets (all Piper voices are 45-65 MB; ljspeech-medium stalled at 9 MB and keeps downloading in background), so the proof uses lessac locally under its research terms (gitignored, never committed or distributed) instead of waiting hours for permissive voices. Surprise: a plain `uv sync` pruned the `ui` extra a second time (108 UI tests silently skipped) — fixed with `uv sync --extra ui` and recorded durably in the repo `scribe-python` skill.
 - Why: Routing across engines in one render is the whole SW4 claim; voice count is not.
+
+### D-077: Kokoro reserved for faster devices; the tablet uses Piper
+
+- Date: 2026-10-05
+- Status: Accepted
+- Decision: No Kokoro run on the Tab E. The model file alone is 330 MB with ~330 MB+ runtime on a 1.5 GB RAM 32-bit device, so the run would prove what arithmetic already says; Kokoro stays a faster-device engine (Scribe PC rendering unchanged). The tablet gate measures Piper (sherpa, lessac pack sideloaded) + System TTS only. This does NOT settle D-066: sherpa links espeak-ng statically whatever the engine, so the license review still decides the PW7 path. PW8's recommendation prefers Piper where present.
+- Why: The user's call; the spike session stays focused on what can actually ship on the tablet.
