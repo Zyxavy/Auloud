@@ -613,3 +613,10 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Status: Accepted
 - Decision: No Kokoro run on the Tab E. The model file alone is 330 MB with ~330 MB+ runtime on a 1.5 GB RAM 32-bit device, so the run would prove what arithmetic already says; Kokoro stays a faster-device engine (Scribe PC rendering unchanged). The tablet gate measures Piper (sherpa, lessac pack sideloaded) + System TTS only. This does NOT settle D-066: sherpa links espeak-ng statically whatever the engine, so the license review still decides the PW7 path. PW8's recommendation prefers Piper where present.
 - Why: The user's call; the spike session stays focused on what can actually ship on the tablet.
+
+### D-078: System TTS is the primary tablet engine; screen-off via file synthesis + foreground service
+
+- Date: 2026-10-05
+- Status: Accepted
+- Decision: The tablet path uses the user's own System TTS (Google/Samsung voices) through `synthesizeToFile`, not live `speak()`. Screen-off works because Auloud owns playback: synthesis produces audio files (fast, exact timings) and the existing foreground service + wake lock plays them — the same service that already plays screen-off in v1. Other apps stop because they stream live utterances tied to a foreground activity; nothing in this design depends on the screen. Engine choice stands (D-065/PW8 switcher: system, piper, kokoro where viable). Consequences: (1) D-066 pressure drops for the tablet path — no sherpa bundled, no GPL code in the Player, Apache-2.0 holds; sherpa/Piper becomes the faster-device/optional path. (2) Per-character voices are impossible on the System tier; two-voice mode stays but the 804 ms switch gap needs a design answer (batch same-voice synthesis, not naive toggling). (3) Streaming vs background-render still hinges on the sustained-RTF proof (0.86x vs 2.56x split unresolved — long-sentence run decides).
+- Why: The user's call; matches how they already listen, minus the screen-off limitation.
