@@ -20,7 +20,7 @@ import androidx.compose.ui.unit.dp
 /**
  * CP8: in-app licenses screen (Settings entry).
  *
- * A static list authored from `docs/08-Liscenses.md` section 2 plus the
+ * A static list authored from `docs/08-Licenses.md` section 2 plus the
  * voice-model rows (Kokoro-82M, espeak-ng, en_core_web_sm). Versions match
  * `gradle/libs.versions.toml` exactly. The voice models and espeak-ng run on
  * the PC (Scribe) and are NOT bundled in this app; they are listed because

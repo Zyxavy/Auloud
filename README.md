@@ -2,7 +2,7 @@
 
 Turn your ebooks into multi-voice audiobooks, then read along or just listen
 
-> Status: v1 release candidate. Scribe and Player suites are green through CP9, release APK `1.0.0` is built, soak test (several days of listening on the Tab E) is still to be run by the user. See `docs/04-Roadmap.md` and `docs/test-log.md`.
+> Status: v1.0.0 released (tagged) with the Scribe Web UI merged in. See `docs/04-Roadmap.md`, the frozen v1 records in `docs/archive/v1/`, and the v2 plan in `docs/09-V2Roadmap.md`.
 
 ## What it does
 
@@ -55,7 +55,7 @@ PDFs use the same flow (`draft` then `build`); scanned PDFs with no text layer f
 
 ### B. Play it on the device
 
-1. Build the release (or debug) APK on the PC, in `player/`: `gradlew.bat :app:assembleRelease` (release) or `gradlew.bat :app:assembleDebug` (debug). The release APK needs the signing key in gitignored `player\local.properties` (see `docs/ReleaseSigning.md`); without it the build signs with the debug key and prints a warning.
+1. Build the release (or debug) APK on the PC, in `player/`: `gradlew.bat :app:assembleRelease` (release) or `gradlew.bat :app:assembleDebug` (debug). The release APK needs the signing key in gitignored `player\local.properties` (see `docs/archive/v1/ReleaseSigning.md`); without it the build signs with the debug key and prints a warning.
 2. Sideload the APK on the device (allow unknown sources for the install).
 3. Copy the finished bundle folder to the device: shared-internal `/Auloud/` (for example `/storage/emulated/0/Auloud`) or a microSD `Auloud/` folder.
 4. In the Player library: add a watch folder with the system folder picker (persistable permission, survives reboot), then import/rescan. The default watch folder is shared-internal `/Auloud`.
@@ -98,7 +98,7 @@ Notes:
 The UI covers the whole flow without the CLI: upload, draft, cast review,
 render with ranges, validate, hand off to the tablet. The CLI stays the
 headless interface; the UI is a thin operator over the same library
-(spec: `docs/14-ScribeWebUI-Spec.md`).
+(spec: `docs/archive/v1/14-ScribeWebUI-Spec.md`).
 
 ```powershell
 cd scribe
@@ -197,15 +197,10 @@ Start here, then follow the map:
 - `docs/04-Roadmap.md` - slices plus Slice 5 soak list (device boxes left for the user)
 - `docs/05-ScribeDesign.md` - Scribe commands, pipeline, cast.yaml
 - `docs/06-PlayerDesign.md` - Player screens, service, reader, storage
-- `docs/07-TestPlan.md` - section 6 device checklist, section 7 soak, section 10 release checklist
-- `docs/08-Liscenses.md` - licenses and per-voice table (Player deps verified; Scribe rows partly unverified; UI extra verified with versions)
+- `docs/08-Licenses.md` - licenses and per-voice table (Player deps verified; Scribe rows partly unverified; UI extra verified with versions)
 - `docs/DECISIONS.md` - D-001 through D-061 current (Slice 6 D1-D8 disposition in D-061)
-- `docs/test-log.md` - device log plus CP0-CP9 and Slice 6 UI1-UI10 automated evidence
-- `docs/14-ScribeWebUI-Spec.md` - Scribe Web UI spec, v1 as built (Slice 6 amendments)
-- `docs/UI9-BrowserRunbook.md` - 3-browser manual runbook (Edge, Chrome, Firefox; user runs)
-- `docs/Slice3-Runbook.md` - Tab E checks C13 onward (beep/long bundles, overlay readings)
-- `docs/ReleaseSigning.md` - generate the key once outside the repo, wire `player\local.properties`, verify no INTERNET
-- `docs/plans/Slice5.md` - CP0-CP12 work packages for this slice (CP10 is this docs pass)
+- `docs/09-V2Roadmap.md` - v2 plan (on-device voices); v1 loose ends listed in its section 0
+- `docs/archive/v1/` - frozen v1 records: test plan (`07-Testplan.md`), device/test/soak logs, Slice 3 and browser runbooks, signing procedure, Web UI spec, all slice plans in `plans/`
 - `spec/fixtures/pdf-golden/README.md` - the v1.1 contract fixture and its pinned sentences
 - `scribe/dev/make_pdf_golden.py` - generator header for that fixture
 
@@ -232,7 +227,7 @@ Use it only with books you have the right to use, such as public-domain works or
 
 ## License
 
-Player: Apache-2.0. Scribe: AGPL-3.0-or-later. Voice models have their own licenses, see `docs/08-Liscenses.md`.
+Player: Apache-2.0. Scribe: AGPL-3.0-or-later. Voice models have their own licenses, see `docs/08-Licenses.md`.
 
 ## Contributing
 
