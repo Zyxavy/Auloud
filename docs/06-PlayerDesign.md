@@ -24,6 +24,12 @@ app/
     PlaybackService.kt   (MediaSessionService)
     PlaybackController.kt (client wrapper for the UI)
     SleepTimer.kt
+  tts/          (v2 Slice 8, PW5)
+    TtsEngine.kt         (interface + TtsVoice/SynthesizedAudio/TtsRole)
+    TtsCapabilities.kt   (multi-speaker, load cost, sample rate)
+    EngineRegistry.kt    (namespace routing, hand-built, no DI)
+    TtsVoiceStore.kt     (narrator/dialogue voice + speed interface)
+    PrefsTtsStore.kt     (SharedPreferences impl, own keys)
   ui/
     library/    LibraryScreen, LibraryViewModel
     reader/     ReaderScreen, ReaderViewModel, ReaderState, SentenceIndex
@@ -127,3 +133,7 @@ Check that the versions you pick still support `minSdk 24`.
 - Build variants: `debug` (with logging overlay: position, current `sid`, chapter), `release` (minified with keep rules, `versionName 1.0.0`, `versionCode 1`). Preview/debug entries are gated behind `BuildConfig.DEBUG` and absent in release.
 - Sideload the APK first; publish to F-Droid or GitHub releases when open-sourcing (see licenses doc, later).
 - Permissions: `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE` (shared-internal `/Auloud` default), `FOREGROUND_SERVICE` (declared, harmless on API 24), `WAKE_LOCK`. No internet permission in v1 (merged release manifest and `aapt dump badging` both confirm no `INTERNET`).
+
+## 10. On-device TTS (v2 Slice 8)
+
+Pluggable engines behind `tts/TtsEngine.kt` (D-065): voice list, `TtsCapabilities` (multi-speaker, load cost MB, sample rate), `synthesize(text, voice, speed)` returning PCM. Voice ids are namespaced per engine (`kokoro:af_heart`, `piper:<model>`, `system:<voice>`); `EngineRegistry` routes on the prefix (first colon wins, so Android system names with colons survive). Two-voice roles only (`TtsRole.Narrator/Dialogue`, D-071); the engine is implied by the voice id, so there is no separate engine setting (`TtsVoiceStore`, `PrefsTtsStore` on the shared `auloud_settings` file, speeds clamped 0.5x-2x). No DI framework (P3): the registry is constructed where needed, fakes in JVM tests. PW6 adds the System TTS adapter behind the same seam (all framework calls isolated); PW7 adds model-pack import + bundled engines per the Slice 7 gate; PW8 adds audition + voice settings. No new dependency, no permission, no manifest change in PW5.
