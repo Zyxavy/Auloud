@@ -523,3 +523,59 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Status: Accepted
 - Decision: D-015 resolved as Apache-2.0 for the Player (patent grant, AndroidX norm). `player/LICENSE` added (full Apache-2.0 text, 2026 Zyxavy appendix); `player/NOTICE` updated from undecided to Apache-2.0. Root `LICENSE` stays MIT (repo default); `scribe/LICENSE` stays AGPL-3.0-or-later. README "Player: Apache-2.0" line is now accurate. Contribution policy (DCO/CLA) still undecided — the only remaining open box in 08 section 7.
 - Why: Release checklist CP12 needs the files; the choice is the author's.
+
+### D-065: v2 engine interface (TtsEngine)
+
+- Date: 2026-10-05
+- Status: Proposed (Slice 7/8 implements)
+- Decision: A pluggable `TtsEngine` interface, not a choice between engines: voice list, capabilities (multi-speaker, load cost, sample rate), `synthesize(text, voice, speed)`. Voice ids namespaced per engine (`kokoro:af_heart`, `piper:<model>`, `system:<voice>`), matching the `engine` field already in the manifest.
+- Why: Source is `docs/09-V2Roadmap.md` section 3 decision 1; each engine declares what it can do and the app picks or recommends per device.
+
+### D-066: v2 license path for espeak-ng (open, decided after the spike)
+
+- Date: 2026-10-05
+- Status: Open (Slice 7 gate decides, with a license review; not legal advice)
+- Decision: Piper and Kokoro depend on espeak-ng for phonemes, which is GPL-3.0. Options: A. Bundle it in the Player and make the Player GPL-3.0 (simplest legally, fully self-contained; reopens the license just closed in D-064). B. Keep the Player Apache-2.0 and use only the System TTS adapter, so any GPL engine is a separate app the user installs (cleanest license boundary, less polished, depends on third-party engine apps). C. Ship an engine path with no GPL parts, if one exists at acceptable quality (check in the spike). Two-voice mode does not change this question.
+- Why: Source is `docs/09-V2Roadmap.md` section 3 decision 2; this is the v2 D-015.
+
+### D-067: v2 model delivery without INTERNET (sideloaded packs)
+
+- Date: 2026-10-05
+- Status: Proposed
+- Decision: Sideloaded model packs (a folder on the microSD card, imported like a watch folder), keeping the offline promise and the no-`INTERNET` design (D-016). An optional download feature would need the permission and is a privacy trade-off; deferred.
+- Why: Source is `docs/09-V2Roadmap.md` section 3 decision 3.
+
+### D-068: v2 on-device audio storage (AAC-LC, spec amendment + measured tolerance)
+
+- Date: 2026-10-05
+- Status: Proposed (measure in Slice 10)
+- Decision: Android has a built-in AAC encoder; an MP3 encoder would mean shipping extra native code. Recommend AAC-LC mono in MP4/M4A written with the platform muxer. Needs a small spec amendment (audio formats) and possibly a looser sync tolerance than 50 ms because of encoder delay; measure it.
+- Why: Source is `docs/09-V2Roadmap.md` section 3 decision 4.
+
+### D-069: v2 render location (bundle folder when writable, else app storage)
+
+- Date: 2026-10-05
+- Status: Proposed
+- Decision: Write rendered chapters into the bundle folder when writable (the bundle becomes complete and portable), else into app storage.
+- Why: Source is `docs/09-V2Roadmap.md` section 3 decision 5.
+
+### D-070: v2 unrendered books and script bundles (optional in v2.0)
+
+- Date: 2026-10-05
+- Status: Proposed (optional in v2.0)
+- Decision: The spec needs a way to describe a book whose audio does not exist yet (text and sentence structure, no MP3s or timings). Books imported on the device use it internally; Scribe can also export one (`scribe export --script`) for PDFs and for its better text cleaning.
+- Why: Source is `docs/09-V2Roadmap.md` section 3 decision 6.
+
+### D-071: v2 two-voice mode on the device (decided)
+
+- Date: 2026-10-05
+- Status: Accepted
+- Decision: On the device, every sentence is either narration or dialogue, rendered with the narrator voice or the dialogue voice. No speaker attribution on the device, only quote detection (a deterministic state machine, already built and tested in Scribe). Books from Scribe that carry per-character voices are still played as rendered; if one is re-rendered on the device, all non-narrator speakers collapse into the dialogue voice, and the data stays in the file for a future per-character mode. Consequences: Piper needs only two models loaded (or one multi-speaker model); Kokoro needs one model with two speaker ids. Voice switching happens only at narration/dialogue boundaries, and the existing 100 ms tag pause and per-voice leveling carry over. The cast screen becomes simple voice settings. On-device ingestion drops the hardest part (attribution) and can move into v2.0.
+- Why: Source is `docs/09-V2Roadmap.md` section 3 decision 7; removes on-device speaker attribution and shrinks the engine and memory problems.
+
+### D-072: v2 PC stays fully multi-voice (decided)
+
+- Date: 2026-10-05
+- Status: Accepted
+- Decision: Scribe's per-character casting, attribution and `cast.yaml` are unchanged, and multi-voice remains the default and recommended way to get the best audiobook. A "collapse to two voices" toggle on the PC is not part of v2; if PC and device books should ever sound alike, it can be added later as an optional setting.
+- Why: Source is `docs/09-V2Roadmap.md` section 3 decision 8; the PC can handle multi-voice, so v2 changes nothing there.
