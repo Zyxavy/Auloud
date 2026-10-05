@@ -188,13 +188,21 @@ class SourceInfo:
 
 @dataclass
 class ChapterEntry:
-    """One entry of ``manifest.chapters`` (all fields required)."""
+    """One entry of ``manifest.chapters`` (all fields required).
+
+    Spec v1.2 (D7, range bundles): ``source_index`` is the 1-based chapter
+    number in the source book. Absent (``None``) for full builds; present
+    for range builds where the bundle ``index`` is renumbered consecutively
+    1..K. Never null on the wire (omitted when absent); parsing accepts
+    missing (or null) as ``None``.
+    """
 
     index: int
     title: str
     audio: str
     text: str
     duration_ms: int
+    source_index: int | None = None
 
     @classmethod
     def from_dict(cls, data: Any) -> ChapterEntry:
@@ -206,16 +214,20 @@ class ChapterEntry:
             audio=_require_str(data, "audio"),
             text=_require_str(data, "text"),
             duration_ms=_require_int(data, "duration_ms"),
+            source_index=_optional_int(data, "source_index"),
         )
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "index": self.index,
             "title": self.title,
             "audio": self.audio,
             "text": self.text,
             "duration_ms": self.duration_ms,
         }
+        if self.source_index is not None:
+            out["source_index"] = self.source_index
+        return out
 
 
 @dataclass
@@ -501,6 +513,12 @@ class ChapterFile:
     v1.0 allowed exactly one of ``blocks``/``pages``; v1.1 allows both
     (blocks carry sentences with optional ``page`` provenance, ``pages``
     carries the sync marks). At least one must be present.
+
+    v1.2 (D7, range bundles): ``source_index`` is the 1-based source-book
+    chapter this bundle chapter was rendered from. ``chapter`` is always
+    the consecutive bundle index 1..K; ``source_index`` is absent (``None``)
+    for full builds and present for range builds. Omitted on the wire when
+    absent, never null.
     """
 
     spec_version: str
@@ -509,6 +527,7 @@ class ChapterFile:
     duration_ms: int
     blocks: list[Block] | None = None
     pages: list[PageEntry] | None = None
+    source_index: int | None = None
 
     @classmethod
     def from_dict(cls, data: Any) -> ChapterFile:
@@ -536,6 +555,7 @@ class ChapterFile:
             duration_ms=_require_int(data, "duration_ms"),
             blocks=blocks,
             pages=pages,
+            source_index=_optional_int(data, "source_index"),
         )
 
     def to_dict(self, *, include_draft: bool = False) -> dict[str, Any]:
@@ -545,6 +565,8 @@ class ChapterFile:
             "title": self.title,
             "duration_ms": self.duration_ms,
         }
+        if self.source_index is not None:
+            out["source_index"] = self.source_index
         if self.blocks is not None:
             out["blocks"] = [b.to_dict(include_draft=include_draft) for b in self.blocks]
         if self.pages is not None:

@@ -3,9 +3,8 @@ Auloud Player
 
 Copyright (c) 2026 Zyxavy.
 
-The Player's own license is still to be decided (Apache-2.0 or MIT, see
-D-015 and docs/08-Liscenses.md section 1). Until then, all rights reserved
-on the app code itself.
+The Player is licensed under the Apache License, Version 2.0 (see LICENSE
+in this directory; D-015 decided Apache-2.0 over MIT).
 
 This app ships no GPL code. Open-source libraries it uses are listed in
 THIRD_PARTY_LICENSES.md with their versions and licenses; the same list is

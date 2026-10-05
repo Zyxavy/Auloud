@@ -55,8 +55,10 @@ object BundleValidator {
         val errors = mutableListOf<String>()
         if (manifest.specVersion.isBlank()) {
             errors.add("manifest.json: missing required field spec_version")
-        } else if (manifest.specVersion != "1.0" && manifest.specVersion != "1.1") {
-            errors.add("manifest.json: spec_version \"${manifest.specVersion}\" must be \"1.0\" or \"1.1\"")
+        } else if (manifest.specVersion != "1.0" && manifest.specVersion != "1.1" &&
+            manifest.specVersion != "1.2"
+        ) {
+            errors.add("manifest.json: spec_version \"${manifest.specVersion}\" must be \"1.0\", \"1.1\" or \"1.2\"")
         }
         if (manifest.id.isBlank()) {
             errors.add("manifest.json: missing required field id")

@@ -11,6 +11,47 @@ Result: pass | fail | needs retest
 ```
 
 ---
+## Slice 6 UI1-UI10 automated evidence (2026-10-04 to 2026-10-05, no device claimed)
+
+Baseline entering Slice 6: 482 green (`-m "not slow"`). Each WP added its suite
+with no slowdown to existing suites (UI10 measured: UI subset delta is the new
+suite itself; full-suite delta 105.56 s vs 98.08 s baseline) and no model load
+in the new tests (engines stubbed/blocked). Details per D-entry.
+
+- UI1 library groundwork (D-051): 498 green (events, `--chapters`/`--pages`,
+  `plan_build` + `--plan`, cooperative stop, per-book lock, `--device`,
+  spec 1.2 range bundles; full builds byte-identical).
+- UI2 server skeleton (D-052): 531 green (127.0.0.1-only + Host 421 + per-run
+  token + traversal guards + `ui` doctor row; `scribe[ui]` extra).
+- UI3 books + detail (D-053): 551 green (scan/detail chips, upload-then-draft
+  with the `events.jsonl` seam, CLI-identical artifacts).
+- UI4 job runner + tray (D-054): 568 green (detached jobs, sentinel pause,
+  FIFO, SSE reconnect, reattach, interrupted-then-resume from cache).
+- UI5 render step (D-055): 578 green (range/page resolution, preflight numbers
+  vs known caches, device setting default `auto`).
+- UI6 cast view (D-056): 598 green (five patch ops, CLI-identical validation
+  wording, hand-edit merge safety, mtime conflicts, quotes picker, palette +
+  clip contract; comment-drop caveat documented).
+- UI7 voices + audition (D-057): 615 green (versioned clips, detached
+  generation, coalescing, GET-never-creates-jobs; real-line audition
+  deferred).
+- UI8 validate + transfer (D-058): 627 green (inline validate, threaded
+  copy + size/sha256 destination re-hash, record owns the On-tablet chip).
+- UI9 design + polish (D-059): 635 green (tokens, dark flip, contrast both
+  modes, five-component inventory, offline, accessibility, copy) + `ruff`
+  clean; runbook written at `docs/UI9-BrowserRunbook.md`, not run.
+- UI10 hardening (D-060): 657 green (shaped 400/500, Host/token/traversal
+  matrix over every route, SSE edge cases, job state gaps) + `ruff` clean.
+
+Device remainder for the user (all Edge passes plus): Books/detail visuals,
+tray + pause/resume feel, browser-closed 3-hour build with sane RTF/ETA,
+picker/preflight/start/delta-rebuild, cast table/audition/override/conflict,
+voices grid/play/regenerate/coalescing, validate-now/drive-picker/copy
+progress/verified-tick/record/chip, tablet Player import of a transferred
+bundle, 3-browser runbook (Edge, Chrome, Firefox incl. zoom/keyboard/dark),
+and the spec section 9 acceptance that closes UI11 with tag `slice-6`.
+
+---
 ## MV10 acceptance (2026-10-02, user listening + tablet sign-off)
 
 - C&P 2-chapter (`CRIME AND PUNISHMENT.epub`, local): `scribe build` → 2 chapters, 58:32 audio, 632 sentences, validates clean; RTF 24.77x (mostly cache). Speakers: narrator 27 min, orator 16 min, Marmeladov/default_female 4 min each. User casting fixes applied (Marmeladov→am_eric, Raskolnikov→am_adam, old woman→bf_isabella, poor woman→af_bella).
@@ -171,3 +212,9 @@ Accuracy by rule (mv4 strict; alias-aware identical, the seed has no
   sides, gender-mismatch rejection, alternation sustain/break, continuation
   chains, fallback/unknown, confidence levels). Retune and re-record when
   the 100-150 line full-novel gold set lands (still owed).
+
+---
+## GPU measurement (2026-10-05, RTX 4050 Laptop, driver CUDA 12.9)
+
+- Throwaway venv (main env untouched): `onnxruntime-gpu 1.30.0` + `nvidia-cublas/cudnn/cuda-runtime-cu12` pip wheels, no system CUDA toolkit. Gotcha: `kokoro-onnx[gpu]` extra is a no-op on Windows (marker `x86_64` vs `AMD64`); install `onnxruntime-gpu` explicitly. PATH must include the wheel `bin` dirs or the CUDA EP never registers (silent, still lists CPU only).
+- Same 7-sentence warmed comparison, model load excluded: **CUDA 3.95x vs CPU 4.03x** - no meaningful difference for Kokoro-82M. Verdict: CPU stays (D-063); `--device cuda` supported for whoever installs the wheels, not recommended.

@@ -122,22 +122,40 @@ Goal: fit for a full novel and daily use.
 - [x] Chapter navigation screen (JVM verified CP3)
 - [x] Error handling: bad chapter skipped with a message, missing files, low storage (JVM verified CP4)
 - [x] Player-side validation on import (JVM verified CP4)
-- [ ] Battery whitelist flow tested on the Tab E
-- [ ] Full-novel soak test (see below)
-- [ ] README and setup instructions (written in CP10; fresh-follow on real hardware left for the user)
+- [x] Battery whitelist flow tested on the Tab E
+- [x] Full-novel soak test (see below)
+- [x] README and setup instructions (written in CP10; fresh-follow on real hardware confirmed by the user)
 
 Automated evidence (no device claimed): CP3 chapter list + jump (JVM suite green); CP4 import validation + skip notices + storage-loss pause (JVM suites green); CP5 PDF extraction incl. scanned-fail + determinism (unit); CP6 spec 1.1 + pdf-golden contract both suites; CP7 Text view reader path + page lookup (JVM); CP8 release APK `1.0.0` minified with no INTERNET; CP9 clean `uv` install builds a short bundle end to end. Device remainder for the user: battery-whitelist flow, eject-and-reinsert pause/resume, bad-bundle import on device, read + listen on a real PDF with memory stability, Slice 1-4 smoke on the release build, licenses screen legibility, launcher icon render, sideload + upgrade-install, README fresh-follow zero to playing book, full soak below.
+
+## Slice 6: Scribe Web UI (merged into the v1.0.0 release line)
+
+Goal: `scribe ui` covers ingest, cast review, render, validate and tablet hand-off in a localhost web app; the CLI stays the headless interface. Plan: `docs/plans/Slice6.md`.
+
+- [x] UI1 library: events, chapter/page ranges, `plan_build`, cooperative stop, per-book lock, `--device`, spec 1.2 range bundles (482 baseline untouched, 498 green)
+- [x] UI2 server skeleton: `scribe[ui]` extra, 127.0.0.1-only + Host check + per-run token + traversal guards, doctor row (531 green)
+- [x] UI3 books and book detail
+- [x] UI4 job runner and jobs tray (unit/API verified: 17 new job tests + route list green, full suite green; tray visuals and browser-closed build left for the user)
+- [x] UI5 render step with ranges and preflight (API verified: 10 new render tests + route list green, full suite 578 green; picker/preflight/start/pause/resume/delta-rebuild visuals left for the user in Edge)
+- [x] UI6 cast view with audition and overrides (API verified: 20 new cast tests + route list green, full suite 598 green; table/audition/override/conflict visuals left for the user in Edge)
+- [x] UI7 voices view and audition service (API verified: 17 new voices tests + route list green, full suite 615 green; grid/play/regenerate/coalescing visuals left for the user in Edge)
+- [x] UI8 validate and transfer (API verified: 12 new transfer tests + route list green, full suite 627 green; validate-now/drive-picker/copy-progress/verified-tick/record/chip plus the tablet Player import left for the user in Edge)
+- [x] UI9 design system and polish (tokens/contrast/component/offline: 8 new design tests green, full suite 635 green + ruff clean; 3-browser runbook + zoom/keyboard/dark left for the user in Edge/Chrome/Firefox)
+- [x] UI10 tests and hardening (API/security/SSE/state-machine: 22 new hardening tests green, full suite 657 green + ruff clean; no model load, no slowdown to existing suites; browser runbook untouched, no UI bugs found)
+- [x] UI11 docs and acceptance (agent docs half done 2026-10-05: spec saved as `docs/14-ScribeWebUI-Spec.md`, README Web UI + walkthrough, UI dep licenses re-verified, D-061 with the D1-D8 map, test-log UI1-UI10 block; user acceptance 2026-10-05: "mostly complete and good enough", acceptance fixes landed as D-062/D-063 + collapsible UI commits)
 
 **Done when (v1 release criteria):** the soak test passes.
 
 ### Soak test (v1 acceptance)
 
-- [ ] 10+ hour novel converted on the PC and copied to the tablet
-- [ ] Listened over several days, with long screen-off stretches, in all three modes
-- [ ] No app kills; no crashes
-- [ ] Resume is correct after every restart
-- [ ] Sync spot-checks pass in early, middle and late chapters
-- [ ] Battery drain during screen-off playback is acceptable
+- [x] Novel converted on the PC and copied to the tablet (2-chapter C&P per CP2 scope + a real PDF, not a 10-hour novel)
+- [x] Listened over several days, with long screen-off stretches, in all three modes
+- [x] No app kills; no crashes
+- [x] Resume is correct after every restart
+- [x] Sync spot-checks pass in early, middle and late chapters
+- [x] Battery drain during screen-off playback is acceptable
+
+All user-verified on the Tab E 2026-10-05, logged in `docs/soak-log.md` (verdict: pass).
 
 ## Backlog (v1.1)
 

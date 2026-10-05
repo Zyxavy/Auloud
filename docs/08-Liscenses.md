@@ -31,6 +31,7 @@ In-app: add a "Licenses" screen listing these (a Gradle license plugin can gener
 | --- | --- | --- | --- |
 | EbookLib | AGPL-3.0 | Strong copyleft. Fine inside an open-source GPL/AGPL tool; if you offer Scribe as a hosted service, AGPL's network clause means users must be able to get the source. Consider licensing Scribe as AGPL-3.0 in that case. | \[x\] |
 | PyMuPDF | AGPL-3.0 (commercial license available) | AGPL is compatible inside AGPL-3.0-or-later Scribe (never ships in the Apache-2.0 Player); pymupdf 1.28.2 pinned in `scribe/pyproject.toml` + `uv.lock`, proven by `scribe doctor` (new `pymupdf` row: import + in-memory open). | \[x\] |
+| FastAPI UI stack (`scribe[ui]` extra) | fastapi MIT, uvicorn BSD-3-Clause, starlette BSD-3-Clause, python-multipart Apache-2.0, pydantic MIT | All permissive, AGPL-compatible inside Scribe (never ships in the Player); checked 2026-10-04 via the PyPI JSON API (`license_expression`: fastapi 0.142.2 MIT, uvicorn 0.54.0 BSD-3-Clause, starlette 1.7.0 BSD-3-Clause, python-multipart 0.0.32 Apache-2.0, pydantic 2.13.5 MIT) and re-verified 2026-10-05 from installed dist metadata (same versions, same expressions). Floors pinned in `scribe/pyproject.toml` (`fastapi>=0.115.0`, `uvicorn>=0.30.0`, `starlette>=0.46.0`, `python-multipart>=0.0.18`, `pydantic>=2.9.0`, satisfying fastapi's own requirements) + `uv.lock`, proven by `scribe doctor` (new `ui` row: fastapi + uvicorn import + versions). Base CLI never imports them (lazy import with a `uv sync --extra ui` hint). Gap: full license texts not read line by line (SPDX expressions only); no vendoring, standard for permissive deps. | \[x\] |
 | beautifulsoup4, lxml | MIT, BSD-3 |  | \[ \] |
 | pysbd | MIT |  | \[ \] |
 | spaCy, `en_core_web_sm` | MIT | spacy 3.8.16 + en-core-web-sm 3.8.0 (installed METADATA says MIT for both; transitives MIT/BSD/Apache-2.0, tqdm dual MPL-2.0 AND MIT, nothing GPL). Model pinned by wheel URL in `scribe/pyproject.toml` + `uv.lock` (not on PyPI); `scribe doctor` checks present + version and proves a parse. | \[x\] |
@@ -87,7 +88,7 @@ Bundling espeak-ng (GPL-3.0) or a GPL Piper build into the app means the app is 
 
 ## 7. Release checklist for licensing
 
-- [ ] `LICENSE` file in each component (Player: Apache-2.0; Scribe: AGPL-3.0-or-later) - Scribe has `scribe/LICENSE` (AGPL); Player has no own `LICENSE` file (root `LICENSE` is MIT, `player/NOTICE` says Apache-2.0-or-MIT undecided per D-015/D-047)
+- [x] `LICENSE` file in each component (Player: `player/LICENSE` Apache-2.0; Scribe: `scribe/LICENSE` AGPL-3.0-or-later; root `LICENSE` MIT is the repo default) - decided D-015/D-050 on release/v1.0
 - [x] `NOTICE` and `THIRD_PARTY_LICENSES.md` generated (`player/NOTICE` + `player/THIRD_PARTY_LICENSES.md`, CP8)
 - [ ] All "Verified" boxes above ticked (Player section 2 + voices done; Scribe section 3 rows for bs4/lxml, pysbd, yaml/numpy/typer/rich/pytest, soundfile, pyrubberband, ffmpeg and section 4 Kokoro package/Piper still open)
 - [x] Voice table complete, with per-voice licenses (section 4 palette: 9 Kokoro-82M voices, all Apache-2.0, CP8)
