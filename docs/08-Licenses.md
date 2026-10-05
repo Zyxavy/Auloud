@@ -47,7 +47,9 @@ In-app: add a "Licenses" screen listing these (a Gradle license plugin can gener
 | Kokoro (Python package) | Apache-2.0 | Needs espeak-ng for phonemes | \[ \] |
 | Kokoro model weights | Apache-2.0 | Model card `license: apache-2.0` (https://huggingface.co/hexgrad/Kokoro-82M), checked 2026-10-04 | [x] |
 | Piper (current GPL fork) | GPL-3.0 | Older `rhasspy/piper` was MIT; check which you use | \[ \] |
+| piper-tts 1.8.0 (Scribe PC engine, SW1) | GPL-3.0-or-later | Reference Piper runtime (OHF); PyPI `license` field 2026-10-05. GPL-3.0 combines into AGPL-3.0-or-later Scribe (GPLv3 section 13, combined work stays AGPL); pinned `piper-tts>=1.8.0` in `scribe/pyproject.toml` + `uv.lock`, proven by `scribe doctor` (`piper-models` row). Phonemization bundled in the wheel (internal espeak-ng data, no external install); never ships in the Player, so D-066 is untouched. | [x] |
 | Piper voice models | **Each voice has its own license** | Some permissive, some restricted (for example non-commercial). Record it per voice. | \[ \] |
+| Piper proof voice `en_US-lessac-low` (SW1 manual proof only) | Blizzard 2013 Lessac license (research/non-commercial, University of Edinburgh CSTR) | Per its MODEL_CARD (dataset: cstr.ed.ac.uk Blizzard 2013 Lessac, license page linked there). Proof-only under `models/piper/` (gitignored, never committed); SW4 multi-voice proof must use permissively licensed voices (e.g. a CC0/MIT one), recorded here when chosen. | [x] |
 | espeak-ng | GPL-3.0-or-later | Used for phonemization by both engines; repo states GPL-3.0-or-later, installed 1.52.0 matches the latest release, checked 2026-10-04 | [x] |
 
 **v1 voice palette (CP8): every voice below is a configuration inside the

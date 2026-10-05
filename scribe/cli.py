@@ -87,6 +87,13 @@ PYMUPDF_HELP = (
     "in scribe/, then re-run `scribe doctor`."
 )
 
+PIPER_HELP = (
+    "Piper is the optional second TTS engine (Slice 8 SW1): run `uv sync` "
+    "in scribe/, then place <voice>.onnx + <voice>.onnx.json pairs in "
+    "<models-dir>/piper/ (e.g. from https://huggingface.co/rhasspy/piper-voices). "
+    "`doctor` never downloads anything."
+)
+
 UI_EXTRA_HINT = (
     "The UI needs the optional 'ui' extra: run `uv sync --extra ui` "
     "in scribe/, then re-run the command."
@@ -251,6 +258,38 @@ def check_models(models_dir: Path) -> CheckResult:
     )
 
 
+def check_piper_models(models_dir: Path) -> CheckResult:
+    """Check Piper voices exist under ``models_dir/piper`` (SW1, optional).
+
+    Piper is the second engine, so absence is INFO (never FAIL): the Kokoro
+    path is unaffected. A present-but-unreadable runtime is FAIL with the
+    sync hint; a present runtime with no voices is INFO naming the dir.
+    """
+    if importlib.util.find_spec("piper") is None:
+        return CheckResult(
+            name="piper-models",
+            status=FAIL,
+            detail="piper-tts not importable (pinned dependency, SW1)",
+            hint=PIPER_HELP,
+        )
+    from tts.piper import PIPER_DIR_NAME, discover_voices
+
+    voices = discover_voices(models_dir)
+    piper_dir = models_dir / PIPER_DIR_NAME
+    if not voices:
+        return CheckResult(
+            name="piper-models",
+            status=INFO,
+            detail=f"no <voice>.onnx + <voice>.onnx.json pairs in {piper_dir} (optional)",
+            hint=PIPER_HELP,
+        )
+    return CheckResult(
+        name="piper-models",
+        status=PASS,
+        detail=f"{len(voices)} voice(s) in {piper_dir}: {', '.join(sorted(voices))}",
+    )
+
+
 def check_spacy() -> CheckResult:
     """Check spaCy plus the en_core_web_sm model (MV0; MV3 attributes with it).
 
@@ -411,6 +450,7 @@ def run_checks(models_dir: Path) -> list[CheckResult]:
         check_espeak_ng(),
         check_engine(),
         check_models(models_dir),
+        check_piper_models(models_dir),
         check_spacy(),
         check_pymupdf(),
         check_ui(),

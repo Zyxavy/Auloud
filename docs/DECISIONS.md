@@ -579,3 +579,9 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Status: Accepted
 - Decision: Scribe's per-character casting, attribution and `cast.yaml` are unchanged, and multi-voice remains the default and recommended way to get the best audiobook. A "collapse to two voices" toggle on the PC is not part of v2; if PC and device books should ever sound alike, it can be added later as an optional setting.
 - Why: Source is `docs/09-V2Roadmap.md` section 3 decision 8; the PC can handle multi-voice, so v2 changes nothing there.
+
+### D-073: SW1 Piper runtime is piper-tts (P1 resolved)
+
+- Date: 2026-10-05
+- Status: Accepted
+- Decision: Scribe's Piper engine uses `piper-tts` 1.8.0 (OHF reference implementation), not sherpa-onnx Python and not hand-rolled onnxruntime + phonemizer. Measured facts: PyPI `license` field says GPL-3.0-or-later (the old MIT memory was wrong); GPL-3.0 combines into AGPL-3.0-or-later Scribe with the work staying AGPL (GPLv3 section 13), recorded in `08-Licenses.md`; the wheel bundles espeak-ng data (out-of-the-box synth proven, no external install); only `onnxruntime` (already pinned) joins the dep tree. Real-voice proof: `en_US-lessac-low` (16 kHz native, 2.64 s in 0.18 s wall) resampled to 24 kHz through the existing `resample_mono` path; its Blizzard-2013 dataset license is proof-only, so SW4 must pick permissively licensed voices. Surprises: (1) the venv's installed `scribe` copy was stale (hatchling force-include materializes a copy, not a link) and `scribe.exe` was locked by a still-running `scribe ui` server from acceptance work — stopped with permission, then `uv sync --reinstall-package` refreshed it; (2) a plain `uv sync` pruned the `ui` extra (fastapi etc.), restored with `uv sync --extra ui` — plain sync is not safe in a venv that has extras installed.
