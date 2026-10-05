@@ -90,6 +90,10 @@ class SpikeActivity : ComponentActivity() {
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { run("system") { benchSystemTts() } }) { Text("System") }
+                        Button(onClick = { run("systemLong") { benchSystemLong() } }) { Text("SysLong") }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { run("battery") { benchBattery() } }) { Text("10-min") }
                     }
                     Spacer(Modifier.height(8.dp))
@@ -356,6 +360,63 @@ class SpikeActivity : ComponentActivity() {
         } catch (_: Exception) {
             0.0
         }
+    }
+
+    /**
+     * S7 follow-up: novel-length utterances (5x ~60 words) through the
+     * default voice only (no switching). Prints standard RTF
+     * (audio/wall, higher is better): sustained >1.3 means live
+     * streaming is viable, ~1.0 means background-render, below means
+     * neither. Restart the app before this run (engines linger in RAM).
+     */
+    private fun benchSystemLong(): List<String> {
+        val out = mutableListOf<String>()
+        var tts: TextToSpeech? = null
+        val ready = java.util.concurrent.CountDownLatch(1)
+        var initOk = false
+        tts = TextToSpeech(this) { status ->
+            initOk = status == TextToSpeech.SUCCESS
+            ready.countDown()
+        }
+        if (!ready.await(15, java.util.concurrent.TimeUnit.SECONDS) || !initOk) {
+            tts?.shutdown()
+            return listOf("systemTts unavailable")
+        }
+        val engine = tts
+        val voices = engine.voices.orEmpty().filter { !it.isNetworkConnectionRequired }
+        if (voices.isEmpty()) {
+            engine.shutdown()
+            return listOf("no offline voices")
+        }
+        val scratch = File(cacheDir, "spike-tts").apply { mkdirs() }
+        // Default voice, fixed: this run measures raw synthesis speed,
+        // not switching (switching was measured: ~800ms+ per change).
+        val utterances = (0 until 5).map { u ->
+            BENCH_SENTENCES.drop(u * 4).take(4).joinToString(" ")
+        }
+        var audioTotal = 0.0
+        var wallTotal = 0L
+        utterances.forEachIndexed { i, text ->
+            val file = File(scratch, "long$i.wav")
+            val start = System.nanoTime()
+            val heard = renderSystemUtterance(engine, text, file)
+            wallTotal += (System.nanoTime() - start) / 1_000_000
+            if (i > 0) audioTotal += heard
+            file.delete()
+        }
+        val wallSec = wallTotal / 1000.0
+        out += "sysLongRtf=%.2f audioSec=%.1f wallSec=%.1f pssMb=${pssMb()}".format(
+            audioTotal / wallSec.coerceAtLeast(0.01), audioTotal, wallSec
+        )
+        out += "sysLong verdict: " + when {
+            audioTotal / wallSec.coerceAtLeast(0.01) >= 1.3 ->
+                "STREAMING VIABLE (sustained 1.3x+)"
+            audioTotal / wallSec.coerceAtLeast(0.01) >= 1.0 ->
+                "BACKGROUND-RENDER ONLY (1.0x+, streaming out)"
+            else -> "NEITHER (below 1.0x even on long utterances)"
+        }
+        engine.shutdown()
+        return out
     }
 
     private fun benchBattery(): List<String> {
