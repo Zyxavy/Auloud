@@ -13,7 +13,7 @@ Everything runs offline. Nothing is uploaded.
 
 ## Why
 
-Ebook readers with text-to-speech usually have few voices, one voice for everything. This project moves the heavy AI work to a PC, so even an old tablet can play natural-sounding, multi-voice audiobooks with the screen off.
+Ebook readers with text-to-speech usually have few voices, one voice for everything. This project moves the heavy AI work to a PC, so even an old device can play natural-sounding, multi-voice audiobooks with the screen off.
 
 ## How it works
 
@@ -53,11 +53,11 @@ PDFs use the same flow (`draft` then `build`); scanned PDFs with no text layer f
 - `scribe voices` and `scribe voices --sample --out-dir logs/voice-samples --models-dir models --speed 1.0`
 - `scribe version`
 
-### B. Play it on the tablet
+### B. Play it on the device
 
 1. Build the release (or debug) APK on the PC, in `player/`: `gradlew.bat :app:assembleRelease` (release) or `gradlew.bat :app:assembleDebug` (debug). The release APK needs the signing key in gitignored `player\local.properties` (see `docs/ReleaseSigning.md`); without it the build signs with the debug key and prints a warning.
-2. Sideload the APK on the tablet (allow unknown sources for the install).
-3. Copy the finished bundle folder to the tablet: shared-internal `/Auloud/` (for example `/storage/emulated/0/Auloud`) or a microSD `Auloud/` folder.
+2. Sideload the APK on the device (allow unknown sources for the install).
+3. Copy the finished bundle folder to the device: shared-internal `/Auloud/` (for example `/storage/emulated/0/Auloud`) or a microSD `Auloud/` folder.
 4. In the Player library: add a watch folder with the system folder picker (persistable permission, survives reboot), then import/rescan. The default watch folder is shared-internal `/Auloud`.
 5. Open the book, pick a mode, press play.
 
@@ -93,7 +93,7 @@ Notes:
 - `build` is resumable: editing `cast.yaml` re-synthesizes only changed lines (cache keyed by text + voice + speed + engine). A 10-hour novel takes hours (CP9 RTF about 1.28x on GPU; CPU-only SW0 measured 1.38x), so run it detached and poll.
 - espeak-ng must be 1.52.0 from the `.msi` at the default path; `ffmpeg`/`ffprobe` come from `winget install ffmpeg` plus a new terminal for PATH.
 
-### Getting bundles onto the tablet
+### Getting bundles onto the device
 
 - **Shared internal (simplest):** copy the bundle folder (the whole `<BookName>/` with `manifest.json`, `audio/`, `text/`, `source/`) to `/Auloud/` on shared internal storage. The app auto-creates this default.
 - **microSD:** copy the bundle folder to an `Auloud/` folder on the card, then in the Player add it as a watch folder via the system folder picker (`ACTION_OPEN_DOCUMENT_TREE`). The grant is persistable across reboots.
