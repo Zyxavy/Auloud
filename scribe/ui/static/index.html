@@ -335,7 +335,7 @@ async function setupValidateStep(data) {
   let html = "";
   if (data.valid) html += "<p>At least one bundle passes validation.</p>";
   else if (rows) html += "<p>Nothing valid yet. Fix the errors, re-render, then validate again.</p>";
-  else html += "<p>Nothing valid yet. Render first, then validate.</p>";
+  else html += "<p>Nothing valid yet. Render first, then validate. Bundles are read from " + esc(data.bundles_dir || "") + ".</p>";
   if (bundles) html += "<pre class='errors'>" + esc(bundles) + "</pre>";
   if (rows) html += "<pre class='errors'>" + rows + "</pre>";
   html += '<p class="row-actions"><button id="validate-run" type="button">Validate now</button></p>';

@@ -882,6 +882,7 @@ def get_book_detail(
         "total_sentences": total_sentences,
         "cast": cast,
         "bundles": mapped_bundles,
+        "bundles_dir": str(bundles),
         "valid": valid,
         "validation": validation_errors,
         "on_tablet": on_tablet,

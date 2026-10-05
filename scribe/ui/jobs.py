@@ -879,7 +879,7 @@ class JobManager:
 
     def _spawn_detached(self, job: dict[str, Any], folder: Path) -> Any:
         """Production spawner: detached ``scribe build``/``draft``/``voices``."""
-        from .books import WORK_DIRNAME
+        from .books import BUNDLES_DIRNAME, WORK_DIRNAME
 
         cli = _cli_path()
         work_root = self.workspace / WORK_DIRNAME
@@ -911,6 +911,10 @@ class JobManager:
         source_rel = str(job.get("source_file") or "")
         source_abs = safe_join(self.workspace, source_rel) if source_rel else Path(source_rel)
         events_path = folder / EVENTS_FILENAME
+        # The CLI default out dir is cwd-relative ("bundles/<id>"), which is
+        # the server's cwd, not the workspace — pass it explicitly so the
+        # bundle lands where the Books scan looks (found in acceptance: the
+        # Validate step saw "nothing valid" for a finished job).
         cmd = [
             sys.executable,
             str(cli),
@@ -918,6 +922,8 @@ class JobManager:
             str(source_abs),
             "--work-dir",
             str(work_root),
+            "--out-dir",
+            str(self.workspace / BUNDLES_DIRNAME),
             "--events-jsonl",
             str(events_path),
             "--stop-file",

@@ -493,3 +493,14 @@ def test_frontend_static_offline_and_components() -> None:
         assert needle in text, needle
     assert "No books yet" in text
     assert "Pick a book" in text
+
+
+def test_detail_reports_bundles_dir(tmp_path: Path) -> None:
+    from draft import book_id_for_file, run_draft
+    from ui.books import get_book_detail
+
+    src = _make_epub(tmp_path / "novel.epub", ["Chapter One"])
+    run_draft(src, work_root=tmp_path / ".scribe")
+    book_id, _sha = book_id_for_file(src)
+    detail = get_book_detail(tmp_path, book_id)
+    assert detail["bundles_dir"] == str(tmp_path / "bundles")

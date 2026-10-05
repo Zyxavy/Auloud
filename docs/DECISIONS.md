@@ -500,3 +500,10 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: UI11 verify splits in two: the agent can do docs, only the user can do acceptance (fresh-user run, browser-closed 3-hour build with pause/resume, 3-browser runbook) plus the tag. Ticking nothing keeps the roadmap honest.
 - Alternatives considered: ticking UI11 now (rejected: acceptance plus tag are explicitly the user's); quoting `--voice`/`--stop-file` in the README (rejected: the installed `scribe voices/build --help` outputs run today do not show them, so only live-help-proven flags are quoted).
 - Consequences / revisit when: needs user: spec section 9 acceptance end to end, then tag `slice-6` (do not tag from the agent side). Installed CLI staleness noted again (source has `--voice`/`--stop-file`, installed help lacks them; refresh with `uv sync --reinstall-package auloud-scribe` at will). Revisit the license gap only if vendored full texts are ever required.
+
+### D-062: UI render output lands in the workspace bundles dir
+
+- Date: 2026-10-05
+- Status: Accepted
+- Decision: Detached `scribe build` jobs pass `--out-dir <workspace>/bundles` explicitly instead of relying on the CLI default (cwd-relative `bundles/<id>`, which is the server's cwd, not the workspace). Found in user acceptance: a finished job's bundle sat beside the server while the Validate step truthfully reported "nothing valid". The book-detail payload gains `bundles_dir`, and the empty Validate message names the directory it reads so the next mismatch is self-diagnosing.
+- Why: The scan and the spawn must agree on one directory; the workspace owns both.

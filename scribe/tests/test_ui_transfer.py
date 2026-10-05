@@ -420,5 +420,7 @@ def test_frontend_static_offline_and_transfer_components() -> None:
         "/validate",
         "/transfer",
         "open-folder",
+        "bundles_dir",
+        "Bundles are read from",
     ):
         assert needle in text, needle

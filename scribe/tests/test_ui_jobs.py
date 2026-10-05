@@ -783,3 +783,36 @@ def test_real_detached_process_writes_events_and_terminates(tmp_path: Path) -> N
             except Exception:
                 pass
     assert proc.poll() is not None
+
+
+def test_spawn_build_passes_workspace_out_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Detached builds write into <workspace>/bundles (not the server cwd).
+
+    Regression: the UI passed no --out-dir, so the CLI default landed the
+    bundle beside the server cwd and the Books scan saw "nothing valid".
+    """
+    from ui import jobs as _jobs
+    from ui.jobs import JobManager
+
+    seen: list[list[str]] = []
+
+    class _DummyProc:
+        pass
+
+    def _fake_popen(cmd: list[str], log_path: Path) -> _DummyProc:
+        seen.append(list(cmd))
+        return _DummyProc()
+
+    monkeypatch.setattr(_jobs, "_detached_popen", _fake_popen)
+    (tmp_path / "alice.epub").write_bytes(b"")
+    manager = JobManager(tmp_path, pid_alive_fn=lambda _pid: False)
+    manager._spawn_detached(
+        {"kind": "build", "source_file": "alice.epub", "device": "cpu"},
+        tmp_path / "jobs" / "job-1",
+    )
+    assert len(seen) == 1
+    cmd = seen[0]
+    assert "--out-dir" in cmd
+    assert cmd[cmd.index("--out-dir") + 1] == str(manager.workspace / "bundles")
