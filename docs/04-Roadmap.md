@@ -142,7 +142,7 @@ Goal: `scribe ui` covers ingest, cast review, render, validate and tablet hand-o
 - [x] UI8 validate and transfer (API verified: 12 new transfer tests + route list green, full suite 627 green; validate-now/drive-picker/copy-progress/verified-tick/record/chip plus the tablet Player import left for the user in Edge)
 - [x] UI9 design system and polish (tokens/contrast/component/offline: 8 new design tests green, full suite 635 green + ruff clean; 3-browser runbook + zoom/keyboard/dark left for the user in Edge/Chrome/Firefox)
 - [x] UI10 tests and hardening (API/security/SSE/state-machine: 22 new hardening tests green, full suite 657 green + ruff clean; no model load, no slowdown to existing suites; browser runbook untouched, no UI bugs found)
-- [ ] UI11 docs and acceptance (spec section 9 by the user, tag `slice-6`)
+- [ ] UI11 docs and acceptance (agent docs half done 2026-10-05: spec saved as `docs/14-ScribeWebUI-Spec.md`, README Web UI + walkthrough, UI dep licenses re-verified, D-061 with the D1-D8 map, test-log UI1-UI10 block; still to run by the user: spec section 9 acceptance end to end incl. the browser-closed 3-hour build with pause/resume, then tag `slice-6`)
 
 **Done when (v1 release criteria):** the soak test passes.
 
