@@ -28,6 +28,7 @@ Supported ops (``PATCH`` ``ops`` list, applied in order, atomically — every
 op validates before any write, so a bad op aborts the whole list)::
 
     {"op": "set_voice", "character": "Alice", "voice": "jf_alpha"}
+    {"op": "set_voice", "character": "Bob", "voice": "en_US-lessac-low", "engine": "piper"}
     {"op": "set_speed", "character": "Alice", "speed": 1.1}
     {"op": "set_first_person", "value": "narrator"}   # or a character/alias
     {"op": "add_override", "chapter": 1, "block": 8, "quote": 1, "speaker": "Bob"}
@@ -494,6 +495,7 @@ def _character_entry(cast: dict[str, Any], character: str) -> dict[str, Any]:
 def _apply_set_voice(cast: dict[str, Any], op: dict[str, Any]) -> None:
     character = op.get("character")
     voice = op.get("voice")
+    engine = op.get("engine")
     if not isinstance(character, str) or not character.strip():
         raise CastPatchError(
             "cast.yaml", "bad-op", "set_voice needs {character: non-empty string, voice: ...}"
@@ -504,7 +506,18 @@ def _apply_set_voice(cast: dict[str, Any], op: dict[str, Any]) -> None:
             f"characters.{character}.voice",
             f"voice must be a non-empty string (got {voice!r})",
         )
-    _character_entry(cast, character)["voice"] = voice
+    entry = _character_entry(cast, character)
+    entry["voice"] = voice
+    if engine is not None:
+        from text.cast import SUPPORTED_ENGINES
+
+        if not isinstance(engine, str) or engine.strip() not in SUPPORTED_ENGINES:
+            raise CastPatchError(
+                "cast.yaml",
+                f"characters.{character}.engine",
+                f"engine must be one of {list(SUPPORTED_ENGINES)} (got {engine!r})",
+            )
+        entry["engine"] = engine.strip()
 
 
 def _apply_set_speed(cast: dict[str, Any], op: dict[str, Any]) -> None:

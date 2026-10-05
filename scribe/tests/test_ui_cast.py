@@ -188,6 +188,32 @@ def test_pure_ops_cover_every_shape() -> None:
     assert shaped_validation_errors(out) == []
 
 
+def test_set_voice_engine_option() -> None:
+    from text.cast import default_multivoice_cast
+    from ui.cast import CastPatchError, apply_ops
+
+    base = default_multivoice_cast()
+    base["characters"] = {"Alice": {"voice": "bf_isabella", "speed": 1.0}}
+    out = apply_ops(
+        base,
+        [{"op": "set_voice", "character": "Alice", "voice": "pv-one", "engine": "piper"}],
+    )
+    assert out["characters"]["Alice"] == {
+        "voice": "pv-one",
+        "speed": 1.0,
+        "engine": "piper",
+    }
+    # Omitted engine leaves the entry untouched (no key added).
+    out = apply_ops(base, [{"op": "set_voice", "character": "Alice", "voice": "jf_alpha"}])
+    assert out["characters"]["Alice"] == {"voice": "jf_alpha", "speed": 1.0}
+    # Bad engine is a shaped bad-op, and nothing partial applies.
+    with pytest.raises(CastPatchError, match="bad-op|engine"):
+        apply_ops(
+            base,
+            [{"op": "set_voice", "character": "Alice", "voice": "pv-one", "engine": "espeak"}],
+        )
+
+
 def test_pure_remove_by_key_and_match() -> None:
     from ui.cast import apply_ops
     from ui.cast import CastPatchError

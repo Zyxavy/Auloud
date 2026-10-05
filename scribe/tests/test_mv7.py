@@ -548,9 +548,9 @@ def test_fingerprint_cast_edit_moves_only_affected_sentences(tmp_path: Path) -> 
     chapters = _script_chapters(tmp_path / "work", result.book_id)
     engine = VoicesEngine()
 
-    before = [_fingerprint(cast, engine, chapter) for chapter in chapters]
+    before = [_fingerprint(cast, {"kokoro": engine}, chapter) for chapter in chapters]
     cast["characters"]["Alice"]["voice"] = "zf_xiaoxiao"
-    after = [_fingerprint(cast, engine, chapter) for chapter in chapters]
+    after = [_fingerprint(cast, {"kokoro": engine}, chapter) for chapter in chapters]
 
     assert before[1] == after[1]  # chapter 2 holds no Alice lines: untouched
     assert before[0] != after[0]  # chapter 1 holds Alice lines: re-renders
@@ -560,7 +560,8 @@ def test_fingerprint_cast_edit_moves_only_affected_sentences(tmp_path: Path) -> 
     changed = rows_before ^ rows_after
     assert changed  # exactly Alice's sentences changed voice
     for row in changed:
-        assert row[1] == "Alice" and row[2] in ("bf_isabella", "zf_xiaoxiao")
+        assert row[1] == "Alice" and row[2] == "kokoro"
+        assert row[3] in ("bf_isabella", "zf_xiaoxiao")
 
 
 # ---------------------------------------------------------------------------
