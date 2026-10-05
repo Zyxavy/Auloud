@@ -4,6 +4,9 @@
 # Coil 2.6.0: minSdk 21, Apache-2.0/MIT.
 # Compose BOM 2024.09.00, coroutines 1.9.0, serialization 1.7.3: Apache-2.0.
 # androidx.test runner + junit-ext (WP4, user-approved): Apache-2.0, test-only.
+# sherpa-onnx 1.13.8 via JitPack (Slice 7 spike only, user-approved):
+# AAR minSdk 21, POM Apache-2.0; native libs bundle static espeak-ng
+# (see Slice7.md research) — throwaway module, never ships (D-066 open).
 [versions]
 agp = "8.7.3"
 kotlin = "2.0.21"
@@ -23,6 +26,7 @@ turbine = "1.2.1"
 mockk = "1.13.12"
 test-runner = "1.6.2"
 test-junit-ext = "1.2.1"
+sherpa-onnx = "1.13.8"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -43,6 +47,7 @@ turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 test-runner = { group = "androidx.test", name = "runner", version.ref = "test-runner" }
 test-junit-ext = { group = "androidx.test.ext", name = "junit", version.ref = "test-junit-ext" }
+sherpa-onnx = { group = "com.github.k2-fsa.sherpa-onnx", name = "sherpa-onnx", version.ref = "sherpa-onnx" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
