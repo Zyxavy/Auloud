@@ -7,55 +7,67 @@
 <title>Auloud Scribe</title>
 <style>
 :root {
-  --paper: #FAF8F3;
+  --paper: #FAF7F0;
   --raised: #FFFFFF;
-  --ink: #1C1917;
-  --muted: #78716C;
-  --oxblood: #7F1D1D;
+  --ink: #1A1714;
+  --muted: #6B625C;
+  --oxblood: #7B2D26;
   --sage: #5F7166;
-  --success: #2F6B3A;
-  --warn: #8A5A00;
   --hairline: #E7E0D4;
+  --on-accent: #FFFFFF;
   --radius: 4px;
   --space: 8px;
+  --line: 1px;
+  --content-max: 960px;
+  --font-sans: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  --font-serif: Georgia, "Times New Roman", serif;
+  --text-small: 12px;
+  --text-muted: 13px;
+  --text-step: 14px;
+  --text-errors: 12.5px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #1A1714;
+    --raised: #26211D;
+    --ink: #FAF7F0;
+    --muted: #B8AEA6;
+    --oxblood: #E8AFA6;
+    --sage: #9DB8A6;
+    --hairline: #3A342E;
+    --on-accent: #1A1714;
+  }
 }
 * { box-sizing: border-box; }
 body {
-  font-family: "Segoe UI", system-ui, -apple-system, Arial, sans-serif;
+  font-family: var(--font-sans);
   background: var(--paper);
   color: var(--ink);
-  max-width: 960px;
+  max-width: var(--content-max);
   margin: 0 auto;
   padding: calc(var(--space) * 2);
+  padding-bottom: calc(var(--space) * 12);
   line-height: 1.45;
 }
-h1, h2.brand {
-  font-family: Georgia, "Times New Roman", serif;
-  color: var(--ink);
-  margin: 0 0 var(--space);
-}
-.muted { color: var(--muted); font-size: 13px; }
-.card {
-  background: var(--raised);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  box-shadow: 0 1px 2px rgba(28,25,23,.12);
-  padding: calc(var(--space) * 2);
-  margin: calc(var(--space) * 2) 0;
-}
+.brand { font-family: var(--font-serif); color: var(--ink); margin: 0 0 var(--space); }
+#d-title { font-family: var(--font-serif); color: var(--ink); margin: 0 0 var(--space); }
+h2, h3, h4 { font-family: var(--font-sans); color: var(--ink); margin: 0 0 var(--space); }
+.muted { color: var(--muted); font-size: var(--text-muted); }
+main section { border-top: var(--line) solid var(--hairline); padding: calc(var(--space) * 2) 0; margin: 0; }
+main section:first-child { border-top: 0; padding-top: 0; }
 button, input[type="file"] { font: inherit; }
 button {
   background: var(--oxblood);
-  color: #fff;
+  color: var(--on-accent);
   border: 0;
   border-radius: var(--radius);
   padding: var(--space) calc(var(--space) * 2);
   cursor: pointer;
 }
-button.ghost { background: transparent; color: var(--oxblood); border: 1px solid var(--hairline); }
-button:focus-visible, a:focus-visible, input:focus-visible { outline: 2px solid var(--oxblood); outline-offset: 2px; }
+button.ghost { background: transparent; color: var(--oxblood); border: var(--line) solid var(--hairline); }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, audio:focus-visible { outline: calc(var(--line) * 2) solid var(--oxblood); outline-offset: calc(var(--line) * 2); }
 #drop {
-  border: 1px dashed var(--sage);
+  border: var(--line) dashed var(--hairline);
   border-radius: var(--radius);
   padding: calc(var(--space) * 3);
   text-align: center;
@@ -66,66 +78,72 @@ table.auloud-table { width: 100%; border-collapse: collapse; font-variant-numeri
 table.auloud-table th, table.auloud-table td {
   text-align: left;
   padding: var(--space);
-  border-bottom: 1px solid var(--hairline);
+  border-bottom: var(--line) solid var(--hairline);
   vertical-align: top;
 }
-table.auloud-table th { color: var(--muted); font-weight: 600; font-size: 13px; }
+table.auloud-table th { color: var(--muted); font-weight: 600; font-size: var(--text-muted); }
 .chips { display: flex; flex-wrap: wrap; gap: var(--space); margin-top: var(--space); }
 .chip {
   display: inline-block;
-  font-size: 12px;
-  padding: 2px 10px;
-  border: 1px solid var(--hairline);
-  border-radius: 999px;
+  font-size: var(--text-small);
+  padding: calc(var(--space) / 2) var(--space);
+  border: var(--line) solid var(--hairline);
+  border-radius: var(--radius);
   background: var(--paper);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
-.chip.on { color: var(--ink); border-color: var(--sage); background: #EFF2ED; }
-.chip.good { color: var(--success); border-color: var(--success); }
-.chip.busy { color: var(--warn); border-color: var(--warn); }
+.chip.on { color: var(--ink); border-color: var(--ink); background: var(--paper); }
+.chip.good { color: var(--sage); border-color: var(--sage); }
+.chip.busy { color: var(--ink); border-color: var(--ink); }
 .stepper { list-style: none; margin: var(--space) 0; padding: 0; }
 .stepper li {
-  border-left: 3px solid var(--hairline);
+  border-left: var(--radius) solid var(--hairline);
   padding: var(--space) calc(var(--space) * 2);
   margin: 0;
 }
 .stepper li.done { border-color: var(--sage); }
 .stepper li.active { border-color: var(--oxblood); }
 .stepper .step-title { font-weight: 650; }
-.stepper .step-body { color: var(--ink); font-size: 14px; }
+.stepper .step-body { color: var(--ink); font-size: var(--text-step); }
 pre.errors {
   background: var(--paper);
-  border: 1px solid var(--hairline);
+  border: var(--line) solid var(--hairline);
   border-radius: var(--radius);
   padding: var(--space);
   overflow: auto;
-  font-size: 12.5px;
+  font-size: var(--text-errors);
   font-variant-numeric: tabular-nums;
 }
-.empty { color: var(--muted); border: 1px solid var(--hairline); border-radius: var(--radius); padding: calc(var(--space) * 2); }
+.empty { color: var(--muted); border: var(--line) solid var(--hairline); border-radius: var(--radius); padding: calc(var(--space) * 2); }
+#cast-conflict .empty { background: var(--raised); box-shadow: 0 1px 2px rgba(26,23,20,.20); }
 .row-actions { display: flex; gap: var(--space); margin-top: var(--space); }
 .num { font-variant-numeric: tabular-nums; }
+[aria-live], [role="status"], [role="alert"] { font-variant-numeric: tabular-nums; }
 #tray {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
-  background: var(--raised); border-top: 1px solid var(--hairline);
-  box-shadow: 0 -1px 2px rgba(28,25,23,.12);
+  background: var(--raised); border-top: var(--line) solid var(--hairline);
   padding: var(--space) calc(var(--space) * 2);
   font-variant-numeric: tabular-nums;
 }
 #tray .tray-row { display: flex; gap: var(--space); align-items: center; flex-wrap: wrap; }
-#tray .tray-prog { flex: 1 1 160px; height: 8px; background: var(--paper); border: 1px solid var(--hairline); border-radius: 999px; overflow: hidden; }
-#tray .tray-prog > span { display: block; height: 100%; background: var(--sage); width: 0%; }
+#tray .tray-prog { flex: 1 1 calc(var(--space) * 20); height: var(--space); background: var(--paper); border: var(--line) solid var(--hairline); border-radius: var(--radius); overflow: hidden; }
+#tray .tray-prog > span { display: block; height: 100%; background: var(--oxblood); width: 0%; }
 #toasts { position: fixed; right: calc(var(--space) * 2); bottom: calc(var(--space) * 8); display: flex; flex-direction: column; gap: var(--space); z-index: 30; }
-.toast { background: var(--raised); border: 1px solid var(--hairline); border-radius: var(--radius); padding: var(--space) calc(var(--space) * 2); box-shadow: 0 1px 2px rgba(28,25,23,.12); }
-body { padding-bottom: calc(var(--space) * 12); }
+.toast { background: var(--raised); border: var(--line) solid var(--hairline); border-radius: var(--radius); padding: var(--space) calc(var(--space) * 2); }
+#player-row { margin-top: var(--space); }
+#player-row audio { width: 100%; }
+.skip { position: absolute; left: calc(var(--space) * 2); top: calc(var(--space) * 2); background: var(--raised); color: var(--ink); border: var(--line) solid var(--hairline); border-radius: var(--radius); padding: var(--space) calc(var(--space) * 2); z-index: 50; }
+.skip:not(:focus) { position: absolute; width: var(--line); height: var(--line); overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 </style>
 </head>
 <body>
+<a class="skip" href="#main">Skip to main content</a>
+<main id="main">
 <h1 class="brand">Auloud Scribe</h1>
 <p class="muted">Books and book detail. The jobs tray below tracks drafts, builds and voice samples. The voices palette below lists every voice with audition clips.</p>
 
-<section class="card" id="upload-card" aria-label="Upload a book">
+<section id="upload-card" aria-label="Upload a book">
 <h2>Add a book</h2>
 <div id="drop">Drop an EPUB or PDF here, or pick one below.<br>Drafting starts at once; the list below shows it.</div>
 <p><input type="file" id="file" accept=".epub,.pdf" aria-label="Pick an EPUB or PDF"></p>
@@ -134,7 +152,7 @@ body { padding-bottom: calc(var(--space) * 12); }
 <p class="muted" id="upload-status" role="status"></p>
 </section>
 
-<section class="card" aria-label="Books">
+<section aria-label="Books">
 <h2>Books</h2>
 <div id="books-empty" class="empty" hidden>No books yet. Add an EPUB or PDF above to start.</div>
 <table class="auloud-table" id="books-table" hidden>
@@ -143,7 +161,7 @@ body { padding-bottom: calc(var(--space) * 12); }
 </table>
 </section>
 
-<section class="card" aria-label="Book detail">
+<section aria-label="Book detail">
 <h2>Book detail</h2>
 <div id="detail-empty" class="empty">Pick a book from the list to see its steps. Uploaded books appear above first.</div>
 <div id="detail" hidden>
@@ -155,7 +173,7 @@ body { padding-bottom: calc(var(--space) * 12); }
 </div>
 </section>
 
-<section class="card" aria-label="Voices">
+<section aria-label="Voices">
 <h2>Voices</h2>
 <p class="muted" id="voices-meta">Loading the palette…</p>
 <p class="muted">Clips cache under .scribe/voice-samples by engine version. Press Play to hear a voice; missing clips generate in the background.</p>
@@ -169,7 +187,7 @@ body { padding-bottom: calc(var(--space) * 12); }
 <p class="muted" id="voices-status" role="status"></p>
 </section>
 
-<section class="card" aria-label="Jobs history">
+<section aria-label="Jobs history">
 <h2>Jobs</h2>
 <div id="jobs-empty" class="empty">No jobs yet. Upload a book above to start a draft job.</div>
 <table class="auloud-table" id="jobs-table" hidden>
@@ -180,9 +198,11 @@ body { padding-bottom: calc(var(--space) * 12); }
 <button id="jobs-refresh" class="ghost" type="button">Refresh jobs</button></p>
 </section>
 
+</main>
+
 <div id="tray" role="status" aria-live="polite"><div class="tray-row"><span id="tray-text" class="muted">No jobs yet. Upload a book above to start a draft job.</span></div></div>
 <div id="toasts" aria-live="polite"></div>
-<div id="player-row" hidden></div>
+<div id="player-row" hidden aria-live="polite"></div>
 
 <script type="module">
 const token = document.querySelector('meta[name="auloud-token"]').content;
@@ -293,7 +313,7 @@ async function loadDetail(id) {
   steps.push(stepLi("5 · On tablet", data.on_tablet ? "done" : "",
     '<div id="transfer-step"><div class="empty">Loading transfer…</div></div>'));
   if (data.draft_error) steps.push(stepLi("Draft problem", "active",
-    "<pre class='errors'>" + esc(data.draft_error.file) + ": " + esc(data.draft_error.message) + "</pre>"));
+    "<pre class='errors'>" + esc(data.draft_error.file) + ": " + esc(data.draft_error.rule || "draft-failed") + ": " + esc(data.draft_error.message) + "</pre>"));
   document.getElementById("d-steps").innerHTML = steps.join("");
   setupRenderStep(data);
   setupCastStep(data);
@@ -320,7 +340,7 @@ async function setupValidateStep(data) {
   if (rows) html += "<pre class='errors'>" + rows + "</pre>";
   html += '<p class="row-actions"><button id="validate-run" type="button">Validate now</button></p>';
   html += '<p class="muted" id="validate-status" role="status"></p>';
-  html += '<div id="validate-results" aria-live="polite"></div>';
+  html += '<div id="validate-results" aria-live="assertive"></div>';
   box.innerHTML = html;
   document.getElementById("validate-run").addEventListener("click", runValidate);
 }
@@ -425,7 +445,7 @@ function transferBytesLine(job) {
   else if (done) line += " · " + done + " bytes";
   const v = job.verification;
   if (job.state === "done" && v && v.ok) line += " · verified";
-  if (job.state === "failed" && job.error) line += " · " + job.error.rule + ": " + job.error.message;
+  if (job.state === "failed" && job.error) line += " · " + job.error.file + ": " + job.error.rule + ": " + job.error.message;
   return line;
 }
 async function startTransfer() {
@@ -447,7 +467,7 @@ async function startTransfer() {
   const { ok, status, data } = await api("/api/books/" + encodeURIComponent(transferBookId) + "/transfer", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
   });
-  if (!ok) {
+    if (!ok) {
     if (err) err.textContent = (data && data.message) ? (data.file + ": " + data.rule + ": " + data.message) : ("Copy failed with code " + status + ".");
     return;
   }
@@ -531,7 +551,7 @@ function setupRenderStep(data) {
   let html = "";
   html += '<p class="muted">Pick chapters or a page range, check the preflight, then start. Partial page edges render whole chapters.</p>';
   html += '<div id="render-chapters"></div>';
-  html += '<p class="row-actions"><button id="render-all" type="button" class="ghost">Select all</button> <button id="render-clear" type="button" class="ghost">Clear</button></p>';
+  html += '<p class="row-actions"><button id="render-all" type="button" class="ghost">Select all</button> <button id="render-clear" type="button" class="ghost">Clear selection</button></p>';
   html += '<p><label for="render-shorthand">Chapters shorthand</label><br><input id="render-shorthand" size="24" placeholder="e.g. 3-5,7" aria-describedby="render-grammar"><br><span class="muted" id="render-grammar">Grammar: comma-separated N or A-B, e.g. 3-5,7 (same as --chapters).</span></p>';
   if (isPdf) {
     html += '<p><label for="render-pages">Page range</label><br><input id="render-pages" size="24" placeholder="e.g. 40-90"><br><span class="muted">Pages resolve to whole covering chapters. While a page range is set, the chapter picker is ignored.</span></p><div id="render-pages-preview" class="muted" aria-live="polite"></div>';
@@ -690,7 +710,7 @@ async function loadRenderDevice() {
     });
     if (!made.ok) {
       const d = made.data || {};
-      if (err) err.textContent = d.message ? (d.file + ": " + d.message) : "Could not save the device.";
+      if (err) err.textContent = d.message ? (d.file + ": " + (d.rule || "bad-device") + ": " + d.message) : "Could not save the device.";
     } else if (err && err.textContent.startsWith("Could not save")) err.textContent = "";
   });
 }
@@ -705,7 +725,7 @@ async function startRender() {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(made.payload)
   });
   if (!ok) {
-    if (err) err.textContent = (data && data.message) ? (data.file + ": " + data.message) : ("Start failed with code " + status + ".");
+    if (err) err.textContent = (data && data.message) ? (data.file + ": " + (data.rule || "build-failed") + ": " + data.message) : ("Start failed with code " + status + ".");
     return;
   }
   if (err) err.textContent = "";
@@ -774,7 +794,7 @@ function renderLiveStep(jobs) {
     if (job.state === "done") {
       done.innerHTML = "<p>" + esc("Finished: " + rendered + " rendered, " + cached + " cached.") + "</p>";
     } else if (job.state === "failed" && job.error) {
-      done.innerHTML = "<pre class='errors'>" + esc(job.error.file + ": " + job.error.message) + "</pre>";
+      done.innerHTML = "<pre class='errors'>" + esc(job.error.file + ": " + job.error.rule + ": " + job.error.message) + "</pre>";
     } else if (job.state === "running" || job.state === "queued" || job.state === "paused") {
       done.innerHTML = "";
     }
@@ -900,7 +920,7 @@ function paintCastStep(box, doc) {
   html += '<ul id="cast-overrides">' + overrides.map((o) => {
     const key = o.match ? ("match " + o.match) : ("quote " + o.chapter + "/" + o.block + "/" + o.quote);
     return "<li>" + esc(key) + " → " + esc(o.speaker) +
-      ' <button type="button" class="ghost" data-remove-override=\'' + esc(JSON.stringify(o)) + "'>Remove</button></li>";
+      ' <button type="button" class="ghost" data-remove-override=\'' + esc(JSON.stringify(o)) + "'>Remove override</button></li>";
   }).join("") + "</ul>";
   html += '<p class="row-actions"><input id="ov-chapter" size="4" placeholder="ch" aria-label="Override chapter"> ' +
     '<input id="ov-block" size="4" placeholder="block" aria-label="Override block"> ' +
@@ -913,12 +933,12 @@ function paintCastStep(box, doc) {
   html += '<div id="cast-low"><p class="muted">Loading low-confidence lines…</p></div>';
   html += '<h4>Cast report</h4><pre class="errors" id="cast-report">Loading…</pre>';
   html += '<p class="muted" id="cast-affected" role="status"></p>';
-  html += '<pre class="errors" id="cast-errors" hidden></pre>';
+  html += '<pre class="errors" id="cast-errors" hidden role="alert"></pre>';
   if (Array.isArray(doc.validation) && doc.validation.length) {
     html += "<pre class='errors' id='cast-file-errors'>" + esc(doc.validation.map((e) => e.file + ": " + e.rule + ": " + e.message).join("\n")) + "</pre>";
   }
   html += '<p class="row-actions"><button id="cast-save" type="button">Save cast</button> ' +
-    '<button id="cast-reload" type="button" class="ghost">Reload</button></p>';
+    '<button id="cast-reload" type="button" class="ghost">Reload cast</button></p>';
   box.innerHTML = html;
   paintCastState();
   box.querySelectorAll("[data-voice-for]").forEach((sel) => {
@@ -1269,7 +1289,7 @@ async function upload() {
   status.textContent = "Uploading…";
   const { ok, status: code, data } = await api("/api/books/upload", { method: "POST", body: form });
   if (!ok) {
-    const msg = data && data.message ? (data.file + ": " + data.message) : ("Upload failed with code " + code + ".");
+    const msg = data && data.message ? (data.file + ": " + (data.rule || "upload-failed") + ": " + data.message) : ("Upload failed with code " + code + ".");
     status.textContent = msg;
     return;
   }
@@ -1298,7 +1318,7 @@ function jobLabel(j) { return (j.kind || "job") + " " + (j.id || ""); }
 function sentCount(j) { const s = j.summary || {}; return (s.cached || 0) + (s.rendered || 0); }
 async function jobAction(id, verb) {
   const { ok, status, data } = await api("/api/jobs/" + encodeURIComponent(id) + "/" + verb, { method: "POST" });
-  if (!ok) toast("Job " + verb + " failed: " + ((data && data.message) || ("code " + status)));
+  if (!ok) toast("Job " + verb + " failed: " + ((data && data.message) ? (data.file + ": " + data.rule + ": " + data.message) : ("code " + status)));
   await loadJobs();
 }
 function toast(htmlText, bookId) {
