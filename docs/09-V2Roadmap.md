@@ -10,7 +10,7 @@ Builds on v1.0.0 (PC renders the audiobook, the tablet plays it). Source for the
 - [ ] Back up the signing key from `D:\keys` to a second location
 - [ ] Add the `slice-6` tag; run the 3-browser runbook for the web UI
 - [ ] Decide the contribution policy (DCO or CLA), the one open box in `08-Licenses.md`
-- [x] Fix the `07-TestPlan.md` filename case drift (done 2026-10-05: archived as `docs/archive/v1/07-Testplan.md`, live references updated; drift resolved by the move)
+- [ ] Fix the `07-TestPlan.md` filename case drift
 
 ## 1. Can Auloud support Piper, Kokoro and others, and let the user switch?
 
@@ -58,7 +58,7 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 
 ### v2.0: Embed the book, render on the device
 
-**Slice 7: Benchmark spike and gate (S-M).** The decision point for everything else.
+**Slice 7: Benchmark spike and gate (S-M).** *Status: replaced.* A separate benchmark app was not practical on the Tab E, so the gate is now (1) the written hypotheses in `17-Slice8-Plan.md` and (2) an **in-app benchmark on the Voice lab screen** built in Slice 8, which any device, including the Tab E, can run without adb. The original spike checklist below stays as a reference for what to measure.
 
 - Throwaway Android app with sherpa-onnx; measure on the Tab E (and a modern phone if you have one): Piper low and medium voices, Kokoro (full and quantized if available), System TTS `synthesizeToFile`
 - Measure warmed real-time factor (audio seconds per wall second), model load time, RAM, heat and battery over 10 minutes, 32-bit vs 64-bit behavior
