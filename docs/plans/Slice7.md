@@ -71,3 +71,11 @@ New `player/spike/` module (applicationId `app.auloud.spike`, minSdk 24, debug o
 - tokens.txt generated from `.onnx.json`: if synth output is garbage, the map is wrong, not the engine (validate counts first, ears second)
 - Heat throttling skews later runs: cool-down between engines, note order in results
 - No adb: everything typed on-screen and exported to the file (same sneakernet discipline as v1)
+
+## 6. Partial results (2026-10-05, Tab E, user-run)
+
+Device: SDK 25 / 7.1.1, `armeabi-v7a,armeabi`, 32-bit (`is64=false`), 1427 MB RAM. The 32-bit `.so` loads and runs — the AAR path is viable on the tablet.
+
+System TTS: 239 voices, default en-US. Warmed RTF **0.39** (2.6 s wall per 1 s audio on short sentences — per-call overhead included; longer sentences may amortize, note for Slice 13), voice-switch gap **804 ms** (two-voice switching is expensive — Slice 10 should minimize switches), PSS 46 MB, battery 54% temp 35.6 C at start.
+
+Piper/Battery: not run yet — the pack landed in the wrong folder (spike reads `/Auloud/spike-models/piper/*.onnx` directly, not nested). Kokoro button fails as designed (D-077, no folder).
