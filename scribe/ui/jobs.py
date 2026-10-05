@@ -441,6 +441,7 @@ class JobManager:
             "source_file": job.get("source_file"),
             # UI7 voices-sample fields (None for build/draft jobs).
             "voices": job.get("voices"),
+            "engine": job.get("engine"),
             "engine_version": job.get("engine_version"),
             "text_hash": job.get("text_hash"),
             # UI8 transfer fields (None for build/draft/voices jobs).
@@ -588,14 +589,18 @@ class JobManager:
         voices: list[str],
         engine_version: str,
         text_hash: str,
+        *,
+        engine: str = "kokoro",
     ) -> dict[str, Any]:
         """Queue a voices-sample job (UI7; same global FIFO, no book lock).
 
         ``voices`` is the sorted unique voice list to render with the fixed
         audition sentence; ``engine_version``/``text_hash`` select the
-        versioned cache dir the detached child writes. Callers coalesce
-        first (see :meth:`find_active_voices_job`); this method always
-        creates (queued behind whatever runs, never refused).
+        versioned cache dir the detached child writes. SW3 adds ``engine``:
+        the detached ``scribe voices --sample`` runs with ``--engine`` so
+        Piper clips render through Piper. Callers coalesce first (see
+        :meth:`find_active_voices_job`); this method always creates (queued
+        behind whatever runs, never refused).
         """
         from .cast import check_voice_name
 
@@ -608,6 +613,7 @@ class JobManager:
         thash = str(text_hash or "").strip()
         if not thash:
             raise ValueError("voices: bad-request: need a sample text hash")
+        engine_id = str(engine or "").strip().lower() or "kokoro"
         job_id = self._new_id()
         now = _now_iso()
         job: dict[str, Any] = {
@@ -626,6 +632,7 @@ class JobManager:
             "device": None,
             "source_file": None,
             "voices": wanted,
+            "engine": engine_id,
             "engine_version": version,
             "text_hash": thash,
         }
@@ -645,13 +652,16 @@ class JobManager:
         voices: list[str],
         engine_version: str,
         text_hash: str,
+        *,
+        engine: str = "kokoro",
     ) -> dict[str, Any] | None:
         """Newest active voices job covering ``voices`` (None when none).
 
-        Covering means same ``engine_version`` + ``text_hash`` with a stored
-        voice set that is a superset of the wanted set, so a running
-        regenerate-all coalesces single-voice retries, while disjoint sets
-        queue separately. Active means queued/running/paused.
+        Covering means same ``engine`` + ``engine_version`` + ``text_hash``
+        with a stored voice set that is a superset of the wanted set, so a
+        running regenerate-all coalesces single-voice retries, while
+        disjoint sets queue separately. Old jobs without an ``engine``
+        field count as kokoro. Active means queued/running/paused.
         """
         try:
             wanted = {str(v) for v in (voices or [])}
@@ -667,6 +677,8 @@ class JobManager:
             if data.get("kind") != VOICES_KIND:
                 continue
             if data.get("state") not in VOICES_ACTIVE:
+                continue
+            if str(data.get("engine") or "kokoro") != str(engine or "kokoro"):
                 continue
             if str(data.get("engine_version") or "") != str(engine_version or ""):
                 continue
@@ -902,6 +914,8 @@ class JobManager:
                 str(cli),
                 "voices",
                 "--sample",
+                "--engine",
+                str(job.get("engine") or "kokoro"),
                 "--out-dir",
                 str(out_dir),
             ]

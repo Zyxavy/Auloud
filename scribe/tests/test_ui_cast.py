@@ -738,10 +738,67 @@ def test_voices_list_is_engine_with_models(tmp_path: Path) -> None:
     assert resp.status_code == 200, resp.text
     doc = resp.json()
     assert doc["source"] == "engine"
+    assert doc["engine"] == "kokoro"
     assert doc["voices"] == ["af_heart", "am_adam", "ef_dora", "zm_yunxi"]
     by_name = {entry["name"]: entry for entry in doc["details"]}
     assert by_name["ef_dora"]["locale"] == "Spanish"
     assert by_name["zm_yunxi"]["gender"] == "male"
+
+
+def _write_piper_pair(models_dir: Path, stem: str) -> None:
+    piper_dir = models_dir / "piper"
+    piper_dir.mkdir(parents=True, exist_ok=True)
+    (piper_dir / f"{stem}.onnx").write_bytes(b"fake-onnx")
+    (piper_dir / f"{stem}.onnx.json").write_text("{}", encoding="utf-8")
+
+
+def test_voices_list_piper_engine_with_pairs(tmp_path: Path) -> None:
+    _write_piper_pair(tmp_path / "models", "en_US-test-low")
+    client, _token = _api_client(tmp_path)
+    resp = client.get("/api/cast/voices?engine=piper", headers={**LOCAL})
+    assert resp.status_code == 200, resp.text
+    doc = resp.json()
+    assert doc["source"] == "engine"
+    assert doc["engine"] == "piper"
+    assert doc["voices"] == ["en_US-test-low"]
+    assert doc["engine_version"].startswith("piper-tts ")
+    assert doc["details"] == [
+        {"name": "en_US-test-low", "locale": "en-US", "gender": "unknown"}
+    ]
+
+
+def test_voices_list_piper_without_pairs_is_empty_not_palette(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Piper has no palette fallback: no pairs means an honest empty list,
+    # never the Kokoro shortlist under a piper label.
+    monkeypatch.chdir(tmp_path)
+    client, _token = _api_client(tmp_path)
+    resp = client.get("/api/cast/voices?engine=piper", headers={**LOCAL})
+    assert resp.status_code == 200, resp.text
+    doc = resp.json()
+    assert doc["voices"] == [] and doc["source"] == "engine"
+    assert doc["engine"] == "piper"
+
+
+def test_voices_list_unknown_engine_is_400(tmp_path: Path) -> None:
+    client, _token = _api_client(tmp_path)
+    resp = client.get("/api/cast/voices?engine=espeak", headers={**LOCAL})
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["rule"] == "bad-request"
+    assert "espeak" in resp.json()["message"]
+
+
+def test_describe_voice_piper_ids() -> None:
+    from ui.cast import describe_voice
+
+    assert describe_voice("en_US-test-low") == {
+        "name": "en_US-test-low",
+        "locale": "en-US",
+        "gender": "unknown",
+    }
+    # Kokoro heuristic untouched.
+    assert describe_voice("af_bella")["locale"] == "American"
 
 
 def test_voices_unknown_name_rejected_not_palette_gated(tmp_path: Path) -> None:
@@ -753,7 +810,7 @@ def test_voices_unknown_name_rejected_not_palette_gated(tmp_path: Path) -> None:
     )
     assert bad.status_code == 400, bad.text
     assert bad.json()["rule"] == "unknown-voice"
-    assert "not a known Kokoro voice" in bad.json()["message"]
+    assert "not a known kokoro voice" in bad.json()["message"]
 
 
 def test_voice_sample_served_missing_and_bad(tmp_path: Path) -> None:

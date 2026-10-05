@@ -61,8 +61,9 @@ UI6 adds (thin operators over :mod:`ui.cast` and :mod:`text.cast`; the
 - ``GET /api/books/{id}/quotes?confidence=low&page=&per_page=`` — the
   overrides picker (chapter/block/quote/text/raw speaker/confidence plus
   the resolved character); paged with a total (novels have thousands).
-- ``GET /api/cast/voices`` — the voice dropdown (engine archive list when a
-  models dir holds it, else the D-036 palette; UI7 adds the engine version
+- ``GET /api/cast/voices`` — the voice dropdown (``?engine=`` selects the
+  engine: Kokoro archive list or Piper model stems when a models dir holds
+  them, else the D-036 palette for Kokoro; UI7 adds the engine version
   plus locale/gender details).
 - ``GET /api/voices/{name}.wav`` — cached audition clip (exact
   ``<voice>.wav`` or ``*-<voice>.wav`` from ``scribe voices --sample``);
@@ -1074,7 +1075,24 @@ def create_app(
             _split_shaped(str(exc), fallback_file, "bad-request"), status_code=400
         )
 
-    def _voices_version() -> str:
+    def _check_engine_param(raw: Any) -> tuple[str, JSONResponse | None]:
+        """Validate an ``engine`` query/body value (SW3, default kokoro)."""
+        from text.cast import SUPPORTED_ENGINES
+
+        engine = str(raw or "").strip().lower() or "kokoro"
+        if engine not in SUPPORTED_ENGINES:
+            return engine, JSONResponse(
+                _error_shape(
+                    "voices",
+                    "bad-request",
+                    f"voices: bad-request: unknown engine {raw!r} "
+                    f"(expected one of {list(SUPPORTED_ENGINES)})",
+                ),
+                status_code=400,
+            )
+        return engine, None
+
+    def _voices_version(engine: str = "kokoro") -> str:
         """Audition engine version (injected fake in tests; else live metadata)."""
         from . import cast as _castmod
 
@@ -1084,18 +1102,20 @@ def create_app(
             injected = None
         if isinstance(injected, str) and injected.strip():
             return injected
-        return _castmod.get_engine_version()
+        return _castmod.engine_version_for(engine)
 
     def _voices_hash() -> str:
         from . import cast as _castmod
 
         return _castmod.sample_text_hash()
 
-    def _wanted_or_palette(raw: Any) -> tuple[list[str] | None, JSONResponse | None]:
+    def _wanted_or_palette(
+        raw: Any, engine: str = "kokoro"
+    ) -> tuple[list[str] | None, JSONResponse | None]:
         """Validate an optional ``voices`` list (None means all available)."""
         from .cast import available_voices, check_voice_name
 
-        known, _source = available_voices(root)
+        known, _source = available_voices(root, engine=engine)
         if raw is None:
             return None, None
         if not isinstance(raw, list) or not raw:
@@ -1129,7 +1149,7 @@ def create_app(
                     _error_shape(
                         f"{name}.wav",
                         "unknown-voice",
-                        f"{name}.wav: unknown-voice: {name!r} is not a known Kokoro voice",
+                        f"{name}.wav: unknown-voice: {name!r} is not a known {engine} voice",
                     ),
                     status_code=400,
                 )
@@ -1137,12 +1157,12 @@ def create_app(
         return sorted(set(wanted)), None
 
     def _sample_job_response(
-        wanted: list[str], *, regenerate: bool
+        wanted: list[str], *, regenerate: bool, engine: str = "kokoro"
     ) -> JSONResponse:
         """200-cached or 202-job for ``wanted`` (coalesced when covered)."""
         from . import cast as _castmod
 
-        version = _voices_version()
+        version = _voices_version(engine)
         thash = _voices_hash()
         if not regenerate and all(
             _castmod.find_versioned_sample(root, voice, version, thash) is not None
@@ -1152,17 +1172,19 @@ def create_app(
                 {
                     "cached": True,
                     "voices": wanted,
+                    "engine": engine,
                     "engine_version": version,
                     "text_hash": thash,
                 }
             )
-        active = manager.find_active_voices_job(wanted, version, thash)
+        active = manager.find_active_voices_job(wanted, version, thash, engine=engine)
         if active is not None:
             return JSONResponse(
                 {
                     "job_id": active["id"],
                     "state": active.get("state"),
                     "voices": wanted,
+                    "engine": engine,
                     "engine_version": version,
                     "text_hash": thash,
                     "coalesced": True,
@@ -1170,7 +1192,7 @@ def create_app(
                 status_code=202,
             )
         try:
-            created = manager.create_voices_sample(wanted, version, thash)
+            created = manager.create_voices_sample(wanted, version, thash, engine=engine)
         except (ValueError, KeyError) as exc:
             return _job_error_response(exc, "voices")
         return JSONResponse(
@@ -1178,6 +1200,7 @@ def create_app(
                 "job_id": created["id"],
                 "state": created.get("state"),
                 "voices": wanted,
+                "engine": engine,
                 "engine_version": version,
                 "text_hash": thash,
                 "coalesced": False,
@@ -1186,26 +1209,32 @@ def create_app(
         )
 
     @app.get("/api/cast/voices")
-    async def _cast_voices() -> dict[str, Any]:
+    async def _cast_voices(engine: str = "kokoro") -> Any:
         """Voice dropdown + grid source (engine list, palette fallback).
 
-        Full engine enumeration from the voices archive keys (no model
-        load); the D-036 palette only when no models dir holds the archive.
+        Full engine enumeration from the voices archive keys or Piper
+        model stems (no model load); the D-036 palette only when no models
+        dir holds the Kokoro archive. ``?engine=piper`` lists Piper pairs
+        (empty when none installed, never the Kokoro palette).
         """
         from .cast import available_voice_details
 
+        engine, bad_engine = _check_engine_param(engine)
+        if bad_engine is not None:
+            return bad_engine
         try:
             from tts.voices import SAMPLE_TEXT as _SAMPLE_TEXT
         except ImportError:
             from .cast import sample_text as _sample_text_fn
 
             _SAMPLE_TEXT = _sample_text_fn()
-        version = _voices_version()
+        version = _voices_version(engine)
         thash = _voices_hash()
-        details, source = available_voice_details(root)
+        details, source = available_voice_details(root, engine)
         return {
             "voices": [entry["name"] for entry in details],
             "source": source,
+            "engine": engine,
             "engine_version": version,
             "sample_text": _SAMPLE_TEXT,
             "text_hash": thash,
@@ -1213,8 +1242,8 @@ def create_app(
             "note": (
                 "Voice grid source with the engine version and locale/gender "
                 "hints. Clips are versioned by (voice, engine version, sample "
-                "text); source is 'engine' (all archive voices) or 'palette' "
-                "(D-036 shortlist, no models dir found)."
+                "text); source is 'engine' (all engine voices) or 'palette' "
+                "(D-036 shortlist, no models dir found; Kokoro only)."
             ),
         }
 
@@ -1231,6 +1260,7 @@ def create_app(
         ``FileResponse`` (not hand-rolled).
         """
         from . import cast as _castmod
+        from text.cast import SUPPORTED_ENGINES
 
         try:
             voice = _castmod.check_voice_name(name)
@@ -1238,9 +1268,16 @@ def create_app(
             return JSONResponse(
                 _split_shaped(str(exc), name, "path-traversal"), status_code=400
             )
-        version = _voices_version()
         thash = _voices_hash()
-        found, is_versioned = _castmod.find_cached_clip(root, voice, version, thash)
+        # Clips are version-keyed per engine; try each supported engine so
+        # Piper clips serve without the caller naming the engine.
+        found, is_versioned, version = None, False, _voices_version()
+        for candidate_engine in SUPPORTED_ENGINES:
+            candidate_version = _voices_version(candidate_engine)
+            hit = _castmod.find_cached_clip(root, voice, candidate_version, thash)
+            if hit[0] is not None:
+                found, is_versioned, version = hit[0], hit[1], candidate_version
+                break
         if found is not None:
             cache = (
                 "public, max-age=31536000, immutable"
@@ -1274,19 +1311,23 @@ def create_app(
     async def _voices_sample(payload: dict[str, Any] | None = None) -> JSONResponse:
         """Queue a detached audition render (202 + job; 200 when cached).
 
-        Body ``{voices?: [...], regenerate?: bool}`` (token-guarded via the
-        middleware). Omitted ``voices`` means all available voices. Concurrent
+        Body ``{voices?: [...], regenerate?: bool, engine?: ...}``
+        (token-guarded via the middleware). Omitted ``voices`` means all
+        available voices for the engine (default kokoro). Concurrent
         posts for the same missing clips coalesce to the running job (202
         with the same id plus ``coalesced: true`` — queued-on-same).
         """
         from .cast import available_voices
 
         body = payload or {}
-        wanted, bad = _wanted_or_palette(body.get("voices"))
+        engine, bad_engine = _check_engine_param(body.get("engine"))
+        if bad_engine is not None:
+            return bad_engine
+        wanted, bad = _wanted_or_palette(body.get("voices"), engine)
         if bad is not None:
             return bad
         if wanted is None:
-            wanted, _source = available_voices(root)
+            wanted, _source = available_voices(root, engine)
         regenerate = body.get("regenerate", False)
         if not isinstance(regenerate, bool):
             return JSONResponse(
@@ -1297,7 +1338,7 @@ def create_app(
                 ),
                 status_code=400,
             )
-        return _sample_job_response(wanted, regenerate=regenerate)
+        return _sample_job_response(wanted, regenerate=regenerate, engine=engine)
 
     @app.post("/api/voices/{name}/sample")
     async def _voice_sample_one(
@@ -1306,23 +1347,26 @@ def create_app(
         """Per-voice convenience for the same generation job (same contract)."""
         from .cast import available_voices, check_voice_name
 
+        body = payload or {}
+        engine, bad_engine = _check_engine_param(body.get("engine"))
+        if bad_engine is not None:
+            return bad_engine
         try:
             voice = check_voice_name(name)
         except ValueError as exc:
             return JSONResponse(
                 _split_shaped(str(exc), name, "path-traversal"), status_code=400
             )
-        known, _source = available_voices(root)
+        known, _source = available_voices(root, engine)
         if voice not in known:
             return JSONResponse(
                 _error_shape(
                     f"{voice}.wav",
                     "unknown-voice",
-                    f"{voice}.wav: unknown-voice: {voice!r} is not a known Kokoro voice",
+                    f"{voice}.wav: unknown-voice: {voice!r} is not a known {engine} voice",
                 ),
                 status_code=400,
             )
-        body = payload or {}
         regenerate = body.get("regenerate", False)
         if not isinstance(regenerate, bool):
             return JSONResponse(
@@ -1333,7 +1377,7 @@ def create_app(
                 ),
                 status_code=400,
             )
-        return _sample_job_response([voice], regenerate=regenerate)
+        return _sample_job_response([voice], regenerate=regenerate, engine=engine)
 
     @app.get("/api/books/{book_id}/cast")
     async def _cast_get(book_id: str) -> JSONResponse:

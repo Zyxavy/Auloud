@@ -342,6 +342,44 @@ def test_version_bump_regenerates(tmp_path: Path) -> None:
     assert client2.get("/api/voices/af_bella.wav", headers={**LOCAL}).status_code == 200
 
 
+def test_sample_post_with_engine_piper_creates_piper_job(tmp_path: Path) -> None:
+    """SW3: engine flows from the sample POST into the job (spawn runs
+    ``scribe voices --sample --engine piper``; see the spawner-cmd test)."""
+    from ui.cast import PALETTE_VOICES
+
+    assert "en_US-test-low" not in PALETTE_VOICES  # not a palette name
+    piper_dir = tmp_path / "models" / "piper"
+    piper_dir.mkdir(parents=True)
+    (piper_dir / "en_US-test-low.onnx").write_bytes(b"fake-onnx")
+    (piper_dir / "en_US-test-low.onnx.json").write_text("{}", encoding="utf-8")
+    spawner = _VoicesSpawner(tmp_path)
+    client, token = _api_client(tmp_path, spawner=spawner, voices_version=VERSION_A)
+    headers = _auth(token)
+    made = client.post(
+        "/api/voices/sample",
+        json={"voices": ["en_US-test-low"], "engine": "piper"},
+        headers=headers,
+    )
+    assert made.status_code == 202, made.text
+    body = made.json()
+    assert body["engine"] == "piper"
+    assert body["coalesced"] is False
+    final = _wait_job(client, body["job_id"], headers, {"done"})
+    assert final["kind"] == "voices-sample"
+    assert final["engine"] == "piper"
+    assert final["voices"] == ["en_US-test-low"]
+
+
+def test_sample_post_with_bad_engine_is_400(tmp_path: Path) -> None:
+    client, token = _api_client(tmp_path, voices_version=VERSION_A)
+    headers = _auth(token)
+    bad = client.post(
+        "/api/voices/sample", json={"engine": "espeak"}, headers=headers
+    )
+    assert bad.status_code == 400, bad.text
+    assert bad.json()["rule"] == "bad-request"
+
+
 def test_concurrent_posts_coalesce_to_one_job(tmp_path: Path) -> None:
     spawner = _BlockingSpawner(tmp_path)
     client, token = _api_client(tmp_path, spawner=spawner, voices_version=VERSION_A)

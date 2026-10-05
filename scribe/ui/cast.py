@@ -314,6 +314,28 @@ def get_engine_version() -> str:
     return f"kokoro-onnx {pkg}"
 
 
+def piper_engine_version() -> str:
+    """Piper version identity without loading a model (SW3, same contract).
+
+    Matches :attr:`tts.piper.PiperEngine.engine_version`
+    (``piper-tts <pkg>``); package metadata only, never a model load.
+    """
+    import importlib.metadata
+
+    try:
+        pkg = importlib.metadata.version("piper-tts")
+    except Exception:
+        pkg = "unknown"
+    return f"piper-tts {pkg}"
+
+
+def engine_version_for(engine: str) -> str:
+    """Version identity for a supported engine id (SW3)."""
+    if engine == "piper":
+        return piper_engine_version()
+    return get_engine_version()
+
+
 def sanitize_engine_version(version: str) -> str:
     """Filesystem-safe version segment ( traversal-proof, never empty)."""
     text = re.sub(r"[^A-Za-z0-9]+", "-", str(version or "").strip())
@@ -391,14 +413,22 @@ _VOICE_GENDERS = {"f": "female", "m": "male"}
 
 
 def describe_voice(voice: str) -> dict[str, str]:
-    """``{name, locale, gender}`` from the Kokoro id prefix (display only).
+    """``{name, locale, gender}`` from the voice id (display only).
 
-    ``af_bella`` reads American female, ``bm_lewis`` British male,
-    ``jf_alpha`` Japanese female, ``zf_xiaoxiao`` Chinese female,
-    ``im_nicola`` Italian male. Unknown prefixes stay ``unknown`` rather
+    Kokoro ids read from the two-letter prefix: ``af_bella`` American
+    female, ``bm_lewis`` British male, ``jf_alpha`` Japanese female,
+    ``zf_xiaoxiao`` Chinese female, ``im_nicola`` Italian male. Piper
+    model stems carry ``language_REGION`` instead (``en_US-ryan-low``):
+    those report the raw ``en-US`` tag with gender ``unknown`` (voices
+    ship no gender metadata). Unknown prefixes stay ``unknown`` rather
     than failing; the audition never depends on these hints.
     """
+    import re as _re
+
     name = str(voice or "")
+    piper = _re.match(r"^([A-Za-z]{2})_([A-Za-z]{2})-", name)
+    if piper is not None:
+        return {"name": name, "locale": f"{piper.group(1)}-{piper.group(2)}", "gender": "unknown"}
     prefix = name.split("_", 1)[0].lower() if "_" in name else name[:2].lower()
     locale = _VOICE_LOCALES.get(prefix[:1], "unknown") if prefix else "unknown"
     gender = _VOICE_GENDERS.get(prefix[1:2], "unknown") if len(prefix) >= 2 else "unknown"
@@ -421,29 +451,36 @@ def resolve_models_dir(workspace: Path | str) -> Path:
     return candidate if candidate.is_dir() else Path("models")
 
 
-def available_voices(workspace: Path | str) -> tuple[list[str], str]:
+def available_voices(
+    workspace: Path | str, engine: str = "kokoro"
+) -> tuple[list[str], str]:
     """Voice ids for dropdowns and grids plus where they came from.
 
-    The full engine list (archive keys, no model load — see
-    :func:`tts.voices.engine_voice_names`) when a models dir holds the
-    archive, else the D-036 :data:`PALETTE_VOICES` fallback. Returns
-    ``(voices, source)`` with source ``"engine"`` or ``"palette"``.
+    The full engine list (Kokoro archive keys or Piper model stems, no
+    model load — see :func:`tts.voices.engine_voice_names`) when a models
+    dir holds the source, else the D-036 :data:`PALETTE_VOICES` fallback
+    (Kokoro engine only; Piper has no palette). Returns ``(voices,
+    source)`` with source ``"engine"`` or ``"palette"``.
     """
     names = None
     try:
         from tts.voices import engine_voice_names
 
-        names = engine_voice_names(resolve_models_dir(workspace))
+        names = engine_voice_names(resolve_models_dir(workspace), engine=engine)
     except Exception:
         names = None
     if names:
         return names, "engine"
-    return list(PALETTE_VOICES), "palette"
+    if engine == "kokoro":
+        return list(PALETTE_VOICES), "palette"
+    return [], "engine"
 
 
-def available_voice_details(workspace: Path | str) -> tuple[list[dict[str, str]], str]:
+def available_voice_details(
+    workspace: Path | str, engine: str = "kokoro"
+) -> tuple[list[dict[str, str]], str]:
     """One :func:`describe_voice` entry per available voice, plus source."""
-    voices, source = available_voices(workspace)
+    voices, source = available_voices(workspace, engine=engine)
     return [describe_voice(voice) for voice in voices], source
 
 

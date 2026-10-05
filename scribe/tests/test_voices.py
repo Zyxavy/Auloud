@@ -128,6 +128,30 @@ def test_engine_voice_names_missing_is_none(tmp_path: Path) -> None:
     assert engine_voice_names(tmp_path) is None
 
 
+def _write_piper_pair(models_dir: Path, stem: str) -> None:
+    piper_dir = models_dir / "piper"
+    piper_dir.mkdir(parents=True, exist_ok=True)
+    (piper_dir / f"{stem}.onnx").write_bytes(b"fake-onnx")
+    (piper_dir / f"{stem}.onnx.json").write_text("{}", encoding="utf-8")
+
+
+def test_engine_voice_names_piper_scans_pairs(tmp_path: Path) -> None:
+    from tts.voices import engine_voice_names
+
+    assert engine_voice_names(tmp_path, engine="piper") is None
+    _write_piper_pair(tmp_path, "b-voice")
+    _write_piper_pair(tmp_path, "a-voice")
+    assert engine_voice_names(tmp_path, engine="piper") == ["a-voice", "b-voice"]
+    # The kokoro default is untouched by piper pairs.
+    from tts.voices import VOICES_ARCHIVE_FILENAME
+
+    assert engine_voice_names(tmp_path) is None
+    _write_voice_archive(
+        tmp_path / VOICES_ARCHIVE_FILENAME, ["af_heart", "am_adam"]
+    )
+    assert engine_voice_names(tmp_path) == ["af_heart", "am_adam"]
+
+
 def test_sample_writes_one_wav_per_voice(tmp_path: Path) -> None:
     import soundfile as sf
 
@@ -237,6 +261,32 @@ def test_voices_command_engine_failure_is_clean_exit_1(monkeypatch: object) -> N
     result = CliRunner().invoke(cli.app, ["voices"])
     assert result.exit_code == 1
     assert "voices failed" in result.output
+
+
+def test_voices_command_unknown_engine_rejected() -> None:
+    result = CliRunner().invoke(cli.app, ["voices", "--engine", "espeak"])
+    assert result.exit_code == 1
+    assert "unknown engine" in result.output
+
+
+def test_voices_command_piper_lists_pairs_without_model_load(tmp_path: Path) -> None:
+    # Fake pairs only (no real weights): listing scans filenames, so no
+    # onnxruntime session or espeak ever loads.
+    _write_piper_pair(tmp_path, "en_US-test-low")
+    result = CliRunner().invoke(
+        cli.app, ["voices", "--engine", "piper", "--models-dir", str(tmp_path)]
+    )
+    assert result.exit_code == 0, result.output
+    assert result.output.splitlines() == ["en_US-test-low"]
+
+
+def test_voices_command_piper_without_pairs_fails_clean(tmp_path: Path) -> None:
+    result = CliRunner().invoke(
+        cli.app, ["voices", "--engine", "piper", "--models-dir", str(tmp_path)]
+    )
+    assert result.exit_code == 1
+    assert "voices failed" in result.output
+    assert "piper" in result.output
 
 
 def test_voices_command_bad_speed_rejected(tmp_path: Path) -> None:

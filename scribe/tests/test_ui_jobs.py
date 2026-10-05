@@ -816,3 +816,36 @@ def test_spawn_build_passes_workspace_out_dir(
     cmd = seen[0]
     assert "--out-dir" in cmd
     assert cmd[cmd.index("--out-dir") + 1] == str(manager.workspace / "bundles")
+
+
+def test_spawn_voices_sample_passes_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """SW3: the detached audition child runs ``voices --sample --engine``."""
+    from ui import jobs as _jobs
+    from ui.jobs import JobManager
+
+    seen: list[list[str]] = []
+
+    class _DummyProc:
+        pass
+
+    def _fake_popen(cmd: list[str], log_path: Path) -> _DummyProc:
+        seen.append(list(cmd))
+        return _DummyProc()
+
+    monkeypatch.setattr(_jobs, "_detached_popen", _fake_popen)
+    manager = JobManager(tmp_path, pid_alive_fn=lambda _pid: False)
+    manager._spawn_detached(
+        {"kind": "voices-sample", "voices": ["en_US-test-low"], "engine": "piper"},
+        tmp_path / "jobs" / "job-1",
+    )
+    assert len(seen) == 1
+    cmd = seen[0]
+    assert cmd[cmd.index("--sample") + 1] == "--engine"
+    assert cmd[cmd.index("--engine") + 1] == "piper"
+    assert "--voice" in cmd and "en_US-test-low" in cmd
+    # Old jobs without the field spawn the kokoro default.
+    manager._spawn_detached(
+        {"kind": "voices-sample", "voices": ["af_bella"]},
+        tmp_path / "jobs" / "job-2",
+    )
+    assert seen[1][seen[1].index("--engine") + 1] == "kokoro"

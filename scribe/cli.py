@@ -717,7 +717,7 @@ def voices(
     models_dir: Path = typer.Option(
         Path("models"),
         "--models-dir",
-        help="Directory holding kokoro-v1.0.onnx + voices-v1.0.bin.",
+        help="Kokoro pair dir (piper/ pairs inside it for --engine piper).",
     ),
     speed: float = typer.Option(
         1.0,
@@ -729,22 +729,39 @@ def voices(
         "--voice",
         help="Render only this voice (repeatable for a subset; default all).",
     ),
+    engine: str = typer.Option(
+        "kokoro",
+        "--engine",
+        help="TTS engine to list or sample (kokoro or piper).",
+    ),
 ) -> None:
-    """List Kokoro voices, or audition them all with --sample (MV0)."""
+    """List engine voices, or audition them all with --sample (MV0, SW3)."""
     from build import BuildError, create_engine
     from tts.voices import SAMPLE_TEXT, list_voices, sample_voices
 
     if speed <= 0:
         typer.echo(f"voices failed: --speed must be > 0 (got {speed})", err=True)
         raise typer.Exit(code=1)
+    normalized_engine = str(engine or "").strip().lower()
+    if normalized_engine not in ("kokoro", "piper"):
+        typer.echo(
+            f"voices failed: unknown engine {engine!r} (expected kokoro or piper)",
+            err=True,
+        )
+        raise typer.Exit(code=1)
     try:
-        engine = create_engine(models_dir)
-    except BuildError as exc:
+        if normalized_engine == "piper":
+            from tts.piper import PiperEngine
+
+            tts_engine = PiperEngine(models_dir)
+        else:
+            tts_engine = create_engine(models_dir)
+    except (BuildError, ImportError, FileNotFoundError, OSError, ValueError) as exc:
         typer.echo(f"voices failed: {exc}", err=True)
         raise typer.Exit(code=1)
     wanted = [str(v) for v in (voice or []) if str(v).strip()] or None
     if not sample:
-        names = list_voices(engine)
+        names = list_voices(tts_engine)
         if wanted is not None:
             unknown = [v for v in wanted if v not in names]
             if unknown:
@@ -755,7 +772,7 @@ def voices(
             typer.echo(name)
         return
     try:
-        result = sample_voices(engine, out_dir, text=SAMPLE_TEXT, speed=speed, voices=wanted)
+        result = sample_voices(tts_engine, out_dir, text=SAMPLE_TEXT, speed=speed, voices=wanted)
     except ValueError as exc:
         typer.echo(f"voices failed: {exc}", err=True)
         raise typer.Exit(code=1)
