@@ -46,14 +46,12 @@ Status chips (all derived from files; this module never triggers work):
 - On tablet: always False in UI3 (UI8 owns transfer persistence; stub with
   a TODO, no invented record).
 
-Draft-as-background-thread seam (UI3 simplicity over UI4 machinery): the
-upload route saves the file and runs :func:`draft.run_draft` on a daemon
-thread. Progress is kept in memory (the app layer) plus one persisted
-``events.jsonl`` in the work dir using the UI1 key contract
+Draft-as-job seam (UI4 owns the machinery): the upload route saves the file
+and creates a draft job; progress persists as ``events.jsonl`` in the work
+dir using the UI1 key contract
 ``{event, chapter, sid, cached, rendered, audio_ms, wall_s}`` with
-draft-specific event names (``draft_start``/``draft_done``/``draft_failed``),
-so UI4's tailing reuses the same parser. No job folders, no cast editing,
-no transfer record here.
+draft-specific event names (``draft_start``/``draft_done``/``draft_failed``).
+No cast editing, no transfer record here.
 """
 
 from __future__ import annotations

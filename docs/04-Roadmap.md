@@ -135,7 +135,7 @@ Goal: `scribe ui` covers ingest, cast review, render, validate and tablet hand-o
 - [x] UI1 library: events, chapter/page ranges, `plan_build`, cooperative stop, per-book lock, `--device`, spec 1.2 range bundles (482 baseline untouched, 498 green)
 - [x] UI2 server skeleton: `scribe[ui]` extra, 127.0.0.1-only + Host check + per-run token + traversal guards, doctor row (531 green)
 - [x] UI3 books and book detail
-- [ ] UI4 job runner and jobs tray
+- [x] UI4 job runner and jobs tray (unit/API verified: 17 new job tests + route list green, full suite green; tray visuals and browser-closed build left for the user)
 - [ ] UI5 render step with ranges and preflight
 - [ ] UI6 cast view with audition and overrides
 - [ ] UI7 voices view and audition service

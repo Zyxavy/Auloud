@@ -271,13 +271,23 @@ def test_skeleton_routes_are_minimal(tmp_path: Path) -> None:
     from ui.app import create_app
 
     paths = sorted({route.path for route in create_app(tmp_path).routes})
+    # UI4 extends the UI3 skeleton with the job runner + settings routes
+    # (no auto docs/openapi/redoc anywhere; still no CORS middleware).
     assert paths == [
         "/",
         "/api/books",
         "/api/books/upload",
         "/api/books/{book_id}",
+        "/api/books/{book_id}/build",
         "/api/echo",
         "/api/health",
+        "/api/jobs",
+        "/api/jobs/{job_id}",
+        "/api/jobs/{job_id}/cancel",
+        "/api/jobs/{job_id}/events",
+        "/api/jobs/{job_id}/pause",
+        "/api/jobs/{job_id}/resume",
+        "/api/settings",
     ]
 
 

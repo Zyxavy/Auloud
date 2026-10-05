@@ -547,6 +547,12 @@ def build(
         "({event, chapter, sid, cached, rendered, audio_ms, wall_s}) "
         "for detached-job tailing.",
     ),
+    stop_file: Path | None = typer.Option(
+        None,
+        "--stop-file",
+        help="Cross-process stop sentinel (UI4 pause): when the file exists, "
+        "the build stops at the next sentence boundary (partial cleaned).",
+    ),
 ) -> None:
     """Render audio chapter by chapter (resumable) and write the bundle."""
     from build import BuildError, format_plan, format_summary, plan_build, run_build
@@ -585,6 +591,7 @@ def build(
             pages=pages,
             device=device,
             progress_listener=jsonl_writer,
+            stop_file=stop_file,
         )
     except (BuildError, DraftError, BundleWriteError, ValueError) as exc:
         typer.echo(f"build failed: {exc}", err=True)

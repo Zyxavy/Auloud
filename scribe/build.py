@@ -1192,6 +1192,7 @@ def run_build(
     device: str = "auto",
     progress_listener: Callable[[dict[str, Any]], None] | None = None,
     stop_event: Any | None = None,
+    stop_file: Path | str | None = None,
 ) -> BuildResult:
     """Render ``source`` EPUB or PDF to a validated bundle; return the totals.
 
@@ -1237,6 +1238,12 @@ def run_build(
         ``is_set()``); when set, the build stops at the next sentence
         boundary, cleans the partial chapter, and raises
         :class:`BuildStoppedError`.
+    :param stop_file: optional cross-process stop sentinel (UI4 pause):
+        when the path exists, the build stops at the next sentence
+        boundary exactly like ``stop_event`` (partial chapter cleaned,
+        :class:`BuildStoppedError`). The file is never created or deleted
+        here; the job manager creates it to request a graceful stop and
+        removes it before a resume. Checked alongside ``stop_event``.
     :raises BuildError: missing source, bad cast, bad selection/device,
         work-lock held, chapter failure(s), strict abort, simulated kill.
     :raises BuildStoppedError: cooperative stop (subclass of BuildError).
@@ -1247,9 +1254,17 @@ def run_build(
 
     def _stopped() -> bool:
         try:
-            return bool(stop_event is not None and stop_event.is_set())
+            if stop_event is not None and stop_event.is_set():
+                return True
         except Exception:
-            return False
+            pass
+        if stop_file is not None:
+            try:
+                if Path(stop_file).exists():
+                    return True
+            except OSError:
+                pass
+        return False
 
     wall_start = time.monotonic()
     # Selection parsing needs the script; ensure_script may draft (which

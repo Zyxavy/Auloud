@@ -343,10 +343,11 @@ def test_second_concurrent_build_fails_cleanly(tmp_path: Path) -> None:
     # must use a foreign PID to prove cross-process exclusivity.
     holder_pid = _os.getppid()
     assert holder_pid != _os.getpid()
+    from datetime import datetime, timezone as _tz
+
+    _now = datetime.now(_tz.utc).isoformat().replace("+00:00", "Z")
     (work_book / LOCK_FILENAME).write_text(
-        _json.dumps(
-            {"pid": holder_pid, "started_at": "2026-10-04T00:00:00Z", "cmd": "other-build"}
-        )
+        _json.dumps({"pid": holder_pid, "started_at": _now, "cmd": "other-build"})
         + "\n",
         encoding="utf-8",
     )

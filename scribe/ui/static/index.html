@@ -106,11 +106,24 @@ pre.errors {
 .empty { color: var(--muted); border: 1px solid var(--hairline); border-radius: var(--radius); padding: calc(var(--space) * 2); }
 .row-actions { display: flex; gap: var(--space); margin-top: var(--space); }
 .num { font-variant-numeric: tabular-nums; }
+#tray {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  background: var(--raised); border-top: 1px solid var(--hairline);
+  box-shadow: 0 -1px 2px rgba(28,25,23,.12);
+  padding: var(--space) calc(var(--space) * 2);
+  font-variant-numeric: tabular-nums;
+}
+#tray .tray-row { display: flex; gap: var(--space); align-items: center; flex-wrap: wrap; }
+#tray .tray-prog { flex: 1 1 160px; height: 8px; background: var(--paper); border: 1px solid var(--hairline); border-radius: 999px; overflow: hidden; }
+#tray .tray-prog > span { display: block; height: 100%; background: var(--sage); width: 0%; }
+#toasts { position: fixed; right: calc(var(--space) * 2); bottom: calc(var(--space) * 8); display: flex; flex-direction: column; gap: var(--space); z-index: 30; }
+.toast { background: var(--raised); border: 1px solid var(--hairline); border-radius: var(--radius); padding: var(--space) calc(var(--space) * 2); box-shadow: 0 1px 2px rgba(28,25,23,.12); }
+body { padding-bottom: calc(var(--space) * 12); }
 </style>
 </head>
 <body>
 <h1 class="brand">Auloud Scribe</h1>
-<p class="muted">Books and book detail. Jobs tray and audition rows arrive in later steps.</p>
+<p class="muted">Books and book detail. The jobs tray below tracks drafts and builds. Audition rows arrive in a later step.</p>
 
 <section class="card" id="upload-card" aria-label="Upload a book">
 <h2>Add a book</h2>
@@ -142,7 +155,19 @@ pre.errors {
 </div>
 </section>
 
-<div id="tray" hidden></div>
+<section class="card" aria-label="Jobs history">
+<h2>Jobs</h2>
+<div id="jobs-empty" class="empty">No jobs yet. Upload a book above to start a draft job.</div>
+<table class="auloud-table" id="jobs-table" hidden>
+<thead><tr><th>Job</th><th>Kind</th><th>State</th><th class="num">Sentences</th><th>Updated</th></tr></thead>
+<tbody id="jobs-body"></tbody>
+</table>
+<p class="row-actions"><label class="muted"><input type="checkbox" id="keep-awake" checked> Keep this PC awake during jobs</label>
+<button id="jobs-refresh" class="ghost" type="button">Refresh jobs</button></p>
+</section>
+
+<div id="tray" role="status" aria-live="polite"><div class="tray-row"><span id="tray-text" class="muted">No jobs yet. Upload a book above to start a draft job.</span></div></div>
+<div id="toasts" aria-live="polite"></div>
 <div id="player-row" hidden></div>
 
 <script type="module">
@@ -299,6 +324,143 @@ drop.addEventListener("drop", (e) => {
 });
 window.addEventListener("hashchange", route);
 route();
+const seenTerminal = new Set();
+function jobLabel(j) { return (j.kind || "job") + " " + (j.id || ""); }
+function sentCount(j) { const s = j.summary || {}; return (s.cached || 0) + (s.rendered || 0); }
+async function jobAction(id, verb) {
+  const { ok, status, data } = await api("/api/jobs/" + encodeURIComponent(id) + "/" + verb, { method: "POST" });
+  if (!ok) toast("Job " + verb + " failed: " + ((data && data.message) || ("code " + status)));
+  await loadJobs();
+}
+function toast(htmlText, bookId) {
+  const box = document.getElementById("toasts");
+  const div = document.createElement("div");
+  div.className = "toast";
+  if (bookId) {
+    const a = document.createElement("a");
+    a.href = "#/books/" + encodeURIComponent(bookId);
+    a.textContent = htmlText;
+    div.appendChild(a);
+  } else { div.textContent = htmlText; }
+  box.appendChild(div);
+  setTimeout(() => { div.remove(); }, 12000);
+}
+const bookTotals = {};
+async function totalFor(bookId) {
+  if (!bookId) return 0;
+  if (bookTotals[bookId] != null) return bookTotals[bookId];
+  try {
+    const { ok, data } = await api("/api/books/" + encodeURIComponent(bookId));
+    const total = ok && data ? (data.total_sentences || 0) : 0;
+    bookTotals[bookId] = total;
+    return total;
+  } catch { return 0; }
+}
+function renderTray(jobs) {
+  const tray = document.getElementById("tray");
+  const running = jobs.find((j) => j.state === "running") || jobs.find((j) => j.state === "queued");
+  renderTrayInner(tray, jobs, running, null);
+}
+async function renderTrayLive(jobs) {
+  const tray = document.getElementById("tray");
+  const running = jobs.find((j) => j.state === "running") || jobs.find((j) => j.state === "queued");
+  let pct = null;
+  if (running && running.state === "running" && running.kind === "build" && running.book_id) {
+    const total = await totalFor(running.book_id);
+    const n = sentCount(running);
+    if (total > 0) pct = Math.max(0, Math.min(100, Math.round((100 * n) / total)));
+  }
+  renderTrayInner(tray, jobs, running, pct);
+}
+function renderTrayInner(tray, jobs, running, pct) {
+  tray.innerHTML = "";
+  if (!jobs.length) {
+    const span = document.createElement("span");
+    span.id = "tray-text"; span.className = "muted";
+    span.textContent = "No jobs yet. Upload a book above to start a draft job.";
+    const row = document.createElement("div"); row.className = "tray-row"; row.appendChild(span);
+    tray.appendChild(row);
+    return;
+  }
+  const row = document.createElement("div"); row.className = "tray-row";
+  if (!running) {
+    const span = document.createElement("span");
+    span.id = "tray-text"; span.className = "muted";
+    span.textContent = "No running jobs. " + jobs.length + " in history below.";
+    row.appendChild(span);
+    tray.appendChild(row);
+    return;
+  }
+  const label = document.createElement("span");
+  label.id = "tray-text";
+  const n = sentCount(running);
+  label.textContent = jobLabel(running) + " · " + running.state
+    + (pct != null ? " · " + pct + "%" : (n ? " · " + n + " sent" : ""));
+  row.appendChild(label);
+  const bar = document.createElement("div"); bar.className = "tray-prog";
+  const fill = document.createElement("span");
+  fill.style.width = pct != null ? (pct + "%") : (running.state === "running" ? "35%" : "0%");
+  bar.appendChild(fill); row.appendChild(bar);
+  for (const [verb, caption, ghost] of [["pause", "Pause", false], ["cancel", "Cancel", true]]) {
+    if (running.state !== "running" && verb === "pause") continue;
+    const btn = document.createElement("button");
+    btn.type = "button"; btn.textContent = caption;
+    if (ghost) btn.className = "ghost";
+    btn.addEventListener("click", () => jobAction(running.id, verb));
+    row.appendChild(btn);
+  }
+  if (running.state === "paused") {
+    const btn = document.createElement("button");
+    btn.type = "button"; btn.textContent = "Resume";
+    btn.addEventListener("click", () => jobAction(running.id, "resume"));
+    row.appendChild(btn);
+  }
+  tray.appendChild(row);
+}
+async function loadJobs() {
+  const { ok, data } = await api("/api/jobs");
+  const body = document.getElementById("jobs-body");
+  const table = document.getElementById("jobs-table");
+  const empty = document.getElementById("jobs-empty");
+  body.innerHTML = "";
+  if (!ok || !data || !Array.isArray(data.jobs)) {
+    empty.hidden = false; table.hidden = true;
+    empty.textContent = "Could not load jobs. Check the server, then press Refresh jobs.";
+    renderTray([]);
+    return;
+  }
+  const jobs = data.jobs;
+  if (!jobs.length) { empty.hidden = false; table.hidden = true; renderTray([]); return; }
+  empty.hidden = true; table.hidden = false;
+  for (const j of jobs) {
+    const tr = document.createElement("tr");
+    const tdId = document.createElement("td"); tdId.textContent = j.id || "";
+    const tdKind = document.createElement("td"); tdKind.textContent = j.kind || "";
+    const tdState = document.createElement("td"); tdState.innerHTML = chip(j.state || "", j.state === "running" || j.state === "queued", j.state === "done" ? "good" : (j.state === "failed" ? "busy" : ""));
+    const tdSent = document.createElement("td"); tdSent.className = "num"; tdSent.textContent = String(sentCount(j));
+    const tdUpd = document.createElement("td"); tdUpd.className = "num"; tdUpd.textContent = String(j.updated || "");
+    tr.append(tdId, tdKind, tdState, tdSent, tdUpd);
+    body.appendChild(tr);
+    if ((j.state === "done" || j.state === "failed") && !seenTerminal.has(j.id)) {
+      seenTerminal.add(j.id);
+      toast((j.state === "done" ? "Finished " : "Failed ") + jobLabel(j), j.book_id);
+    }
+  }
+  renderTray(jobs);
+  renderTrayLive(jobs);
+}
+async function loadKeepAwake() {
+  const box = document.getElementById("keep-awake");
+  const { ok, data } = await api("/api/settings");
+  if (ok && data && typeof data.keep_awake === "boolean") box.checked = data.keep_awake;
+}
+document.getElementById("jobs-refresh").addEventListener("click", loadJobs);
+document.getElementById("keep-awake").addEventListener("change", async (e) => {
+  await api("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep_awake: e.target.checked }) });
+});
+loadJobs();
+loadKeepAwake();
+setInterval(loadJobs, 2000);
 </script>
 </body>
 </html>
