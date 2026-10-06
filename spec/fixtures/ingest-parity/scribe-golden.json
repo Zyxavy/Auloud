@@ -1,0 +1,55 @@
+{
+  "chapters": [
+    {
+      "blocks": [
+        {
+          "id": 1,
+          "text": "Chapter One",
+          "type": "heading"
+        },
+        {
+          "id": 2,
+          "runs": [
+            {
+              "kind": "narration",
+              "text": "The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven."
+            }
+          ],
+          "text": "The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven.",
+          "type": "para"
+        }
+      ],
+      "index": 1,
+      "title": "Chapter One",
+      "words": 242
+    },
+    {
+      "blocks": [
+        {
+          "id": 1,
+          "text": "Chapter Two",
+          "type": "heading"
+        },
+        {
+          "id": 2,
+          "runs": [
+            {
+              "kind": "narration",
+              "text": "A brindled cat dozed on the warm windowsill while rain drummed the shutters. Moss crept over the garden wall where the blackbird hid its speckled eggs. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. Moss crept over the garden wall where the blackbird hid its speckled eggs. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. Moss crept over the garden wall where the blackbird hid its speckled eggs. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. Moss crept over the garden wall where the blackbird hid its speckled eggs. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. Moss crept over the garden wall where the blackbird hid its speckled eggs. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. Moss crept over the garden wall where the blackbird hid its speckled eggs. The amber lamp glowed softly above the mossy stones by the quiet river bend."
+            }
+          ],
+          "text": "A brindled cat dozed on the warm windowsill while rain drummed the shutters. Moss crept over the garden wall where the blackbird hid its speckled eggs. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. Moss crept over the garden wall where the blackbird hid its speckled eggs. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. Moss crept over the garden wall where the blackbird hid its speckled eggs. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. Moss crept over the garden wall where the blackbird hid its speckled eggs. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. Moss crept over the garden wall where the blackbird hid its speckled eggs. The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. Moss crept over the garden wall where the blackbird hid its speckled eggs. The amber lamp glowed softly above the mossy stones by the quiet river bend.",
+          "type": "para"
+        }
+      ],
+      "index": 2,
+      "title": "Chapter Two",
+      "words": 242
+    }
+  ],
+  "source": {
+    "file": "source/book.epub",
+    "fixture": "scribe-golden",
+    "sha256": "a5963254577b9f582983a7c86bc1d8a9bc421389dcef841f4fc399260159d88b"
+  }
+}

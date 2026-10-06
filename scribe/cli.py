@@ -1,4 +1,4 @@
-# Auloud Scribe — turns ebooks into multi-voice audiobooks (PC tool).
+# Auloud Scribe - turns ebooks into multi-voice audiobooks (PC tool).
 # Copyright (C) 2026 Zyxavy
 #
 # This program is free software: you can redistribute it and/or modify
@@ -428,7 +428,7 @@ def check_gpu() -> CheckResult:
             name="gpu",
             status=INFO,
             detail="no NVIDIA GPU detected (nvidia-smi not found); "
-            "CPU-only build works — SW0 measured RTF 1.38 on CPU",
+            "CPU-only build works - SW0 measured RTF 1.38 on CPU",
         )
     line = _run_version([nvidia_smi, "-L"])
     if not line:
@@ -691,7 +691,7 @@ def validate(
 
     try:
         result = validate_bundle(bundle)
-    except Exception as exc:  # noqa: BLE001 — validate must never traceback
+    except Exception as exc:  # noqa: BLE001 - validate must never traceback
         typer.echo(f"validate failed: {exc}", err=True)
         raise typer.Exit(code=1)
     if result.ok:
@@ -779,6 +779,31 @@ def voices(
     for name in result.voices:
         typer.echo(name)
     typer.echo(f"wrote {len(result.files)} WAVs to {result.out_dir}")
+
+
+@app.command()
+def export_ingest_fixtures(
+    fixtures_dir: Path | None = typer.Option(
+        None,
+        "--fixtures-dir",
+        help="spec/fixtures dir (default: <repo-root>/spec/fixtures).",
+    ),
+) -> None:
+    """Export shared Slice 9 ingestion test data (dev only, IN2).
+
+    Writes ``spec/fixtures/dialogue-cases.json`` plus
+    ``spec/fixtures/ingest-parity/`` from the real pipeline. Deterministic:
+    re-runs are byte-identical. Library logic lives in ``export_ingest``.
+    """
+    from export_ingest import ExportError, export_all
+
+    try:
+        written = export_all(fixtures_dir)
+    except ExportError as exc:
+        typer.echo(f"export-ingest-fixtures failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    for path in written:
+        typer.echo(f"wrote {path}")
 
 
 @app.command()

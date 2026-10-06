@@ -66,6 +66,7 @@ packages = []
 "progress.py" = "scribe/progress.py"
 "selection.py" = "scribe/selection.py"
 "device.py" = "scribe/device.py"
+"export_ingest.py" = "scribe/export_ingest"
 "extract" = "scribe/extract"
 "text" = "scribe/text"
 "tts" = "scribe/tts"
