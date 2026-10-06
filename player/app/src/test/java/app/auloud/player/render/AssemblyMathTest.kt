@@ -89,6 +89,20 @@ class AssemblyMathTest {
     }
 
     @Test
+    fun voicePeakLevels_skipsNonFiniteStandalone() {
+        val peaks = AssemblyMath.voicePeakLevels(
+            mapOf(
+                "narrator" to listOf(floatArrayOf(0.5f, Float.NaN, Float.POSITIVE_INFINITY, -0.25f)),
+                "dialogue" to listOf(floatArrayOf(Float.NaN, Float.NEGATIVE_INFINITY)),
+                "empty" to emptyList()
+            )
+        )
+        assertEquals(0.5f, peaks["narrator"]!!)
+        assertEquals(0.0f, peaks["dialogue"]!!)
+        assertEquals(0.0f, peaks["empty"]!!)
+    }
+
+    @Test
     fun gainsForPeaks_silenceGivesOne() {
         val gains = AssemblyMath.gainsForPeaks(mapOf("narrator" to 0f, "dialogue" to 0.5f))
         assertEquals(1.0, gains["narrator"]!!, 1e-12)

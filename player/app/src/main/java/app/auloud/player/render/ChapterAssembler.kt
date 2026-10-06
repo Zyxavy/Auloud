@@ -327,25 +327,21 @@ object ChapterAssembler {
             }
             blocks.add(AssemblyBlockMeta(id = block.id, type = block.type, sentences = metas))
         }
-        val pcmBySid = HashMap<Int, FloatArray>()
         return assemble(
             chapterNumber = chapterNumber,
             blocks = blocks,
             pcmFor = { meta ->
-                pcmBySid[meta.sid] ?: run {
-                    val entry = bySid[meta.sid] ?: throw IllegalArgumentException(
-                        "chapter $chapterNumber sentence ${meta.sid}: missing spool entry"
+                val entry = bySid[meta.sid] ?: throw IllegalArgumentException(
+                    "chapter $chapterNumber sentence ${meta.sid}: missing spool entry"
+                )
+                val pcm = loadPcm(entry)
+                if (pcm.size != entry.samples) {
+                    throw IllegalArgumentException(
+                        "chapter $chapterNumber sentence ${meta.sid}: " +
+                            "spool PCM has ${pcm.size} samples, index says ${entry.samples}"
                     )
-                    val pcm = loadPcm(entry)
-                    if (pcm.size != entry.samples) {
-                        throw IllegalArgumentException(
-                            "chapter $chapterNumber sentence ${meta.sid}: " +
-                                "spool PCM has ${pcm.size} samples, index says ${entry.samples}"
-                        )
-                    }
-                    pcmBySid[meta.sid] = pcm
-                    pcm
                 }
+                pcm
             },
             bookGainsLinear = bookGainsLinear,
             targetPeak = targetPeak,

@@ -140,8 +140,15 @@ object AssemblyMath {
      *
      * Measured over sentence audio only (pauses are added after
      * leveling, so padding never skews the measurement). Empty input
-     * measures 0.0. Non-finite samples are skipped (spool PCM encodes
-     * them as silence for the same reason).
+     * measures 0.0. Non-finite samples are skipped. This differs
+     * from Scribe `voice_peak_levels` on purpose: Scribe folds every
+     * sample into `np.max`, so NaN or inf propagates to a downstream
+     * finite check failure, while this helper skips non-finite input
+     * and stays total. The difference is unreachable in the render
+     * pipeline because `ChapterAssembler.loadChecked` rejects
+     * non-finite PCM before any peak measurement, so pipeline input
+     * here is always finite; the skip only pins standalone behavior
+     * on out-of-pipeline input.
      */
     fun voicePeakLevels(audiosByVoice: Map<String, List<FloatArray>>): Map<String, Float> {
         val peaks = LinkedHashMap<String, Float>()

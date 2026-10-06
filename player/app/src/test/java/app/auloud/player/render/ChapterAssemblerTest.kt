@@ -254,6 +254,62 @@ class ChapterAssemblerTest {
     }
 
     @Test
+    fun spoolHelper_reloadsSpoolOncePerPass() {
+        val chapter = ChapterText(
+            specVersion = "2.0",
+            chapter = 1,
+            title = "Ch",
+            blocks = listOf(
+                Block(
+                    id = 1,
+                    type = "para",
+                    sentences = listOf(
+                        Sentence(sid = 1, speaker = "narrator", text = "Oak."),
+                        Sentence(sid = 2, speaker = "dialogue", text = "Flame.")
+                    )
+                )
+            )
+        )
+        val fingerprint = RenderFingerprint(
+            engine = "system",
+            voices = mapOf("narrator" to "system:n", "dialogue" to "system:d"),
+            speeds = mapOf("narrator" to 1.0f, "dialogue" to 1.0f),
+            engineVersions = mapOf("system" to "v")
+        )
+        val index = SpoolChapterIndex(
+            chapter = 1,
+            fingerprint = fingerprint,
+            sentences = listOf(
+                SpoolSentenceEntry(
+                    sid = 1, role = "narrator", file = "ch001-s001-ab.pcm",
+                    sampleRateHz = 24000, samples = 2400, splitPair = null, peak = 0.5f
+                ),
+                SpoolSentenceEntry(
+                    sid = 2, role = "dialogue", file = "ch001-s002-ab.pcm",
+                    sampleRateHz = 24000, samples = 2400, splitPair = null, peak = 0.8f
+                )
+            ),
+            peaks = mapOf("narrator" to 0.5f, "dialogue" to 0.8f)
+        )
+        var loads = 0
+        val sink = CollectingEncoderSink()
+        val result = ChapterAssembler.assembleFromSpool(
+            chapterNumber = 1,
+            chapter = chapter,
+            index = index,
+            loadPcm = { entry ->
+                loads += 1
+                FloatArray(entry.samples) { 0.4f }
+            },
+            sink = sink
+        )
+        assertEquals(4, loads)
+        assertEquals(2, result.timings.size)
+        assertEquals(0, result.timings[0].startMs)
+        assertTrue(sink.finished)
+    }
+
+    @Test
     fun spoolHelper_missingEntryFailsNamingSid() {
         val chapter = ChapterText(
             specVersion = "2.0",
