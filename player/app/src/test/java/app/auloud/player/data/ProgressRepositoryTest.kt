@@ -86,6 +86,22 @@ class ProgressRepositoryTest {
         assertTrue(result.exceptionOrNull() is DataError.Local)
     }
 
+    @Test
+    fun delete_removesSavedPosition() = runBlocking {
+        repo.save("book-1", 2, 61_000L).getOrThrow()
+
+        repo.delete("book-1").getOrThrow()
+
+        assertNull(repo.load("book-1").getOrThrow())
+    }
+
+    @Test
+    fun delete_unknownBook_stillSucceeds() = runBlocking {
+        repo.delete("never-saved").getOrThrow()
+
+        assertNull(repo.load("never-saved").getOrThrow())
+    }
+
     /** In-memory [ProgressDao] with an injectable failure for the error-boundary test. */
     private class FakeProgressDao : ProgressDao {
         private val rows = mutableMapOf<String, ProgressEntity>()
@@ -99,6 +115,11 @@ class ProgressRepositoryTest {
         override suspend fun upsert(progress: ProgressEntity) {
             if (fail) throw IOException("fake db failure")
             rows[progress.bookId] = progress
+        }
+
+        override suspend fun deleteById(bookId: String) {
+            if (fail) throw IOException("fake db failure")
+            rows.remove(bookId)
         }
     }
 }

@@ -15,4 +15,11 @@ interface ProgressDao {
 
     @Upsert
     suspend fun upsert(progress: ProgressEntity)
+
+    /**
+     * IN8: removes the saved position for [bookId] (library delete must
+     * not leave an orphan that a later re-import would resurrect).
+     */
+    @Query("DELETE FROM progress WHERE bookId = :bookId")
+    suspend fun deleteById(bookId: String)
 }

@@ -22,4 +22,7 @@ class RoomProgressRepository(
 
     override suspend fun load(bookId: String): Result<ProgressEntity?> =
         runBoundary { progressDao.load(bookId) }
+
+    override suspend fun delete(bookId: String): Result<Unit> =
+        runBoundary { progressDao.deleteById(bookId) }
 }

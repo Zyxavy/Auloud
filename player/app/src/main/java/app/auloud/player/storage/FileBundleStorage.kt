@@ -137,6 +137,32 @@ class FileBundleStorage : BundleStorage {
     }
 
     /**
+     * IN8: stray import temps (see [BundleStorage.listStrayTempDirs]).
+     * Never throws: a missing/unreadable root reads as no strays, so the
+     * rescan sweep can never fail a library load.
+     */
+    override fun listStrayTempDirs(root: String): List<String> {
+        return try {
+            File(root).listFiles()
+                ?.filter { it.isDirectory && it.name.startsWith(STRAY_TEMP_PREFIX) }
+                ?.map { it.absolutePath }
+                ?.sorted() ?: emptyList()
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    companion object {
+        /**
+         * IN8: import temp folder name prefix (matches the pipeline temp
+         * `<booksRoot>/.tmp-<bookId>`). A user book folder never carries
+         * this prefix (final folders are bare `<bookId>`), so sweeping
+         * these names can never delete a real book.
+         */
+        const val STRAY_TEMP_PREFIX = ".tmp-"
+    }
+
+    /**
      * Pure path half of [audioUri], kept `internal` so unit tests can verify
      * in-bundle containment without the Android framework. Not for use outside
      * the storage layer: callers take the [Uri], never the [File].

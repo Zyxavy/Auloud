@@ -75,6 +75,20 @@ class RoomLibraryRepository(
         }
     }
 
+    /**
+     * IN8: deletes the book folder first (best-effort, never throws by
+     * contract) and then the row, so a row never points at a folder the
+     * delete meant to remove. An unknown id fails naming the file and
+     * the rule and deletes nothing.
+     */
+    override suspend fun deleteBook(bookId: String): Result<Unit> =
+        runBoundary {
+            val existing = bookDao.getById(bookId)
+                ?: throw DataError.InvalidBundle("$bookId: book not in library (nothing to delete)")
+            storage.deleteRecursively(existing.bundlePath)
+            bookDao.deleteById(bookId)
+        }
+
     override suspend fun refreshMissing(presentBundleDirs: Collection<String>): Result<Unit> =
         runBoundary {
             // Stored paths and listBundleDirs output may differ by a trailing

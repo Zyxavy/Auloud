@@ -13,6 +13,9 @@ import java.io.IOException
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -132,6 +135,14 @@ class IngestPipelineTest {
 
         override suspend fun refreshMissing(presentBundleDirs: Collection<String>): Result<Unit> =
             Result.success(Unit)
+
+        override suspend fun deleteBook(bookId: String): Result<Unit> {
+            if (!books.containsKey(bookId)) {
+                return Result.failure(IllegalArgumentException("$bookId: book not in library (nothing to delete)"))
+            }
+            books.remove(bookId)
+            return Result.success(Unit)
+        }
     }
 
     private fun repoRoot(): File {
@@ -385,6 +396,57 @@ class IngestPipelineTest {
             storage.keysUnder(root).isEmpty()
         )
         assertTrue("no library row, got: ${library.books}", library.books.isEmpty())
+    }
+
+    // Same-book serialization (IN8): two concurrent imports of one book
+    // end as one Imported plus one Duplicate, never a rename Failed.
+
+    @Test
+    fun concurrentSameBookImports_serializeToImportedPlusDuplicate() {
+        val epub = temp.newFile("race.epub")
+        twoChapterEpub(epub, "First Heading")
+        val storage = MemStorage()
+        val library = MemLibrary()
+        val root = temp.root.absolutePath.replace('\\', '/') + "/Auloud"
+
+        runBlocking {
+            val first = async {
+                IngestPipeline.importEpub(
+                    epubFile = epub,
+                    booksRoot = root,
+                    storage = storage,
+                    library = library,
+                    onProgress = { delay(200) }
+                )
+            }
+            // The second import starts while the first is mid-write, so
+            // without the per-hash lock its duplicate scan would miss and
+            // the rename would collide.
+            delay(50)
+            val second = async {
+                IngestPipeline.importEpub(
+                    epubFile = epub,
+                    booksRoot = root,
+                    storage = storage,
+                    library = library
+                )
+            }
+            val outcomes = awaitAll(first, second)
+            val imported = outcomes.filterIsInstance<IngestOutcome.Imported>()
+            val duplicates = outcomes.filterIsInstance<IngestOutcome.Duplicate>()
+            assertEquals("one import must win, got: $outcomes", 1, imported.size)
+            assertEquals("loser must be Duplicate, got: $outcomes", 1, duplicates.size)
+            assertEquals(
+                imported.single().report.bookId,
+                duplicates.single().bookId
+            )
+        }
+
+        assertEquals(1, library.books.size)
+        assertTrue(
+            "no temp residue, got: ${storage.keysUnder(root)}",
+            storage.keysUnder(root).none { "/.tmp-" in it }
+        )
     }
 
     // Failure shapes: file plus rule.

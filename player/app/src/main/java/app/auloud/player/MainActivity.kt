@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.provider.OpenableColumns
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -25,6 +26,10 @@ import app.auloud.player.data.LibraryRepository
 import app.auloud.player.data.ProgressRepository
 import app.auloud.player.data.RoomLibraryRepository
 import app.auloud.player.data.RoomProgressRepository
+import app.auloud.player.ingest.IngestPipeline
+import app.auloud.player.library.ImportScreen
+import app.auloud.player.library.ImportUiState
+import app.auloud.player.library.ImportViewModel
 import app.auloud.player.library.LibraryScreen
 import app.auloud.player.library.LibraryViewModel
 import app.auloud.player.reader.BookScreen
@@ -45,6 +50,8 @@ import app.auloud.player.storage.WatchFolderIntents
 import app.auloud.player.storage.WatchFolderStore
 import app.auloud.player.storage.WatchFolders
 import java.io.File
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 /** WP1 shell; WP5 wires the library screen. WP7 adds the player screen. */
 class MainActivity : ComponentActivity() {
@@ -110,6 +117,45 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // IN8: single repository graph shared by the library ViewModel and the
+    // import driver (built once here so both see the same rows).
+    private val database by lazy { AuloudDatabase.open(applicationContext) }
+    private val libraryRepository: LibraryRepository by lazy {
+        RoomLibraryRepository(database.bookDao(), routingStorage)
+    }
+    private val progressRepository: ProgressRepository by lazy {
+        RoomProgressRepository(database.progressDao())
+    }
+
+    // IN8: EPUB import driver (plain class, cleared in onDestroy). The
+    // picker hands a document URI; the copy lambda materializes it as a
+    // cache file the importer owns and deletes afterwards.
+    private val importViewModel: ImportViewModel by lazy {
+        ImportViewModel(
+            runImport = { file, onProgress ->
+                IngestPipeline.importEpub(
+                    epubFile = file,
+                    booksRoot = BooksRootResolver.defaultBooksRoot(applicationContext),
+                    storage = routingStorage,
+                    library = libraryRepository,
+                    onProgress = onProgress
+                )
+            }
+        )
+    }
+
+    // IN8: system document picker for EPUBs (ACTION_OPEN_DOCUMENT needs no
+    // new permission). A null URI is a picker cancel and stays silent.
+    private val epubPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri == null) {
+            Log.i(TAG, "epub picker cancelled")
+            return@registerForActivityResult
+        }
+        onEpubPicked(uri)
+    }
+
     // WP5: single-activity graph built by hand (no navigation-compose in
     // Slice 1). The ViewModel survives config changes via ViewModelProvider;
     // row taps set `selectedBookId`, which WP7 builds the player screen on.
@@ -150,6 +196,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val state by libraryViewModel.uiState.collectAsState()
+                    val importState by importViewModel.state.collectAsState()
                     // WP8: settings sits above the library/player switch and
                     // returns via Back. WP3/WP5 refinement: Settings also
                     // hosts the watch-folder list (add via picker, remove).
@@ -167,7 +214,15 @@ class MainActivity : ComponentActivity() {
                     val selectedBook = state.books.firstOrNull { it.id == state.selectedBookId }
                     // CP8: the spike screen is debug-only; the second conjunct
                     // is a constant false in release, so R8 drops the path.
-                    if (showSpike && BuildConfig.DEBUG) {
+                    // IN8: the import screen sits above everything while an
+                    // import runs or its result is showing.
+                    if (importState != ImportUiState.Idle) {
+                        ImportScreen(
+                            state = importState,
+                            onCancel = importViewModel::cancel,
+                            onDismiss = ::dismissImport
+                        )
+                    } else if (showSpike && BuildConfig.DEBUG) {
                         ReaderPreviewScreen(onBack = { showSpike = false })
                     } else if (showSettings) {
                         SettingsScreen(
@@ -194,7 +249,9 @@ class MainActivity : ComponentActivity() {
                             onOpenSettings = {
                                 refreshFolderState()
                                 showSettings = true
-                            }
+                            },
+                            onImportEpub = ::launchEpubPicker,
+                            onDeleteBook = libraryViewModel::deleteBook
                         )
                     }
                 }
@@ -290,6 +347,101 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * IN8: launches the system EPUB picker (no permission needed; the
+     * picked bytes are copied to cache by [copyUriToCache] and imported
+     * from there).
+     */
+    private fun launchEpubPicker() {
+        try {
+            epubPicker.launch(arrayOf("application/epub+zip"))
+        } catch (e: Exception) {
+            Log.w(TAG, "epub picker unavailable: ${e.message}")
+            notice("Import", "The file picker is unavailable on this device.")
+        }
+    }
+
+    /**
+     * IN8: hands the picked document to the import driver. The display
+     * name is best-effort (the picker label on the progress screen); the
+     * copy lambda streams the document into a cache file the importer
+     * owns. A second pick while an import runs is refused with a notice
+     * instead of mixing two books into one progress screen.
+     */
+    private fun onEpubPicked(uri: Uri) {
+        val displayName = displayNameFor(uri)
+        val started = importViewModel.startImport(displayName) {
+            copyUriToCache(uri, displayName)
+        }
+        if (!started) {
+            Log.i(TAG, "import already running, picker result ignored")
+            notice("Import", "An import is already running - please wait for it to finish.")
+        }
+    }
+
+    /**
+     * IN8: result-screen dismiss. A fresh import (and only that) triggers
+     * a rescan so the new row plus its "Not rendered" chip appear;
+     * duplicates, failures and cancels leave nothing behind and need
+     * none. The scratch cache file is already deleted by the importer.
+     */
+    private fun dismissImport() {
+        val succeeded = importViewModel.state.value is ImportUiState.Succeeded
+        importViewModel.reset()
+        if (succeeded) {
+            libraryViewModel.rescan()
+        }
+    }
+
+    private fun displayNameFor(uri: Uri): String {
+        return try {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (index >= 0 && cursor.moveToFirst()) {
+                    cursor.getString(index)?.takeIf { it.isNotBlank() }
+                } else {
+                    null
+                }
+            } ?: "book.epub"
+        } catch (e: Exception) {
+            Log.w(TAG, "display name unreadable: ${e.message}")
+            "book.epub"
+        }
+    }
+
+    /**
+     * IN8: streams the picked document into a cache scratch file (8 KB
+     * chunks, cancellable per chunk so the cancel button works while
+     * copying). Throws file-plus-rule `IOException` on failure; the
+     * importer shapes it into the copy-failure message.
+     */
+    private suspend fun copyUriToCache(uri: Uri, displayName: String): File {
+        val target = File(cacheDir, "import-${System.currentTimeMillis()}.epub")
+        try {
+            val input = contentResolver.openInputStream(uri)
+                ?: throw java.io.IOException("$displayName: picked document cannot be opened")
+            input.use { inputStream ->
+                target.outputStream().use { output ->
+                    val buf = ByteArray(8192)
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val read = inputStream.read(buf)
+                        if (read <= 0) break
+                        output.write(buf, 0, read)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            try {
+                target.delete()
+            } catch (_: Exception) {
+            }
+            if (e is java.io.IOException) throw e
+            throw java.io.IOException("$displayName: cannot read picked file (${e.message})", e)
+        }
+        return target
+    }
+
+    /**
      * Persists the picked folder ONLY after `takePersistableUriPermission`
      * succeeds — a failed grant surfaces a notice and stores nothing, so no
      * broken entries can accumulate. The hoisted Settings state refreshes
@@ -349,14 +501,20 @@ class MainActivity : ComponentActivity() {
         libraryViewModel.rescan()
     }
 
+    override fun onDestroy() {
+        importViewModel.clear()
+        super.onDestroy()
+    }
+
     companion object {
         private const val TAG = "AuloudMain"
     }
 
     /**
-     * WP5: hand-written factory (no DI framework in Slice 1). Builds the
-     * storage + repository graph from WP3/WP4 pieces and wires the WP3
-     * permission launcher into the ViewModel's retry action.
+     * WP5: hand-written factory (no DI framework in Slice 1). Reuses the
+     * activity-owned repository graph (IN8: shared with the import driver)
+     * and wires the WP3 permission launcher into the ViewModel's retry
+     * action.
      */
     private inner class LibraryFactory(
         private val appContext: Context
@@ -364,11 +522,6 @@ class MainActivity : ComponentActivity() {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
             val storage: BundleStorage = routingStorage
-            val database = AuloudDatabase.open(appContext)
-            val libraryRepository: LibraryRepository =
-                RoomLibraryRepository(database.bookDao(), storage)
-            val progressRepository: ProgressRepository =
-                RoomProgressRepository(database.progressDao())
             return LibraryViewModel(
                 storage = storage,
                 watchFolderStore = watchFolderStore,

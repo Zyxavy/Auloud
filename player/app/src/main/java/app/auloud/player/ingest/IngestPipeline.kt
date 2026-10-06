@@ -93,8 +93,10 @@ sealed interface IngestOutcome {
  * a checkpoint via [ensureActive]); a cancelled import leaves no
  * folder, no library row and no temp residue. Everything runs on
  * [ioDispatcher] (default `Dispatchers.IO`), never the caller's thread.
- * Concurrent imports of the SAME book are not supported: the loser fails
- * at the rename with a shaped error.
+ * Concurrent imports of the SAME book are serialized by [ImportLocks]
+ * (IN8, keyed by source hash): the waiter blocks until the first import
+ * finishes, then reports `Duplicate`. A rename refusal stays a shaped
+ * `Failed` as defense in depth.
  *
  * API 24 safe: `java.io.File` for the source EPUB only (the picker hands
  * a file), `java.text` for the timestamp, coroutines for threading. No
@@ -136,57 +138,62 @@ object IngestPipeline {
             val temp = join(booksRoot, ".tmp-$bookId")
             tempDir = temp
 
-            findDuplicate(storage, booksRoot, sha)?.let { existing ->
-                return@withContext IngestOutcome.Duplicate(existing.first, existing.second)
-            }
+            // IN8: same-book serialization. The duplicate scan plus every
+            // later step run under the per-hash lock, so a concurrent
+            // same-book import waits here and then reports Duplicate
+            // instead of racing into the rename.
+            return@withContext ImportLocks.withBookLock(sha.lowercase()) {
+                findDuplicate(storage, booksRoot, sha)?.let { existing ->
+                    return@withBookLock IngestOutcome.Duplicate(existing.first, existing.second)
+                }
 
-            val book = readBook(epubFile).getOrElse { cause ->
-                return@withContext IngestOutcome.Failed(
-                    listOf(cause.message ?: "${epubFile.name}: cannot read EPUB (unknown error)")
-                )
-            }
-
-            val structure = EpubStructurePipeline.ingest(epubFile, book, readSpine)
-            if (structure.chapters.isEmpty()) {
-                return@withContext IngestOutcome.Failed(
-                    listOf(
-                        "${epubFile.name}: no readable chapters " +
-                            "(every spine item was skipped or dropped)"
+                val book = readBook(epubFile).getOrElse { cause ->
+                    return@withBookLock IngestOutcome.Failed(
+                        listOf(cause.message ?: "${epubFile.name}: cannot read EPUB (unknown error)")
                     )
-                )
-            }
+                }
 
-            // A stale temp folder from a crashed process (same deterministic
-            // name) is removed before writing, so crash residue can never
-            // merge with a fresh import.
-            storage.deleteRecursively(temp)
-
-            val warnings = ArrayList<String>()
-            val dialogues = LinkedHashMap<Int, ChapterDialogue>()
-            for (chapter in structure.chapters) {
-                ensureActive()
-                val split = SentenceSplitter.splitChapter(chapter, warnings)
-                dialogues[chapter.index] = DialogueTagger.tagChapter(chapter, split, warnings)
-            }
-
-            val total = structure.chapters.size
-            val coverBytes = EpubContainerReader.readCoverBytes(epubFile, book)
-            val manifestInput = IngestWriter.ManifestInput(
-                bookId = bookId,
-                title = book.title,
-                author = book.author,
-                language = book.language,
-                sha256Hex = sha,
-                coverRel = if (coverBytes != null) IngestWriter.COVER_REL else null,
-                chapters = structure.chapters.map { chapter ->
-                    IngestWriter.ChapterEntry(
-                        index = chapter.index,
-                        title = chapter.title,
-                        textRel = IngestWriter.chapterRel(chapter.index, total)
+                val structure = EpubStructurePipeline.ingest(epubFile, book, readSpine)
+                if (structure.chapters.isEmpty()) {
+                    return@withBookLock IngestOutcome.Failed(
+                        listOf(
+                            "${epubFile.name}: no readable chapters " +
+                                "(every spine item was skipped or dropped)"
+                        )
                     )
-                },
-                createdAt = formatCreatedAt(startMs)
-            )
+                }
+
+                // A stale temp folder from a crashed process (same deterministic
+                // name) is removed before writing, so crash residue can never
+                // merge with a fresh import.
+                storage.deleteRecursively(temp)
+
+                val warnings = ArrayList<String>()
+                val dialogues = LinkedHashMap<Int, ChapterDialogue>()
+                for (chapter in structure.chapters) {
+                    ensureActive()
+                    val split = SentenceSplitter.splitChapter(chapter, warnings)
+                    dialogues[chapter.index] = DialogueTagger.tagChapter(chapter, split, warnings)
+                }
+
+                val total = structure.chapters.size
+                val coverBytes = EpubContainerReader.readCoverBytes(epubFile, book)
+                val manifestInput = IngestWriter.ManifestInput(
+                    bookId = bookId,
+                    title = book.title,
+                    author = book.author,
+                    language = book.language,
+                    sha256Hex = sha,
+                    coverRel = if (coverBytes != null) IngestWriter.COVER_REL else null,
+                    chapters = structure.chapters.map { chapter ->
+                        IngestWriter.ChapterEntry(
+                            index = chapter.index,
+                            title = chapter.title,
+                            textRel = IngestWriter.chapterRel(chapter.index, total)
+                        )
+                    },
+                    createdAt = formatCreatedAt(startMs)
+                )
 
             var done = 0
             val manifest: Manifest
@@ -215,9 +222,9 @@ object IngestPipeline {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IOException) {
-                return@withContext failAndClean(storage, temp, e.message ?: "cannot write book")
+                return@withBookLock failAndClean(storage, temp, e.message ?: "cannot write book")
             } catch (e: Exception) {
-                return@withContext failAndClean(
+                return@withBookLock failAndClean(
                     storage, temp, e.message ?: "cannot write book"
                 )
             }
@@ -225,7 +232,7 @@ object IngestPipeline {
             ensureActive()
             val problems = selfValidate(storage, temp, manifest)
             if (problems.isNotEmpty()) {
-                return@withContext failAndClean(storage, temp, problems)
+                return@withBookLock failAndClean(storage, temp, problems)
             }
 
             ensureActive()
@@ -234,7 +241,7 @@ object IngestPipeline {
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                return@withContext failAndClean(
+                return@withBookLock failAndClean(
                     storage, temp, e.message ?: "cannot move book into place"
                 )
             }
@@ -246,7 +253,7 @@ object IngestPipeline {
                 val reason = upserted.exceptionOrNull()?.message ?: "library upsert failed"
                 storage.deleteRecursively(finalDir)
                 movedDir = null
-                return@withContext IngestOutcome.Failed(listOf(reason))
+                return@withBookLock IngestOutcome.Failed(listOf(reason))
             }
 
             IngestOutcome.Imported(
@@ -262,9 +269,13 @@ object IngestPipeline {
                     elapsedMs = clock() - startMs
                 )
             )
+            }
         } catch (e: CancellationException) {
             if (tempDir != null) storage.deleteRecursively(tempDir)
-            if (movedDir != null) storage.deleteRecursively(movedDir)
+            // Copy out: the lock body mutates movedDir through the
+            // closure, so no smart cast applies here.
+            val moved = movedDir
+            if (moved != null) storage.deleteRecursively(moved)
             throw e
         }
     }

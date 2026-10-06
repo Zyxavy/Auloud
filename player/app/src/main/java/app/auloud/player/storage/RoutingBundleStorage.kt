@@ -107,4 +107,20 @@ class RoutingBundleStorage(
         }
         fileStorage.deleteRecursively(path)
     }
+
+    /**
+     * IN8: stray import temps route file roots to the file branch; SAF
+     * roots yield an empty list (imports never target picked trees, so no
+     * temp can exist there).
+     */
+    override fun listStrayTempDirs(root: String): List<String> =
+        if (SafPaths.isSafPath(root)) {
+            emptyList()
+        } else {
+            try {
+                fileStorage.listStrayTempDirs(root)
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
 }

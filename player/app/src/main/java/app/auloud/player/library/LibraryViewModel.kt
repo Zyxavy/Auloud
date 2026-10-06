@@ -7,6 +7,7 @@ import app.auloud.player.bundle.BundleValidator
 import app.auloud.player.data.BookEntity
 import app.auloud.player.data.LibraryRepository
 import app.auloud.player.data.ProgressRepository
+import app.auloud.player.ingest.StrayTempSweep
 import app.auloud.player.storage.BundleStorage
 import app.auloud.player.storage.WatchFolder
 import app.auloud.player.storage.WatchFolderStore
@@ -49,8 +50,22 @@ data class BookUiModel(
      * `<tree>|<rel>` token, as listed). The reader resolves chapter text
      * paths against it; never displayed (labels come from [WatchFolders]).
      */
-    val bundleDir: String
+    val bundleDir: String,
+    /**
+     * IN8: manifest `render_state` (`none`, `partial`, `complete`, null
+     * for 1.x books), as last seen by a rescan. The library chip derives
+     * from it (see [showNotRendered]); null means rendered legacy.
+     */
+    val renderState: String? = null
 )
+
+/**
+ * IN8: the "Not rendered" chip shows for unrendered (`none`) and
+ * partially rendered (`partial`) books only. Rendered books (`complete`
+ * and every 1.x book, whose `render_state` is null) show no chip.
+ */
+val BookUiModel.showNotRendered: Boolean
+    get() = renderState == "none" || renderState == "partial"
 
 /**
  * WP5: a bundle folder that was skipped during rescan. [bundleDir] is a
@@ -118,6 +133,10 @@ class LibraryViewModel(
     // sees notices first, then scan failures.
     private val scanErrors = MutableStateFlow<List<ImportError>>(emptyList())
     private val notices = MutableStateFlow<List<ImportError>>(emptyList())
+    // IN8: manifest render_state by book id, as last seen by a rescan
+    // (replaced wholesale by every rescan). Drives the "Not rendered"
+    // chip; books never scanned show no chip.
+    private val renderStates = MutableStateFlow<Map<String, String?>>(emptyMap())
     private val isScanning = MutableStateFlow(false)
     private val hasPermission = MutableStateFlow(false)
     private val selectedBookId = MutableStateFlow<String?>(null)
@@ -126,15 +145,17 @@ class LibraryViewModel(
         val errorsAll = combine(notices, scanErrors) { noticeList, scanList ->
             noticeList + scanList
         }
-        val booksPart = combine(books, progressPositions, errorsAll) { bookList, positions, errorList ->
-            Triple(bookList, positions, errorList)
+        val booksPart = combine(
+            books, progressPositions, errorsAll, renderStates
+        ) { bookList, positions, errorList, states ->
+            BooksPart(bookList, positions, errorList, states)
         }
         val flagsPart =
             combine(isScanning, hasPermission, selectedBookId) { scanning, permission, selected ->
                 Triple(scanning, permission, selected)
             }
         combine(booksPart, flagsPart) { left, right ->
-            val (bookList, positions, errorList) = left
+            val (bookList, positions, errorList, states) = left
             val (scanning, permission, selected) = right
             LibraryUiState(
                 hasPermission = permission,
@@ -150,7 +171,8 @@ class LibraryViewModel(
                             book.durationMs, positions[book.id]
                         ),
                         isMissing = book.isMissing,
-                        bundleDir = book.bundlePath
+                        bundleDir = book.bundlePath,
+                        renderState = states[book.id]
                     )
                 },
                 errors = errorList,
@@ -202,11 +224,24 @@ class LibraryViewModel(
                 }
                 val failures = mutableListOf<ImportError>()
                 val allDirs = mutableListOf<String>()
+                val states = mutableMapOf<String, String?>()
                 for (folder in folders) {
                     val root = WatchFolders.rootString(folder)
                     // User-visible folder label: decoded display name, never
                     // a raw tree URI.
                     val folderLabel = WatchFolders.displayName(folder)
+                    // IN8: sweep stray import temps (a killed import's
+                    // `.tmp-<id>` folder carries a manifest, so without this
+                    // the listing below would read it as a book). Best
+                    // effort; never fails the rescan. Launch coverage comes
+                    // free: this rescan runs at startup (init), on every
+                    // manual rescan, and after the permission grant.
+                    try {
+                        StrayTempSweep.sweep(root, storage)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                    }
                     val dirs = try {
                         storage.listBundleDirs(root)
                     } catch (e: CancellationException) {
@@ -219,6 +254,9 @@ class LibraryViewModel(
                         continue
                     }
                     for (dir in dirs) {
+                        // IN8: never read an import temp as a book (a temp
+                        // born from a concurrent import after the sweep).
+                        if (StrayTempSweep.isStrayDir(dir)) continue
                         // Bundle label: SAF tokens collapse to the bundle
                         // name; file paths pass through.
                         val dirLabel = WatchFolders.displayPath(dir)
@@ -258,6 +296,7 @@ class LibraryViewModel(
                                         ?: "$dirLabel: manifest.json: import failed"
                                     failures += err(dirLabel, reason)
                                 } else {
+                                    states[manifest.id] = manifest.renderState
                                     // One error per bad chapter (a chapter with
                                     // both audio+text problems joins its
                                     // messages); each names chapter+file+rule.
@@ -275,6 +314,8 @@ class LibraryViewModel(
                                 val reason = imported.exceptionOrNull()?.message
                                     ?: "$dirLabel: manifest.json: import failed"
                                 failures += err(dirLabel, reason)
+                            } else {
+                                states[manifest.id] = manifest.renderState
                             }
                         } catch (e: CancellationException) {
                             throw e
@@ -305,8 +346,49 @@ class LibraryViewModel(
                     )
                 }
                 scanErrors.value = failures
+                renderStates.value = states
             } finally {
                 isScanning.value = false
+            }
+        }
+    }
+
+    /**
+     * IN8: library delete (row action, confirmed in the dialog): removes
+     * the book folder, then the library row, then the saved position, so
+     * a later re-import starts fresh. Failures surface as library notices
+     * (never silent, never a crash); the books flow refreshes the list on
+     * success with no rescan needed.
+     */
+    fun deleteBook(bookId: String) {
+        scope.launch(ioDispatcher) {
+            val deleted = try {
+                libraryRepository.deleteBook(bookId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+            if (deleted.isFailure) {
+                addNotice(
+                    "Library",
+                    deleted.exceptionOrNull()?.message ?: "$bookId: could not delete book"
+                )
+                return@launch
+            }
+            val progress = try {
+                progressRepository.delete(bookId)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Result.failure(e)
+            }
+            if (progress.isFailure) {
+                addNotice(
+                    "Library",
+                    progress.exceptionOrNull()?.message
+                        ?: "$bookId: could not delete saved position"
+                )
             }
         }
     }
@@ -384,6 +466,18 @@ class LibraryViewModel(
         private val CHAPTER_RE = Regex("chapter (\\d+)")
     }
 }
+
+/**
+ * IN8: rescan snapshot for the library rows (books, saved positions,
+ * scan failures, render states). Destructured once in the uiState
+ * combine; a tiny holder keeps the 4-flow combine readable.
+ */
+private data class BooksPart(
+    val books: List<BookEntity>,
+    val positions: Map<String, Long>,
+    val errors: List<ImportError>,
+    val renderStates: Map<String, String?>
+)
 
 /**
  * CP4: chapter-scoped file problems (bad audio/text file for some chapters)

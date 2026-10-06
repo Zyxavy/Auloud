@@ -88,6 +88,40 @@ class FileBundleStorageWriteTest {
     }
 
     @Test
+    fun listStrayTempDirs_listsOnlyTmpPrefix() {
+        val storage = FileBundleStorage()
+        val root = path(temp.root.absolutePath, "Auloud")
+        storage.writeText(path(root, ".tmp-a", "manifest.json"), "{}")
+        storage.writeText(path(root, ".tmp-b", "x.txt"), "x")
+        storage.writeText(path(root, "real-book", "manifest.json"), "{}")
+        File(path(root, "plain.txt")).writeText("x")
+
+        assertEquals(
+            listOf(path(root, ".tmp-a"), path(root, ".tmp-b")).sorted(),
+            storage.listStrayTempDirs(root)
+        )
+    }
+
+    @Test
+    fun listStrayTempDirs_missingRoot_isEmpty() {
+        val storage = FileBundleStorage()
+
+        assertTrue(storage.listStrayTempDirs(path(temp.root.absolutePath, "absent")).isEmpty())
+    }
+
+    @Test
+    fun routing_strayTemps_fileRoutedSafEmpty() {
+        val routing = RoutingBundleStorage(FileBundleStorage()) { _ ->
+            throw UnsupportedOperationException("no SAF tree in this test")
+        }
+        val root = path(temp.root.absolutePath, "Auloud")
+        routing.writeText(path(root, ".tmp-a", "manifest.json"), "{}")
+
+        assertEquals(listOf(path(root, ".tmp-a")), routing.listStrayTempDirs(root))
+        assertTrue(routing.listStrayTempDirs("content://tree|Auloud").isEmpty())
+    }
+
+    @Test
     fun routing_routesFileWritesAndRefusesSafWrites() {
         val routing = RoutingBundleStorage(FileBundleStorage()) { _ ->
             throw UnsupportedOperationException("no SAF tree in this test")

@@ -15,4 +15,10 @@ interface ProgressRepository {
 
     /** Returns the saved position, or success-with-null when never saved. */
     suspend fun load(bookId: String): Result<ProgressEntity?>
+
+    /**
+     * IN8: removes the saved position for [bookId]. Deleting a missing
+     * position still succeeds (there is nothing to resurrect).
+     */
+    suspend fun delete(bookId: String): Result<Unit>
 }

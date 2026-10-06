@@ -203,6 +203,30 @@ class LibraryRepositoryTest {
         }
     }
 
+    @Test
+    fun deleteBook_removesRowAndFolder() = runBlocking {
+        repo.importBundle(bundleDir, manifest()).getOrThrow()
+
+        repo.deleteBook("8f0c6c1e-3a8f-4c6e-9d54-0b6a3f1a2b77").getOrThrow()
+
+        assertTrue(repo.books().first().isEmpty())
+        assertEquals(listOf(bundleDir), storage.deletedPaths)
+    }
+
+    @Test
+    fun deleteBook_unknownId_failsNamingRule() = runBlocking {
+        repo.importBundle(bundleDir, manifest()).getOrThrow()
+
+        val result = repo.deleteBook("no-such-book")
+
+        assertTrue(result.isFailure)
+        assertTrue(
+            "failure names the rule, was: ${result.exceptionOrNull()?.message}",
+            result.exceptionOrNull()?.message?.contains("nothing to delete") == true
+        )
+        assertEquals(1, repo.books().first().size)
+    }
+
     private fun manifest(
         id: String = "8f0c6c1e-3a8f-4c6e-9d54-0b6a3f1a2b77",
         title: String = "Example Novel",
@@ -248,10 +272,16 @@ class LibraryRepositoryTest {
                 emit()
             }
         }
+
+        override suspend fun deleteById(id: String) {
+            if (rows.remove(id) != null) emit()
+        }
     }
 
     /** Existence-check-only [BundleStorage]; `audioUri` is never used by repositories. */
     private class FakeBundleStorage(private val existing: Set<String>) : BundleStorage {
+        val deletedPaths = mutableListOf<String>()
+
         override fun listBundleDirs(root: String): List<String> = emptyList()
         override fun readText(path: String): String = throw UnsupportedOperationException()
         override fun exists(path: String): Boolean = path in existing
@@ -260,6 +290,9 @@ class LibraryRepositoryTest {
         override fun coverUri(bundleDirPath: String, coverRel: String): String? {
             if (coverRel.isBlank()) return null
             return bundleDirPath.trimEnd('/') + '/' + coverRel.trimStart('/')
+        }
+        override fun deleteRecursively(path: String) {
+            deletedPaths.add(path)
         }
     }
 }

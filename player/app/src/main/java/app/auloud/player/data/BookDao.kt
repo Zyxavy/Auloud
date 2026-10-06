@@ -26,4 +26,11 @@ interface BookDao {
 
     @Query("UPDATE books SET isMissing = :missing WHERE id = :id")
     suspend fun setMissing(id: String, missing: Boolean)
+
+    /**
+     * IN8: removes the row for [id] (library delete; the book folder is
+     * removed through [app.auloud.player.storage.BundleStorage] first).
+     */
+    @Query("DELETE FROM books WHERE id = :id")
+    suspend fun deleteById(id: String)
 }

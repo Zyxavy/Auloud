@@ -84,4 +84,17 @@ interface BundleStorage {
      */
     fun deleteRecursively(path: String) {
     }
+
+    /**
+     * IN8: immediate `.tmp-*` import-residue folders under [root] (a sudden
+     * process kill between manifest write and rename leaves one; only
+     * sudden death does, cancel/failure clean up). Returns absolute paths,
+     * sorted; a missing or unreadable root yields an empty list. The file
+     * branch lists them; SAF roots yield an empty list (imports never
+     * target picked trees). Default returns an empty list so read-only
+     * fakes compile untouched.
+     *
+     * API 24 safe: plain strings, no `java.time`, no `java.nio.file`.
+     */
+    fun listStrayTempDirs(root: String): List<String> = emptyList()
 }
