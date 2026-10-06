@@ -278,6 +278,37 @@ class EpubContainerReaderTest {
         assertEquals("Chapter One", book.spine[0].tocTitle)
     }
 
+    @Test
+    fun epub2MinimalFixture_parsesWithNcxTitles() {
+        val file = fixtureFile("epub2-minimal")
+        assertTrue("fixture missing: ${file.path}", file.isFile)
+        val result = EpubContainerReader.read(file)
+        assertTrue(
+            "expected success but got: ${result.exceptionOrNull()?.message}",
+            result.isSuccess
+        )
+        val book = result.getOrThrow()
+        assertEquals("EPUB2 Minimal", book.title)
+        assertEquals("Auloud Test", book.author)
+        assertEquals("en", book.language)
+        assertEquals(
+            "df060df13672b412fb6a024c4210e055d8f390176fb944c8ce7a1b8ec415e7ce",
+            book.sha256Hex
+        )
+        assertEquals("OEBPS/content.opf", book.opfPath)
+        assertEquals(2, book.spine.size)
+        assertEquals("OEBPS/ch1.xhtml", book.spine[0].href)
+        assertEquals("OEBPS/ch2.xhtml", book.spine[1].href)
+        assertTrue(book.spine.all { it.isLinear })
+        assertFalse(book.spine.any { it.isNav })
+        assertEquals("The Amber Lamp", book.spine[0].tocTitle)
+        assertEquals("The Quiet River", book.spine[1].tocTitle)
+        assertNull("minimal fixture ships no cover", book.coverEntry)
+        assertTrue("expected no warnings, got: ${book.warnings}", book.warnings.isEmpty())
+        val bytes = EpubContainerReader.readSpineBytes(file, book.spine[0].href).getOrThrow()
+        assertTrue(String(bytes, Charsets.UTF_8).contains("amber lamp"))
+    }
+
     // ---- EPUB 2 (NCX) and EPUB 3 (nav) synthetics ----
 
     @Test
@@ -304,6 +335,42 @@ class EpubContainerReaderTest {
         assertEquals(2, book.spine.size)
         assertEquals("Chapter One", book.spine[0].tocTitle)
         assertEquals("Chapter Two", book.spine[1].tocTitle)
+    }
+
+    @Test
+    fun tocConflict_navWinsOverNcx() {
+        val target = File(temp.root, "conflict.epub")
+        writeZip(
+            target,
+            mapOf(
+                "mimetype" to "application/epub+zip".toByteArray(Charsets.UTF_8),
+                "META-INF/container.xml" to containerXml("OEBPS/content.opf"),
+                "OEBPS/content.opf" to opfEpub3(
+                    "Test Book", "Test Author", "en",
+                    includeNcx = true
+                ),
+                "OEBPS/ch1.xhtml" to chapterXhtml("Chapter One", "First chapter text here."),
+                "OEBPS/ch2.xhtml" to chapterXhtml("Chapter Two", "Second chapter text here."),
+                "OEBPS/nav.xhtml" to navXhtml(
+                    listOf(
+                        Pair("ch1.xhtml", "Nav Title One"),
+                        Pair("ch2.xhtml", "Nav Title Two")
+                    )
+                ),
+                "OEBPS/toc.ncx" to ncxXml(
+                    listOf(
+                        Pair("ch1.xhtml", "Ncx Title One"),
+                        Pair("ch2.xhtml", "Ncx Title Two")
+                    )
+                )
+            )
+        )
+        val book = EpubContainerReader.read(target).getOrThrow()
+        // Same basenames disagree: nav is read first and wins (first-wins map).
+        assertEquals("Nav Title One", book.spine[0].tocTitle)
+        assertEquals("Nav Title Two", book.spine[1].tocTitle)
+        assertEquals("Nav Title One", book.tocTitles["ch1.xhtml"])
+        assertEquals("Nav Title Two", book.tocTitles["ch2.xhtml"])
     }
 
     @Test

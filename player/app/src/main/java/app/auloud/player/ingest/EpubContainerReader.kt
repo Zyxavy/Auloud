@@ -54,8 +54,15 @@ import java.io.StringReader
  * stem and author to null (Scribe `read_book_metadata` parity), never
  * failing.
  *
+ * Seams: [readSpineBytes] and [readCoverBytes] enforce only the entry
+ * name and per-entry caps; they do not re-check
+ * `META-INF/encryption.xml` or the total uncompressed cap, so callers
+ * must go through [read] first and only fetch entries from a book it
+ * accepted. Entries with unknown size (-1) are skipped in the declared
+ * total; per-entry streaming caps still bound each read.
+ *
  * API 24 safe: `java.io`, `java.util.zip`, `javax.xml`, `java.security`
- * only. No `java.time`, no `java.nio.file`, no Android classes, so this
+ * and `java.net.URLDecoder` only. No `java.time`, no `java.nio.file`, no Android classes, so this
  * is JVM-testable. No new dependencies.
  */
 object EpubContainerReader {

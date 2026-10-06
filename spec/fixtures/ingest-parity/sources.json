@@ -3,6 +3,13 @@
   "sources": [
     {
       "file": "source/book.epub",
+      "fixture": "epub2-minimal",
+      "parity": "epub2-minimal.json",
+      "sha256": "df060df13672b412fb6a024c4210e055d8f390176fb944c8ce7a1b8ec415e7ce",
+      "status": "covered"
+    },
+    {
+      "file": "source/book.epub",
       "fixture": "multivoice-golden",
       "parity": "multivoice-golden.json",
       "sha256": "baf814774fc22513b51f0405e7bf45a55f0de06b2682b44fff5fb44b07f9890e",
