@@ -127,6 +127,47 @@ data class IngestChapter(
 )
 
 /**
+ * IN5: sentence models (Slice 9).
+ *
+ * [IngestSentence] carries text plus rebased italic/bold spans only: no
+ * kind/speaker fields. Dialogue tagging is IN6's own layer keyed by sid,
+ * so this file must never grow a kind field here. Offsets count UTF-16
+ * code units (Kotlin [String] indices), like [IngestSpan].
+ *
+ * The spacing contract (rules 10.1-10.4): the gap after a sentence is
+ * stored as trailing whitespace of that sentence, so joining the
+ * sentence texts reproduces the block text exactly. Span offsets are
+ * measured over the stored string, trailing spacing included.
+ */
+
+/**
+ * One sentence of a para/quote block.
+ *
+ * [sid] runs consecutively from 1 across the whole chapter (all blocks;
+ * headings count, breaks hold none). [text] keeps its original spacing
+ * (trailing gap stored, never trimmed). [spans] holds the italic/bold
+ * runs intersecting this sentence, rebased to sentence-local offsets; a
+ * span crossing a boundary is clipped into each side.
+ */
+data class IngestSentence(
+    val sid: Int,
+    val text: String,
+    val spans: List<IngestSpan> = emptyList()
+)
+
+/**
+ * One block's sentences from [SentenceSplitter.splitChapter].
+ *
+ * [block] is the 1-based position in [IngestChapter.blocks] (block id).
+ * Headings hold exactly one sentence (or none when blank); breaks hold
+ * none; para/quote blocks hold one or more.
+ */
+data class BlockSentences(
+    val block: Int,
+    val sentences: List<IngestSentence>
+)
+
+/**
  * IN4 top-level output: final chapters plus the human-readable drop log.
  *
  * [drops] is one chronological channel: container warnings first, then
