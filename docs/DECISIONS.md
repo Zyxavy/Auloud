@@ -727,3 +727,102 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: the binding IN1-review obligation (gate every playback entry, prove zero audio items from the golden) plus the IN9 verify (state, sid save/restore, mode gating) with no rendered-book behavior change and no new dependency, permission or manifest change.
 - Alternatives considered: filtering the queue to the rendered subset and playing partial books now (rejected: playlist positions would no longer match manifest chapter indices, so saved progress could land on the wrong chapter; refusing is honest until Slice 10 owns partial playback); a separate sid-only progress method instead of the optional param (rejected: two save paths could drift, and the default keeps every existing call site compiling identically); reusing `ReaderViewModel` with a playback flow for unrendered books (rejected: there is no audio position to mirror, and `SentenceIndex` skips untimed sentences by design, so a sid-native ViewModel is smaller and cannot run timed code by mistake).
 - Consequences / revisit when: rendered 2.0 `complete` books play through the gated path (proven identical to `build` by test); Slice 10 converts sid progress to ms on render and refreshes the chip map by rescan. Needs device test (IN10, not claimed): dialogue color legibility on the Tab E in light and dark, read-only opening from the library, close/reopen restore, chapter list jumps, the listen-unavailable hint, and that existing rendered books still play with read-along.
+
+### D-091: RN0-1 voice-batched, spooled rendering (Slice 10 plan decision 1)
+
+- Date: 2026-10-06
+- Status: Proposed (pending RN4/RN5 verification)
+- Decision: Per chapter, render in voice passes (all narrator sentences, then all dialogue sentences) and assemble in reading order from spool files keyed by chapter, sentence id and voice fingerprint; the spool gives sentence-level resume and flat memory.
+- Why: System TTS pays about 800 ms per voice switch (measured), so naive toggling wastes minutes per dialogue-heavy chapter; one model at a time also fits the 415 MB two-Piper-model budget.
+- Alternatives considered: in-order synthesis with per-sentence voice switching (rejected: switch cost dominates at dialogue density); holding all sentence audio in memory (rejected: breaks the 1.5 GB budget on long chapters).
+- Consequences / revisit when: spool adds disk IO (about 86 MB per 30 min) plus stale-spool cleanup; Scribe's `assemble_chapter` synthesizes in document order today, so the port must separate synth order from assembly order without moving tag-pause boundaries. Overturn if the beep/self-check (RN10) shows switch cost is negligible on the System path, or if spool bookkeeping proves flakier than the resume it buys.
+
+### D-092: RN0-2 AAC in M4A for device renders (Slice 10 plan decision 2)
+
+- Date: 2026-10-06
+- Status: Proposed (pending RN6 device encode plus RN1 spec amendment)
+- Decision: Device-rendered chapters are AAC-LC mono 24 kHz about 64 kbps in M4A via the platform encoder and muxer; needs spec 2.0 part 2 (RN1).
+- Why: Android 7.1.1 ships an AAC encoder but no MP3 encoder; shipping one would mean extra native code plus a license review (see D-068, still Proposed).
+- Alternatives considered: MP3 via bundled native code (rejected: native weight plus license surface for parity nobody needs); Opus (rejected: weaker platform support on API 24 for the muxer path).
+- Consequences / revisit when: encoder delay/drift may force a looser sync tolerance than 50 ms (decision 3 measures it); old 1.x Players will refuse 2.0 AAC books at the version gate by design. Overturn if the platform encoder is missing or misbehaves on the Tab E (RN6 reports a clear error then).
+
+### D-093: RN0-3 encoder delay is measured, not assumed (Slice 10 plan decision 3)
+
+- Date: 2026-10-06
+- Status: Proposed (pending RN10 measurement)
+- Decision: A debug beep engine renders tones at known positions; the measured offset is stored as a constant, recorded in the manifest as `encoder_offset_ms`, applied when timings are written, and players need no change; AAC sync tolerance is decided from that data (may loosen from 50 ms).
+- Why: Assuming zero delay risks a systematic highlight lag on every device-rendered chapter; measuring once per encoder turns it into a constant.
+- Alternatives considered: assuming zero offset (rejected: unproven on the platform AAC path); per-chapter measurement (rejected: wasteful once the encoder behavior is known constant).
+- Consequences / revisit when: RN1 writes the tolerance rule from the measured number; if drift (not just offset) appears, per-chapter or per-file correction replaces the constant. Overturn if the beep chapter shows offset 0 within the existing 50 ms tolerance (then record 0 and keep the tolerance).
+
+### D-094: RN0-4 device timing rules identical to Scribe (Slice 10 plan decision 4)
+
+- Date: 2026-10-06
+- Status: Proposed (pending RN2 vectors plus RN5 verification; Scribe side already Accepted in D-025)
+- Decision: Pauses 250 ms sentence, 500 ms paragraph, 800 ms heading, 1000 ms scene break, 100 ms dialogue tag split; `start_ms`/`end_ms` from sample counts; `end_ms` excludes the pause; first start is 0. Verified with shared vectors exported from Scribe's assembly tests (RN2).
+- Why: Identical rules keep read-along, validation and PC/device bundles on one contract; Scribe's `scribe/audio/assemble.py` plus `tests/test_assemble_encode.py` and `tests/test_mv7.py` already pin the semantics.
+- Alternatives considered: device-specific pauses (rejected: two contracts to test, audible inconsistency between PC and device chapters).
+- Consequences / revisit when: RN2 exports the vectors and Scribe tests consume them too; the Kotlin port must reproduce them exactly, including leading-break silence drop and split-pair tag detection (recomputed via `DialogueTagger`; the bundle carries no split-pair fields by design). Overturn only with listening evidence that a pause value sounds wrong on device (then change both sides together, not one).
+
+### D-095: RN0-5 book-level gain per role plus per-chapter peak cap (Slice 10 plan decision 5)
+
+- Date: 2026-10-06
+- Status: Proposed (pending RN4/RN5 verification; builds on Accepted D-037 peak leveling)
+- Decision: One gain per role derived from the first rendered chapter, stored in the manifest, plus a per-chapter peak limit at assembly, so chapters rendered on different nights do not jump in loudness.
+- Why: Scribe already equalizes peaks per voice at assembly (D-037, deterministic numpy gain, durations unchanged); the book-level gain extends the same metric across nights without re-rendering finished chapters.
+- Alternatives considered: per-chapter-only leveling (rejected: night-to-night voice drift stays audible); RMS/LUFS leveling (rejected per D-037: version-dependent filters, silence-weighting ambiguity; peak matching is proven good enough by ear for v1).
+- Consequences / revisit when: the first chapter sets the reference for the whole book, so a bad first chapter (odd levels) biases everything after it; RN4 measures per-role levels during the spool passes. Overturn if listening tests report uneven loudness across nights (then revisit reference selection or the metric itself).
+
+### D-096: RN0-6 crash-safe write order with temp-then-rename (Slice 10 plan decision 6)
+
+- Date: 2026-10-06
+- Status: Proposed (pending RN7 crash-simulation tests)
+- Decision: Per chapter: audio file, then timed text JSON, then the manifest update; each written to temp and renamed; a startup recovery step cleans orphan temps and repairs half-finished chapters.
+- Why: Ordered writes plus atomic renames bound crash damage to the newest chapter; readers never see a manifest entry without its audio and JSON on disk (same shape as Scribe's cache atomicity and the IN7 temp-then-rename import).
+- Alternatives considered: manifest-first (rejected: a manifest-first crash looks like a book to rescan, the IN7 lesson); in-place overwrite (rejected: torn files on kill).
+- Consequences / revisit when: RN7 simulates a crash at each step; recovery must also handle kills between manifest write and rename. Overturn only if crash tests show a step where ordering cannot protect the reader (then add the missing guard, do not drop ordering).
+
+### D-097: RN0-7 render job state in a small file per book, not the database (Slice 10 plan decision 7)
+
+- Date: 2026-10-06
+- Status: Proposed (pending RN3 verification)
+- Decision: One small atomically-written state file per book holds the render job (states: queued, running, paused, done, failed, cancelled, interrupted for process death, resumable); no Room migration.
+- Why: Avoids another Room migration (which cannot run on the JVM here, the IN1 lesson) and keeps the render queue testable as pure file logic; the Scribe UI job store (`scribe/ui/jobs.py`, one folder per job with sentinel pause) proves the shape works.
+- Alternatives considered: a new Room table (rejected: migration is unverifiable until a device test; the state is a machine-local queue, not relational data).
+- Consequences / revisit when: strongest counter-argument found in review: the library chip map is already an in-memory projection that goes stale when files change under it (D-089 note), so rescan must refresh render chips after Slice 10 rewrites `render_state`, and file and DB can disagree mid-render. State-file timestamps use epoch millis (`System.currentTimeMillis`), never `java.time` (unavailable on API 24 without desugaring). Overturn if concurrent writers corrupt the file despite atomic writes (then serialize through the single render service, which already owns the single-running-job rule).
+
+### D-098: RN0-8 render-ahead from the reading position (Slice 10 plan decision 8)
+
+- Date: 2026-10-06
+- Status: Proposed (pending RN3 planner tests)
+- Decision: The planner starts at the chapter containing the reading position, then continues forward; options are next N chapters (default a few hours of audio), whole book, or from here; while charging the window keeps rolling as you read.
+- Why: At about 1x System TTS a full book needs a night per 10 hours, so rendering ahead of the reader (not chapter 1) is what makes the book listenable tomorrow; the SysLong verdict is explicitly not needed for this slice.
+- Alternatives considered: always chapter-1 order (rejected: a reader at chapter 20 waits through 19 re-renders of already-heard audio); whole-book-only (rejected: no partial payoff on slow engines like Piper 0.36x).
+- Consequences / revisit when: RN3 pins ordering from different positions plus the rolling window in JVM tests; planner inputs are chapter index plus saved sid/ms, never wall-clock assumptions (`java.time` forbidden, epoch millis only). Overturn if acceptance shows readers mostly restart books (D-028 restart-from-1 behavior) rather than continue (then default to whole-book).
+
+### D-099: RN0-9 explicit chapter-to-media-item mapping for partial books (Slice 10 plan decision 9)
+
+- Date: 2026-10-06
+- Status: Proposed (pending RN7 mapping tests; builds on the Accepted IN9 gate in D-090)
+- Decision: Rendered chapters may be non-contiguous, so playlist position is not chapter index: a tested mapping type converts between them; progress stays keyed by manifest chapter; Listen and Read plus listen enable per chapter; playback stops with a clear message at the end of the rendered portion.
+- Why: `PlaybackQueue.buildPlayable` today uses the filtered position as `chapterIndex`, which is harmless only because the service refuses partial books first (issue #14 item 3 warns exactly against reusing it for partial playback); saved progress in chapter coordinates must never land on the wrong chapter after filtering.
+- Alternatives considered: reusing `buildPlayable` positions as chapter indices (rejected: #14 item 3, wrong-chapter progress on sparse books); renumbering progress on render (rejected: destroys the stable chapter key the spec guarantees).
+- Consequences / revisit when: RN7 absorbs #14 items 1-3 (deprecate or delegate ungated `build`, add the refused-prepareBook test, keep the warning attached); saved sid progress converts to ms from the new timings; rendered 1.x books keep the identical-to-`build` path. Overturn only if sparse chapters prove unusable in practice (then restrict rendering to contiguous-from-position windows instead of weakening the mapping).
+
+### D-100: RN0-10 per-chapter render fingerprint (Slice 10 plan decision 10)
+
+- Date: 2026-10-06
+- Status: Proposed (pending RN1 spec text plus RN4/RN7 verification)
+- Decision: Each rendered chapter stores a fingerprint (engine, voice ids, speeds, engine versions) so Slice 11 can find stale chapters after a voice change and re-render only those.
+- Why: Scribe's sentence cache already keys on (text, voice, speed, pitch, engine version) for exactly this invalidation reason; the chapter fingerprint is the same idea one level up, and the two-voice collapse rule (D-071) makes the key small.
+- Alternatives considered: no fingerprint, re-render all on any voice change (rejected: wastes nights); fingerprint per sentence (rejected: chapter granularity matches the render and delete unit).
+- Consequences / revisit when: RN1 defines the field shape (`render_fingerprint`, optional, ignored by old readers); a fingerprint mismatch invalidates spool files (RN4) and marks the chapter stale (Slice 11). Overturn if the fingerprint ever fails to change when audio would (then it is a correctness bug, widen the key).
+
+### D-101: RN0-11 rendering safety guards (Slice 10 plan decision 11)
+
+- Date: 2026-10-06
+- Status: Proposed (pending RN8 policy tests plus device tuning)
+- Decision: Pause when the charger unplugs (if charging-only is on), pause above a battery-temperature limit and resume when cooler, pause on low storage; the pre-start estimate shows audio length, size and time from the benchmark RTF.
+- Why: Overnight renders on a 1.5 GB tablet must not cook the battery, die mid-chapter, or fill the disk; estimates come from measured RTF ranges (System TTS varied 2.56x to 0.86x run to run), so they are shown as ranges.
+- Alternatives considered: no guards, render unconditionally (rejected: the soak risk table names heat, battery and storage explicitly); hard temperature/storage constants (rejected: defaults need tuning from device numbers in acceptance).
+- Consequences / revisit when: RN8 tests the policy classes with injected inputs on the JVM; the service owns charger/temperature/storage signals behind thin seams; all thresholds read from settings with defaults, never `java.time` schedules. Overturn a default only with measured device numbers (RN11 acceptance), not with emulator guesses.
