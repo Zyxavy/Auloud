@@ -72,7 +72,7 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 - Scribe: a Piper engine for PC rendering (the interface exists; it was skipped in v1) and namespaced engine voices in `cast.yaml`; multi-voice behavior unchanged; the web UI voices view lists engines
 - **Done when:** the Tab E can audition voices from each included engine, and Scribe can render a short multi-voice chapter with Piper
 
-**Slice 9: On-device ingestion, EPUB (M-L).**
+**Slice 9: On-device ingestion, EPUB (M-L).** *Status: complete (tag `slice-9`; IN10 device-passed 2026-10-06, see #13).*
 
 - Import an EPUB directly: Kotlin port of extraction, cleaning, sentence splitting and dialogue detection (quote state machine, with the same split of mixed sentences); every sentence is tagged narration or dialogue
 - Keep the original file in the book folder; spec amendment for unrendered books (decision 6) first, with validator and fixtures

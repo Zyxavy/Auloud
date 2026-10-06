@@ -70,3 +70,23 @@ sids with headings/breaks, span rebasing, five split-pair cases,
 apostrophes, nested singles); `DialogueParityTest`, 2 tests (covered
 fixtures plus the multivoice anchor). Full Player suite green: 660
 tests, 0 failures (634 baseline plus 26 new).
+
+## Slice 9 IN10 device acceptance (2026-10-06, Galaxy Tab E, owner-run)
+
+Build: dev/v2 debug APK (`app-debug.apk`, Slice 8 + 9). Scribe range
+bundle used for playback regression: Throne of Magical Arcana ch 278-280
+(30:12 audio, RTF 4.38x, bundle validates).
+
+- Rendered-bundle playback on the tablet: pass (278-280 plays).
+- EPUB import on the tablet: pass (chapter list, readable text,
+  dialogue marked).
+- Imported book correctly offers Read + "render audio to listen" hint;
+  no Listen path, no crash, no fake playback: pass (IN9 gate holds on
+  device).
+- Corrupt/DRM failure messages, duplicate re-import, close/reopen
+  position restore: pass per owner ("tested everything and it works
+  well").
+- Import times per book: not recorded.
+- Remaining device backlog (not Slice 9): Room v1-v2 migration upgrade
+  path, NoClassDefFoundError long-run proof, Slice 8 audition/adapter/
+  pack listing, sentence/run agreement re-check on quote-heavy books.
