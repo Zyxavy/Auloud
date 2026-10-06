@@ -1,0 +1,35 @@
+{
+  "blocks": [
+    {
+      "id": 1,
+      "sentences": [
+        {
+          "end_ms": 1000,
+          "sid": 1,
+          "speaker": "narrator",
+          "start_ms": 0,
+          "text": "The ferry bell rang across the water. "
+        },
+        {
+          "end_ms": 2000,
+          "sid": 2,
+          "speaker": "dialogue",
+          "start_ms": 1000,
+          "text": "\"All aboard,\" called the captain. "
+        },
+        {
+          "end_ms": 3000,
+          "sid": 3,
+          "speaker": "narrator",
+          "start_ms": 2000,
+          "text": "Ropes dropped into willing hands."
+        }
+      ],
+      "type": "para"
+    }
+  ],
+  "chapter": 1,
+  "duration_ms": 3000,
+  "spec_version": "2.0",
+  "title": "The Ferry Bell"
+}

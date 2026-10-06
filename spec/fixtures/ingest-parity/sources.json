@@ -17,10 +17,24 @@
     },
     {
       "file": "source/book.epub",
+      "fixture": "partial-aac-golden",
+      "reason": "EpubException: 'Bad Zip file'",
+      "sha256": "2816e299766e09458adc0a9eaf275907aba8bb2736690d67dafa7cc7a533532a",
+      "status": "skipped"
+    },
+    {
+      "file": "source/book.epub",
       "fixture": "partial-golden",
       "parity": "partial-golden.json",
       "sha256": "0fd32580acd2212933dd2889b3c11071b8792ecc03730180d8021be63729d7a9",
       "status": "covered"
+    },
+    {
+      "file": "source/book.epub",
+      "fixture": "rendered-aac-golden",
+      "reason": "EpubException: 'Bad Zip file'",
+      "sha256": "db21167c0c3aef5ce629947c922b440940c819c9dc726eb2e251efba13885cc6",
+      "status": "skipped"
     },
     {
       "file": "source/book.epub",

@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import shutil
 import subprocess
 import unicodedata
@@ -47,14 +48,29 @@ from bundle.models import (
     ChapterEntry,
     ChapterFile,
     Manifest,
+    RenderFingerprint,
     Sentence,
 )
 
 DURATION_TOLERANCE_MS = 50
+#: Spec 2.0 part 2 (RN1, D-102): M4A duration agreement. PROVISIONAL until
+#: the RN10 beep measurement confirms or loosens it; the measured encoder
+#: constant is recorded as manifest ``encoder_offset_ms`` and applied to
+#: timings when they are written.
+AAC_DURATION_TOLERANCE_MS = 50
 STREAM_BITRATE_TOLERANCE_BPS = 2000
 FORMAT_BITRATE_TOLERANCE_BPS = 8000
+#: Spec 2.0 part 2 (RN1, D-102): AAC average-bitrate band. AAC has no
+#: frame-level CBR, so the average wanders with content (a pure tone at
+#: the 64k setting probes near 61k); the check catches gross
+#: misconfiguration (32k or 128k by mistake), not exact rates.
+AAC_BITRATE_TOLERANCE_BPS = 16000
 ALLOWED_SAMPLE_RATES = (24000, 22050)
 ALLOWED_SPAN_STYLES = ("italic", "bold")
+#: Manifest ``audio.format`` values (spec 2.0 part 2; 1.x books always mp3).
+AUDIO_FORMATS = ("mp3", "m4a")
+#: Roles carrying per-role gain (spec 2.0 part 2, same keys as D-095).
+GAIN_ROLES = ("narrator", "dialogue")
 #: Bundle contract versions accepted (spec v1.2 additive: range builds write "1.2";
 #: spec v2.0 major: unrendered books write "2.0", IN1 D-082).
 ALLOWED_SPEC_VERSIONS = ("1.0", "1.1", "1.2", "2.0")
@@ -78,7 +94,12 @@ class ValidationResult:
 
 @dataclass
 class AudioProbe:
-    """Measured properties of one chapter MP3 (from ffprobe or a test stub)."""
+    """Measured properties of one chapter audio file (from ffprobe or a stub).
+
+    ``container`` is the ffprobe format name (for example ``mp3`` or
+    ``mov,mp4,m4a,3gp,3g2,mj2``); MP3-era stubs leave it blank, which
+    the M4A container check treats as "not mp4/m4a".
+    """
 
     codec: str
     channels: int
@@ -87,6 +108,7 @@ class AudioProbe:
     bit_rate_from_stream: bool
     duration_ms: int | None
     cbr_frames: bool
+    container: str = ""
 
 
 class AudioProbeError(Exception):
@@ -117,7 +139,7 @@ def _run_ffprobe(ffprobe: str, args: list[str], timeout_s: int) -> subprocess.Co
 
 
 def probe_audio_ffprobe(path: Path) -> AudioProbe:
-    """Probe one MP3 via ffprobe subprocesses (stream info + frame sizes)."""
+    """Probe one chapter audio file via ffprobe (stream info + frame sizes)."""
     ffprobe = shutil.which("ffprobe")
     if ffprobe is None:
         raise AudioProbeError(f"ffprobe not found on PATH ({FFPROBE_HELP})")
@@ -131,7 +153,7 @@ def probe_audio_ffprobe(path: Path) -> AudioProbe:
             "-show_entries",
             "stream=codec_name,channels,sample_rate,bit_rate",
             "-show_entries",
-            "format=duration,bit_rate",
+            "format=duration,format_name,bit_rate",
             "-of",
             "json",
             str(path),
@@ -171,6 +193,7 @@ def probe_audio_ffprobe(path: Path) -> AudioProbe:
     except (KeyError, TypeError, ValueError):
         duration_ms = None
     cbr_frames = _check_cbr_frames(ffprobe, path)
+    container = str(fmt.get("format_name", "") or "")
     return AudioProbe(
         codec=str(stream.get("codec_name", "")),
         channels=channels,
@@ -179,6 +202,7 @@ def probe_audio_ffprobe(path: Path) -> AudioProbe:
         bit_rate_from_stream=from_stream,
         duration_ms=duration_ms,
         cbr_frames=cbr_frames,
+        container=container,
     )
 
 
@@ -327,6 +351,23 @@ def _validate_render_state_field(manifest: Manifest, result: ValidationResult) -
             )
 
 
+def _audio_format_for_extension(audio_rel: str | None) -> str | None:
+    """``mp3``/``m4a`` from a chapter ``audio`` path extension, else ``None``.
+
+    Spec 2.0 part 2: the extension decides the chapter codec (lowercase
+    ``.mp3``/``.m4a`` only, matching the lowercase generated-file rule).
+    """
+
+    if not audio_rel:
+        return None
+    suffix = Path(audio_rel).suffix
+    if suffix == ".mp3":
+        return "mp3"
+    if suffix == ".m4a":
+        return "m4a"
+    return None
+
+
 def _validate_manifest_declarations(manifest: Manifest, result: ValidationResult) -> None:
     if not manifest.chapters:
         result.errors.append("manifest.json: no chapters listed")
@@ -366,6 +407,8 @@ def _validate_manifest_declarations(manifest: Manifest, result: ValidationResult
             )
         _validate_chapter_entry_audio(manifest, entry, result)
     _validate_source_indices(manifest, result)
+    _validate_audio_format_agreement(manifest, result)
+    _validate_device_fields(manifest, result)
     _validate_render_state_consistency(manifest, result)
 
 
@@ -399,8 +442,11 @@ def _validate_manifest_audio(manifest: Manifest, result: ValidationResult) -> No
         return
     if audio is None:
         return
-    if audio.format != "mp3":
-        result.errors.append(f"manifest.json: audio.format must be 'mp3', got '{audio.format}'")
+    if audio.format not in AUDIO_FORMATS:
+        result.errors.append(
+            f"manifest.json: audio.format must be one of {list(AUDIO_FORMATS)}, "
+            f"got '{audio.format}'"
+        )
     if audio.channels != 1:
         result.errors.append(
             f"manifest.json: audio.channels must be 1 (mono), got {audio.channels}"
@@ -415,7 +461,10 @@ def _validate_manifest_audio(manifest: Manifest, result: ValidationResult) -> No
             f"manifest.json: audio.bitrate_kbps must be 64, got {audio.bitrate_kbps}"
         )
     if not audio.cbr:
-        result.errors.append("manifest.json: audio.cbr must be true (constant bitrate required)")
+        result.errors.append(
+            "manifest.json: audio.cbr must be true "
+            "(constant bitrate for MP3, constrained setting for M4A)"
+        )
 
 
 def _validate_chapter_entry_audio(
@@ -425,6 +474,8 @@ def _validate_chapter_entry_audio(
 
     A rendered chapter carries both; an unrendered 2.0 chapter omits both
     (never one without the other). 1.x chapters must always be rendered.
+    Spec 2.0 part 2: a rendered chapter's ``audio`` path ends in ``.mp3``
+    or ``.m4a`` (1.x: always ``.mp3``); the extension decides the codec.
     """
     has_audio = entry.audio is not None and entry.audio.strip() != ""
     has_duration = entry.duration_ms is not None
@@ -432,6 +483,11 @@ def _validate_chapter_entry_audio(
         if not has_audio:
             result.errors.append(
                 f"manifest.json: chapter {entry.index} missing required field 'audio' (blank)"
+            )
+        elif _audio_format_for_extension(entry.audio) != "mp3":
+            result.errors.append(
+                f"manifest.json: chapter {entry.index} audio file {entry.audio!r} "
+                "must end in .mp3 (m4a audio needs spec 2.0)"
             )
         if not has_duration:
             result.errors.append(
@@ -444,6 +500,11 @@ def _validate_chapter_entry_audio(
                 f"non-positive duration_ms {entry.duration_ms}"
             )
         return
+    if has_audio and _audio_format_for_extension(entry.audio) is None:
+        result.errors.append(
+            f"manifest.json: chapter {entry.index} audio file {entry.audio!r} "
+            "must end in .mp3 or .m4a (per-chapter format comes from the extension)"
+        )
     if has_audio != has_duration:
         if has_audio:
             result.errors.append(
@@ -461,6 +522,134 @@ def _validate_chapter_entry_audio(
             f"manifest.json: chapter {entry.index} has "
             f"non-positive duration_ms {entry.duration_ms}"
         )
+
+
+def _validate_audio_format_agreement(manifest: Manifest, result: ValidationResult) -> None:
+    """Manifest ``audio.format`` must match at least one rendered chapter.
+
+    Spec 2.0 part 2 (RN1, D-102): mixed MP3/M4A books are legal, so the
+    manifest value cannot be normative per chapter; per-chapter extension
+    plus probe are authoritative. ``none`` books carry no ``audio``
+    object, so the rule is vacuous for them.
+    """
+
+    audio = manifest.audio
+    if audio is None or audio.format not in AUDIO_FORMATS:
+        return
+    rendered = [e for e in manifest.chapters if e.duration_ms is not None]
+    if not rendered:
+        return
+    chapter_formats = {_audio_format_for_extension(e.audio) for e in rendered}
+    chapter_formats.discard(None)
+    if chapter_formats and audio.format not in chapter_formats:
+        have = ", ".join(sorted(chapter_formats))
+        result.errors.append(
+            f"manifest.json: audio.format '{audio.format}' matches no rendered chapter "
+            f"(chapters are {have}; per-chapter format comes from the audio file extension)"
+        )
+
+
+def _validate_device_fields(manifest: Manifest, result: ValidationResult) -> None:
+    """Spec 2.0 part 2 (RN1, D-102): ``gain_db``, ``encoder_offset_ms``,
+    ``render_fingerprint`` presence and shape.
+
+    All three are 2.0-only (absent in 1.x, never null). Gain is one
+    finite number per role (``gain_db`` name and decibel unit per D-102);
+    the offset is an integer (shape-checked at parse); fingerprints live
+    on rendered chapters only and pin both roles. Every error names
+    ``manifest.json`` and the rule.
+    """
+
+    is_20 = manifest.spec_version == "2.0"
+    if manifest.gain_db is not None:
+        if not is_20:
+            result.errors.append(
+                "manifest.json: gain_db is 2.0-only (absent in 1.x bundles)"
+            )
+        else:
+            if not manifest.gain_db:
+                result.errors.append(
+                    "manifest.json: gain_db present but empty (need one number per role)"
+                )
+            for role, value in manifest.gain_db.items():
+                if role not in GAIN_ROLES:
+                    result.errors.append(
+                        f'manifest.json: gain_db has unknown role "{role}" '
+                        "(need narrator and/or dialogue)"
+                    )
+                elif not math.isfinite(value):
+                    result.errors.append(
+                        f"manifest.json: gain_db.{role} must be a finite number "
+                        f"(got {value!r})"
+                    )
+    if manifest.encoder_offset_ms is not None and not is_20:
+        result.errors.append(
+            "manifest.json: encoder_offset_ms is 2.0-only (absent in 1.x bundles)"
+        )
+    for entry in manifest.chapters:
+        fingerprint = entry.render_fingerprint
+        if fingerprint is None:
+            continue
+        if not is_20:
+            result.errors.append(
+                f"manifest.json: chapter {entry.index} render_fingerprint "
+                "is 2.0-only (absent in 1.x bundles)"
+            )
+            continue
+        if entry.duration_ms is None:
+            result.errors.append(
+                f"manifest.json: chapter {entry.index} carries render_fingerprint "
+                "without duration_ms (fingerprints describe rendered chapters only)"
+            )
+            continue
+        _validate_fingerprint(entry, fingerprint, result)
+
+
+def _validate_fingerprint(
+    entry: ChapterEntry, fingerprint: RenderFingerprint, result: ValidationResult
+) -> None:
+    """Shape of one rendered chapter's ``render_fingerprint`` (spec 2.0.2)."""
+
+    label = f"manifest.json: chapter {entry.index} render_fingerprint"
+    if not fingerprint.engine.strip():
+        result.errors.append(
+            f"{label}.engine must be a non-empty string (namespaced engine id)"
+        )
+    for role in RESERVED_SPEAKERS:
+        voice = fingerprint.voices.get(role)
+        if not isinstance(voice, str) or not voice.strip():
+            result.errors.append(
+                f"{label}.voices missing or blank voice for role '{role}' "
+                "(need narrator and dialogue)"
+            )
+    for role in fingerprint.voices:
+        if role not in RESERVED_SPEAKERS:
+            result.errors.append(
+                f'{label}.voices has unknown role "{role}" (need narrator and dialogue)'
+            )
+    for role in RESERVED_SPEAKERS:
+        speed = fingerprint.speeds.get(role)
+        if isinstance(speed, bool) or not isinstance(speed, (int, float)) or not speed > 0:
+            result.errors.append(
+                f"{label}.speeds missing or invalid speed for role '{role}' "
+                "(need a number above 0)"
+            )
+    for role in fingerprint.speeds:
+        if role not in RESERVED_SPEAKERS:
+            result.errors.append(
+                f'{label}.speeds has unknown role "{role}" (need narrator and dialogue)'
+            )
+    if not fingerprint.engine_versions:
+        result.errors.append(
+            f"{label}.engine_versions present but empty "
+            "(need one version string per engine used)"
+        )
+    for key, value in fingerprint.engine_versions.items():
+        if not key.strip() or not value.strip():
+            result.errors.append(
+                f"{label}.engine_versions has a blank engine or version "
+                "(need non-empty strings)"
+            )
 
 
 def _validate_render_state_consistency(manifest: Manifest, result: ValidationResult) -> None:
@@ -657,7 +846,13 @@ def _validate_chapter(
         and entry.duration_ms is not None
     ):
         _validate_audio(
-            entry.audio, audio_path, manifest.audio, entry.duration_ms, probe_fn, result
+            entry.audio,
+            audio_path,
+            manifest.audio,
+            entry.duration_ms,
+            probe_fn,
+            result,
+            _audio_format_for_extension(entry.audio) or "mp3",
         )
 
 
@@ -806,12 +1001,17 @@ def _validate_chapter_duration_presence(
             result.errors.append(
                 f"{label}: non-positive duration_ms {chapter.duration_ms}"
             )
+        tolerance = (
+            AAC_DURATION_TOLERANCE_MS
+            if _audio_format_for_extension(entry.audio) == "m4a"
+            else DURATION_TOLERANCE_MS
+        )
         drift = abs(chapter.duration_ms - entry.duration_ms)
-        if drift > DURATION_TOLERANCE_MS:
+        if drift > tolerance:
             result.errors.append(
                 f"{label}: duration_ms {chapter.duration_ms} differs from manifest "
                 f"duration_ms {entry.duration_ms} by {drift} ms "
-                f"(tolerance {DURATION_TOLERANCE_MS} ms)"
+                f"(tolerance {tolerance} ms)"
             )
         return True
     if chapter.duration_ms is None:
@@ -1096,7 +1296,16 @@ def _validate_audio(
     duration_ms: int,
     probe_fn: ProbeFn,
     result: ValidationResult,
+    audio_format: str = "mp3",
 ) -> None:
+    """Probe checks for one rendered chapter (spec sections 2, 6-7).
+
+    ``audio_format`` comes from the chapter ``audio`` extension (``mp3``
+    or ``m4a``). MP3 chapters keep the CBR frame check; M4A chapters
+    check codec ``aac`` in an mp4/m4a container plus the *average*
+    bitrate (AAC has no MP3-style CBR frames, so the frame check is
+    skipped) against the provisional AAC duration tolerance.
+    """
     try:
         probe = probe_fn(path)
     except AudioProbeError as exc:
@@ -1106,8 +1315,22 @@ def _validate_audio(
     except Exception as exc:  # test stubs must not crash validation
         result.errors.append(f"{label}: audio probe failed: {exc}")
         return
-    if probe.codec != "mp3":
-        result.errors.append(f"{label}: codec is '{probe.codec}', expected 'mp3'")
+    is_aac = audio_format == "m4a"
+    want_codec = "aac" if is_aac else "mp3"
+    if probe.codec != want_codec:
+        if is_aac:
+            result.errors.append(
+                f"{label}: codec is '{probe.codec}', expected 'aac' for .m4a chapters"
+            )
+        else:
+            result.errors.append(f"{label}: codec is '{probe.codec}', expected 'mp3'")
+    if is_aac:
+        tokens = (probe.container or "").lower().replace(",", " ").split()
+        if "m4a" not in tokens and "mp4" not in tokens:
+            result.errors.append(
+                f"{label}: container '{probe.container}' is not mp4/m4a "
+                "(M4A chapters need AAC in an M4A container)"
+            )
     if probe.channels != expected.channels:
         result.errors.append(
             f"{label}: channels {probe.channels} do not match manifest audio "
@@ -1121,6 +1344,13 @@ def _validate_audio(
     expected_bps = expected.bitrate_kbps * 1000
     if probe.bit_rate_bps is None:
         result.errors.append(f"{label}: could not determine audio bitrate")
+    elif is_aac:
+        if abs(probe.bit_rate_bps - expected_bps) > AAC_BITRATE_TOLERANCE_BPS:
+            result.errors.append(
+                f"{label}: average bitrate {probe.bit_rate_bps} bps differs from "
+                f"expected {expected_bps} bps by more than {AAC_BITRATE_TOLERANCE_BPS} bps "
+                f"({expected.bitrate_kbps} kbps constrained average required)"
+            )
     else:
         tolerance = (
             STREAM_BITRATE_TOLERANCE_BPS
@@ -1132,15 +1362,26 @@ def _validate_audio(
                 f"{label}: average bitrate {probe.bit_rate_bps} bps differs from "
                 f"expected {expected_bps} bps ({expected.bitrate_kbps} kbps CBR required)"
             )
-    if not probe.cbr_frames:
+    if not is_aac and not probe.cbr_frames:
         result.errors.append(f"{label}: MP3 frames vary in size; constant bitrate (CBR) required")
+    duration_tolerance = AAC_DURATION_TOLERANCE_MS if is_aac else DURATION_TOLERANCE_MS
     if probe.duration_ms is None:
-        result.errors.append(f"{label}: could not determine MP3 duration")
+        if is_aac:
+            result.errors.append(f"{label}: could not determine audio duration")
+        else:
+            result.errors.append(f"{label}: could not determine MP3 duration")
     else:
         drift = abs(probe.duration_ms - duration_ms)
-        if drift > DURATION_TOLERANCE_MS:
-            result.errors.append(
-                f"{label}: MP3 duration {probe.duration_ms} ms differs from manifest "
-                f"duration_ms {duration_ms} by {drift} ms "
-                f"(tolerance {DURATION_TOLERANCE_MS} ms)"
-            )
+        if drift > duration_tolerance:
+            if is_aac:
+                result.errors.append(
+                    f"{label}: audio duration {probe.duration_ms} ms differs from manifest "
+                    f"duration_ms {duration_ms} by {drift} ms "
+                    f"(tolerance {duration_tolerance} ms)"
+                )
+            else:
+                result.errors.append(
+                    f"{label}: MP3 duration {probe.duration_ms} ms differs from manifest "
+                    f"duration_ms {duration_ms} by {drift} ms "
+                    f"(tolerance {duration_tolerance} ms)"
+                )

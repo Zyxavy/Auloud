@@ -67,6 +67,7 @@ packages = []
 "selection.py" = "scribe/selection.py"
 "device.py" = "scribe/device.py"
 "export_ingest.py" = "scribe/export_ingest.py"
+"export_render.py" = "scribe/export_render.py"
 "extract" = "scribe/extract"
 "text" = "scribe/text"
 "tts" = "scribe/tts"

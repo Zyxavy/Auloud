@@ -1,6 +1,12 @@
 package app.auloud.player.bundle
 
 import java.io.File
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.longOrNull
 
 /**
  * WP2: light import-time checks over an already-parsed [Manifest].
@@ -65,6 +71,24 @@ object BundleValidator {
     /** IN1: reserved 2.0 speakers (spec 2.0 section 3). */
     val RESERVED_SPEAKERS = setOf("narrator", "dialogue")
 
+    /** RN1: manifest `audio.format` values (spec 2.0 part 2 section 2). */
+    val AUDIO_FORMATS = setOf("mp3", "m4a")
+
+    /** RN1: roles carrying per-role gain (spec 2.0 part 2 section 3). */
+    val GAIN_ROLES = setOf("narrator", "dialogue")
+
+    /**
+     * RN1: `mp3`/`m4a` from a chapter `audio` path extension, null for
+     * anything else. The extension decides the chapter codec (lowercase
+     * `.mp3`/`.m4a` only, matching the lowercase generated-file rule).
+     */
+    fun audioFormatForExtension(audio: String): String? =
+        when {
+            audio.endsWith(".mp3") -> "mp3"
+            audio.endsWith(".m4a") -> "m4a"
+            else -> null
+        }
+
     fun validate(
         bundleDir: File,
         manifest: Manifest,
@@ -96,6 +120,10 @@ object BundleValidator {
         }
         if (manifest.specVersion in V1_VERSIONS && manifest.audio == null) {
             errors.add("manifest.json: missing required field audio (absent)")
+        }
+        val audioFormat = manifest.audio?.format
+        if (manifest.audio != null && audioFormat !in AUDIO_FORMATS) {
+            errors.add("manifest.json: audio.format \"$audioFormat\" must be \"mp3\" or \"m4a\"")
         }
         if (manifest.specVersion == "2.0") {
             if (manifest.renderState == "none" && manifest.audio != null) {
@@ -160,6 +188,24 @@ object BundleValidator {
                     "manifest.json: $label has non-positive duration_ms ${chapter.durationMs}"
                 )
             }
+            // RN1 (spec 2.0 part 2): the audio extension decides the
+            // chapter codec (1.x books always use .mp3).
+            if (hasAudio) {
+                val chapterFormat = audioFormatForExtension(chapter.audio)
+                if (manifest.specVersion in V1_VERSIONS && chapterFormat != "mp3") {
+                    errors.add(
+                        "manifest.json: $label audio file \"${chapter.audio}\" " +
+                            "must end in .mp3 (m4a audio needs spec 2.0)"
+                    )
+                } else if (manifest.specVersion == "2.0" && chapterFormat == null) {
+                    errors.add(
+                        "manifest.json: $label audio file \"${chapter.audio}\" " +
+                            "must end in .mp3 or .m4a " +
+                            "(per-chapter format comes from the extension)"
+                    )
+                }
+            }
+            errors.addAll(validateChapterFingerprint(manifest, chapter))
             if (hasAudio && (manifest.specVersion in V1_VERSIONS || hasDuration)) {
                 val audioPath = joinPath(bundleDirPath, chapter.audio)
                 if (!exists(audioPath)) {
@@ -215,6 +261,8 @@ object BundleValidator {
                 }
             }
         }
+        errors.addAll(validateAudioFormatAgreement(manifest))
+        errors.addAll(validateDeviceFields(manifest))
         errors.addAll(validateRenderStateConsistency(manifest))
         return errors
     }
@@ -281,6 +329,180 @@ object BundleValidator {
                     )
                 }
         }
+    }
+
+    /**
+     * RN1: manifest `audio.format` must match at least one rendered
+     * chapter (spec 2.0 part 2 section 2/7). Mixed MP3/M4A books are
+     * legal, so the manifest value cannot be normative per chapter;
+     * per-chapter extension is authoritative. `none` books carry no
+     * `audio` object, so the rule is vacuous for them. Pure.
+     */
+    internal fun validateAudioFormatAgreement(manifest: Manifest): List<String> {
+        val format = manifest.audio?.format ?: return emptyList()
+        if (format !in AUDIO_FORMATS) return emptyList()
+        val rendered = manifest.chapters.filter { it.durationMs != null }
+        if (rendered.isEmpty()) return emptyList()
+        val chapterFormats = rendered.mapNotNull { audioFormatForExtension(it.audio) }.toSet()
+        if (chapterFormats.isNotEmpty() && format !in chapterFormats) {
+            val have = chapterFormats.sorted().joinToString(", ")
+            return listOf(
+                "manifest.json: audio.format \"$format\" matches no rendered chapter " +
+                    "(chapters are $have; per-chapter format comes from the audio file extension)"
+            )
+        }
+        return emptyList()
+    }
+
+    /**
+     * RN1: manifest `gain_db` and `encoder_offset_ms` presence and shape
+     * (spec 2.0 part 2 section 3/7). Both are 2.0-only; gain is one finite
+     * number per role, the offset is an integer literal. Raw JSON
+     * elements (see [Manifest]) so malformed values become named rule
+     * errors, never whole-manifest parse failures. Pure.
+     */
+    internal fun validateDeviceFields(manifest: Manifest): List<String> {
+        val errors = mutableListOf<String>()
+        val gain = manifest.gainDb
+        if (gain != null) {
+            if (manifest.specVersion in V1_VERSIONS) {
+                errors.add("manifest.json: gain_db is 2.0-only (absent in 1.x bundles)")
+            } else if (manifest.specVersion == "2.0") {
+                val obj = gain as? JsonObject
+                if (obj == null) {
+                    errors.add("manifest.json: gain_db must be an object (role to decibels)")
+                } else if (obj.isEmpty()) {
+                    errors.add("manifest.json: gain_db present but empty (need one number per role)")
+                } else {
+                    for ((role, value) in obj) {
+                        if (role !in GAIN_ROLES) {
+                            errors.add(
+                                "manifest.json: gain_db has unknown role \"$role\" " +
+                                    "(need narrator and/or dialogue)"
+                            )
+                        } else {
+                            val number = (value as? JsonPrimitive)
+                                ?.takeIf { !it.isString }
+                                ?.doubleOrNull
+                            if (number == null || !number.isFinite()) {
+                                errors.add(
+                                    "manifest.json: gain_db.$role must be a finite number " +
+                                        "(got ${value.toString().take(24)})"
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        val offset = manifest.encoderOffsetMs
+        if (offset != null) {
+            if (manifest.specVersion in V1_VERSIONS) {
+                errors.add("manifest.json: encoder_offset_ms is 2.0-only (absent in 1.x bundles)")
+            } else if (manifest.specVersion == "2.0" && !isIntegerLiteral(offset)) {
+                errors.add(
+                    "manifest.json: encoder_offset_ms must be an integer " +
+                        "(got ${offset.toString().take(24)})"
+                )
+            }
+        }
+        return errors
+    }
+
+    /**
+     * RN1: one chapter entry's `render_fingerprint` (spec 2.0 part 2
+     * section 3/7). 2.0-only, rendered chapters only, both roles pinned
+     * with non-blank voice ids and positive speeds, versions non-empty.
+     * Each error names the file and the rule. Pure.
+     */
+    internal fun validateChapterFingerprint(manifest: Manifest, chapter: ChapterInfo): List<String> {
+        val fingerprint = chapter.renderFingerprint ?: return emptyList()
+        val label = "manifest.json: chapter ${chapter.index} render_fingerprint"
+        if (manifest.specVersion in V1_VERSIONS) {
+            return listOf("$label is 2.0-only (absent in 1.x bundles)")
+        }
+        if (manifest.specVersion != "2.0") return emptyList()
+        if (chapter.durationMs == null) {
+            return listOf(
+                "$label carries render_fingerprint without duration_ms " +
+                    "(fingerprints describe rendered chapters only)"
+            )
+        }
+        val obj = fingerprint as? JsonObject
+            ?: return listOf("$label must be an object (engine, voices, speeds, engine_versions)")
+        val errors = mutableListOf<String>()
+        val engine = (obj["engine"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        if (engine.isNullOrBlank()) {
+            errors.add("$label.engine must be a non-empty string (namespaced engine id)")
+        }
+        val voices = obj["voices"] as? JsonObject
+        if (voices == null) {
+            errors.add("$label.voices must be an object (one voice id per role)")
+        } else {
+            for (role in RESERVED_SPEAKERS) {
+                val voice = (voices[role] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                if (voice.isNullOrBlank()) {
+                    errors.add(
+                        "$label.voices missing or blank voice for role '$role' " +
+                            "(need narrator and dialogue)"
+                    )
+                }
+            }
+            for (role in voices.keys) {
+                if (role !in RESERVED_SPEAKERS) {
+                    errors.add("$label.voices has unknown role \"$role\" (need narrator and dialogue)")
+                }
+            }
+        }
+        val speeds = obj["speeds"] as? JsonObject
+        if (speeds == null) {
+            errors.add("$label.speeds must be an object (one speed per role)")
+        } else {
+            for (role in RESERVED_SPEAKERS) {
+                val speed = (speeds[role] as? JsonPrimitive)
+                    ?.takeIf { !it.isString }
+                    ?.doubleOrNull
+                if (speed == null || !speed.isFinite() || speed <= 0.0) {
+                    errors.add(
+                        "$label.speeds missing or invalid speed for role '$role' " +
+                            "(need a number above 0)"
+                    )
+                }
+            }
+            for (role in speeds.keys) {
+                if (role !in RESERVED_SPEAKERS) {
+                    errors.add("$label.speeds has unknown role \"$role\" (need narrator and dialogue)")
+                }
+            }
+        }
+        val versions = obj["engine_versions"] as? JsonObject
+        if (versions == null || versions.isEmpty()) {
+            errors.add("$label.engine_versions present but empty (need one version string per engine used)")
+        } else {
+            for ((key, value) in versions) {
+                val text = (value as? JsonPrimitive)?.takeIf { it.isString }?.content
+                if (key.isBlank() || text.isNullOrBlank()) {
+                    errors.add(
+                        "$label.engine_versions has a blank engine or version " +
+                            "(need non-empty strings)"
+                    )
+                    break
+                }
+            }
+        }
+        return errors
+    }
+
+    /**
+     * True for a JSON integer literal (`12`, `-3`); false for strings,
+     * booleans, floats and null. The regex (not `longOrNull` alone) pins
+     * the literal shape independent of parser-version quirks.
+     */
+    internal fun isIntegerLiteral(element: JsonElement): Boolean {
+        if (element !is JsonPrimitive || element.isString) return false
+        if (element.booleanOrNull != null) return false
+        if (!element.content.matches(Regex("-?\\d+"))) return false
+        return element.longOrNull != null
     }
 
     /**

@@ -1,0 +1,35 @@
+{
+  "blocks": [
+    {
+      "id": 1,
+      "sentences": [
+        {
+          "end_ms": 1000,
+          "sid": 1,
+          "speaker": "narrator",
+          "start_ms": 0,
+          "text": "Morning fog covered the quiet masts."
+        },
+        {
+          "end_ms": 2000,
+          "sid": 2,
+          "speaker": "dialogue",
+          "start_ms": 1000,
+          "text": "\"Hold the rope steady,\" said the sailor. "
+        },
+        {
+          "end_ms": 3000,
+          "sid": 3,
+          "speaker": "narrator",
+          "start_ms": 2000,
+          "text": "The tide turned without a sound."
+        }
+      ],
+      "type": "para"
+    }
+  ],
+  "chapter": 2,
+  "duration_ms": 3000,
+  "spec_version": "2.0",
+  "title": "The Quiet Masts"
+}

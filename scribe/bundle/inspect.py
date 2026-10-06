@@ -57,6 +57,8 @@ class ChapterSummary:
     sentence_count: int
     samples: list[str] = field(default_factory=list)
     pages: list[tuple[int, int]] = field(default_factory=list)
+    #: Manifest ``audio`` path of this chapter (None for unrendered chapters).
+    audio: str | None = None
 
 
 @dataclass
@@ -75,6 +77,10 @@ class InspectResult:
     title: str
     author: str | None
     total_duration_ms: int
+    #: Manifest ``render_state`` (None for 1.x books).
+    render_state: str | None = None
+    #: Manifest ``audio.format`` (None for unrendered ``none`` books).
+    audio_format: str | None = None
     chapters: list[ChapterSummary] = field(default_factory=list)
     speakers: dict[str, int] = field(default_factory=dict)
     speaker_ms: dict[str, int] = field(default_factory=dict)
@@ -175,6 +181,7 @@ def inspect_bundle(bundle_dir: Path | str) -> InspectResult:
                 sentence_count=len(sentences),
                 samples=[s.text for s in sentences[:SAMPLE_SENTENCES]],
                 pages=page_marks,
+                audio=entry.audio,
             )
         )
 
@@ -189,6 +196,8 @@ def inspect_bundle(bundle_dir: Path | str) -> InspectResult:
         title=manifest.title,
         author=manifest.author,
         total_duration_ms=sum(s.duration_ms for s in summaries),
+        render_state=manifest.render_state,
+        audio_format=manifest.audio.format if manifest.audio is not None else None,
         chapters=summaries,
         speakers=speakers,
         speaker_ms=speaker_ms,
@@ -213,6 +222,15 @@ def format_inspect(result: InspectResult, *, speakers_detail: bool = False) -> s
         f"total audio: {format_duration(result.total_duration_ms / 1000.0)} "
         f"({result.total_duration_ms} ms)",
     ]
+    # Spec 2.0 part 2 (RN1): name the render state and audio entry so a
+    # device-rendered bundle (m4a, partial) is recognizable at a glance.
+    if result.render_state is not None:
+        render_line = f"render: {result.render_state}"
+        if result.audio_format is not None:
+            render_line += f" ({result.audio_format})"
+        rendered = sum(1 for s in result.chapters if s.audio)
+        render_line += f", {rendered} of {len(result.chapters)} chapters rendered"
+        lines.append(render_line)
     for summary in result.chapters:
         noun = "sentence" if summary.sentence_count == 1 else "sentences"
         lines.append(

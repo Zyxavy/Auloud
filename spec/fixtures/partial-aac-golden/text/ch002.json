@@ -1,0 +1,23 @@
+{
+  "blocks": [
+    {
+      "id": 1,
+      "sentences": [
+        {
+          "sid": 1,
+          "speaker": "narrator",
+          "text": "The far shore stayed out of reach."
+        },
+        {
+          "sid": 2,
+          "speaker": "dialogue",
+          "text": "\"Not yet,\" whispered the lookout."
+        }
+      ],
+      "type": "para"
+    }
+  ],
+  "chapter": 2,
+  "spec_version": "2.0",
+  "title": "The Far Shore"
+}

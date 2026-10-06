@@ -2,6 +2,7 @@ package app.auloud.player.bundle
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 /**
@@ -19,6 +20,13 @@ import kotlinx.serialization.json.JsonObject
  * `durationMs` is nullable and a blank `audio` means unrendered).
  * Per-chapter state is inferred from `durationMs` presence.
  *
+ * RN1 (spec 2.0 part 2): `gainDb` (role to decibels), `encoderOffsetMs`
+ * (integer) and per-chapter `renderFingerprint` ride as raw JSON
+ * elements so a malformed value fails the shape check in
+ * [BundleValidator] with a named rule instead of failing the whole
+ * manifest parse. Readers ignore all three (loudness and timings are
+ * baked into the audio).
+ *
  * API 24 safe: pure Kotlin + kotlinx.serialization, no java.time, no
  * java.nio.file, no Android dependencies.
  */
@@ -33,6 +41,10 @@ data class Manifest(
     val audio: AudioInfo? = null,
     @SerialName("render_state")
     val renderState: String? = null,
+    @SerialName("gain_db")
+    val gainDb: JsonElement? = null,
+    @SerialName("encoder_offset_ms")
+    val encoderOffsetMs: JsonElement? = null,
     val author: String? = null,
     val language: String? = null,
     val source: SourceInfo? = null,
@@ -50,7 +62,9 @@ data class ChapterInfo(
     val text: String,
     val audio: String = "",
     @SerialName("duration_ms")
-    val durationMs: Long? = null
+    val durationMs: Long? = null,
+    @SerialName("render_fingerprint")
+    val renderFingerprint: JsonElement? = null
 )
 
 @Serializable

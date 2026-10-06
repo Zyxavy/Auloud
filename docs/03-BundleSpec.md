@@ -2,7 +2,7 @@
 
 The **book bundle** is the contract between Scribe (PC) and the Player (Android). Scribe writes it; the Player only reads it. Change this document before changing either program.
 
-Changelog: v2.0 adds unrendered books (D-082, Slice 9 IN1): text plus sentence structure with no audio and no timings. A `render_state` field (`none`, `partial`, `complete`) makes `audio`, `duration_ms`, `start_ms` and `end_ms` conditional; on-device speakers are the reserved keys `narrator` and `dialogue`. Because required fields become conditional, this is a major version. Readers accept `spec_version` "1.0", "1.1", "1.2" and "2.0". Scribe writes "2.0" only for unrendered or partially rendered books; fully rendered PC books keep writing "1.1" (full) or "1.2" (range). v1.2 was additive only for range builds (D7). A range render lists only rendered chapters, renumbered consecutively 1..K, each MAY carry `source_index` (1-based chapter number in the source book), and the bundle `id` is derived from the source hash **plus the range** (full builds keep the existing id). Old Players ignore the extra field (`ignoreUnknownKeys`). No existing required field changes in v1.2. Under v1.2, Scribe wrote "1.1" for full builds (no `source_index`, byte-identical to v1.1) and "1.2" for range builds (with `source_index`).
+Changelog: v2.0 adds unrendered books (D-082, Slice 9 IN1): text plus sentence structure with no audio and no timings. A `render_state` field (`none`, `partial`, `complete`) makes `audio`, `duration_ms`, `start_ms` and `end_ms` conditional; on-device speakers are the reserved keys `narrator` and `dialogue`. Because required fields become conditional, this is a major version. Readers accept `spec_version` "1.0", "1.1", "1.2" and "2.0". Scribe writes "2.0" only for unrendered or partially rendered books; fully rendered PC books keep writing "1.1" (full) or "1.2" (range). v1.2 was additive only for range builds (D7). A range render lists only rendered chapters, renumbered consecutively 1..K, each MAY carry `source_index` (1-based chapter number in the source book), and the bundle `id` is derived from the source hash **plus the range** (full builds keep the existing id). Old Players ignore the extra field (`ignoreUnknownKeys`). No existing required field changes in v1.2. Under v1.2, Scribe wrote "1.1" for full builds (no `source_index`, byte-identical to v1.1) and "1.2" for range builds (with `source_index`). v2.0 part 2 (RN1, D-102) adds device rendering, additive inside 2.0 with no version bump: AAC-LC in M4A as a second audio entry alongside MP3 (mixed books legal, per-chapter format from the file extension), an optional per-chapter `render_fingerprint`, an optional manifest `gain_db` per role, an optional manifest `encoder_offset_ms`, and partial-book playlist/progress rules at spec level only. The AAC duration tolerance is provisional until the RN10 beep measurement confirms or loosens it.
 
 ## 1. Folder layout
 
@@ -11,7 +11,7 @@ Changelog: v2.0 adds unrendered books (D-082, Slice 9 IN1): text plus sentence s
   manifest.json
   cover.jpg                # optional
   source/book.epub         # the original file, unchanged (or book.pdf)
-  audio/ch001.mp3
+  audio/ch001.mp3          # or ch001.m4a for device-rendered chapters (section 2)
   audio/ch002.mp3
   text/ch001.json
   text/ch002.json
@@ -23,22 +23,26 @@ Rules:
 - All text files are UTF-8 (NFC normalized), with `\n` line endings.
 - All times are **integer milliseconds** (rendered chapters only; unrendered chapters carry no times).
 - `text/chNNN.json` files always exist: text plus sentence structure is present even with no audio.
-- `audio/chNNN.mp3` files exist only for rendered chapters. A `none` book (section 3) has no `audio/` files at all; a `partial` book has MP3s only for its rendered chapters.
+- Audio files (`audio/chNNN.mp3` for MP3 chapters, `audio/chNNN.m4a` for AAC chapters, section 2) exist only for rendered chapters. A `none` book (section 3) has no `audio/` files at all; a `partial` book has audio only for its rendered chapters.
 - The Player ignores unknown fields, so newer Scribe versions can add fields without breaking older Players. A change of the major number in `spec_version` (e.g. 2.0) means breaking changes.
 
 ## 2. Audio
 
-| Property | Value |
-| --- | --- |
-| Format | MP3 (MPEG Layer III) |
-| Channels | 1 (mono) |
-| Sample rate | 24000 Hz (22050 Hz also acceptable) |
-| Bitrate | 64 kbps, **constant (CBR)** |
-| One file per chapter | Yes; encode from one continuous buffer |
+| Property | MP3 chapters | AAC chapters (2.0 part 2) |
+| --- | --- | --- |
+| Container / codec | MP3 (MPEG Layer III), `.mp3` | AAC-LC in M4A, `.m4a` |
+| Channels | 1 (mono) | 1 (mono) |
+| Sample rate | 24000 Hz (22050 Hz also acceptable) | 24000 Hz (22050 Hz also acceptable) |
+| Bitrate | 64 kbps, **constant (CBR)** | about 64 kbps, constrained average (see below) |
+| One file per chapter | Yes; encode from one continuous buffer | Yes; encode from one continuous buffer |
 
-CBR keeps seeking and timestamps accurate; variable bitrate can make them drift. Do not add silence padding at chapter boundaries beyond what `duration_ms` reflects.
+For MP3, CBR keeps seeking and timestamps accurate; variable bitrate can make them drift. Do not add silence padding at chapter boundaries beyond what `duration_ms` reflects.
 
-Section 2 applies to rendered chapters only. Unrendered books (`render_state` `none`, section 3) carry no audio at all and omit the manifest `audio` object. Partial books (`partial`) carry audio only for their rendered chapters; the manifest `audio` object describes the rendered chapters.
+AAC has no frame-level CBR the way MP3 does, so the spec states the AAC bitrate honestly: the encoder runs constrained targeting 64 kbps mono, and validation checks the *average* bitrate against 64 kbps within tolerance (section 7), never frame sizes. Manifest `cbr: true` on an AAC book means the constrained setting was used, not that frames are identical.
+
+Per-chapter format: a chapter's format comes from its `audio` path extension (`.mp3` or `.m4a`, 1.x books always `.mp3`); the extension must agree with the probed codec (section 7). Mixed books (some chapters MP3 from Scribe, some M4A from the device) are legal: the manifest `audio` object carries the shared channel/rate/bitrate params, its `format` matches at least one rendered chapter, and each chapter is checked against its own extension. Per-chapter extension plus probe are authoritative, never the manifest value alone.
+
+Section 2 applies to rendered chapters only. Unrendered books (`render_state` `none`, section 3) carry no audio at all and omit the manifest `audio` object. Partial books (`partial`) carry audio only for their rendered chapters; the manifest `audio` object is present for `partial` and `complete` books.
 
 ## 3. `manifest.json`
 
@@ -93,6 +97,32 @@ Spec 2.0 unrendered books (Slice 9 IN1, D-082): a book with text and sentence st
 
 Device namespace ids: books imported on the device derive `id` as UUIDv5 over `auloud:device-book:<sha256-hex>` (same UUID namespace as Scribe, different prefix), so a PC-rendered bundle of the same EPUB appears as a separate library entry instead of clobbering the on-device book. Range suffixes (`:chapters:<a-b,c>`) work the same way under the device prefix when partial rendering later selects chapters.
 
+Spec 2.0 part 2 device-rendering fields (RN1, D-102; all optional, all ignored by readers):
+
+- `audio.format` is `mp3` or `m4a`. In a mixed book (section 2) it matches at least one rendered chapter.
+- `gain_db` (manifest, 2.0 only): one number per role key (`narrator`, `dialogue`), in decibels, derived from the first rendered chapter and applied at assembly of later chapters before the per-chapter peak cap. Readers ignore it (loudness is baked into the audio); it exists so re-renders and audits reproduce levels. Absent means no book-level gain recorded.
+- `encoder_offset_ms` (manifest, 2.0 only): integer milliseconds of measured encoder delay, applied to timings when they are written. `0` means measured zero; absent means unknown or not measured. Readers ignore it.
+- `render_fingerprint` (rendered chapter entries only, 2.0 only, never on unrendered chapters): `{engine, voices, speeds, engine_versions}` where `engine` is the namespaced engine id (for example `system`), `voices` maps each role to the voice id used, `speeds` maps each role to its speed multiplier, and `engine_versions` maps each engine used to its version string (the same strings the synth cache keys on). Slice 11 compares it to current settings to mark stale chapters. Absent or unknown means fingerprint unknown, never up to date.
+
+```json
+{
+  "spec_version": "2.0",
+  "render_state": "partial",
+  "audio": { "format": "m4a", "channels": 1, "sample_rate": 24000, "bitrate_kbps": 64, "cbr": true },
+  "gain_db": { "narrator": -1.5, "dialogue": 0.5 },
+  "encoder_offset_ms": 0,
+  "chapters": [
+    { "index": 1, "title": "Chapter One", "audio": "audio/ch001.m4a", "text": "text/ch001.json", "duration_ms": 4000,
+      "render_fingerprint": {
+        "engine": "system",
+        "voices": { "narrator": "default", "dialogue": "default" },
+        "speeds": { "narrator": 1.0, "dialogue": 1.05 },
+        "engine_versions": { "system": "placeholder (RN10 records the real Tab E strings)" } } },
+    { "index": 2, "title": "Chapter Two", "text": "text/ch002.json" }
+  ]
+}
+```
+
 Reserved speakers: every sentence in a 2.0 book uses `narrator` (narration) or `dialogue` (quoted speech) as its `speaker`, and `voices` always contains both keys. The engine/voice values are placeholders until Slice 10 rendering; only their shape (non-blank engine and voice, speed and pitch above 0) is validated. Extra voices MAY be present but are unused; 1.x multi-voice books are unaffected.
 
 ## 4. Chapter file (EPUB books): `text/chNNN.json`
@@ -128,7 +158,7 @@ Sentence fields:
 | --- | --- | --- |
 | `sid` | yes | integer, starts at 1 and increases by 1 through the chapter (across blocks) |
 | `speaker` | yes | key in `manifest.voices` (`"narrator"` for narration; in 2.0 books only `"narrator"` or `"dialogue"`, section 3) |
-| `start_ms`, `end_ms` | 1.x yes; 2.0 conditional | position in this chapter's MP3. Present with integer timings for rendered chapters; omitted (absent, never null) for every sentence of an unrendered chapter. Within one chapter file, either every sentence carries both keys or none does. |
+| `start_ms`, `end_ms` | 1.x yes; 2.0 conditional | position in this chapter's audio file (MP3 or M4A). Present with integer timings for rendered chapters; omitted (absent, never null) for every sentence of an unrendered chapter. Within one chapter file, either every sentence carries both keys or none does. |
 | `text` | yes | display text, UTF-8 |
 | `spans` | no | inline formatting: `[{"start": 0, "end": 3, "style": "italic"}]`, character offsets into `text`; styles: `italic`, `bold` |
 | `page` | no | 1-based source page in `source/book.pdf` (PDF text path only; absent for EPUB, never null) |
@@ -165,20 +195,22 @@ Rules 1-5 apply to rendered chapters and sentences (those carrying timings). Unr
 1. `start_ms` of the first sentence in a chapter is 0.
 2. For every sentence: `0 <= start_ms < end_ms <= duration_ms`.
 3. Sentences are in order and do not overlap; the next sentence's `start_ms` is at or after the previous `end_ms`. Short gaps for pauses are allowed; the Player highlights the previous sentence until the next `start_ms`.
-4. `duration_ms` in the manifest, the chapter file, and the MP3 itself agree within 50 ms.
-5. Timings are measured on the same continuous buffer that was encoded to MP3, not summed from separate per-sentence files after encoding.
+4. `duration_ms` in the manifest, the chapter file, and the probed audio agree within 50 ms for MP3 chapters. For M4A chapters the tolerance is provisionally the same 50 ms (PROVISIONAL until the RN10 beep measurement confirms or loosens it); the measured encoder constant is recorded as manifest `encoder_offset_ms` and applied to timings when they are written, so readers need no per-format correction.
+5. Timings are measured on the same continuous buffer that was encoded, not summed from separate per-sentence files after encoding. Encoder delay is a constant offset recorded in `encoder_offset_ms`, not per-sentence drift.
 
 ## 7. Validation (Scribe runs this before finishing)
 
 - All referenced files exist; `sha256` of the source matches.
 - Every `speaker` exists in `manifest.voices`.
 - `sid` values are consecutive; timing rules in section 6 hold.
-- MP3 is mono, CBR, matches `manifest.audio`, and its duration matches `duration_ms`.
+- Chapter `audio` paths end in `.mp3` or `.m4a` (1.x books: always `.mp3`); the extension decides the expected codec. Manifest `audio.format` is `mp3` or `m4a` and matches at least one rendered chapter (`none` books carry no `audio` object, so the rule is vacuous for them). Mixed MP3/M4A books are legal.
+- MP3 chapters: codec mp3, mono, CBR frames, average bitrate within tolerance of 64 kbps, duration within 50 ms of `duration_ms`. M4A chapters: codec aac in an mp4/m4a container, mono, average bitrate within 16 kbps of 64 kbps (no frame-size check: AAC has no MP3-style CBR frames, so the average wanders with content and the check catches gross misconfiguration only), duration within the provisional 50 ms AAC tolerance of `duration_ms`.
 - Text is valid UTF-8.
 - `spec_version` is "1.0", "1.1", "1.2" or "2.0" (manifest and every chapter file; readers accept all four, writers pick per section 3).
 - `render_state` is absent in 1.x bundles and required in 2.0 bundles (`none`, `partial` or `complete`).
 - In 2.0 bundles: the manifest `audio` object is absent for `none` and present for `partial`/`complete`; each chapter entry carries `audio` plus `duration_ms` when rendered and omits both when unrendered (never one without the other); `render_state` agrees with the chapters (`none`: all unrendered; `partial`: at least one of each; `complete`: all rendered); chapter file `duration_ms` presence matches its manifest entry; within one chapter file either every sentence carries `start_ms`/`end_ms` or none does; unrendered chapters carry `blocks` and no `pages`; every sentence `speaker` is `narrator` or `dialogue` and `voices` contains both keys.
-- Invalid combinations are rejected naming the file and the rule, for example `manifest.json: render_state "half" must be one of none, partial, complete`, `manifest.json: chapter 2 has audio without duration_ms (rendered chapters need both)`, `text/ch001.json: sentence 3 carries timings but the chapter has no duration_ms`, `text/ch001.json: sentence 2 has speaker "Ana" (2.0 books allow only narrator and dialogue)`.
+- `gain_db` (when present, 2.0 only): non-empty object, keys a subset of `narrator`/`dialogue`, values finite numbers. `encoder_offset_ms` (when present, 2.0 only): integer. `render_fingerprint` (when present, 2.0 only, rendered chapters only): `engine` non-blank; `voices` and `speeds` carry `narrator` and `dialogue` (non-blank voice ids, speeds above 0); `engine_versions` non-empty with non-blank strings.
+- Invalid combinations are rejected naming the file and the rule, for example `manifest.json: render_state "half" must be one of none, partial, complete`, `manifest.json: chapter 2 has audio without duration_ms (rendered chapters need both)`, `text/ch001.json: sentence 3 carries timings but the chapter has no duration_ms`, `text/ch001.json: sentence 2 has speaker "Ana" (2.0 books allow only narrator and dialogue)`, `manifest.json: chapter 1 audio file "audio/ch001.ogg" must end in .mp3 or .m4a (per-chapter format comes from the extension)`, `audio/ch001.m4a: codec is 'mp3', expected 'aac' for .m4a chapters`, `manifest.json: gain_db has unknown role "Ana" (need narrator and/or dialogue)`.
 - Manifest chapter `index` values are consecutive 1..N in bundle order.
 - When `source_index` is present (manifest entry or chapter file): 1-based, unique, strictly increasing in bundle order; the chapter file `source_index` matches its manifest entry when both are present.
 - When `pages` is present with `blocks`: sorted by `page` and `start_ms`, first `start_ms` 0, each entry matches the first sentence on that page, page numbers 1-based.
@@ -191,8 +223,9 @@ Provide this as `scribe validate <bundle>`, and reuse the same checks in the Pla
 - Current sentence = the sentence with `start_ms <= position < end_ms`, else the last one whose `start_ms <= position`. In unrendered books the current sentence is the saved sid (no timings to compare).
 - Tap a sentence: seek audio to its `start_ms`.
 - Load one chapter's JSON at a time; do not keep other chapters in memory.
-- Missing optional fields (cover, spans, pages, sentence page, source_index) fall back to defaults.
-- Unknown fields are ignored, so v1.0 Players read v1.1 bundles (pages) and v1.2 range bundles (source_index, renumbered) as text. Position stays `{book id, chapter index, position_ms}` where chapter index is the bundle-consecutive index; because range bundles carry a range-derived id, saved progress never points at the wrong chapter.
+- Missing optional fields (cover, spans, pages, sentence page, source_index, gain_db, encoder_offset_ms, render_fingerprint) fall back to defaults.
+- Unknown fields are ignored, so v1.0 Players read v1.1 bundles (pages) and v1.2 range bundles (source_index, renumbered) as text, and older 2.0 readers skip part 2 fields they predate. Position stays `{book id, chapter index, position_ms}` where chapter index is the bundle-consecutive index; because range bundles carry a range-derived id, saved progress never points at the wrong chapter.
+- Partial books (spec level only; the player mapping is Slice 10 RN7 code, not contract): chapter `index` is the stable key and is never renumbered when later chapters render; playlist order follows bundle chapter order; an unrendered chapter has no media item. Progress stays `{book id, chapter index, ...}` in chapter coordinates. When playback reaches the end of the rendered portion it stops with a message (player UX, not a validation rule).
 - Version gate: a 1.x reader refuses a 2.0 bundle at the version check (`manifest.json: spec_version "2.0" must be "1.0", "1.1" or "1.2"`) and never reaches the missing-audio paths, so old Players fail cleanly with the file and the rule. A 2.0 reader accepts 1.x bundles unchanged (rendered books keep playing with read-along) and rejects anything newer the same way (for example "3.0").
 
 ## 9. Test bundle for Slice 1 (hand-made)

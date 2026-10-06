@@ -807,6 +807,33 @@ def export_ingest_fixtures(
 
 
 @app.command()
+def export_render_fixtures(
+    fixtures_dir: Path | None = typer.Option(
+        None,
+        "--fixtures-dir",
+        help="spec/fixtures dir (default: <repo-root>/spec/fixtures).",
+    ),
+) -> None:
+    """Generate the Slice 10 AAC/partial fixtures (dev only, RN1).
+
+    Writes ``spec/fixtures/rendered-aac-golden/`` plus
+    ``spec/fixtures/partial-aac-golden/`` with ffmpeg sine-tone M4A audio.
+    Deterministic: re-runs are byte-identical (the export encodes twice
+    and refuses on any difference). Library logic lives in
+    ``export_render``.
+    """
+    from export_render import ExportRenderError, export_all
+
+    try:
+        written = export_all(fixtures_dir)
+    except ExportRenderError as exc:
+        typer.echo(f"export-render-fixtures failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    for path in written:
+        typer.echo(f"wrote {path}")
+
+
+@app.command()
 def version() -> None:
     """Print the Scribe version."""
     typer.echo(__version__)
