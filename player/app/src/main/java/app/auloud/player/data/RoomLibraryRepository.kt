@@ -64,7 +64,9 @@ class RoomLibraryRepository(
                 author = manifest.author,
                 bundlePath = bundleDir,
                 coverPath = coverPath,
-                durationMs = manifest.chapters.sumOf { it.durationMs },
+                // IN1: unrendered 2.0 chapters carry no duration_ms (null);
+                // the book totals 0 ms until Slice 10 renders audio.
+                durationMs = manifest.chapters.sumOf { it.durationMs ?: 0L },
                 addedAt = existing?.addedAt ?: now(),
                 isMissing = false
             )

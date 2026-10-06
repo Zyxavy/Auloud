@@ -104,8 +104,8 @@ class BundleValidatorTest {
         type = "epub",
         audio = AudioInfo(),
         chapters = listOf(
-            ChapterInfo(1, "Ch 1", "audio/ch001.mp3", "text/ch001.json", 600_000L),
-            ChapterInfo(2, "Ch 2", "audio/ch002.mp3", "text/ch002.json", 400_000L)
+            ChapterInfo(index = 1, title = "Ch 1", text = "text/ch001.json", audio = "audio/ch001.mp3", durationMs = 600_000L),
+            ChapterInfo(index = 2, title = "Ch 2", text = "text/ch002.json", audio = "audio/ch002.mp3", durationMs = 400_000L)
         )
     )
 
@@ -271,10 +271,22 @@ class BundleValidatorTest {
     fun unknownSpecVersion_failsWithNamedError() {
         val dir = fixtureDir("valid-bundle")
         assertTrue("fixture missing: ${dir.path}", dir.isDirectory)
-        val manifest = BundleParser.parse(dir).getOrThrow().copy(specVersion = "2.0")
+        val manifest = BundleParser.parse(dir).getOrThrow().copy(specVersion = "3.0")
         val errors = BundleValidator.validate(dir, manifest)
-        assertTrue("spec 2.0 must fail, got: $errors", errors.isNotEmpty())
+        assertTrue("spec 3.0 must fail, got: $errors", errors.isNotEmpty())
+        assertTrue(errors.joinToString().contains("manifest.json"))
         assertTrue(errors.joinToString().contains("spec_version"))
-        assertTrue(errors.joinToString().contains("2.0"))
+        assertTrue(errors.joinToString().contains("3.0"))
+    }
+
+    @Test
+    fun oldV1Gate_refuses20Cleanly() {
+        // IN1: pre-2.0 Players only know the 1.x line, so a 2.0 book fails
+        // at the version check naming manifest.json and the rule, never
+        // reaching the missing-audio paths (spec section 8).
+        assertTrue(BundleValidator.V1_VERSIONS.contains("1.0"))
+        assertTrue(BundleValidator.V1_VERSIONS.contains("1.2"))
+        assertTrue(!BundleValidator.V1_VERSIONS.contains("2.0"))
+        assertTrue(BundleValidator.SUPPORTED_VERSIONS.contains("2.0"))
     }
 }

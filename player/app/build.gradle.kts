@@ -88,6 +88,12 @@ android {
     }
 }
 
+// IN1: export the Room schema so migrations have history to diff against.
+// Schemas land in player/app/schemas/<db>/<version>.json and are committed.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

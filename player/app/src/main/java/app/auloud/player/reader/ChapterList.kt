@@ -118,7 +118,9 @@ fun coerceChapterJump(index: Int, count: Int): Int? {
  */
 fun toChapterEntries(chapters: List<ChapterInfo>): List<ChapterEntry> {
     return chapters.sortedBy { it.index }.mapIndexed { position, chapter ->
-        ChapterEntry(index = position, title = chapter.title, durationMs = chapter.durationMs)
+        // IN1: unrendered 2.0 chapters carry no duration (null); the row
+        // shows 0:00 until Slice 10 renders audio.
+        ChapterEntry(index = position, title = chapter.title, durationMs = chapter.durationMs ?: 0L)
     }
 }
 

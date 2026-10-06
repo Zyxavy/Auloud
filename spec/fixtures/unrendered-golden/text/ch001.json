@@ -1,0 +1,48 @@
+{
+  "blocks": [
+    {
+      "id": 1,
+      "level": 1,
+      "sentences": [
+        {
+          "sid": 1,
+          "speaker": "narrator",
+          "text": "The Mill Pond"
+        }
+      ],
+      "text": "The Mill Pond",
+      "type": "heading"
+    },
+    {
+      "id": 2,
+      "sentences": [
+        {
+          "sid": 2,
+          "speaker": "narrator",
+          "text": "The mill pond lay still under the morning sun. "
+        },
+        {
+          "sid": 3,
+          "speaker": "dialogue",
+          "spans": [
+            {
+              "end": 3,
+              "start": 1,
+              "style": "italic"
+            }
+          ],
+          "text": "\"We should cross before noon.\" "
+        },
+        {
+          "sid": 4,
+          "speaker": "narrator",
+          "text": "Mara pointed at the far bank."
+        }
+      ],
+      "type": "para"
+    }
+  ],
+  "chapter": 1,
+  "spec_version": "2.0",
+  "title": "The Mill Pond"
+}

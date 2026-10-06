@@ -73,6 +73,29 @@ object ChapterTextLoader {
             )
         }
         if (root.containsKey("pages") && !root.containsKey("blocks")) {
+            // IN1 (spec 2.0): pages-without-blocks is a 1.x-only legacy
+            // shape; 2.0 chapters always carry blocks. Peek the version so
+            // a 2.0 page-only file is invalid (file + rule), not PdfForm.
+            // (`contentOrNull` needs a newer serialization than the pinned
+            // 1.7.3, so read `content` with an explicit null guard.)
+            val versionElement = root["spec_version"]
+            val version = if (
+                versionElement == null ||
+                versionElement is kotlinx.serialization.json.JsonNull ||
+                versionElement !is kotlinx.serialization.json.JsonPrimitive
+            ) {
+                null
+            } else {
+                versionElement.content
+            }
+            if (version == "2.0") {
+                return Result.failure(
+                    ChapterTextInvalid(
+                        "$textPath: pages without blocks is a 1.x-only shape " +
+                            "(2.0 chapters always carry blocks)"
+                    )
+                )
+            }
             return Result.failure(
                 ChapterTextPdfForm(
                     "$textPath: page-only PDF chapter " +
@@ -94,16 +117,18 @@ object ChapterTextLoader {
         return validate(textPath, chapter).map { chapter }
     }
 
-    /** Spec section 4/6 rules: consecutive sids, ordered non-overlapping timings. */
+    /**
+     * Spec section 4/6 rules: consecutive sids, plus ordered
+     * non-overlapping timings for rendered chapters (IN1: unrendered
+     * chapters carry no `duration_ms` and no sentence timings; sids and
+     * block/page shape are still checked, timing rules are vacuous).
+     */
     internal fun validate(textPath: String, chapter: ChapterText): Result<Unit> {
         val errors = ArrayList<String>()
         if (chapter.specVersion != "1.0" && chapter.specVersion != "1.1" &&
-            chapter.specVersion != "1.2"
+            chapter.specVersion != "1.2" && chapter.specVersion != "2.0"
         ) {
-            errors.add("spec_version \"${chapter.specVersion}\" must be \"1.0\", \"1.1\" or \"1.2\"")
-        }
-        if (chapter.durationMs <= 0) {
-            errors.add("duration_ms ${chapter.durationMs} must be positive")
+            errors.add("spec_version \"${chapter.specVersion}\" must be \"1.0\", \"1.1\", \"1.2\" or \"2.0\"")
         }
         chapter.blocks.forEach { block ->
             if (block.type !in blockTypes) {
@@ -119,37 +144,22 @@ object ChapterTextLoader {
                     "must run 1..${sentences.size} in order"
             )
         }
-        if (sentences.isNotEmpty() && sentences.first().startMs != 0L) {
-            errors.add(
-                "first sentence starts at ${sentences.first().startMs}: must be 0"
-            )
-        }
-        var prevEnd = -1L
-        var prevSid = 0
-        sentences.forEach { sentence ->
-            if (sentence.page != null && sentence.page < 1) {
-                errors.add("sid ${sentence.sid}: page ${sentence.page} must be 1-based")
-            }
-            if (sentence.startMs < 0 || sentence.startMs >= sentence.endMs) {
+        val duration = chapter.durationMs
+        if (duration == null) {
+            validateUntimed(textPath, sentences, errors)
+            if (chapter.pages != null) {
                 errors.add(
-                    "sid ${sentence.sid}: [${sentence.startMs}, ${sentence.endMs}] " +
-                        "is not a valid range"
+                    "pages marks need timings " +
+                        "(unrendered chapters carry blocks without pages)"
                 )
-            } else {
-                if (prevEnd >= 0 && sentence.startMs < prevEnd) {
-                    errors.add("sid ${sentence.sid} overlaps sid $prevSid")
-                }
-                if (sentence.endMs > chapter.durationMs) {
-                    errors.add(
-                        "sid ${sentence.sid} ends at ${sentence.endMs}, " +
-                            "past duration ${chapter.durationMs}"
-                    )
-                }
             }
-            prevEnd = sentence.endMs
-            prevSid = sentence.sid
+        } else {
+            if (duration <= 0) {
+                errors.add("duration_ms $duration must be positive")
+            }
+            validateTimed(textPath, sentences, duration, errors)
+            validatePages(chapter, sentences, duration, errors)
         }
-        validatePages(chapter, sentences, errors)
         return if (errors.isEmpty()) {
             Result.success(Unit)
         } else {
@@ -157,10 +167,95 @@ object ChapterTextLoader {
         }
     }
 
+    /** IN1: sentence checks for chapters without timings (spec 2.0). */
+    private fun validateUntimed(
+        textPath: String,
+        sentences: List<Sentence>,
+        errors: MutableList<String>
+    ) {
+        for (sentence in sentences) {
+            if (sentence.page != null && sentence.page < 1) {
+                errors.add("sid ${sentence.sid}: page ${sentence.page} must be 1-based")
+            }
+            if (sentence.startMs != null || sentence.endMs != null) {
+                errors.add(
+                    "sid ${sentence.sid} carries timings " +
+                        "but the chapter has no duration_ms " +
+                        "(unrendered chapters omit start_ms and end_ms everywhere)"
+                )
+            }
+        }
+    }
+
+    /** Timing rules for chapters carrying `duration_ms` (spec section 6). */
+    private fun validateTimed(
+        textPath: String,
+        sentences: List<Sentence>,
+        duration: Long,
+        errors: MutableList<String>
+    ) {
+        if (sentences.isNotEmpty()) {
+            val first = sentences.first()
+            if (first.startMs == null || first.endMs == null) {
+                errors.add(
+                    "sid ${first.sid} omits timings " +
+                        "but the chapter has duration_ms $duration " +
+                        "(rendered chapters time every sentence)"
+                )
+            } else if (first.startMs != 0L) {
+                errors.add(
+                    "first sentence starts at ${first.startMs}: must be 0"
+                )
+            }
+        }
+        var prevEnd = -1L
+        var prevSid = 0
+        var prevTimed = false
+        sentences.forEach { sentence ->
+            val start = sentence.startMs
+            val end = sentence.endMs
+            if (sentence.page != null && sentence.page < 1) {
+                errors.add("sid ${sentence.sid}: page ${sentence.page} must be 1-based")
+            }
+            if (start == null || end == null) {
+                if (sentence.sid != sentences.firstOrNull()?.sid) {
+                    errors.add(
+                        "sid ${sentence.sid} omits timings " +
+                            "but the chapter has duration_ms $duration " +
+                            "(rendered chapters time every sentence)"
+                    )
+                }
+                prevTimed = false
+                prevSid = sentence.sid
+                return@forEach
+            }
+            if (start < 0 || start >= end) {
+                errors.add(
+                    "sid ${sentence.sid}: [$start, $end] " +
+                        "is not a valid range"
+                )
+            } else {
+                if (prevTimed && start < prevEnd) {
+                    errors.add("sid ${sentence.sid} overlaps sid $prevSid")
+                }
+                if (end > duration) {
+                    errors.add(
+                        "sid ${sentence.sid} ends at $end, " +
+                            "past duration $duration"
+                    )
+                }
+            }
+            prevEnd = if (!prevTimed) end else maxOf(prevEnd, end)
+            prevTimed = true
+            prevSid = sentence.sid
+        }
+    }
+
     /** CP6 v1.1 `pages` rules (light, never throws): sorted, first 0, match. */
     private fun validatePages(
         chapter: ChapterText,
         sentences: List<Sentence>,
+        duration: Long,
         errors: MutableList<String>
     ) {
         val pages = chapter.pages ?: return
@@ -171,8 +266,9 @@ object ChapterTextLoader {
         val firstStartByPage = LinkedHashMap<Int, Long>()
         for (sentence in sentences) {
             val page = sentence.page ?: continue
+            val start = sentence.startMs ?: continue
             if (!firstStartByPage.containsKey(page)) {
-                firstStartByPage[page] = sentence.startMs
+                firstStartByPage[page] = start
             }
         }
         var prevPage: Int? = null
@@ -182,9 +278,9 @@ object ChapterTextLoader {
             if (mark.page < 1) {
                 errors.add("page entry $pos has non-positive page ${mark.page}")
             }
-            if (mark.startMs < 0 || mark.startMs > chapter.durationMs) {
+            if (mark.startMs < 0 || mark.startMs > duration) {
                 errors.add(
-                    "page entry $pos start_ms ${mark.startMs} outside duration ${chapter.durationMs}"
+                    "page entry $pos start_ms ${mark.startMs} outside duration $duration"
                 )
             }
             if (prevPage != null && mark.page <= prevPage) {

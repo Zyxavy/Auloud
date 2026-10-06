@@ -15,8 +15,8 @@ import org.junit.Test
 class PlaybackQueueTest {
 
     private val chapters = listOf(
-        ChapterInfo(1, "Ch 1", "audio/ch001.mp3", "text/ch001.json", 600_000L),
-        ChapterInfo(2, "Ch 2", "audio/ch002.mp3", "text/ch002.json", 400_000L)
+        ChapterInfo(index = 1, title = "Ch 1", text = "text/ch001.json", audio = "audio/ch001.mp3", durationMs = 600_000L),
+        ChapterInfo(index = 2, title = "Ch 2", text = "text/ch002.json", audio = "audio/ch002.mp3", durationMs = 400_000L)
     )
     private val manifest = Manifest(
         specVersion = "1.0",

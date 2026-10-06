@@ -214,8 +214,8 @@ class LibraryRepositoryTest {
         type = "epub",
         audio = AudioInfo(),
         chapters = listOf(
-            ChapterInfo(1, "Chapter One", "audio/ch001.mp3", "text/ch001.json", 1832400L),
-            ChapterInfo(2, "Chapter Two", "audio/ch002.mp3", "text/ch002.json", 1640100L)
+            ChapterInfo(index = 1, title = "Chapter One", text = "text/ch001.json", audio = "audio/ch001.mp3", durationMs = 1832400L),
+            ChapterInfo(index = 2, title = "Chapter Two", text = "text/ch002.json", audio = "audio/ch002.mp3", durationMs = 1640100L)
         ),
         author = "A. Author",
         cover = cover

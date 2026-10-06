@@ -42,11 +42,13 @@ class ScribeGoldenContractTest {
         assertEquals("Scribe Golden Bundle", manifest.title)
         assertEquals("epub", manifest.type)
         // Contract pins the writer's audio declaration (SW7/SW8 output shape).
-        assertEquals("mp3", manifest.audio.format)
-        assertEquals(1, manifest.audio.channels)
-        assertEquals(24000, manifest.audio.sampleRate)
-        assertEquals(64, manifest.audio.bitrateKbps)
-        assertEquals(true, manifest.audio.cbr)
+        // IN1: the manifest audio object is nullable (absent for unrendered
+        // 2.0 books); this rendered golden always carries it.
+        assertEquals("mp3", manifest.audio?.format)
+        assertEquals(1, manifest.audio?.channels)
+        assertEquals(24000, manifest.audio?.sampleRate)
+        assertEquals(64, manifest.audio?.bitrateKbps)
+        assertEquals(true, manifest.audio?.cbr)
         // Two chapters, exact stems and durations from the golden build.
         assertEquals(2, manifest.chapters.size)
         manifest.chapters.forEachIndexed { pos, chapter ->

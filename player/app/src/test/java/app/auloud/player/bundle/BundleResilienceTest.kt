@@ -108,10 +108,13 @@ class BundleResilienceTest {
         if (result.isSuccess) {
             val manifest = result.getOrThrow()
             val saved = ProgressEntity("book-1", 7, Long.MAX_VALUE, 0L)
-            val start = restoreStart(saved, manifest.chapters.size, manifest.chapters.map { it.durationMs })
+            // IN1: chapter durations are nullable (absent for unrendered
+            // chapters); this payload carries one, so default to 0.
+            val durations = manifest.chapters.map { it.durationMs ?: 0L }
+            val start = restoreStart(saved, manifest.chapters.size, durations)
             assertTrue("clamped start in range", start.chapterIndex in 0 until manifest.chapters.size)
-            assertTrue("clamped position in range", start.positionMs in 0L..manifest.chapters[start.chapterIndex].durationMs)
-            clampSeekRequest(Long.MAX_VALUE, manifest.chapters[start.chapterIndex].durationMs)
+            assertTrue("clamped position in range", start.positionMs in 0L..(manifest.chapters[start.chapterIndex].durationMs ?: 0L))
+            clampSeekRequest(Long.MAX_VALUE, manifest.chapters[start.chapterIndex].durationMs ?: 0L)
         } else {
             assertTrue(
                 "failure must name manifest.json",

@@ -300,6 +300,12 @@ def write_bundle(
             raise BundleWriteError(
                 f"chapter {pos}: PDF page-sync chapters are not supported by this bundle writer"
             )
+        if chapter.duration_ms is None:
+            raise BundleWriteError(
+                f"chapter {pos}: missing duration_ms "
+                "(this writer only writes rendered 1.x chapters; unrendered 2.0 "
+                "chapters are written on the device)"
+            )
         if chapter.duration_ms <= 0:
             raise BundleWriteError(f"chapter {pos}: non-positive duration_ms {chapter.duration_ms}")
         if not chapter.title.strip():

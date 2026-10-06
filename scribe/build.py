@@ -951,7 +951,12 @@ def chapter_up_to_date(
         chapter = ChapterFile.from_dict(raw)
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
-    if chapter.chapter != script_chapter.chapter or chapter.duration_ms <= 0:
+    if (
+        chapter.chapter != script_chapter.chapter
+        or not isinstance(chapter.duration_ms, int)
+        or isinstance(chapter.duration_ms, bool)
+        or chapter.duration_ms <= 0
+    ):
         return None
     if chapter.blocks is None or script_chapter.blocks is None:
         return None

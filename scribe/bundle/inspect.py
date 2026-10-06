@@ -145,7 +145,12 @@ def inspect_bundle(bundle_dir: Path | str) -> InspectResult:
         sentences = chapter.sentences_in_order() if chapter is not None else []
         for sentence in sentences:
             speakers[sentence.speaker] = speakers.get(sentence.speaker, 0) + 1
-            spoken = sentence.end_ms - sentence.start_ms
+            # Spec v2.0 (IN1): unrendered sentences carry no timings (None);
+            # they contribute no spoken milliseconds instead of crashing.
+            if sentence.start_ms is None or sentence.end_ms is None:
+                spoken = 0
+            else:
+                spoken = sentence.end_ms - sentence.start_ms
             if spoken < 0:
                 spoken = 0
             speaker_ms[sentence.speaker] = speaker_ms.get(sentence.speaker, 0) + spoken
@@ -154,7 +159,9 @@ def inspect_bundle(bundle_dir: Path | str) -> InspectResult:
             else:
                 speaker_low.setdefault(sentence.speaker, speaker_low.get(sentence.speaker, 0))
         title = chapter.title if chapter is not None else entry.title
-        duration = entry.duration_ms
+        # Spec v2.0 (IN1): unrendered entries omit duration_ms (None);
+        # inspect shows 0 ms instead of crashing (validation owns the rules).
+        duration = entry.duration_ms if entry.duration_ms is not None else 0
         page_marks = (
             [(p.page, p.start_ms) for p in (chapter.pages or [])]
             if chapter is not None and chapter.pages is not None

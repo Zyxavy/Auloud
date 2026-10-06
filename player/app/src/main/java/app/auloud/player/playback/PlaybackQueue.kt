@@ -60,7 +60,10 @@ object PlaybackQueue {
                 title = chapter.title,
                 artist = manifest.title,
                 artworkUri = artworkUri,
-                durationMs = chapter.durationMs
+                // IN1: unrendered 2.0 chapters carry no duration (null);
+                // playback of unrendered books is gated in IN9, this keeps
+                // the rendered path compiling with a 0 fallback.
+                durationMs = chapter.durationMs ?: 0L
             )
         }
 

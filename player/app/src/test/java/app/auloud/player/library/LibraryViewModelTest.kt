@@ -627,7 +627,9 @@ class LibraryViewModelTest {
                 author = manifest.author,
                 bundlePath = bundleDir,
                 coverPath = null,
-                durationMs = manifest.chapters.sumOf { it.durationMs },
+                // IN1: chapter durations are nullable (absent for unrendered
+                // 2.0 chapters); this fake mirrors RoomLibraryRepository.
+                durationMs = manifest.chapters.sumOf { it.durationMs ?: 0L },
                 addedAt = 1_000L,
                 isMissing = false
             )

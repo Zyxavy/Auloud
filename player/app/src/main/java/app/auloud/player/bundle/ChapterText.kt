@@ -18,9 +18,14 @@ import kotlinx.serialization.Serializable
  * sentence. Blocks+pages still reads as text (Text view); only pure
  * pages-without-blocks stays [ChapterTextPdfForm] (see [ChapterTextLoader]).
  *
+ * IN1 (spec v2.0): unrendered chapters omit `duration_ms` (null) and
+ * every sentence omits `start_ms`/`end_ms` (null). Rendered chapters
+ * carry them exactly as in 1.x; within one chapter either every
+ * sentence is timed or none is. `durationMs` null means unrendered.
+ *
  * Timings are media milliseconds ([Long], matching [ChapterInfo.durationMs]
- * and the playback position type). Semantic checks (consecutive sids,
- * ordered non-overlapping timings, first start 0) live in
+ * and the playback position type) when present. Semantic checks
+ * (consecutive sids, ordered non-overlapping timings when timed) live in
  * [ChapterTextLoader], not here.
  *
  * API 24 safe: pure Kotlin + kotlinx.serialization, no Android dependencies.
@@ -37,9 +42,9 @@ data class Sentence(
     val sid: Int,
     val speaker: String,
     @SerialName("start_ms")
-    val startMs: Long,
+    val startMs: Long? = null,
     @SerialName("end_ms")
-    val endMs: Long,
+    val endMs: Long? = null,
     val text: String,
     val spans: List<Span> = emptyList(),
     val page: Int? = null
@@ -68,7 +73,7 @@ data class ChapterText(
     val chapter: Int,
     val title: String,
     @SerialName("duration_ms")
-    val durationMs: Long,
+    val durationMs: Long? = null,
     val blocks: List<Block>,
     val pages: List<PageMark>? = null
 ) {
