@@ -20,8 +20,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,7 +35,13 @@ import app.auloud.player.BuildConfig
 import app.auloud.player.battery.BatteryPromptDialog
 import app.auloud.player.battery.BatterySettingsIntents
 import app.auloud.player.battery.PrefsBatteryPromptStore
+import app.auloud.player.bundle.BundleParser
+import app.auloud.player.bundle.BundleValidator
+import app.auloud.player.bundle.Manifest
 import app.auloud.player.reader.ReaderFontSize
+import app.auloud.player.render.AndroidAudioEncoder
+import app.auloud.player.render.BeepSelfCheck
+import app.auloud.player.render.DebugRenderEngines
 import app.auloud.player.storage.WatchFolder
 import app.auloud.player.storage.WatchFolders
 import app.auloud.player.storage.BooksRootResolver
@@ -489,7 +499,16 @@ private fun VoiceAuditionHost(
         val packs = scanModelPacks(appContext)
         val sherpa = SherpaPiperEngine(packs).takeIf { it.voices().isNotEmpty() }
         sherpaHolder[0] = sherpa
-        val registry = EngineRegistry(listOfNotNull(adapter, sherpa))
+        // RN10: the beep engine joins the registry in debug builds only
+        // (null in release, so the release list is exactly what it was
+        // before RN10). The voice-lab beep card renders through it.
+        val registry = EngineRegistry(
+            listOfNotNull(
+                adapter,
+                sherpa,
+                DebugRenderEngines.beepEngineIfDebug(BuildConfig.DEBUG)
+            )
+        )
         val store = PrefsTtsStore.fromContext(appContext)
         VoiceAuditionViewModel(registry, store, AudioTrackAudioPlayer())
     }
@@ -501,6 +520,12 @@ private fun VoiceAuditionHost(
         }
     }
     val state by viewModel.state.collectAsState()
+    // RN10: minimal beep self-check trigger (debug only; the card hides
+    // in release). Runs the real RN4+RN5+RN6 chain on IO and reports the
+    // bundle path plus validation, for the RN11 offset measurement.
+    var beepStatus by remember { mutableStateOf<String?>(null) }
+    var beepRunning by remember { mutableStateOf(false) }
+    val beepScope = rememberCoroutineScope()
     // Re-poll once the async TTS init lands (cheap: registry + prefs read).
     LaunchedEffect(Unit) {
         delay(2000)
@@ -514,6 +539,99 @@ private fun VoiceAuditionHost(
         onSetSpeed = viewModel::setSpeed,
         onPreview = viewModel::preview,
         onStop = viewModel::stop,
-        modifier = modifier
+        modifier = modifier,
+        beepCheckAvailable = isBeepSelfCheckAvailable(BuildConfig.DEBUG),
+        beepStatus = beepStatus,
+        onRunBeepCheck = {
+            if (!beepRunning) {
+                beepRunning = true
+                beepStatus = "Rendering beep chapter..."
+                beepScope.launch {
+                    beepStatus = withContext(Dispatchers.IO) {
+                        runBeepCheck(appContext)
+                    }
+                    beepRunning = false
+                }
+            }
+        }
     )
+}
+
+/**
+ * RN10: debug beep render behind the voice-lab card (IO thread only).
+ *
+ * Renders the 4-tone test chapter through the real RN4 spool plus RN5
+ * assembly plus the platform RN6 encoder into a bundle dir under cache,
+ * writes the manifest plus chapter JSON next to the audio, and
+ * re-validates the files on disk. Returns one status line for the card.
+ * Only reachable from the debug-gated card; the [BeepSelfCheck] gate
+ * refuses release builds as well.
+ */
+private suspend fun runBeepCheck(appContext: android.content.Context): String {
+    try {
+        val outDir = File(appContext.cacheDir, "beep-check")
+        val spoolDir = File(appContext.cacheDir, "beep-spool")
+        try {
+            outDir.deleteRecursively()
+        } catch (_: Exception) {
+        }
+        try {
+            spoolDir.deleteRecursively()
+        } catch (_: Exception) {
+        }
+        val audioPath = File(outDir, BeepSelfCheck.CHAPTER_AUDIO_PATH).absolutePath
+        val encoder = try {
+            AndroidAudioEncoder(
+                chapterNumber = BeepSelfCheck.CHAPTER_NUMBER,
+                finalPath = audioPath
+            )
+        } catch (e: Exception) {
+            return "Beep check failed: ${e.message}"
+        }
+        val outcome = try {
+            BeepSelfCheck.run(
+                spoolDir = spoolDir.absolutePath,
+                spoolIo = app.auloud.player.render.JavaFileSpoolIo(),
+                readSpoolBytes = { fileName -> File(spoolDir, fileName).readBytes() },
+                encoder = encoder,
+                isDebugBuild = BuildConfig.DEBUG
+            )
+        } catch (e: Exception) {
+            try {
+                encoder.abort()
+            } catch (_: Exception) {
+            }
+            return "Beep check failed: ${e.message}"
+        }
+        if (outcome !is BeepSelfCheck.Outcome.Success) {
+            return "Beep check failed: ${(outcome as BeepSelfCheck.Outcome.Failure).reason}"
+        }
+        val bundle = outcome.bundle
+        try {
+            val textFile = File(outDir, BeepSelfCheck.CHAPTER_TEXT_PATH)
+            textFile.parentFile?.mkdirs()
+            textFile.writeText(bundle.chapterJson, Charsets.UTF_8)
+            val manifestFile = File(outDir, "manifest.json")
+            manifestFile.writeText(
+                BundleParser.json.encodeToString(Manifest.serializer(), bundle.manifest),
+                Charsets.UTF_8
+            )
+        } catch (e: Exception) {
+            return "Beep check failed: cannot write bundle (${e.message})"
+        }
+        val diskErrors = try {
+            BundleValidator.validateBundle(outDir)
+        } catch (e: Exception) {
+            return "Beep check failed: disk validation crashed (${e.message})"
+        }
+        if (bundle.validationErrors.isNotEmpty() || diskErrors.isNotEmpty()) {
+            val first = (bundle.validationErrors + diskErrors).first()
+            return "Beep chapter rendered but invalid: $first"
+        }
+        val starts = bundle.timings.joinToString(", ") { it.startMs.toString() }
+        return "Beep chapter ok: ${bundle.timings.size} tones at $starts ms, " +
+            "duration ${bundle.durationMs} ms, audio $audioPath"
+    } catch (e: Exception) {
+        return "Beep check failed: ${e.message}"
+    }
 }

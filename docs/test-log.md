@@ -90,3 +90,62 @@ bundle used for playback regression: Throne of Magical Arcana ch 278-280
 - Remaining device backlog (not Slice 9): Room v1-v2 migration upgrade
   path, NoClassDefFoundError long-run proof, Slice 8 audition/adapter/
   pack listing, sentence/run agreement re-check on quote-heavy books.
+
+---
+
+## Slice 10 RN10 beep self-check (2026-10-06, JVM only, no device claimed)
+
+What RN10 proved on the JVM: the debug beep engine is deterministic
+(same input gives byte-identical PCM), tones are 500 ms at 24 kHz with
+440 Hz plus 110 Hz per sentence index, and the debug action renders the
+4-tone test chapter through the real RN4 spool plus RN5 assembly plus
+RN6 encoder chain with known positions (tone starts 0/1000/2000/3000
+ms, ends 500 ms later, duration 4000 ms, 96000 samples). The emitted
+manifest plus chapter JSON validate against the RN1 spec rules with
+zero errors. The offset computation (`BeepOffset`) is pinned on
+synthetic data: constant offsets recovered exactly, even-count x.5
+medians round half-even, jitter reports offset plus max deviation, and
+the onset detector finds synthetic tone starts within 3 samples.
+Release behavior is unchanged (gate tests pin the debug-only wiring
+plus registry exclusion both ways).
+
+Provisional fixture value: `encoder_offset_ms` 0 (unchanged until the
+Tab E measurement below replaces it). AAC 50 ms tolerance unchanged.
+
+Full Player suite green: 988 tests, 0 failures (954 baseline plus 34
+new: 12 BeepTtsEngineTest, 11 BeepOffsetTest, 5 BeepSelfCheckTest, 6
+BeepDebugGateTest). Lint clean (0 issues).
+
+---
+
+## Slice 10 RN11 beep chapter (owner device procedure, NOT run)
+
+Do this on the Galaxy Tab E with a debug APK (release builds hide the
+beep card by design):
+
+1. Open Settings, then Voices. Confirm the engine row lists `beep`
+   (debug only) and a "Beep self-check (debug)" card sits at the
+   bottom of the screen.
+2. Tap "Render beep chapter". The status line reports the bundle path
+   under cache (`beep-check/`), the 4 tone starts, the duration, and
+   that validation is clean. If it reports a failure instead, copy the
+   exact line into this log and stop.
+3. Ear and eye check (RN11 acceptance): import or open the rendered
+   chapter so it plays with read-along. Each beep must sound distinct
+   (440/550/660/770 Hz) and the highlight must flip at each beep
+   within about 300 ms.
+4. Offset measurement: copy `audio/ch001.m4a` to the PC, decode to PCM
+   (`ffmpeg -i ch001.m4a -ac 1 -ar 24000 beep.wav`), and find the four
+   tone onsets (threshold 0.08 with 200 ms re-arm silence, same rule as
+   `BeepOffset.detectOnsets`, or by eye in an audio editor). Known
+   starts are 0/1000/2000/3000 ms.
+5. Feed known vs measured starts into `BeepOffset.diagnose` (or compute
+   the median difference by hand): the median is the new
+   `encoder_offset_ms` constant (0 when measured zero), and the max
+   deviation decides the tolerance (small keeps the provisional 50 ms
+   AAC rule; large means RN1 records a looser AAC number with this
+   evidence).
+6. Record here: build, the four measured onsets, the diagnosed offset
+   and deviation, and the highlight verdict (pass or fail with notes).
+
+Result: not run (owner job).

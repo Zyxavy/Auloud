@@ -50,7 +50,10 @@ fun VoiceAuditionScreen(
     onSetSpeed: (TtsRole, Float) -> Unit,
     onPreview: (TtsRole) -> Unit,
     onStop: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    beepCheckAvailable: Boolean = false,
+    beepStatus: String? = null,
+    onRunBeepCheck: (() -> Unit)? = null
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -124,7 +127,45 @@ fun VoiceAuditionScreen(
                 Spacer(Modifier.height(8.dp))
                 Text(text = it, style = MaterialTheme.typography.bodyMedium)
             }
+            // RN10: debug-only beep self-check (release builds never see
+            // this card: the host passes false there).
+            if (beepCheckAvailable && onRunBeepCheck != null) {
+                Spacer(Modifier.height(16.dp))
+                BeepSelfCheckCard(
+                    status = beepStatus,
+                    onRun = onRunBeepCheck
+                )
+            }
             Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+/**
+ * RN10: debug-only beep self-check card (voice lab bottom section).
+ *
+ * Minimal trigger only: one button rendering the 4-tone test chapter
+ * through the real render chain, one status line with the result. Full
+ * render UI is RN9. The host hides this card in release builds.
+ */
+@Composable
+private fun BeepSelfCheckCard(
+    status: String?,
+    onRun: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(text = "Beep self-check (debug)", style = MaterialTheme.typography.titleMedium)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Renders a 4-tone test chapter through the real render " +
+                "chain and validates it. Used to measure encoder delay.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = onRun) { Text("Render beep chapter") }
+        status?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(text = it, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

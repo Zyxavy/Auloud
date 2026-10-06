@@ -10,3 +10,13 @@ package app.auloud.player.settings
  * rule itself is unit-testable without Robolectric.
  */
 fun isReaderPreviewAvailable(isDebugBuild: Boolean): Boolean = isDebugBuild
+
+/**
+ * RN10: beep self-check gate (same seam as the reader preview).
+ *
+ * The voice-lab beep card and the beep engine wiring check this with
+ * `BuildConfig.DEBUG`; R8 folds the constant, so release builds never
+ * reach the beep path. Pure function so the rule is unit-testable
+ * without Robolectric.
+ */
+fun isBeepSelfCheckAvailable(isDebugBuild: Boolean): Boolean = isDebugBuild
