@@ -1,0 +1,500 @@
+{
+  "bundle_rate_hz": 24000,
+  "cases": [
+    {
+      "blocks": [
+        {
+          "id": 1,
+          "sentences": [
+            {
+              "kind": "narration",
+              "resampled_samples": 48000,
+              "sample_rate": 24000,
+              "samples": 48000,
+              "sid": 1,
+              "speaker": "narrator",
+              "split_pair": null
+            },
+            {
+              "kind": "narration",
+              "resampled_samples": 24000,
+              "sample_rate": 24000,
+              "samples": 24000,
+              "sid": 2,
+              "speaker": "narrator",
+              "split_pair": null
+            }
+          ],
+          "type": "para"
+        }
+      ],
+      "expected": {
+        "duration_ms": 3750,
+        "sample_count": 90000,
+        "timings": [
+          {
+            "end_ms": 2000,
+            "pause_after_ms": 250,
+            "sid": 1,
+            "start_ms": 0
+          },
+          {
+            "end_ms": 3250,
+            "pause_after_ms": 500,
+            "sid": 2,
+            "start_ms": 2250
+          }
+        ]
+      },
+      "id": "sentence-pause",
+      "notes": "Para-internal gap is the 250 ms sentence pause."
+    },
+    {
+      "blocks": [
+        {
+          "id": 1,
+          "sentences": [
+            {
+              "kind": "narration",
+              "resampled_samples": 2400,
+              "sample_rate": 24000,
+              "samples": 2400,
+              "sid": 1,
+              "speaker": "narrator",
+              "split_pair": null
+            }
+          ],
+          "type": "para"
+        }
+      ],
+      "expected": {
+        "duration_ms": 600,
+        "sample_count": 14400,
+        "timings": [
+          {
+            "end_ms": 100,
+            "pause_after_ms": 500,
+            "sid": 1,
+            "start_ms": 0
+          }
+        ]
+      },
+      "id": "para-final",
+      "notes": "Single para sentence: end_ms excludes the 500 ms trailing pause."
+    },
+    {
+      "blocks": [
+        {
+          "id": 1,
+          "sentences": [
+            {
+              "kind": "narration",
+              "resampled_samples": 24000,
+              "sample_rate": 24000,
+              "samples": 24000,
+              "sid": 1,
+              "speaker": "narrator",
+              "split_pair": null
+            }
+          ],
+          "type": "heading"
+        }
+      ],
+      "expected": {
+        "duration_ms": 1800,
+        "sample_count": 43200,
+        "timings": [
+          {
+            "end_ms": 1000,
+            "pause_after_ms": 800,
+            "sid": 1,
+            "start_ms": 0
+          }
+        ]
+      },
+      "id": "heading-pause",
+      "notes": "Heading sentence takes the 800 ms heading pause."
+    },
+    {
+      "blocks": [
+        {
+          "id": 1,
+          "sentences": [
+            {
+              "kind": "narration",
+              "resampled_samples": 2400,
+              "sample_rate": 24000,
+              "samples": 2400,
+              "sid": 1,
+              "speaker": "narrator",
+              "split_pair": null
+            },
+            {
+              "kind": "narration",
+              "resampled_samples": 2400,
+              "sample_rate": 24000,
+              "samples": 2400,
+              "sid": 2,
+              "speaker": "narrator",
+              "split_pair": null
+            }
+          ],
+          "type": "quote"
+        }
+      ],
+      "expected": {
+        "duration_ms": 950,
+        "sample_count": 22800,
+        "timings": [
+          {
+            "end_ms": 100,
+            "pause_after_ms": 250,
+            "sid": 1,
+            "start_ms": 0
+          },
+          {
+            "end_ms": 450,
+            "pause_after_ms": 500,
+            "sid": 2,
+            "start_ms": 350
+          }
+        ]
+      },
+      "id": "quote-like-para",
+      "notes": "Quote blocks pause like para: 250 inside, 500 at block end."
+    },
+    {
+      "blocks": [
+        {
+          "id": 1,
+          "sentences": [
+            {
+              "kind": "narration",
+              "resampled_samples": 2400,
+              "sample_rate": 24000,
+              "samples": 2400,
+              "sid": 1,
+              "speaker": "narrator",
+              "split_pair": null
+            }
+          ],
+          "type": "para"
+        },
+        {
+          "id": 2,
+          "sentences": [],
+          "type": "break"
+        },
+        {
+          "id": 3,
+          "sentences": [
+            {
+              "kind": "narration",
+              "resampled_samples": 2400,
+              "sample_rate": 24000,
+              "samples": 2400,
+              "sid": 2,
+              "speaker": "narrator",
+              "split_pair": null
+            }
+          ],
+          "type": "para"
+        }
+      ],
+      "expected": {
+        "duration_ms": 2200,
+        "sample_count": 52800,
+        "timings": [
+          {
+            "end_ms": 100,
+            "pause_after_ms": 1500,
+            "sid": 1,
+            "start_ms": 0
+          },
+          {
+            "end_ms": 1700,
+            "pause_after_ms": 500,
+            "sid": 2,
+            "start_ms": 1600
+          }
+        ]
+      },
+      "id": "break-mid",
+      "notes": "Mid-chapter break adds 1000 ms silence between block pauses."
+    },
+    {
+      "blocks": [
+        {
+          "id": 1,
+          "sentences": [
+            {
+              "kind": "narration",
+              "resampled_samples": 2400,
+              "sample_rate": 24000,
+              "samples": 2400,
+              "sid": 1,
+              "speaker": "narrator",
+              "split_pair": null
+            }
+          ],
+          "type": "para"
+        },
+        {
+          "id": 2,
+          "sentences": [],
+          "type": "break"
+        }
+      ],
+      "expected": {
+        "duration_ms": 1600,
+        "sample_count": 38400,
+        "timings": [
+          {
+            "end_ms": 100,
+            "pause_after_ms": 1500,
+            "sid": 1,
+            "start_ms": 0
+          }
+        ]
+      },
+      "id": "break-trailing",
+      "notes": "Trailing break keeps its 1000 ms; duration includes it."
+    },
+    {
+      "blocks": [
+        {
+          "id": 1,
+          "sentences": [],
+          "type": "break"
+        },
+        {
+          "id": 2,
+          "sentences": [
+            {
+              "kind": "narration",
+              "resampled_samples": 2400,
+              "sample_rate": 24000,
+              "samples": 2400,
+              "sid": 1,
+              "speaker": "narrator",
+              "split_pair": null
+            }
+          ],
+          "type": "para"
+        }
+      ],
+      "expected": {
+        "duration_ms": 600,
+        "sample_count": 14400,
+        "timings": [
+          {
+            "end_ms": 100,
+            "pause_after_ms": 500,
+            "sid": 1,
+            "start_ms": 0
+          }
+        ]
+      },
+      "id": "leading-break-drop",
+      "notes": "Leading break silence is dropped; the first start_ms is 0."
+    },
+    {
+      "blocks": [
+        {
+          "id": 1,
+          "sentences": [
+            {
+              "kind": "dialogue",
+              "resampled_samples": 24000,
+              "sample_rate": 24000,
+              "samples": 24000,
+              "sid": 1,
+              "speaker": "dialogue",
+              "split_pair": 1
+            },
+            {
+              "kind": "narration",
+              "resampled_samples": 12000,
+              "sample_rate": 24000,
+              "samples": 12000,
+              "sid": 2,
+              "speaker": "narrator",
+              "split_pair": 1
+            },
+            {
+              "kind": "narration",
+              "resampled_samples": 24000,
+              "sample_rate": 24000,
+              "samples": 24000,
+              "sid": 3,
+              "speaker": "narrator",
+              "split_pair": null
+            }
+          ],
+          "type": "para"
+        }
+      ],
+      "expected": {
+        "duration_ms": 3350,
+        "sample_count": 80400,
+        "timings": [
+          {
+            "end_ms": 1000,
+            "pause_after_ms": 100,
+            "sid": 1,
+            "start_ms": 0
+          },
+          {
+            "end_ms": 1600,
+            "pause_after_ms": 250,
+            "sid": 2,
+            "start_ms": 1100
+          },
+          {
+            "end_ms": 2850,
+            "pause_after_ms": 500,
+            "sid": 3,
+            "start_ms": 1850
+          }
+        ]
+      },
+      "id": "tag-split",
+      "notes": "Split-pair halves take the 100 ms tag pause; other gaps normal."
+    },
+    {
+      "blocks": [
+        {
+          "id": 1,
+          "sentences": [
+            {
+              "kind": "narration",
+              "resampled_samples": 12000,
+              "sample_rate": 16000,
+              "samples": 8000,
+              "sid": 1,
+              "speaker": "narrator",
+              "split_pair": null
+            },
+            {
+              "kind": "dialogue",
+              "resampled_samples": 12000,
+              "sample_rate": 22050,
+              "samples": 11025,
+              "sid": 2,
+              "speaker": "dialogue",
+              "split_pair": null
+            },
+            {
+              "kind": "narration",
+              "resampled_samples": 12000,
+              "sample_rate": 44100,
+              "samples": 22050,
+              "sid": 3,
+              "speaker": "narrator",
+              "split_pair": null
+            },
+            {
+              "kind": "narration",
+              "resampled_samples": 12000,
+              "sample_rate": 8000,
+              "samples": 4000,
+              "sid": 4,
+              "speaker": "narrator",
+              "split_pair": null
+            }
+          ],
+          "type": "para"
+        }
+      ],
+      "expected": {
+        "duration_ms": 3250,
+        "sample_count": 78000,
+        "timings": [
+          {
+            "end_ms": 500,
+            "pause_after_ms": 250,
+            "sid": 1,
+            "start_ms": 0
+          },
+          {
+            "end_ms": 1250,
+            "pause_after_ms": 250,
+            "sid": 2,
+            "start_ms": 750
+          },
+          {
+            "end_ms": 2000,
+            "pause_after_ms": 250,
+            "sid": 3,
+            "start_ms": 1500
+          },
+          {
+            "end_ms": 2750,
+            "pause_after_ms": 500,
+            "sid": 4,
+            "start_ms": 2250
+          }
+        ]
+      },
+      "id": "mixed-rates",
+      "notes": "Four native rates resample to exact 500 ms each at 24000 Hz."
+    },
+    {
+      "blocks": [
+        {
+          "id": 1,
+          "sentences": [
+            {
+              "kind": "narration",
+              "resampled_samples": 2412,
+              "sample_rate": 22050,
+              "samples": 2216,
+              "sid": 1,
+              "speaker": "narrator",
+              "split_pair": null
+            },
+            {
+              "kind": "narration",
+              "resampled_samples": 2400,
+              "sample_rate": 24000,
+              "samples": 2400,
+              "sid": 2,
+              "speaker": "narrator",
+              "split_pair": null
+            }
+          ],
+          "type": "para"
+        }
+      ],
+      "expected": {
+        "duration_ms": 950,
+        "sample_count": 22812,
+        "timings": [
+          {
+            "end_ms": 100,
+            "pause_after_ms": 250,
+            "sid": 1,
+            "start_ms": 0
+          },
+          {
+            "end_ms": 450,
+            "pause_after_ms": 500,
+            "sid": 2,
+            "start_ms": 350
+          }
+        ]
+      },
+      "id": "rounding-half-even",
+      "notes": "Exact .5 ms boundaries round half-even (100.5 to 100, not 101)."
+    }
+  ],
+  "conventions": "For each case: resample every sentence to 24000 Hz (Scribe linear-interp resample_mono; only the committed resampled_samples length affects timings, audio values are arbitrary), concatenate in document order with pauses (sentence 250 inside para/quote blocks, para 500 at para/quote block end, heading 800 after every heading sentence, break 1000 as standalone silence, tag 100 between adjacent same-block sentences sharing a split_pair; a break before the first sentence contributes nothing so the first start_ms is 0), then read start_ms/end_ms from running sample counts at 24000 Hz with round-half-even to integer ms. end_ms excludes the trailing pause; duration_ms covers the whole buffer including the final pause; pause_after_ms of a sentence is the gap to the next start_ms, or to duration_ms for the last sentence (composite across a block-final pause plus any following break silence).",
+  "pauses_ms": {
+    "break": 1000,
+    "heading": 800,
+    "para": 500,
+    "sentence": 250,
+    "tag": 100
+  },
+  "version": 1
+}

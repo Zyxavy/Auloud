@@ -834,6 +834,31 @@ def export_render_fixtures(
 
 
 @app.command()
+def export_timing_vectors(
+    fixtures_dir: Path | None = typer.Option(
+        None,
+        "--fixtures-dir",
+        help="spec/fixtures dir (default: <repo-root>/spec/fixtures).",
+    ),
+) -> None:
+    """Export shared Slice 10 assembly-timing vectors (dev only, RN2).
+
+    Writes ``spec/fixtures/timing-vectors/`` from the real assembly
+    plus resample code. Deterministic: re-runs are byte-identical.
+    Library logic lives in ``export_timing``.
+    """
+    from export_timing import ExportTimingError, export_all
+
+    try:
+        written = export_all(fixtures_dir)
+    except ExportTimingError as exc:
+        typer.echo(f"export-timing-vectors failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    for path in written:
+        typer.echo(f"wrote {path}")
+
+
+@app.command()
 def version() -> None:
     """Print the Scribe version."""
     typer.echo(__version__)

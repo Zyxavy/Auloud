@@ -68,6 +68,7 @@ packages = []
 "device.py" = "scribe/device.py"
 "export_ingest.py" = "scribe/export_ingest.py"
 "export_render.py" = "scribe/export_render.py"
+"export_timing.py" = "scribe/export_timing.py"
 "extract" = "scribe/extract"
 "text" = "scribe/text"
 "tts" = "scribe/tts"
