@@ -187,6 +187,22 @@ class ImportViewModelTest {
     }
 
     @Test
+    fun unsupportedFailure_mapsGenericHeadlineAndKeepsRuleToken() {
+        val raw = "book.pdf: PDF books stay on the PC (unsupported on this device)"
+        val vm = viewModel { _, _ -> IngestOutcome.Failed(listOf(raw)) }
+
+        vm.startImport("odd.fb2", copySource = { scratch() })
+        try {
+            val state = vm.state.value as? ImportUiState.Failed
+                ?: throw AssertionError("want Failed, got ${vm.state.value}")
+            assertTrue("headline is generic, was: ${state.headline}", "could not be imported" in state.headline)
+            assertEquals(listOf(raw), state.details)
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
     fun oversizeFailure_mapsHeadlineAndKeepsRuleToken() {
         val raw = "big.epub: total uncompressed size exceeds limit (over 268435456 bytes)"
         val vm = viewModel { _, _ -> IngestOutcome.Failed(listOf(raw)) }
