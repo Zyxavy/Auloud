@@ -1,5 +1,6 @@
 package app.auloud.player.playback
 
+import app.auloud.player.bundle.ChapterInfo
 import app.auloud.player.bundle.Manifest
 import app.auloud.player.data.ProgressEntity
 
@@ -85,4 +86,76 @@ object PlaybackQueue {
         val maxPosition = durations.getOrNull(chapter)?.coerceAtLeast(0L) ?: Long.MAX_VALUE
         return StartPosition(chapter, progress.positionMs.coerceIn(0L, maxPosition))
     }
+
+    /**
+     * IN9: a chapter is rendered when it carries both an audio path and a
+     * positive duration. Unrendered 2.0 chapters omit both (absent, never
+     * null); a blank path or a missing/non-positive duration means there is
+     * no audio to play.
+     */
+    fun isRenderedChapter(chapter: ChapterInfo): Boolean =
+        chapter.audio.isNotBlank() &&
+            chapter.durationMs != null &&
+            chapter.durationMs > 0L
+
+    /**
+     * IN9: playback gate for a manifest.
+     *
+     * [PlaybackGate.Playable] only when every listed chapter is rendered
+     * (all 1.x books and 2.0 `complete` books). Anything else (`none`,
+     * `partial`, or an invalid entry) is [PlaybackGate.NeedsRender]: the
+     * service refuses to load and the reader shows the listen-unavailable
+     * hint instead of building an ExoPlayer item from an empty path.
+     */
+    enum class PlaybackGate {
+        Playable,
+        NeedsRender
+    }
+
+    fun gateFor(manifest: Manifest): PlaybackGate {
+        if (manifest.chapters.isEmpty()) return PlaybackGate.NeedsRender
+        return if (manifest.chapters.all(::isRenderedChapter)) {
+            PlaybackGate.Playable
+        } else {
+            PlaybackGate.NeedsRender
+        }
+    }
+
+    /**
+     * IN9: queue items only for rendered chapters, in manifest `index`
+     * order with 0-based positions.
+     *
+     * For fully rendered books this is identical to [build] (same order,
+     * same positions); for books with unrendered chapters it skips the
+     * ones with no audio instead of building an item from an empty path.
+     * The service gates on [gateFor] first, so a `none` book never reaches
+     * `setMediaItems` with an empty list silently: it fails shaped with
+     * [NEEDS_RENDER_MESSAGE].
+     */
+    fun buildPlayable(
+        manifest: Manifest,
+        bundleDir: String,
+        audioUriOf: (bundleDir: String, relPath: String) -> String,
+        artworkUri: String?
+    ): List<QueueItem> =
+        manifest.chapters.sortedBy { it.index }
+            .filter(::isRenderedChapter)
+            .mapIndexed { position, chapter ->
+                QueueItem(
+                    chapterIndex = position,
+                    audioRelPath = chapter.audio,
+                    audioUri = audioUriOf(bundleDir, chapter.audio),
+                    title = chapter.title,
+                    artist = manifest.title,
+                    artworkUri = artworkUri,
+                    durationMs = chapter.durationMs ?: 0L
+                )
+            }
+
+    /**
+     * IN9: graceful outcome when [gateFor] says [PlaybackGate.NeedsRender].
+     * Shown in the reader mode switcher and logged by the service; Slice 10
+     * supplies the rendering that clears it.
+     */
+    const val NEEDS_RENDER_MESSAGE = "render audio to listen"
 }

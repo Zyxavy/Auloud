@@ -915,9 +915,10 @@ class LibraryViewModelTest {
         override suspend fun save(
             bookId: String,
             chapterIndex: Int,
-            positionMs: Long
+            positionMs: Long,
+            sentenceSid: Int?
         ): Result<Unit> {
-            positions[bookId] = ProgressEntity(bookId, chapterIndex, positionMs, 0L)
+            positions[bookId] = ProgressEntity(bookId, chapterIndex, positionMs, 0L, sentenceSid)
             return Result.success(Unit)
         }
 

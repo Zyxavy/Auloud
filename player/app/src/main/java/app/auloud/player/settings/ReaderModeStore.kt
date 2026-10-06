@@ -24,4 +24,12 @@ interface ReaderModeStore {
     /** RA10: reader font size. */
     fun fontSize(): ReaderFontSize
     fun setFontSize(size: ReaderFontSize)
+
+    /**
+     * IN9: dialogue marking (dialogue sentences in the reader drawn in the
+     * accent color). Defaults to on; the reader re-reads on open, so changes
+     * apply then like the other reading prefs.
+     */
+    fun dialogueMarking(): Boolean
+    fun setDialogueMarking(marked: Boolean)
 }

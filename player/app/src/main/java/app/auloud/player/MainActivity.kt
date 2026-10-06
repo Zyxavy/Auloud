@@ -235,10 +235,13 @@ class MainActivity : ComponentActivity() {
                     } else if (state.selectedBookId != null && selectedBook != null) {
                         // RA7: one book screen across all modes (Listen shows
                         // the Slice 1 player, Read/ReadListen the reader).
+                        // IN9: unrendered books show the read-only screen
+                        // (progress repo supplies the sid position).
                         BookScreen(
                             book = selectedBook,
                             storage = routingStorage,
-                            onBack = libraryViewModel::clearSelection
+                            onBack = libraryViewModel::clearSelection,
+                            progress = progressRepository
                         )
                     } else {
                         LibraryScreen(

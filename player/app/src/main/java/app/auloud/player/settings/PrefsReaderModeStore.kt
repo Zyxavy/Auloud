@@ -54,12 +54,20 @@ class PrefsReaderModeStore(
         prefs.edit().putString(KEY_FONT_SIZE, size.name).apply()
     }
 
+    override fun dialogueMarking(): Boolean =
+        prefs.getBoolean(KEY_DIALOGUE_MARKING, true)
+
+    override fun setDialogueMarking(marked: Boolean) {
+        prefs.edit().putBoolean(KEY_DIALOGUE_MARKING, marked).apply()
+    }
+
     companion object {
         const val PREFS_NAME = "auloud_settings"
         const val KEY_MODE = "reader_mode"
         const val KEY_KEEP_SCREEN_ON = "reader_keep_screen_on"
         const val KEY_SPEED = "playback_speed"
         const val KEY_FONT_SIZE = "reader_font_size"
+        const val KEY_DIALOGUE_MARKING = "reader_dialogue_marking"
 
         fun fromContext(context: Context): PrefsReaderModeStore =
             PrefsReaderModeStore(

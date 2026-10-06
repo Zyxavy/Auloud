@@ -11,12 +11,20 @@ class RoomProgressRepository(
     private val now: () -> Long = System::currentTimeMillis
 ) : ProgressRepository {
 
-    override suspend fun save(bookId: String, chapterIndex: Int, positionMs: Long): Result<Unit> {
+    override suspend fun save(
+        bookId: String,
+        chapterIndex: Int,
+        positionMs: Long,
+        sentenceSid: Int?
+    ): Result<Unit> {
         require(bookId.isNotBlank()) { "bookId must not be blank" }
         require(chapterIndex >= 0) { "chapterIndex must be >= 0, was $chapterIndex" }
         require(positionMs >= 0) { "positionMs must be >= 0, was $positionMs" }
+        require(sentenceSid == null || sentenceSid >= 1) {
+            "sentenceSid must be >= 1, was $sentenceSid"
+        }
         return runBoundary {
-            progressDao.upsert(ProgressEntity(bookId, chapterIndex, positionMs, now()))
+            progressDao.upsert(ProgressEntity(bookId, chapterIndex, positionMs, now(), sentenceSid))
         }
     }
 

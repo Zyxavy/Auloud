@@ -31,6 +31,7 @@ import app.auloud.player.battery.BatteryPromptLogic
 import app.auloud.player.battery.BatterySettingsIntents
 import app.auloud.player.battery.PrefsBatteryPromptStore
 import app.auloud.player.bundle.BundleParser
+import app.auloud.player.data.ProgressRepository
 import app.auloud.player.library.BookUiModel
 import app.auloud.player.playback.PlaybackController
 import app.auloud.player.playback.PlaybackService
@@ -59,13 +60,21 @@ import kotlinx.coroutines.withContext
  * (never stored per mode), so switching modes only changes what plays and
  * what shows. Listen reuses the Slice 1 [PlayerScreen]; Read and
  * Read + listen share [ReaderSession] below.
+ *
+ * IN9: unrendered books (2.0 `none`/`partial`, detected from the manifest
+ * `render_state` with the library chip map as the pre-load hint) show the
+ * read-only [UnrenderedBookScreen] instead: no service, no controller, no
+ * audio controls, and the Listen modes disabled with the render hint. The
+ * stored global mode is left untouched, so returning to a rendered book
+ * keeps its mode.
  */
 @Composable
 fun BookScreen(
     book: BookUiModel,
     storage: BundleStorage,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    progress: ProgressRepository
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -75,6 +84,12 @@ fun BookScreen(
     // emptyList = manifest unreadable). Loaded once per book here; the
     // reader branch keeps its own textPaths load unchanged below.
     var chapters by remember(book.id) { mutableStateOf<List<ChapterEntry>?>(null) }
+    // IN9: manifest render_state (null = not loaded yet). The library chip
+    // map ([BookUiModel.renderState]) is the pre-load hint; the manifest is
+    // truth once read (a stale map after a Slice 10 render must not keep a
+    // now-complete book read-only).
+    var manifestRenderState by remember(book.id) { mutableStateOf<String?>(null) }
+    var manifestLoaded by remember(book.id) { mutableStateOf(false) }
     var showChapters by remember(book.id) { mutableStateOf(false) }
     // Hoisted persist + state: both branches route mode changes through
     // here, so the setting and the UI can never disagree.
@@ -83,15 +98,36 @@ fun BookScreen(
         mode = it
     }
     LaunchedEffect(book.id) {
-        chapters = withContext(Dispatchers.IO) {
+        val parsed = withContext(Dispatchers.IO) {
             try {
                 val root = book.bundleDir.trimEnd('/')
                 val raw = storage.readText("$root/manifest.json")
-                BundleParser.parseText(raw).getOrThrow().chapters.let(::toChapterEntries)
+                BundleParser.parseText(raw).getOrThrow()
             } catch (_: Exception) {
-                emptyList()
+                null
             }
         }
+        chapters = parsed?.chapters?.let(::toChapterEntries) ?: emptyList()
+        manifestRenderState = parsed?.renderState
+        manifestLoaded = true
+    }
+    // IN9: read-only routing. The manifest wins once loaded; before that the
+    // library map decides (a just-imported book shows read-only immediately
+    // instead of flashing the player and starting a service the gate stops).
+    val effectiveRenderState = if (manifestLoaded) manifestRenderState else book.renderState
+    if (!isListenAvailable(effectiveRenderState)) {
+        UnrenderedBookScreen(
+            book = book,
+            storage = storage,
+            progress = progress,
+            onBack = onBack,
+            modifier = modifier,
+            chapters = chapters,
+            showChapters = showChapters,
+            onOpenChapters = { showChapters = true },
+            onDismissChapters = { showChapters = false }
+        )
+        return
     }
     if (mode == ReaderMode.Listen) {
         PlayerScreen(
@@ -165,6 +201,9 @@ private fun ReaderSession(
     // RA10: font size is a persisted setting, read once per session (the
     // session remounts when returning from Settings, so changes apply).
     val fontSize = remember(book.id) { modeStore.fontSize() }
+    // IN9: dialogue marking follows the same rule (1.x books have no
+    // dialogue speakers, so the default-on setting changes nothing there).
+    val dialogueMarking = remember(book.id) { modeStore.dialogueMarking() }
     val batteryStore = remember(appContext) { PrefsBatteryPromptStore.fromContext(appContext) }
     var showBatteryDialog by remember(book.id) { mutableStateOf(false) }
     // RA8: speed + sleep timer (same controls as the Listen player).
@@ -271,6 +310,7 @@ private fun ReaderSession(
             onConfirmTapJump = viewModel::confirmTapJump,
             onDismissTapJump = viewModel::dismissTapJump,
                 onOpenChapters = onOpenChapters,
+                dialogueMarking = dialogueMarking,
                 modifier = Modifier.weight(1f)
             )
         // RA9: debug-build-only sync section (sid, highlight lag, PSS).
@@ -375,29 +415,60 @@ private fun ModeBar(
     }
 }
 
-/** Shared Read/Listen/Read+listen row (reader mode bar and Listen player). */
+/** Shared Read/Listen/Read+listen row (reader mode bar and Listen player).
+ *
+ * IN9: [listenEnabled] false disables the Listen and Read + listen buttons
+ * and shows [listenHint] below (unrendered books); the defaults render
+ * exactly as before.
+ */
 @Composable
-private fun ModeSwitcherRow(
+internal fun ModeSwitcherRow(
     mode: ReaderMode,
     onMode: (ReaderMode) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    listenEnabled: Boolean = true,
+    listenHint: String? = null
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        ModeButton(label = "Read", selected = mode == ReaderMode.Read, onClick = { onMode(ReaderMode.Read) })
-        ModeButton(label = "Listen", selected = mode == ReaderMode.Listen, onClick = { onMode(ReaderMode.Listen) })
-        ModeButton(label = "Read + listen", selected = mode == ReaderMode.ReadListen, onClick = { onMode(ReaderMode.ReadListen) })
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ModeButton(label = "Read", selected = mode == ReaderMode.Read, onClick = { onMode(ReaderMode.Read) })
+            ModeButton(
+                label = "Listen",
+                selected = mode == ReaderMode.Listen,
+                onClick = { onMode(ReaderMode.Listen) },
+                enabled = listenEnabled
+            )
+            ModeButton(
+                label = "Read + listen",
+                selected = mode == ReaderMode.ReadListen,
+                onClick = { onMode(ReaderMode.ReadListen) },
+                enabled = listenEnabled
+            )
+        }
+        if (!listenEnabled && listenHint != null) {
+            Text(
+                text = listenHint,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+            )
+        }
     }
 }
 
 @Composable
-private fun ModeButton(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun ModeButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    enabled: Boolean = true
+) {
     if (selected) {
-        Button(onClick = onClick) { Text(label) }
+        Button(onClick = onClick, enabled = enabled) { Text(label) }
     } else {
-        TextButton(onClick = onClick) { Text(label) }
+        TextButton(onClick = onClick, enabled = enabled) { Text(label) }
     }
 }

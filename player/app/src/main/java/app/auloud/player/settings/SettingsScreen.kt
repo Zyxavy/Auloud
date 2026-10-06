@@ -85,6 +85,7 @@ fun SettingsScreen(
     }
     var fontSize by remember { mutableStateOf(readerStore.fontSize()) }
     var keepScreenOn by remember { mutableStateOf(readerStore.keepScreenOn()) }
+    var dialogueMarking by remember { mutableStateOf(readerStore.dialogueMarking()) }
 
     if (showLicenses) {
         LicensesScreen(onBack = { showLicenses = false })
@@ -123,6 +124,11 @@ fun SettingsScreen(
             onKeepScreenOn = {
                 readerStore.setKeepScreenOn(it)
                 keepScreenOn = it
+            },
+            dialogueMarking = dialogueMarking,
+            onDialogueMarking = {
+                readerStore.setDialogueMarking(it)
+                dialogueMarking = it
             },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         )
@@ -266,6 +272,8 @@ private fun ReaderSettingsSection(
     onFontSize: (ReaderFontSize) -> Unit,
     keepScreenOn: Boolean,
     onKeepScreenOn: (Boolean) -> Unit,
+    dialogueMarking: Boolean,
+    onDialogueMarking: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.padding(vertical = 8.dp)) {
@@ -305,6 +313,24 @@ private fun ReaderSettingsSection(
                 )
             }
             Switch(checked = keepScreenOn, onCheckedChange = onKeepScreenOn)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                Text(
+                    text = "Mark dialogue in color",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = "Dialogue sentences draw in the accent color.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Switch(checked = dialogueMarking, onCheckedChange = onDialogueMarking)
         }
     }
 }

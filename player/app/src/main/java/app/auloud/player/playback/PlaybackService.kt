@@ -44,9 +44,11 @@ import kotlin.coroutines.EmptyCoroutineContext
 /**
  * WP6: foreground playback service, the core of Slice 1.
  *
- * One [MediaItem] per manifest chapter (book title as artist, cover as
+ * One [MediaItem] per rendered manifest chapter (book title as artist, cover as
  * artwork) via `setMediaItems(items, chapterIndex, positionMs)`, starting
- * from the saved [app.auloud.player.data.ProgressEntity]. The notification
+ * from the saved [app.auloud.player.data.ProgressEntity]. IN9: unrendered
+ * (`none`) and partially rendered (`partial`) books are refused shaped in
+ * `prepareBook` ([PlaybackQueue.gateFor]) and never reach `setMediaItems`. The notification
  * (play/pause, previous, next) comes from Media3's default provider; there
  * is no custom notification code here.
  *
@@ -326,8 +328,20 @@ class PlaybackService : MediaSessionService() {
             ?: throw IllegalStateException("unknown bookId=$bookId")
         val manifestText = storage.readText(joinPath(book.bundlePath, MANIFEST_FILE))
         val manifest = BundleParser.parseText(manifestText).getOrThrow()
+        // IN9: never build an ExoPlayer item from an empty audio path.
+        // Unrendered (`none`) and partially rendered (`partial`) books fail
+        // shaped here (logged by the caller, service stops) instead of
+        // throwing on a blank path or loading a silent empty playlist.
+        // The reader never starts the service for these books; it shows
+        // the listen-unavailable hint.
+        if (PlaybackQueue.gateFor(manifest) == PlaybackQueue.PlaybackGate.NeedsRender) {
+            throw IllegalStateException(
+                "manifest.json: book has no playable audio " +
+                    "(${PlaybackQueue.NEEDS_RENDER_MESSAGE})"
+            )
+        }
         val saved = progressRepository.load(bookId).getOrThrow()
-        val items = PlaybackQueue.build(
+        val items = PlaybackQueue.buildPlayable(
             manifest = manifest,
             bundleDir = book.bundlePath,
             audioUriOf = { dir, rel -> storage.audioUri(dir, rel).toString() },

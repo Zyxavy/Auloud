@@ -87,8 +87,35 @@ class ProgressRepositoryTest {
     }
 
     @Test
-    fun delete_removesSavedPosition() = runBlocking {
-        repo.save("book-1", 2, 61_000L).getOrThrow()
+    fun save_withSid_load_roundTripsSid() = runBlocking {
+        repo.save("book-9", 1, 0L, sentenceSid = 3).getOrThrow()
+
+        val loaded = repo.load("book-9").getOrThrow()
+
+        assertEquals("book-9", loaded?.bookId)
+        assertEquals(1, loaded?.chapterIndex)
+        assertEquals(0L, loaded?.positionMs)
+        assertEquals(3, loaded?.sentenceSid)
+    }
+
+    @Test
+    fun save_withoutSid_clearsPreviousSid() = runBlocking {
+        repo.save("book-9", 1, 0L, sentenceSid = 3).getOrThrow()
+        repo.save("book-9", 1, 61_000L).getOrThrow()
+
+        val loaded = repo.load("book-9").getOrThrow()
+
+        assertEquals(61_000L, loaded?.positionMs)
+        assertNull(loaded?.sentenceSid)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun save_zeroSid_throws() {
+        runBlocking { repo.save("book-9", 0, 0L, sentenceSid = 0) }
+    }
+
+    @Test
+    fun delete_removesSavedPosition() = runBlocking {        repo.save("book-1", 2, 61_000L).getOrThrow()
 
         repo.delete("book-1").getOrThrow()
 
