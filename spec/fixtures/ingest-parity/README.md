@@ -61,6 +61,10 @@ content hashes, no timestamps. Running it twice gives byte-identical
 files; verify with `git status` (clean after a re-run) or the
 double-run test in `test_export_ingest.py`.
 
+If the installed `scribe` copy is stale (new command 404s), reinstall first
+with `uv sync --extra ui` from `scribe/`, or bypass the install with the
+direct fallback `uv run --no-sync python export_ingest.py` from `scribe/`.
+
 ## Adding books (for later packages)
 
 Drop a real EPUB at `spec/fixtures/<name>/source/book.epub` and re-run
