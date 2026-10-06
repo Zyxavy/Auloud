@@ -116,7 +116,7 @@ file and the reason.
 normalization is dropped (`dropped empty paragraph`, `dropped empty heading`).
 Break blocks are exempt: they carry no text by design.
 
-4.3. Boilerplate: a para whose normalized text (case-insensitive) contains
+4.3. Boilerplate: a para or quote whose normalized text (case-insensitive) contains
 any of these hints is dropped (`dropped boilerplate paragraph` with a
 60-char preview): `copyright`, the copyright sign (U+00A9), `(c)`,
 `all rights reserved`, `isbn`, `project gutenberg`, `gutenberg ebook`,
