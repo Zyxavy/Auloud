@@ -133,3 +133,17 @@ fun toChapterEntries(chapters: List<ChapterInfo>): List<ChapterEntry> {
 fun isCurrentChapter(index: Int, currentIndex: Int): Boolean {
     return index == currentIndex
 }
+
+/**
+ * RN7 (#14 cosmetic): marker text for the current chapter row.
+ *
+ * Null when the row is not current (no marker). The current row of a
+ * listening session reads "Now playing"; the current row of a read-only
+ * (unrendered) session reads "Reading", since no audio plays there. Pure
+ * so the wording is JVM-testable; RN9 wires it into the chapter rows
+ * (which still hard-code "Now playing" today).
+ */
+fun rowMarkerText(isCurrent: Boolean, isListening: Boolean): String? {
+    if (!isCurrent) return null
+    return if (isListening) "Now playing" else "Reading"
+}

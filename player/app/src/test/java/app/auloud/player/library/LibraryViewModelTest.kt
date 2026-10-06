@@ -573,6 +573,43 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun chip_rescanRefreshesMapAfterRenderRewrite() = runBlocking {
+        // RN7 (#14 item 5): Slice 10 rewrites render_state under the
+        // rescan; the in-memory chip map is replaced wholesale by every
+        // rescan, so the chip must follow without any extra invalidation.
+        val v2dir = "$root/rerender"
+        storage.dirs = listOf(v2dir)
+        storage.texts = mapOf(
+            "$v2dir/manifest.json" to manifestV2("none", id = "book-r"),
+            "$v2dir/text/ch001.json" to chapterTextJsonV2(),
+            "$v2dir/text/ch002.json" to chapterTextJsonV2()
+        )
+        storage.existing = setOf(
+            "$v2dir/manifest.json",
+            "$v2dir/text/ch001.json",
+            "$v2dir/text/ch002.json"
+        )
+
+        val vm = viewModel()
+        assertEquals("none", vm.uiState.value.books.single().renderState)
+
+        // A render finishes chapter 1: manifest rewritten plus audio and
+        // timings land, exactly as the RN7 finalize writes them.
+        storage.texts = mapOf(
+            "$v2dir/manifest.json" to manifestV2FirstRendered("book-r"),
+            "$v2dir/text/ch001.json" to chapterTextJsonV2Timed(),
+            "$v2dir/text/ch002.json" to chapterTextJsonV2()
+        )
+        storage.existing = storage.existing + "$v2dir/audio/ch001.mp3"
+        vm.rescan()
+
+        val book = vm.uiState.value.books.single()
+        assertTrue("rendered book must still import, got: ${vm.uiState.value.errors}", vm.uiState.value.errors.isEmpty())
+        assertEquals("partial", book.renderState)
+        assertTrue(book.showNotRendered)
+    }
+
+    @Test
     fun deleteBook_removesRowFolderAndProgress() = runBlocking {
         storage.dirs = listOf(novelDir)
         storage.texts = validTexts(manifestJson())
@@ -712,6 +749,25 @@ class LibraryViewModelTest {
              "text": "text/ch001.json", "duration_ms": 1000},
             {"index": 2, "title": "Ch 2", "audio": "audio/ch002.mp3",
              "text": "text/ch002.json", "duration_ms": 1000}
+          ]
+        }
+        """.trimIndent()
+
+    /** RN7: same book as [manifestV2] after chapter 1 renders (partial). */
+    private fun manifestV2FirstRendered(id: String): String = """
+        {
+          "spec_version": "2.0",
+          "id": "$id",
+          "title": "Unrendered Book",
+          "author": "A. Author",
+          "type": "epub",
+          "render_state": "partial",
+          "audio": {"format": "mp3"},
+          ${voicesV2()},
+          "chapters": [
+            {"index": 1, "title": "Ch 1", "audio": "audio/ch001.mp3",
+             "text": "text/ch001.json", "duration_ms": 1000},
+            {"index": 2, "title": "Ch 2", "text": "text/ch002.json"}
           ]
         }
         """.trimIndent()

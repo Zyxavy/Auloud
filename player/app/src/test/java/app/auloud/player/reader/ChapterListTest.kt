@@ -96,6 +96,24 @@ class ChapterListTest {
     }
 
     @Test
+    fun markerText_notCurrent_isNull() {
+        assertNull(rowMarkerText(isCurrent = false, isListening = true))
+        assertNull(rowMarkerText(isCurrent = false, isListening = false))
+    }
+
+    @Test
+    fun markerText_listening_isNowPlaying() {
+        assertEquals("Now playing", rowMarkerText(isCurrent = true, isListening = true))
+    }
+
+    @Test
+    fun markerText_readOnly_isReading() {
+        // RN7 (#14 cosmetic): the read-only (unrendered) list position is
+        // a reading position, never audio playback.
+        assertEquals("Reading", rowMarkerText(isCurrent = true, isListening = false))
+    }
+
+    @Test
     fun mapping_oneBasedManifest_becomesZeroBasedPositions() {
         val entries = toChapterEntries(
             listOf(

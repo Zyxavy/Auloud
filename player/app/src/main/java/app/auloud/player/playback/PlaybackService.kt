@@ -333,13 +333,10 @@ class PlaybackService : MediaSessionService() {
         // shaped here (logged by the caller, service stops) instead of
         // throwing on a blank path or loading a silent empty playlist.
         // The reader never starts the service for these books; it shows
-        // the listen-unavailable hint.
-        if (PlaybackQueue.gateFor(manifest) == PlaybackQueue.PlaybackGate.NeedsRender) {
-            throw IllegalStateException(
-                "manifest.json: book has no playable audio " +
-                    "(${PlaybackQueue.NEEDS_RENDER_MESSAGE})"
-            )
-        }
+        // the listen-unavailable hint. RN7: the refusal lives in
+        // `PlaybackQueue.requirePlayable` so the exact shaped message is
+        // unit-tested on plain JVM (same code path, same string).
+        PlaybackQueue.requirePlayable(manifest).getOrThrow()
         val saved = progressRepository.load(bookId).getOrThrow()
         val items = PlaybackQueue.buildPlayable(
             manifest = manifest,
