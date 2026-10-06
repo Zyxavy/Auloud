@@ -7,6 +7,20 @@
 # sherpa-onnx 1.13.8 via JitPack (Slice 7 spike only, user-approved):
 # AAR minSdk 21, POM Apache-2.0; native libs bundle static espeak-ng
 # (see Slice7.md research) — throwaway module, never ships (D-066 open).
+# jsoup 1.23.2 (Slice 9 IN4, user-approved per D-079): MIT (POM license
+# block + https://jsoup.org/license). Java 8 base with a Java 11 overlay
+# (multi-release jar); its POM validates the Java 8 and Android API 21
+# surfaces (animal-sniffer check-java8-api + check-android21-api), so
+# minSdk 24 is above the validated baseline. Self-contained, no required
+# runtime deps (re2j is optional, not transitive). Android projects must
+# enable core library desugaring with the NIO spec
+# (https://jsoup.org/download); the desugar artifact below provides it.
+# desugar_jdk_libs_nio 2.1.5 (Slice 9 IN4, build-time only for the jsoup
+# pin): GPL-2.0 with the Classpath Exception (its POM license block); the
+# exception permits bundling the desugared classes into the Apache-2.0
+# Player (same basis as every desugared app). Not a runtime dependency:
+# used via coreLibraryDesugaring only. Latest 2.1.x on 2026-10-06 per
+# Google Maven metadata; needs device test for import (IN10).
 [versions]
 agp = "8.7.3"
 kotlin = "2.0.21"
@@ -27,6 +41,8 @@ mockk = "1.13.12"
 test-runner = "1.6.2"
 test-junit-ext = "1.2.1"
 sherpa-onnx = "1.13.8"
+jsoup = "1.23.2"
+desugar-nio = "2.1.5"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -48,6 +64,8 @@ mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 test-runner = { group = "androidx.test", name = "runner", version.ref = "test-runner" }
 test-junit-ext = { group = "androidx.test.ext", name = "junit", version.ref = "test-junit-ext" }
 sherpa-onnx = { group = "com.github.k2-fsa.sherpa-onnx", name = "sherpa-onnx", version.ref = "sherpa-onnx" }
+jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+desugar-nio = { group = "com.android.tools", name = "desugar_jdk_libs_nio", version.ref = "desugar-nio" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

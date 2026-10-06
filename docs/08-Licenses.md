@@ -22,16 +22,30 @@ If you host Scribe as a network service for other people, check the AGPL points 
 | Coil | Apache-2.0 | [x] |
 | JUnit (test only) | EPL-1.0 | [x] |
 | MockK, Turbine (test only) | Apache-2.0 | [x] |
-| jsoup (planned, pin in IN4) | MIT | [ ] |
+| jsoup 1.23.2 | MIT | [x] |
 
 In-app: add a "Licenses" screen listing these (a Gradle license plugin can generate it), and ship a `NOTICE` file.
 
-jsoup note (Slice 9): HTML parser for sloppy EPUB XHTML, planned for IN4.
-MIT per https://jsoup.org/license. Runs on Java 8 and up including Android
-with core library desugaring (NIO spec) per https://jsoup.org/download.
-Floor 1.23.2 (current release confirmed 2026-10-05); minSdk 24 is above the
-API 21 baseline jsoup validates against. No Gradle pin in this task (IN4
-pins `org.jsoup:jsoup` in `player/gradle/libs.versions.toml`); see D-079.
+jsoup note (Slice 9 IN4, pinned): HTML parser for sloppy EPUB XHTML.
+MIT per https://jsoup.org/license (confirmed 2026-10-06; the published
+POM for 1.23.2 carries a MIT License block). Floor 1.23.2 is the current
+release per https://jsoup.org/download (confirmed 2026-10-06), pinned in
+`player/gradle/libs.versions.toml` (see D-079). minSdk 24 evidence: jsoup
+runs on Java 8 and up including Android with core library desugaring (NIO
+spec) per the download page; the 1.23.2 POM builds a Java 8 base
+(multi-release jar with a Java 11 overlay) and validates the Java 8 and
+Android API 21 surfaces (animal-sniffer `check-java8-api` /
+`check-android21-api`), so API 24 is above the validated baseline.
+Self-contained with no required runtime dependencies (re2j is optional,
+not transitive). Core library desugaring with the NIO spec is enabled in
+`player/app/build.gradle.kts` via
+`com.android.tools:desugar_jdk_libs_nio:2.1.5` (latest 2.1.x per Google
+Maven metadata, 2026-10-06; build-time only through the
+`coreLibraryDesugaring` configuration, never referenced from source).
+That artifact is GPL-2.0 with the Classpath Exception per its POM; the
+exception permits bundling the desugared classes into the Apache-2.0
+Player (the same basis as every desugared app), so the Player license is
+unchanged (see D-085). No other new dependency in IN4.
 
 ## 3. Scribe dependencies (Python)
 

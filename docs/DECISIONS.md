@@ -674,3 +674,12 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Implements plan decision 9 with values that fit real novels (chapters are KBs, covers under 5 MB) while stopping zip bombs on the 1.5 GB tablet; the orders copy Scribe's writer and TOC behavior so IN4 parity starts from the same titles and covers.
 - Alternatives considered: 8 MiB per-entry like the text JSON cap (rejected: illustrated EPUB images routinely exceed it); total 1 GB (rejected: too close to device RAM); NCX-first merge (rejected: nav is authoritative on EPUB 3); failing on missing cover (rejected: Scribe treats absent cover as normal, and goldens ship none).
 - Consequences / revisit when: revisit caps only with real-book evidence of larger images; needs device test: none for parsing itself (30 JVM tests cover it); import on the tablet is IN8/IN10 work.
+
+### D-085: IN4 desugaring for the jsoup pin (Slice 9 IN4)
+
+- Date: 2026-10-06
+- Status: Accepted
+- Decision: Enable core library desugaring with the NIO spec in `player/app/build.gradle.kts` (`isCoreLibraryDesugaringEnabled = true`) via `com.android.tools:desugar_jdk_libs_nio:2.1.5` (latest 2.1.x on Google Maven, 2026-10-06) on the `coreLibraryDesugaring` configuration only. The artifact is GPL-2.0 with the Classpath Exception per its POM; the exception permits bundling desugared classes into the Apache-2.0 Player, so the Player license is unchanged (recorded in `docs/08-Licenses.md`). IN4's own Kotlin uses only APIs present on API 24 (`java.text`, regex, `java.util`), so desugaring serves jsoup internals only. No other new dependency.
+- Why: jsoup's download page mandates desugaring with the NIO spec on Android, and its 1.23.2 POM marks `java.nio.file` and related APIs as desugar-provided (animal-sniffer ignores). The NIO variant is used instead of the base artifact because jsoup references those APIs. Build-time check (assemble + unit tests green) is the minSdk compatibility evidence available here.
+- Alternatives considered: base `desugar_jdk_libs` without NIO (rejected: leaves the exact APIs jsoup names undesugared); no desugaring, relying on jsoup's parse path never loading NIO classes (rejected: contradicts jsoup's own requirement, unverifiable without the tablet).
+- Consequences / revisit when: needs device test: import on the Tab E (IN10) proves no `NoClassDefFoundError` at runtime. Revisit the pin only if a jsoup upgrade re-check (download page plus POM) changes the baseline.

@@ -78,6 +78,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Slice 9 IN4 (D-079, D-085): jsoup needs core library desugaring
+        // with the NIO spec on Android (see https://jsoup.org/download).
+        isCoreLibraryDesugaringEnabled = true
     }
     kotlinOptions {
         jvmTarget = "17"
@@ -109,6 +112,11 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.coil.compose)
     implementation(libs.coroutines.android)
+    // Slice 9 IN4: jsoup HTML walker for on-device EPUB ingestion (D-079).
+    implementation(libs.jsoup)
+    // Build-time only: desugared Java 8 + NIO classes for the jsoup pin
+    // (D-085). Never referenced from source; AGP bundles what is needed.
+    coreLibraryDesugaring(libs.desugar.nio)
     // PW7b (Slice 7 S7B approval covers this artifact): sherpa-onnx JitPack
     // AAR for the Piper tier (minSdk 21, Apache-2.0 POM). Native libs
     // statically link espeak-ng — SHIP decision stays open (D-066).
