@@ -179,8 +179,14 @@ class RenderService : Service() {
                         nextN = intent.getIntExtra(EXTRA_NEXT_N, RenderPlanner.DEFAULT_NEXT_N)
                     )
                 } else {
+                    // RN8 review: the restart decision runs through
+                    // RenderServicePolicy.restartAction (via
+                    // shouldStopAfterNullRestart), so the tested seam is live.
+                    // WAIT_EXPLICIT never auto-starts; NO_JOB and DONE stop
+                    // only when no book is loaded (unreachable job-without-book
+                    // states stay, matching the old bookId-only check).
                     Log.i(TAG, "restart with null intent: waiting for explicit start (no auto-resume)")
-                    if (currentBookId == null) stopSelf()
+                    if (shouldStopAfterNullRestart(currentBookId, currentJob)) stopSelf()
                 }
             }
             else -> Log.w(TAG, "unknown action ${intent.action}")
@@ -1203,5 +1209,27 @@ class RenderService : Service() {
             .putExtra(EXTRA_READING_CHAPTER, readingChapter)
             .putExtra(EXTRA_SCOPE, scope)
             .putExtra(EXTRA_NEXT_N, nextN)
+    }
+}
+
+/**
+ * RN8 review: JVM-testable half of the null-intent restart branch in
+ * `RenderService.onStartCommand`.
+ *
+ * Runs the decision through `RenderServicePolicy.restartAction` so the tested
+ * seam is live: WAIT_EXPLICIT never stops (wait for an explicit resume, never
+ * auto-start); NO_JOB and NOTHING_TO_RESUME stop only when no book is loaded.
+ * A job without a loaded book is unreachable (the book id is set before any
+ * job exists and is never cleared), so rendered and idle books behave exactly
+ * as the old bookId-only check did.
+ */
+internal fun shouldStopAfterNullRestart(
+    currentBookId: String?,
+    currentJob: RenderJob?
+): Boolean {
+    return when (RenderServicePolicy.restartAction(currentJob)) {
+        RenderServicePolicy.RestartAction.WAIT_EXPLICIT -> false
+        RenderServicePolicy.RestartAction.NO_JOB,
+        RenderServicePolicy.RestartAction.NOTHING_TO_RESUME -> currentBookId == null
     }
 }

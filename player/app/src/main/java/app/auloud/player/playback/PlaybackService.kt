@@ -267,12 +267,15 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         Log.i(TAG, "onDestroy")
-        // 1. Capture synchronously while the player is still alive.
+        // 1. Capture synchronously while the player is still alive. RN8:
+        // the playlist index converts to a manifest chapter position, so
+        // a sparse book never saves the wrong chapter (unmapped skips).
         val player = session?.player
-        val finalPoint = ProgressSavePolicy.pointOrNull(
+        val finalPoint = destroySavePointOrNull(
             currentBookId,
             player?.currentMediaItemIndex ?: C.INDEX_UNSET,
-            (player?.currentPosition ?: 0L).coerceAtLeast(0L)
+            (player?.currentPosition ?: 0L).coerceAtLeast(0L),
+            currentMap
         )
         // 2. Stop the ticker so no periodic save can interleave with teardown.
         ticker?.cancel()
@@ -577,4 +580,24 @@ class PlaybackService : MediaSessionService() {
          */
         private const val SAVE_TAG = "AuloudProgress"
     }
+}
+
+/**
+ * RN8: destroy-path save point (JVM-testable half of `PlaybackService.onDestroy`).
+ *
+ * Converts the playlist [mediaIndex] to a manifest chapter position through
+ * [RenderServicePolicy.chapterPosForMedia] and builds the save point, exactly
+ * mirroring `saveProgressNow`. Returns null when unmapped (skip the save
+ * instead of writing the wrong chapter) or when there is nothing loaded.
+ * Null [map] passes through (service not loaded yet); identity maps pass
+ * through untouched, so rendered books behave exactly as before.
+ */
+internal fun destroySavePointOrNull(
+    bookId: String?,
+    mediaIndex: Int,
+    positionMs: Long,
+    map: ChapterMediaMap?
+): ProgressSavePolicy.SavePoint? {
+    val chapterPos = RenderServicePolicy.chapterPosForMedia(mediaIndex, map) ?: return null
+    return ProgressSavePolicy.pointOrNull(bookId, chapterPos, positionMs.coerceAtLeast(0L))
 }
