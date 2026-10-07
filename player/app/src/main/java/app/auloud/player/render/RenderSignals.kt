@@ -112,4 +112,28 @@ object RenderPolicyPrefs {
             Context.MODE_PRIVATE
         )
     )
+
+    /**
+     * RN9: persists the policy (the panel charging-only toggle).
+     * Defaults apply on garbled reads in [load], so a partial write
+     * still reads back safe.
+     */
+    fun save(prefs: SharedPreferences, policy: RenderPolicy) {
+        try {
+            prefs.edit()
+                .putBoolean(KEY_CHARGING_ONLY, policy.chargingOnly)
+                .putFloat(KEY_TEMP_LIMIT_C, policy.tempLimitC)
+                .apply()
+        } catch (_: Exception) {
+        }
+    }
+
+    /** Persists the policy into [context] prefs. */
+    fun save(context: Context, policy: RenderPolicy) = save(
+        context.applicationContext.getSharedPreferences(
+            app.auloud.player.tts.PrefsTtsStore.PREFS_NAME,
+            Context.MODE_PRIVATE
+        ),
+        policy
+    )
 }

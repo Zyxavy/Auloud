@@ -20,3 +20,14 @@ fun isReaderPreviewAvailable(isDebugBuild: Boolean): Boolean = isDebugBuild
  * without Robolectric.
  */
 fun isBeepSelfCheckAvailable(isDebugBuild: Boolean): Boolean = isDebugBuild
+
+/**
+ * RN9: render debug overlay gate (same seam as the beep card).
+ *
+ * The partial-book hub overlay (benchmark RTF, current chapter and
+ * sentence, battery temperature, spool size) checks this with
+ * `BuildConfig.DEBUG`; R8 folds the constant, so release builds never
+ * render it. Pure function so the rule is unit-testable without
+ * Robolectric.
+ */
+fun isRenderDebugAvailable(isDebugBuild: Boolean): Boolean = isDebugBuild

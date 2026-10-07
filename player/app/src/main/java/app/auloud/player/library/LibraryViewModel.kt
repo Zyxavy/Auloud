@@ -8,6 +8,7 @@ import app.auloud.player.data.BookEntity
 import app.auloud.player.data.LibraryRepository
 import app.auloud.player.data.ProgressRepository
 import app.auloud.player.ingest.StrayTempSweep
+import app.auloud.player.render.RenderJobProgress
 import app.auloud.player.storage.BundleStorage
 import app.auloud.player.storage.WatchFolder
 import app.auloud.player.storage.WatchFolderStore
@@ -56,7 +57,13 @@ data class BookUiModel(
      * for 1.x books), as last seen by a rescan. The library chip derives
      * from it (see [showNotRendered]); null means rendered legacy.
      */
-    val renderState: String? = null
+    val renderState: String? = null,
+    /**
+     * RN9: render job progress for this book (the job file as last seen
+     * by a rescan; null when no job file was read). The library chip
+     * prefers it over [renderState] (see `renderChipText`).
+     */
+    val renderJob: RenderJobProgress? = null
 )
 
 /**
@@ -116,7 +123,15 @@ class LibraryViewModel(
     private val isPermissionGranted: () -> Boolean,
     private val requestPermission: () -> Unit = {},
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    externalScope: CoroutineScope? = null
+    externalScope: CoroutineScope? = null,
+    /**
+     * RN9: reads the render job for a bundle dir (the `render-job.json`
+     * the render service writes), or null when there is none. Best
+     * effort and never throwing (a throw reads as no job); production
+     * wires the file reader, tests inject a fake. Defaults to null so
+     * the chip falls back to the `render_state` map exactly as before.
+     */
+    private val renderJobReader: ((bundleDir: String) -> RenderJobProgress?) = { null }
 ) : ViewModel() {
 
     // `viewModelScope` is only touched when no test scope is supplied, so
@@ -137,6 +152,10 @@ class LibraryViewModel(
     // (replaced wholesale by every rescan). Drives the "Not rendered"
     // chip; books never scanned show no chip.
     private val renderStates = MutableStateFlow<Map<String, String?>>(emptyMap())
+    // RN9: render job progress by book id, same wholesale refresh (a
+    // finished render plus rescan moves the chip from "Rendering N%" to
+    // the render_state chip with no extra invalidation).
+    private val renderJobs = MutableStateFlow<Map<String, RenderJobProgress>>(emptyMap())
     private val isScanning = MutableStateFlow(false)
     private val hasPermission = MutableStateFlow(false)
     private val selectedBookId = MutableStateFlow<String?>(null)
@@ -145,17 +164,23 @@ class LibraryViewModel(
         val errorsAll = combine(notices, scanErrors) { noticeList, scanList ->
             noticeList + scanList
         }
+        // RN9: states plus jobs pair first (the 4-flow combine below
+        // keeps typed params; a 5-flow combine would drop to Any?).
+        val renderPart = combine(renderStates, renderJobs) { states, jobs ->
+            states to jobs
+        }
         val booksPart = combine(
-            books, progressPositions, errorsAll, renderStates
-        ) { bookList, positions, errorList, states ->
-            BooksPart(bookList, positions, errorList, states)
+            books, progressPositions, errorsAll, renderPart
+        ) { bookList, positions, errorList, render ->
+            val (states, jobs) = render
+            BooksPart(bookList, positions, errorList, states, jobs)
         }
         val flagsPart =
             combine(isScanning, hasPermission, selectedBookId) { scanning, permission, selected ->
                 Triple(scanning, permission, selected)
             }
         combine(booksPart, flagsPart) { left, right ->
-            val (bookList, positions, errorList, states) = left
+            val (bookList, positions, errorList, states, jobs) = left
             val (scanning, permission, selected) = right
             LibraryUiState(
                 hasPermission = permission,
@@ -172,7 +197,8 @@ class LibraryViewModel(
                         ),
                         isMissing = book.isMissing,
                         bundleDir = book.bundlePath,
-                        renderState = states[book.id]
+                        renderState = states[book.id],
+                        renderJob = jobs[book.id]
                     )
                 },
                 errors = errorList,
@@ -225,6 +251,7 @@ class LibraryViewModel(
                 val failures = mutableListOf<ImportError>()
                 val allDirs = mutableListOf<String>()
                 val states = mutableMapOf<String, String?>()
+                val jobs = mutableMapOf<String, RenderJobProgress>()
                 for (folder in folders) {
                     val root = WatchFolders.rootString(folder)
                     // User-visible folder label: decoded display name, never
@@ -297,6 +324,13 @@ class LibraryViewModel(
                                     failures += err(dirLabel, reason)
                                 } else {
                                     states[manifest.id] = manifest.renderState
+                                    // RN9: job progress for the chip (best
+                                    // effort; a throw reads as no job, never
+                                    // fails the rescan).
+                                    try {
+                                        renderJobReader(dir)?.let { jobs[manifest.id] = it }
+                                    } catch (_: Exception) {
+                                    }
                                     // One error per bad chapter (a chapter with
                                     // both audio+text problems joins its
                                     // messages); each names chapter+file+rule.
@@ -314,9 +348,16 @@ class LibraryViewModel(
                                 val reason = imported.exceptionOrNull()?.message
                                     ?: "$dirLabel: manifest.json: import failed"
                                 failures += err(dirLabel, reason)
-                            } else {
-                                states[manifest.id] = manifest.renderState
-                            }
+                                } else {
+                                    states[manifest.id] = manifest.renderState
+                                    // RN9: job progress for the chip (best
+                                    // effort; a throw reads as no job, never
+                                    // fails the rescan).
+                                    try {
+                                        renderJobReader(dir)?.let { jobs[manifest.id] = it }
+                                    } catch (_: Exception) {
+                                    }
+                                }
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {
@@ -347,6 +388,7 @@ class LibraryViewModel(
                 }
                 scanErrors.value = failures
                 renderStates.value = states
+                renderJobs.value = jobs
             } finally {
                 isScanning.value = false
             }
@@ -469,14 +511,15 @@ class LibraryViewModel(
 
 /**
  * IN8: rescan snapshot for the library rows (books, saved positions,
- * scan failures, render states). Destructured once in the uiState
- * combine; a tiny holder keeps the 4-flow combine readable.
+ * scan failures, render states, render jobs). Destructured once in the
+ * uiState combine; a tiny holder keeps the 5-flow combine readable.
  */
 private data class BooksPart(
     val books: List<BookEntity>,
     val positions: Map<String, Long>,
     val errors: List<ImportError>,
-    val renderStates: Map<String, String?>
+    val renderStates: Map<String, String?>,
+    val renderJobs: Map<String, RenderJobProgress>
 )
 
 /**

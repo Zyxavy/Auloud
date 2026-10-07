@@ -34,6 +34,9 @@ import app.auloud.player.library.LibraryScreen
 import app.auloud.player.library.LibraryViewModel
 import app.auloud.player.reader.BookScreen
 import app.auloud.player.reader.ReaderPreviewScreen
+import app.auloud.player.render.JavaFileRenderIo
+import app.auloud.player.render.RenderJobProgress
+import app.auloud.player.render.RenderStateStore
 import app.auloud.player.settings.SettingsScreen
 import app.auloud.player.storage.BooksRootResolver
 import app.auloud.player.storage.BundleStorage
@@ -237,11 +240,19 @@ class MainActivity : ComponentActivity() {
                         // the Slice 1 player, Read/ReadListen the reader).
                         // IN9: unrendered books show the read-only screen
                         // (progress repo supplies the sid position).
+                        // RN9: partial books show the render hub (panel plus
+                        // per-chapter reader/player routing); renders and
+                        // deletes rescan so the library chips follow.
                         BookScreen(
                             book = selectedBook,
                             storage = routingStorage,
                             onBack = libraryViewModel::clearSelection,
-                            progress = progressRepository
+                            progress = progressRepository,
+                            onBookChanged = libraryViewModel::rescan,
+                            onOpenVoiceSettings = {
+                                libraryViewModel.clearSelection()
+                                showSettings = true
+                            }
                         )
                     } else {
                         LibraryScreen(
@@ -509,6 +520,27 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 
+    /**
+     * RN9: render job progress for one bundle dir (library chips).
+     * Best effort and never throwing (a throw reads as no job): SAF
+     * tokens have no `java.io.File` meaning, so they read as no job.
+     */
+    private fun readRenderJobProgress(bundleDir: String): RenderJobProgress? {
+        return try {
+            val job = RenderStateStore.load(bundleDir, JavaFileRenderIo()).getOrNull()
+                ?: return null
+            val total = job.plan.orderedChapters.size
+            if (total <= 0) return null
+            RenderJobProgress(
+                done = job.completedChapters.size,
+                total = total,
+                state = job.state
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     companion object {
         private const val TAG = "AuloudMain"
     }
@@ -538,6 +570,11 @@ class MainActivity : ComponentActivity() {
                 },
                 requestPermission = {
                     storagePermissions.launch(StoragePermissions.required())
+                },
+                // RN9: render job progress for the library chips
+                // (`render-job.json` per book; best effort, never throws).
+                renderJobReader = { bundleDir ->
+                    readRenderJobProgress(bundleDir)
                 }
             ) as T
         }

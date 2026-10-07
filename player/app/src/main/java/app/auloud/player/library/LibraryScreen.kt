@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import app.auloud.player.R
+import app.auloud.player.render.renderChipText
 import coil.compose.AsyncImage
 
 /**
@@ -173,13 +174,14 @@ private fun BookRow(
                 text = book.author ?: "Unknown author",
                 style = MaterialTheme.typography.bodyMedium
             )
-            // IN8: "Not rendered" chip derives from render_state
-            // (unrendered + partial chip; rendered books show nothing).
-            if (book.showNotRendered) {
+            // RN9: render chip ("Rendering 42%", "Paused at 42%",
+            // "Render failed", "Partially rendered", "Not rendered";
+            // rendered books show nothing).
+            renderChipText(book.renderState, book.renderJob)?.let { chip ->
                 Spacer(Modifier.height(4.dp))
                 AssistChip(
                     onClick = {},
-                    label = { Text("Not rendered") }
+                    label = { Text(chip) }
                 )
             }
             if (book.isMissing) {

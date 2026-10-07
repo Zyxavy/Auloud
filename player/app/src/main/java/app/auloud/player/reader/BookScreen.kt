@@ -74,7 +74,9 @@ fun BookScreen(
     storage: BundleStorage,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    progress: ProgressRepository
+    progress: ProgressRepository,
+    onBookChanged: () -> Unit = {},
+    onOpenVoiceSettings: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -115,6 +117,21 @@ fun BookScreen(
     // library map decides (a just-imported book shows read-only immediately
     // instead of flashing the player and starting a service the gate stops).
     val effectiveRenderState = if (manifestLoaded) manifestRenderState else book.renderState
+    // RN9: partial books open the hub (render panel plus per-chapter
+    // reader/player routing); `none` books stay read-only below.
+    if (effectiveRenderState == "partial") {
+        PartialBookScreen(
+            book = book,
+            storage = storage,
+            progress = progress,
+            onBack = onBack,
+            modifier = modifier,
+            chapters = chapters,
+            onBookChanged = onBookChanged,
+            onOpenVoiceSettings = onOpenVoiceSettings
+        )
+        return
+    }
     if (!isListenAvailable(effectiveRenderState)) {
         UnrenderedBookScreen(
             book = book,

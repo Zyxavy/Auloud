@@ -19,6 +19,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import app.auloud.player.render.ChapterRenderState
+import app.auloud.player.render.chapterStatusText
 
 /**
  * CP3: chapter list screen (titles, durations, current marker, tap to jump).
@@ -29,6 +31,12 @@ import androidx.compose.ui.unit.dp
  *
  * Narrow recompositions for the slow Tab E: rows receive only primitives
  * (index, title, duration, marker flag), never whole state objects.
+ *
+ * RN9: partial-book rows. [renderStateOf] maps a chapter position to its
+ * render state (null keeps the legacy rows: marker plus jump only);
+ * [markerListeningOf] maps a position to per-row listening (null uses
+ * [isListening] for every row); [onRenderChapter] renders one unrendered
+ * chapter; [onDeleteChapterAudio] deletes one rendered chapter's audio.
  */
 @Composable
 fun ChapterListScreen(
@@ -36,14 +44,24 @@ fun ChapterListScreen(
     currentIndex: Int,
     onJump: (Int) -> Unit,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isListening: Boolean = true,
+    renderStateOf: ((Int) -> ChapterRenderState)? = null,
+    markerListeningOf: ((Int) -> Boolean)? = null,
+    onRenderChapter: ((Int) -> Unit)? = null,
+    onDeleteChapterAudio: ((Int) -> Unit)? = null
 ) {
     ChapterListContent(
         entries = entries,
         currentIndex = currentIndex,
         onJump = onJump,
         onBack = onBack,
-        modifier = modifier
+        modifier = modifier,
+        isListening = isListening,
+        renderStateOf = renderStateOf,
+        markerListeningOf = markerListeningOf,
+        onRenderChapter = onRenderChapter,
+        onDeleteChapterAudio = onDeleteChapterAudio
     )
 }
 
@@ -53,7 +71,12 @@ private fun ChapterListContent(
     currentIndex: Int,
     onJump: (Int) -> Unit,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isListening: Boolean = true,
+    renderStateOf: ((Int) -> ChapterRenderState)? = null,
+    markerListeningOf: ((Int) -> Boolean)? = null,
+    onRenderChapter: ((Int) -> Unit)? = null,
+    onDeleteChapterAudio: ((Int) -> Unit)? = null
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
@@ -75,7 +98,11 @@ private fun ChapterListContent(
                         durationMs = entry.durationMs,
                         pageRange = entry.pageRange,
                         isCurrent = isCurrentChapter(entry.index, currentIndex),
-                        onJump = onJump
+                        isListening = markerListeningOf?.invoke(entry.index) ?: isListening,
+                        renderState = renderStateOf?.invoke(entry.index),
+                        onJump = onJump,
+                        onRenderChapter = onRenderChapter,
+                        onDeleteChapterAudio = onDeleteChapterAudio
                     )
                 }
             }
@@ -91,7 +118,11 @@ private fun ChapterRow(
     isCurrent: Boolean,
     onJump: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    pageRange: String? = null
+    pageRange: String? = null,
+    isListening: Boolean = true,
+    renderState: ChapterRenderState? = null,
+    onRenderChapter: ((Int) -> Unit)? = null,
+    onDeleteChapterAudio: ((Int) -> Unit)? = null
 ) {
     Row(
         modifier = modifier
@@ -107,13 +138,49 @@ private fun ChapterRow(
                 text = formatChapterSubtitle(durationMs, pageRange),
                 style = MaterialTheme.typography.bodyMedium
             )
+            if (renderState != null) {
+                Text(
+                    text = chapterStatusText(renderState),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            ChapterRowActions(
+                index = index,
+                renderState = renderState,
+                onRenderChapter = onRenderChapter,
+                onDeleteChapterAudio = onDeleteChapterAudio
+            )
         }
-        if (isCurrent) {
+        // RN7 deferred wiring: the marker reads "Now playing" for a
+        // listening session and "Reading" for a read-only one.
+        rowMarkerText(isCurrent, isListening)?.let { marker ->
             Text(
-                text = "Now playing",
+                text = marker,
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(start = 8.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun ChapterRowActions(
+    index: Int,
+    renderState: ChapterRenderState?,
+    onRenderChapter: ((Int) -> Unit)?,
+    onDeleteChapterAudio: ((Int) -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    if (renderState == null) return
+    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+        if (renderState != ChapterRenderState.RENDERED &&
+            renderState != ChapterRenderState.RENDERING &&
+            onRenderChapter != null
+        ) {
+            TextButton(onClick = { onRenderChapter(index) }) { Text("Render") }
+        }
+        if (renderState == ChapterRenderState.RENDERED && onDeleteChapterAudio != null) {
+            TextButton(onClick = { onDeleteChapterAudio(index) }) { Text("Delete audio") }
         }
     }
 }

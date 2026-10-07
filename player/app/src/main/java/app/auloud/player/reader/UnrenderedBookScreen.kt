@@ -137,7 +137,10 @@ private fun UnrenderedContent(
                 onDismissChapters()
             },
             onBack = onDismissChapters,
-            modifier = modifier
+            modifier = modifier,
+            // RN7 deferred wiring: read-only rows mark the current
+            // chapter "Reading", never "Now playing".
+            isListening = false
         )
         return
     }
