@@ -141,7 +141,7 @@ fun isCurrentChapter(index: Int, currentIndex: Int): Boolean {
  * listening session reads "Now playing"; the current row of a read-only
  * (unrendered) session reads "Reading", since no audio plays there. Pure
  * so the wording is JVM-testable; RN9 wires it into the chapter rows
- * (which still hard-code "Now playing" today).
+ * through ChapterListScreen marker params.
  */
 fun rowMarkerText(isCurrent: Boolean, isListening: Boolean): String? {
     if (!isCurrent) return null

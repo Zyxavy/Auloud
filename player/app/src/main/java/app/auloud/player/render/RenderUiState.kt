@@ -316,7 +316,7 @@ enum class ChapterOpenTarget {
 
 /** RN9: rendered chapters listen, unrendered chapters read. */
 fun partialChapterTarget(chapterPos: Int, map: ChapterMediaMap): ChapterOpenTarget =
-    if (map.isRendered(chapterPos)) ChapterOpenTarget.LISTEN else ChapterOpenTarget.READ
+    if (isChapterListeningEnabled(chapterPos, map)) ChapterOpenTarget.LISTEN else ChapterOpenTarget.READ
 
 /**
  * RN9: one-line voices summary for the panel

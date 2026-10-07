@@ -45,6 +45,7 @@ import app.auloud.player.render.RenderPolicyPrefs
 import app.auloud.player.render.RenderService
 import app.auloud.player.render.RenderServicePolicy
 import app.auloud.player.render.buildChapterMediaMap
+import app.auloud.player.render.isChapterListeningEnabled
 import app.auloud.player.render.partialChapterTarget
 import app.auloud.player.settings.isRenderDebugAvailable
 import app.auloud.player.storage.BundleStorage
@@ -193,7 +194,7 @@ fun PartialBookScreen(
             renderStateOf = { pos ->
                 panelState.chapterStates[pos] ?: ChapterRenderState.UNRENDERED
             },
-            markerListeningOf = { pos -> pos in panelState.renderedPositions },
+            markerListeningOf = { pos -> map?.let { isChapterListeningEnabled(pos, it) } ?: (pos in panelState.renderedPositions) },
             onRenderChapter = panelVm::renderChapter,
             onDeleteChapterAudio = { pendingDelete = it }
         )

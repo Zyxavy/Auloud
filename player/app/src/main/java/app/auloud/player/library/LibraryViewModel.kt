@@ -55,7 +55,8 @@ data class BookUiModel(
     /**
      * IN8: manifest `render_state` (`none`, `partial`, `complete`, null
      * for 1.x books), as last seen by a rescan. The library chip derives
-     * from it (see [showNotRendered]); null means rendered legacy.
+     * from it plus [renderJob] via `renderChipText` (job first, then
+     * render_state); null means rendered legacy.
      */
     val renderState: String? = null,
     /**
