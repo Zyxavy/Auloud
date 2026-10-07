@@ -20,6 +20,11 @@ import app.auloud.player.data.LibraryRepository
 import app.auloud.player.data.ProgressRepository
 import app.auloud.player.data.RoomLibraryRepository
 import app.auloud.player.data.RoomProgressRepository
+import app.auloud.player.render.ChapterMediaMap
+import app.auloud.player.render.END_OF_RENDERED_MESSAGE
+import app.auloud.player.render.RenderServicePolicy
+import app.auloud.player.render.buildChapterMediaMap
+import app.auloud.player.render.isEndOfRenderedPortion
 import app.auloud.player.storage.BundleStorage
 import app.auloud.player.storage.FileBundleStorage
 import app.auloud.player.storage.FrameworkSafBackend
@@ -47,8 +52,12 @@ import kotlin.coroutines.EmptyCoroutineContext
  * One [MediaItem] per rendered manifest chapter (book title as artist, cover as
  * artwork) via `setMediaItems(items, chapterIndex, positionMs)`, starting
  * from the saved [app.auloud.player.data.ProgressEntity]. IN9: unrendered
- * (`none`) and partially rendered (`partial`) books are refused shaped in
- * `prepareBook` ([PlaybackQueue.gateFor]) and never reach `setMediaItems`. The notification
+ * (`none`) books are refused shaped in `prepareBook`
+ * ([PlaybackQueue.gateFor]) and never reach `setMediaItems`. RN8:
+ * partially rendered (`partial`) books load their rendered subset through
+ * the explicit chapter-to-media mapping (saves convert back to manifest
+ * chapter positions; the end of the rendered portion surfaces a stop
+ * message instead of a finished save). The notification
  * (play/pause, previous, next) comes from Media3's default provider; there
  * is no custom notification code here.
  *
@@ -103,6 +112,14 @@ class PlaybackService : MediaSessionService() {
     }
 
     private var currentBookId: String? = null
+    /**
+     * RN8: chapter-to-media mapping for the loaded book (D-099 hook).
+     * Identity for fully rendered books (saves pass through untouched);
+     * sparse for partial books (media indexes convert to manifest chapter
+     * positions on save, and the end of the rendered portion surfaces the
+     * stop message instead of a finished save). Null while nothing is loaded.
+     */
+    private var currentMap: ChapterMediaMap? = null
     private var loadGeneration = 0
     private var chapterDurations: List<Long> = emptyList()
     private var lastSaveUptimeMs: Long = 0L
@@ -296,10 +313,12 @@ class PlaybackService : MediaSessionService() {
             val player = session?.player ?: return@launch
             if (prepared == null) {
                 currentBookId = null
+                currentMap = null
                 stopSelf()
                 return@launch
             }
             chapterDurations = prepared.durations
+            currentMap = prepared.map
             player.setMediaItems(
                 prepared.mediaItems,
                 prepared.start.chapterIndex,
@@ -328,15 +347,17 @@ class PlaybackService : MediaSessionService() {
             ?: throw IllegalStateException("unknown bookId=$bookId")
         val manifestText = storage.readText(joinPath(book.bundlePath, MANIFEST_FILE))
         val manifest = BundleParser.parseText(manifestText).getOrThrow()
-        // IN9: never build an ExoPlayer item from an empty audio path.
-        // Unrendered (`none`) and partially rendered (`partial`) books fail
-        // shaped here (logged by the caller, service stops) instead of
-        // throwing on a blank path or loading a silent empty playlist.
-        // The reader never starts the service for these books; it shows
-        // the listen-unavailable hint. RN7: the refusal lives in
-        // `PlaybackQueue.requirePlayable` so the exact shaped message is
-        // unit-tested on plain JVM (same code path, same string).
-        PlaybackQueue.requirePlayable(manifest).getOrThrow()
+        // RN8 (D-099 service partial path): the IN9 refusal stays for books
+        // with no playable audio at all, but a partially rendered book now
+        // loads its rendered subset. `buildPlayable` carries the manifest
+        // chapter position (not the filtered position) and `startFromMap`
+        // converts the saved chapter through the explicit mapping, so saved
+        // progress can never land on the wrong chapter. Fully rendered
+        // books keep the identical-to-before identity path.
+        val map = buildChapterMediaMap(manifest)
+        if (map.entries.isEmpty()) {
+            PlaybackQueue.requirePlayable(manifest).getOrThrow()
+        }
         val saved = progressRepository.load(bookId).getOrThrow()
         val items = PlaybackQueue.buildPlayable(
             manifest = manifest,
@@ -367,15 +388,34 @@ class PlaybackService : MediaSessionService() {
                 .build()
         }
         val durations = items.map { it.durationMs }
-        return PreparedBook(mediaItems, PlaybackQueue.startFrom(saved, items.size, durations), durations)
+        // RN8: identity books keep the exact pre-partial start mapping;
+        // sparse books convert the saved chapter through the map, so an
+        // unrendered saved chapter falls back to the first rendered item.
+        val start = if (map.isIdentity) {
+            PlaybackQueue.startFrom(saved, items.size, durations)
+        } else {
+            val durationsByPos = items.associate { it.chapterIndex to it.durationMs }
+            PlaybackQueue.startFromMap(saved, map, durationsByPos)
+        }
+        return PreparedBook(mediaItems, start, durations, map)
     }
 
     /** Persists the current spot; skipped when nothing playable is loaded. */
     private fun saveProgressNow(reason: String) {
         val player = session?.player ?: return
+        // RN8 (media-to-chapter save conversion): the playlist index is a
+        // media index, but the store is keyed by manifest chapter position.
+        // Unmapped indexes save nothing instead of the wrong chapter.
+        val chapterPos = RenderServicePolicy.chapterPosForMedia(
+            player.currentMediaItemIndex,
+            currentMap
+        ) ?: run {
+            Log.w(TAG, "save skipped: media ${player.currentMediaItemIndex} has no chapter")
+            return
+        }
         val point = ProgressSavePolicy.pointOrNull(
             currentBookId,
-            player.currentMediaItemIndex,
+            chapterPos,
             player.currentPosition.coerceAtLeast(0L)
         ) ?: return
         lastSaveUptimeMs = SystemClock.uptimeMillis()
@@ -476,6 +516,18 @@ class PlaybackService : MediaSessionService() {
     private fun saveFinishedNow() {
         val player = session?.player ?: return
         val bookId = currentBookId ?: return
+        // RN8 (end-of-portion message): a partial book stopping at the end
+        // of its rendered portion is not finished, so it surfaces the stop
+        // message through the notice channel and never writes a finished
+        // save. Fully rendered books behave exactly as before.
+        if (!RenderServicePolicy.finishedSaveAllowed(currentMap)) {
+            val map = currentMap
+            if (map != null && isEndOfRenderedPortion(player.currentMediaItemIndex, map)) {
+                Log.i(TAG, "end of rendered portion: message surfaced")
+                SkipNoticeMonitor.publish(END_OF_RENDERED_MESSAGE)
+            }
+            return
+        }
         val count = player.mediaItemCount
         if (!ProgressSavePolicy.isEndOfBook(player.currentMediaItemIndex, count, playbackEnded = true)) {
             return
@@ -501,7 +553,8 @@ class PlaybackService : MediaSessionService() {
     private data class PreparedBook(
         val mediaItems: List<MediaItem>,
         val start: StartPosition,
-        val durations: List<Long>
+        val durations: List<Long>,
+        val map: ChapterMediaMap
     )
 
     companion object {
