@@ -149,3 +149,36 @@ beep card by design):
    and deviation, and the highlight verdict (pass or fail with notes).
 
 Result: not run (owner job).
+
+---
+
+## Slice 10 RN11 device acceptance (2026-10-08, Galaxy Tab E, owner-run)
+
+Build: dev/v2 debug APK (`app-debug.apk`, 136.6 MB, built
+2026-10-08 21:36, slices 8+9+10 plus the RN9 hub-routing
+fix 57f480b).
+
+Owner verdict on issue #16: all boxes pass, "no issue",
+"everything is perfect". Functional pass covers: beep
+chapter render + validation on device with highlight
+flipping at each beep within about 300 ms; System TTS
+chapter render with read-along (narrator/dialogue distinct
+and level-matched, tag pauses natural); multi-chapter
+render while charging with screen off; kill mid-render
+then resume without redoing finished sentences;
+unplug/replug with charging-only on (pause + resume);
+partial-book playback with unrendered chapters marked and
+the end-of-rendered-portion message; swipe-away with the
+render continuing; existing Scribe books still play with
+read-along.
+
+Not recorded: the four measured beep onsets, the precise
+`encoder_offset_ms` number, max onset deviation,
+estimate-vs-actual figures, RTF numbers. The highlight
+verdict passing by ear and eye bounds the real offset
+inside the 300 ms check window; the fixture value
+`encoder_offset_ms` 0 stands as provisional, the 50 ms AAC
+tolerance stands, and the D-109 spec question (nonzero
+offset vs first-start-0) stays open for lack of a nonzero
+measurement — nothing observed contradicts first-start-0,
+so no spec amendment was needed.
