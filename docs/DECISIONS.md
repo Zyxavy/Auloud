@@ -948,3 +948,93 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Fresh imports are `none`, so the old `partial`-only route plus dead chip left the render panel unreachable for exactly the books that need it; book-level `isListenAvailable` stays false for `none`/`partial` with per-chapter gating in the hub.
 - Alternatives considered: a separate chip action (rejected: brief mandates the row tap); changing `isListenAvailable` (rejected: book-level Listen must stay disabled with zero rendered chapters).
 - Consequences / revisit when: needs device test (RN11, not claimed): fresh-import tap reaches the hub on the Tab E, chip tap opens the book, zero-rendered panel plus chapter Render buttons legible.
+
+### D-113: Slice 11 global defaults with per-book voices (plan decision 1)
+
+- Date: 2026-10-08
+- Status: Adopted
+- Decision: New books copy the global narrator and dialogue voices at first render; each book then keeps its own voices in its manifest. Changing global defaults never touches existing books. A "use as default for new books" option in the book voice screen promotes a choice to global.
+- Why: Source is `docs/plans/Slice11.md` section 4 decision 1; adopted as the Slice 11 direction in VS0 prep (no code, so no conflict with any existing decision; the global-only store from Slice 8 stays untouched until VS1).
+- Alternatives considered: per-book voices with no global defaults (rejected by the plan: new books need a starting point); editing global defaults in place for all books (rejected: would silently stale every rendered chapter).
+- Consequences / revisit when: VS1 implements the `BookVoices` read/write plus the fallback; Scribe-rendered books are flagged read-only per D-118. Revisit only if per-book storage needs a migration (the manifest `voices` entries already exist, so none is expected).
+
+### D-114: Stale means fingerprint differs for used roles only (plan decision 2)
+
+- Date: 2026-10-08
+- Status: Adopted
+- Decision: A chapter is stale when its fingerprint differs from the book current voice settings, but only for the roles that chapter actually uses. A chapter with no dialogue sentences does not become stale when only the dialogue voice changes. VS0 finding: Slice 10 always includes both roles (see `docs/fingerprint.md` section 2), so VS2 must change the fingerprint to include only used roles; older both-role fingerprints keep working as "stale" at worst, never as current and never as a crash.
+- Why: Source is `docs/plans/Slice11.md` section 4 decision 2; adopted as the Slice 11 direction in VS0 prep. Over-eager stale marks would waste nights of rendering; under-eager marks would play mismatched audio silently.
+- Alternatives considered: keep both roles always (rejected: every dialogue-only change would re-render dialogue-free chapters); fingerprint per sentence (rejected: chapter matches the render and delete unit, per D-100).
+- Consequences / revisit when: VS2 changes `RenderFingerprint` construction plus `fromJsonObject` plus the validator to accept single-role fingerprints, with matrix tests (change narrator voice, dialogue-only change on a dialogue-free chapter, speed, engine, version-only, unrendered chapter, partial book, old-format fingerprints). Revisit only if a chapter fingerprint ever fails to change when its audio would (then it is a correctness bug, widen the key, per D-100).
+
+### D-115: Three chapter states beyond "not rendered" (plan decision 3)
+
+- Date: 2026-10-08
+- Status: Adopted
+- Decision: `Current`; `Stale` (voice, speed, or engine differs); `Outdated` (only the engine version string differs, for example after a system TTS update). Outdated is shown quietly and never re-renders automatically.
+- Why: Source is `docs/plans/Slice11.md` section 4 decision 3; adopted as the Slice 11 direction in VS0 prep. A system TTS update changes every fingerprint version string without changing any audible voice, so it must not trigger automatic re-renders.
+- Alternatives considered: two states only (rejected: version-only churn would either spam re-renders or hide real staleness); auto re-render on Outdated (rejected: same audio out, nights wasted).
+- Consequences / revisit when: VS2 computes the states from fingerprints vs book voices; VS5 shows the badges. Revisit the quiet treatment only if users report confusion about Outdated chapters.
+
+### D-116: Re-render replaces whole chapters safely (plan decision 4)
+
+- Date: 2026-10-08
+- Status: Adopted
+- Decision: New audio is written under a new fingerprint-based filename, finalized with the Slice 10 write order (audio, then timed JSON, then manifest), and only then does the manifest switch to it; the old file stays playable until the swap and is deleted afterwards (deferred while the player has it loaded). Cancel or failure leaves the old audio untouched. Reusing the unchanged role audio is not possible because the spool is deleted after finalize, so a role-level cache stays in the backlog.
+- Why: Source is `docs/plans/Slice11.md` section 4 decision 4; adopted as the Slice 11 direction in VS0 prep. Builds on Accepted D-096 (crash-safe write order) and D-099 (stable chapter index mapping).
+- Alternatives considered: in-place overwrite (rejected: a kill leaves torn audio, the D-096 lesson); per-role audio caching now (rejected: spool lifetime does not cover it; backlog item).
+- Consequences / revisit when: VS3 implements the versioned filenames plus atomic swap plus deferred deletion plus orphan cleanup in recovery. VS3 must confirm the naming stays within the spec (per-chapter `audio` path entries) or amend the spec first per the bundle change rule; no spec change is made in VS0. No new dependency, permission, or bundle-format change in this decision.
+
+### D-117: Position survives re-render through sentence ids (plan decision 5)
+
+- Date: 2026-10-08
+- Status: Adopted
+- Decision: A saved position inside a re-rendered chapter converts old milliseconds to sentence id to new milliseconds before the swap, using the Slice 10 conversion (`RenderProgress.convertOnRender`, D-109).
+- Why: Source is `docs/plans/Slice11.md` section 4 decision 5; adopted as the Slice 11 direction in VS0 prep. Voices and speeds change durations, so raw milliseconds would land in the wrong sentence.
+- Alternatives considered: keep raw milliseconds (rejected: drift by whole sentences on speed changes); drop the position to chapter start (rejected: loses the listener place for no reason).
+- Consequences / revisit when: VS3 wires the conversion into the swap path with tests at chapter start, middle, and end. Revisit only if re-timed sentences no longer line up (then the conversion input, not the rule, is suspect).
+
+### D-118: Scribe (PC) bundles stay read-only for voices (plan decision 6)
+
+- Date: 2026-10-08
+- Status: Adopted
+- Decision: Scribe bundles carry per-character PC audio; re-rendering on the device would replace it with a two-voice version. The app shows their voices, disables editing with a plain explanation, and leaves a "make a device copy" feature for later.
+- Why: Source is `docs/plans/Slice11.md` section 4 decision 6; adopted as the Slice 11 direction in VS0 prep. Protects the PC multi-voice work (D-072: the PC stays fully multi-voice) from silent collapse into two voices (D-071).
+- Alternatives considered: allow re-render with a warning (rejected by the plan default: data loss by tap); auto device-copy on first edit (rejected: later feature, needs its own design).
+- Consequences / revisit when: VS1 flags read-only books; VS4/VS6 show the explanation and block re-render with a clear message. Revisit only if the user asks for a different rule (the plan explicitly invites that).
+
+### D-119: Mixed-voice books are legal (plan decision 7)
+
+- Date: 2026-10-08
+- Status: Adopted
+- Decision: Books with some chapters on the old voice and some on the new voice are legal and labeled as such; "finish re-rendering" is one tap.
+- Why: Source is `docs/plans/Slice11.md` section 4 decision 7; adopted as the Slice 11 direction in VS0 prep. Overnight renders are incremental, so the library must tolerate halfway states instead of forcing all-or-nothing.
+- Alternatives considered: forbid partial application (rejected: a slow engine would hold the whole book hostage); silent mixed state (rejected: the listener deserves to know chapters differ).
+- Consequences / revisit when: VS3 keeps chapter granularity; VS5 adds the mixed-voice banner plus per-chapter actions. Revisit only if mixed books prove confusing in acceptance (VS7).
+
+### D-120: Gain follows the role (plan decision 8)
+
+- Date: 2026-10-08
+- Status: Adopted
+- Decision: When a role voice or engine changes, its book-level gain is re-derived from the first chapter rendered with the new voice. Already rendered chapters keep the loudness baked into their audio.
+- Why: Source is `docs/plans/Slice11.md` section 4 decision 8; adopted as the Slice 11 direction in VS0 prep. Builds on Accepted D-095/D-106 (first-chapter book gain plus attenuate-only chapter cap); re-deriving on voice change keeps the reference meaningful instead of pinning new voices to an old voice level.
+- Alternatives considered: keep the old gain for new voices (rejected: night-to-night jumps return); re-level old chapters to the new gain (rejected: rewrites finished audio for no listener benefit).
+- Consequences / revisit when: VS3 implements the re-derivation with the fingerprint updated per chapter on success. Revisit only with listening evidence of uneven loudness (then revisit reference selection or the metric, per D-095).
+
+### D-121: Applying a change always shows impact first (plan decision 9)
+
+- Date: 2026-10-08
+- Status: Adopted
+- Decision: Applying a voice change shows how many chapters, hours of audio, estimated render time (benchmark plus measured speed), and storage needed (old plus new during swap), with choices: re-render now (reading position forward first), later, or keep old audio.
+- Why: Source is `docs/plans/Slice11.md` section 4 decision 9; adopted as the Slice 11 direction in VS0 prep. Estimates reuse the Slice 10 constants (RTF band, 400 ms/word, 40 C guard stay provisional until retuned from real renders).
+- Alternatives considered: apply immediately with no estimate (rejected: multi-night renders must not start by surprise); estimates as single numbers (rejected: RN9 rule says ranges, never single numbers).
+- Consequences / revisit when: VS2 computes counts/hours/time/storage; VS4 builds the impact dialog plus the three apply choices. Revisit estimate constants only with measured Tab E numbers.
+
+### D-122: Slow-engine warning (plan decision 10)
+
+- Date: 2026-10-08
+- Status: Adopted
+- Decision: Picking an engine categorized "Too slow" or "Background" shows the estimated render time per hour of audio before confirmation.
+- Why: Source is `docs/plans/Slice11.md` section 4 decision 10; adopted as the Slice 11 direction in VS0 prep. Piper-class speeds can turn a book into a multi-night job; the warning sets that expectation before the user commits.
+- Alternatives considered: no warning (rejected: same surprise as D-121, at engine-pick time); blocking slow engines (rejected: the user may still want them with eyes open).
+- Consequences / revisit when: VS4 adds the warning to the engine picker using the benchmark category. Revisit categories only with measured engine numbers.
