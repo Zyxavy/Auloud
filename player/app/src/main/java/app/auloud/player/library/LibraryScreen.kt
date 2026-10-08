@@ -180,7 +180,7 @@ private fun BookRow(
             renderChipText(book.renderState, book.renderJob)?.let { chip ->
                 Spacer(Modifier.height(4.dp))
                 AssistChip(
-                    onClick = {},
+                    onClick = { onBookSelected(book.id) },
                     label = { Text(chip) }
                 )
             }

@@ -36,6 +36,16 @@ fun isListenAvailable(renderState: String?): Boolean =
     renderState == null || renderState == "complete"
 
 /**
+ * RN9 fix: whether a book opens the render hub ([PartialBookScreen]).
+ *
+ * Both `none` (fresh imports, the common case) and `partial` books open
+ * the hub: the panel plus per-chapter Read/Listen routing. Rendered
+ * books (1.x null, 2.0 `complete`) and unknown values do not.
+ */
+fun shouldOpenRenderHub(renderState: String?): Boolean =
+    renderState == "none" || renderState == "partial"
+
+/**
  * IN9: hint shown with the unavailable Listen modes for unrendered books.
  * Slice 10 supplies the rendering that clears it. Kept lowercase verbatim
  * so the UI, the service log and the tests use one string.

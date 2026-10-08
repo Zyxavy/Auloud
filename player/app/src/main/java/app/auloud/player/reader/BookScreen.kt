@@ -62,11 +62,14 @@ import kotlinx.coroutines.withContext
  * Read + listen share [ReaderSession] below.
  *
  * IN9: unrendered books (2.0 `none`/`partial`, detected from the manifest
- * `render_state` with the library chip map as the pre-load hint) show the
- * read-only [UnrenderedBookScreen] instead: no service, no controller, no
- * audio controls, and the Listen modes disabled with the render hint. The
+ * `render_state` with the library chip map as the pre-load hint) open the
+ * RN9 render hub ([PartialBookScreen]): the panel plus per-chapter Read
+ * (read-only [UnrenderedBookScreen]) and Listen routing. No service, no
+ * controller and no audio controls play before a chapter is chosen, and
+ * the Listen modes stay disabled at book level with the render hint. The
  * stored global mode is left untouched, so returning to a rendered book
- * keeps its mode.
+ * keeps its mode. [UnrenderedBookScreen] stays as the hub's Read
+ * destination.
  */
 @Composable
 fun BookScreen(
@@ -117,9 +120,11 @@ fun BookScreen(
     // library map decides (a just-imported book shows read-only immediately
     // instead of flashing the player and starting a service the gate stops).
     val effectiveRenderState = if (manifestLoaded) manifestRenderState else book.renderState
-    // RN9: partial books open the hub (render panel plus per-chapter
-    // reader/player routing); `none` books stay read-only below.
-    if (effectiveRenderState == "partial") {
+    // RN9 fix: `none` (fresh imports) and `partial` books open the hub
+    // (render panel plus per-chapter reader/player routing). Rendered
+    // books (1.x null, 2.0 `complete`) fall through to the player/reader
+    // below; unknown values fall through to the read-only screen.
+    if (shouldOpenRenderHub(effectiveRenderState)) {
         PartialBookScreen(
             book = book,
             storage = storage,
