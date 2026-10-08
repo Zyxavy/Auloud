@@ -115,24 +115,39 @@ data class RenderFingerprint(
          * Parses a fingerprint back from JSON (spool index reads). Returns
          * null on any malformed shape instead of throwing: a corrupt index
          * means "fingerprint unknown", which invalidates the spool, never a
-         * crash. Requires both reserved roles (mirrors the validator, which
-         * needs narrator plus dialogue with non-blank voices).
+         * crash.
+         *
+         * VS2 (D-114): accepts single-role fingerprints (exactly one of
+         * narrator plus dialogue, with matching voices plus speeds keys) as
+         * well as the old both-role shape. Voices plus speeds key sets must
+         * match exactly and contain no unknown roles; anything else reads
+         * as null (stale at worst, never current by accident, never a
+         * crash).
          */
         fun fromJsonObject(obj: JsonObject): RenderFingerprint? {
             val engine = (obj["engine"] as? JsonPrimitive)
                 ?.takeIf { it.isString }?.content
                 ?.takeIf { it.isNotBlank() } ?: return null
             val voicesObj = obj["voices"] as? JsonObject ?: return null
+            val speedsObj = obj["speeds"] as? JsonObject ?: return null
+            val allowed = setOf(SPEAKER_NARRATOR, SPEAKER_DIALOGUE)
+            for (key in voicesObj.keys + speedsObj.keys) {
+                if (key !in allowed) return null
+            }
+            val voiceRoles = voicesObj.keys.toSet()
+            val speedRoles = speedsObj.keys.toSet()
+            if (voiceRoles.isEmpty() || speedRoles.isEmpty()) return null
+            if (voiceRoles != speedRoles) return null
+            if (!voiceRoles.all { it in allowed }) return null
             val voices = LinkedHashMap<String, String>()
-            for (role in listOf(SPEAKER_NARRATOR, SPEAKER_DIALOGUE)) {
+            for (role in voiceRoles.sorted()) {
                 val voice = (voicesObj[role] as? JsonPrimitive)
                     ?.takeIf { it.isString }?.content
                     ?.takeIf { it.isNotBlank() } ?: return null
                 voices[role] = voice
             }
-            val speedsObj = obj["speeds"] as? JsonObject ?: return null
             val speeds = LinkedHashMap<String, Float>()
-            for (role in listOf(SPEAKER_NARRATOR, SPEAKER_DIALOGUE)) {
+            for (role in speedRoles.sorted()) {
                 val speed = (speedsObj[role] as? JsonPrimitive)
                     ?.takeIf { !it.isString }?.doubleOrNull
                     ?.takeIf { it.isFinite() && it > 0.0 } ?: return null

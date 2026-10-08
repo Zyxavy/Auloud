@@ -411,9 +411,14 @@ object BundleValidator {
 
     /**
      * RN1: one chapter entry's `render_fingerprint` (spec 2.0 part 2
-     * section 3/7). 2.0-only, rendered chapters only, both roles pinned
-     * with non-blank voice ids and positive speeds, versions non-empty.
-     * Each error names the file and the rule. Pure.
+     * section 3/7).
+     *
+     * VS2 (D-114): 2.0-only, rendered chapters only, one or both reserved
+     * roles pinned with non-blank voice ids and positive speeds, versions
+     * non-empty. Voices plus speeds key sets must match exactly (both
+     * both-role or both the same single role); unknown roles fail. Old
+     * both-role fingerprints keep passing; clean single-role fingerprints
+     * now pass too. Each error names the file and the rule. Pure.
      */
     internal fun validateChapterFingerprint(manifest: Manifest, chapter: ChapterInfo): List<String> {
         val fingerprint = chapter.renderFingerprint ?: return emptyList()
@@ -439,18 +444,27 @@ object BundleValidator {
         if (voices == null) {
             errors.add("$label.voices must be an object (one voice id per role)")
         } else {
-            for (role in RESERVED_SPEAKERS) {
-                val voice = (voices[role] as? JsonPrimitive)?.takeIf { it.isString }?.content
-                if (voice.isNullOrBlank()) {
+            val voiceRoles = voices.keys.toSet()
+            if (voiceRoles.isEmpty() || voiceRoles.any { it !in RESERVED_SPEAKERS }) {
+                for (role in voices.keys) {
+                    if (role !in RESERVED_SPEAKERS) {
+                        errors.add("$label.voices has unknown role \"$role\" (need narrator and dialogue)")
+                    }
+                }
+                if (voiceRoles.isEmpty()) {
                     errors.add(
-                        "$label.voices missing or blank voice for role '$role' " +
-                            "(need narrator and dialogue)"
+                        "$label.voices present but empty (need narrator and/or dialogue)"
                     )
                 }
-            }
-            for (role in voices.keys) {
-                if (role !in RESERVED_SPEAKERS) {
-                    errors.add("$label.voices has unknown role \"$role\" (need narrator and dialogue)")
+            } else {
+                for (role in voiceRoles) {
+                    val voice = (voices[role] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                    if (voice.isNullOrBlank()) {
+                        errors.add(
+                            "$label.voices missing or blank voice for role '$role' " +
+                                "(need narrator and/or dialogue)"
+                        )
+                    }
                 }
             }
         }
@@ -458,20 +472,50 @@ object BundleValidator {
         if (speeds == null) {
             errors.add("$label.speeds must be an object (one speed per role)")
         } else {
-            for (role in RESERVED_SPEAKERS) {
-                val speed = (speeds[role] as? JsonPrimitive)
-                    ?.takeIf { !it.isString }
-                    ?.doubleOrNull
-                if (speed == null || !speed.isFinite() || speed <= 0.0) {
+            val speedRoles = speeds.keys.toSet()
+            if (speedRoles.isEmpty() || speedRoles.any { it !in RESERVED_SPEAKERS }) {
+                for (role in speeds.keys) {
+                    if (role !in RESERVED_SPEAKERS) {
+                        errors.add("$label.speeds has unknown role \"$role\" (need narrator and dialogue)")
+                    }
+                }
+                if (speedRoles.isEmpty()) {
                     errors.add(
-                        "$label.speeds missing or invalid speed for role '$role' " +
-                            "(need a number above 0)"
+                        "$label.speeds present but empty (need narrator and/or dialogue)"
                     )
                 }
+            } else {
+                for (role in speedRoles) {
+                    val speed = (speeds[role] as? JsonPrimitive)
+                        ?.takeIf { !it.isString }
+                        ?.doubleOrNull
+                    if (speed == null || !speed.isFinite() || speed <= 0.0) {
+                        errors.add(
+                            "$label.speeds missing or invalid speed for role '$role' " +
+                                "(need a number above 0)"
+                        )
+                    }
+                }
             }
-            for (role in speeds.keys) {
-                if (role !in RESERVED_SPEAKERS) {
-                    errors.add("$label.speeds has unknown role \"$role\" (need narrator and dialogue)")
+            val voiceRoles = (voices as? JsonObject)?.keys?.toSet()
+            if (voiceRoles != null && voiceRoles.all { it in RESERVED_SPEAKERS } &&
+                speedRoles.all { it in RESERVED_SPEAKERS } &&
+                voiceRoles.isNotEmpty() && speedRoles.isNotEmpty() &&
+                voiceRoles != speedRoles
+            ) {
+                val missing = (RESERVED_SPEAKERS - voiceRoles) + (RESERVED_SPEAKERS - speedRoles)
+                for (role in missing.sorted()) {
+                    if (role in RESERVED_SPEAKERS - voiceRoles) {
+                        errors.add(
+                            "$label.voices missing or blank voice for role '$role' " +
+                                "(voices plus speeds must cover the same roles)"
+                        )
+                    } else {
+                        errors.add(
+                            "$label.speeds missing or invalid speed for role '$role' " +
+                                "(voices plus speeds must cover the same roles)"
+                        )
+                    }
                 }
             }
         }

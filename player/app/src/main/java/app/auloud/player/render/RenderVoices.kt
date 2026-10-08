@@ -27,12 +27,33 @@ data class RoleBinding(
 /**
  * RN4: resolved voices for a chapter render: both role bindings plus the
  * fingerprint the spool files and (via RN7) the manifest entry carry.
+ *
+ * Kept for the both-role render path (service plus spool still use both
+ * roles in VS2; VS3 wires narrowing). Single-role renders use
+ * [NarrowedResolvedVoices] via [RenderVoices.resolveForRoles].
  */
 data class ResolvedRenderVoices(
     val narrator: RoleBinding,
     val dialogue: RoleBinding,
     val fingerprint: RenderFingerprint
 )
+
+/**
+ * VS2 (D-114): resolved voices narrowed to the roles a chapter uses.
+ *
+ * `bindings` holds exactly the used roles (one or both of `narrator`
+ * plus `dialogue`); `fingerprint` carries the same role set, so a
+ * dialogue-free chapter fingerprints narrator only and never invalidates
+ * on a dialogue-only voice change. Old both-role fingerprints still parse
+ * and compare as stale at worst (see `RenderStaleness`).
+ */
+data class NarrowedResolvedVoices(
+    val bindings: Map<String, RoleBinding>,
+    val fingerprint: RenderFingerprint
+) {
+    val narrator: RoleBinding? get() = bindings[SPEAKER_NARRATOR]
+    val dialogue: RoleBinding? get() = bindings[SPEAKER_DIALOGUE]
+}
 
 /**
  * RN4: up-front voice resolution (Slice 10 plan RN4, D-091).
@@ -67,20 +88,71 @@ object RenderVoices {
     /**
      * Resolves both roles or fails with a message naming the missing piece.
      * Success carries bindings plus the fingerprint built from them.
+     *
+     * VS2: delegates to [resolveForRoles] with both roles; the service
+     * keeps calling this (both-role behavior unchanged) until VS3 wires
+     * per-chapter narrowing.
      */
     fun resolve(
         registry: EngineRegistry,
         store: TtsVoiceStore,
         versionOf: (namespace: String) -> String? = { null }
     ): Result<ResolvedRenderVoices> {
-        val narrator = bindRole(TtsRole.Narrator, SPEAKER_NARRATOR, registry, store)
-            .getOrElse { return Result.failure(it) }
-        val dialogue = bindRole(TtsRole.Dialogue, SPEAKER_DIALOGUE, registry, store)
-            .getOrElse { return Result.failure(it) }
-        val namespaces = sortedSetOf(
-            narrator.engine.namespace,
-            dialogue.engine.namespace
-        )
+        val narrowed = resolveForRoles(
+            registry = registry,
+            store = store,
+            versionOf = versionOf,
+            roles = setOf(SPEAKER_NARRATOR, SPEAKER_DIALOGUE)
+        ).getOrElse { return Result.failure(it) }
+        val narrator = narrowed.bindings[SPEAKER_NARRATOR]
+            ?: return Result.failure(
+                IllegalStateException("narrator voice is not set (choose one in voice settings)")
+            )
+        val dialogue = narrowed.bindings[SPEAKER_DIALOGUE]
+            ?: return Result.failure(
+                IllegalStateException("dialogue voice is not set (choose one in voice settings)")
+            )
+        return Result.success(ResolvedRenderVoices(narrator, dialogue, narrowed.fingerprint))
+    }
+
+    /**
+     * VS2 (D-114): resolves exactly [roles] (one or both of `narrator`
+     * plus `dialogue`) or fails naming the missing piece.
+     *
+     * Only the used roles are bound and fingerprinted: a dialogue-free
+     * chapter resolves narrator only, so a blank or missing dialogue
+     * setting never fails it and the fingerprint carries narrator only.
+     * Versions cover only the engine namespaces used. An empty set, an
+     * unknown role, or a blank version fails; callers treat failure as
+     * stale (never current, never a crash).
+     */
+    fun resolveForRoles(
+        registry: EngineRegistry,
+        store: TtsVoiceStore,
+        versionOf: (namespace: String) -> String? = { null },
+        roles: Set<String>
+    ): Result<NarrowedResolvedVoices> {
+        val allowed = setOf(SPEAKER_NARRATOR, SPEAKER_DIALOGUE)
+        if (roles.isEmpty()) {
+            return Result.failure(
+                IllegalStateException("no voice roles requested (need narrator and/or dialogue)")
+            )
+        }
+        for (role in roles) {
+            if (role !in allowed) {
+                return Result.failure(
+                    IllegalStateException("unknown voice role \"$role\" (need narrator and/or dialogue)")
+                )
+            }
+        }
+        val bindings = LinkedHashMap<String, RoleBinding>()
+        for (role in roles.sorted()) {
+            val ttsRole = if (role == SPEAKER_NARRATOR) TtsRole.Narrator else TtsRole.Dialogue
+            val bound = bindRole(ttsRole, role, registry, store)
+                .getOrElse { return Result.failure(it) }
+            bindings[role] = bound
+        }
+        val namespaces = bindings.values.map { it.engine.namespace }.toSortedSet()
         val versions = LinkedHashMap<String, String>()
         for (namespace in namespaces) {
             val version = versionOf(namespace)
@@ -94,22 +166,18 @@ object RenderVoices {
             }
             versions[namespace] = version
         }
+        val engineField = if (namespaces.size == 1) {
+            namespaces.first()
+        } else {
+            namespaces.joinToString("+")
+        }
         val fingerprint = RenderFingerprint(
-            engine = RenderFingerprint.combineEngine(
-                narrator.engine.namespace,
-                dialogue.engine.namespace
-            ),
-            voices = mapOf(
-                SPEAKER_NARRATOR to narrator.voice.id,
-                SPEAKER_DIALOGUE to dialogue.voice.id
-            ),
-            speeds = mapOf(
-                SPEAKER_NARRATOR to narrator.speed,
-                SPEAKER_DIALOGUE to dialogue.speed
-            ),
+            engine = engineField,
+            voices = bindings.mapValues { it.value.voice.id },
+            speeds = bindings.mapValues { it.value.speed },
             engineVersions = versions
         )
-        return Result.success(ResolvedRenderVoices(narrator, dialogue, fingerprint))
+        return Result.success(NarrowedResolvedVoices(bindings, fingerprint))
     }
 
     private fun bindRole(
