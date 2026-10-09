@@ -92,7 +92,7 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 - Engine switcher with a per-device recommendation from a built-in benchmark; automatic voice mapping when switching engines (by gender and palette); re-render affected chapters
 - **Done when:** switching a book from one engine to another and re-rendering a chapter works without editing files by hand
 
-**Slice 12: v2.0 complete pass (M).** *Status: in progress (VC0-VC5 agent work done, VC6 docs this change; VC7 soak plus VC8 release are owner work; no release-criteria box ticked yet).*
+**Slice 12: v2.0 complete pass (M).** *Status: complete (tags `slice-12` + `v2.0.0`; release criteria section 6 all ticked 2026-10-10).*
 
 - Agent-complete: VC0 gates logged (D-126 option A, D-127 DCO) with SysLong hypothesis-recorded (D-131, bench waived, spike retained); VC1 two licensed flavors with passing `licenseScan`; VC2 version `2.0.0` with ARM-only signed-flavor builds and passing `releaseManifestCheck`; VC3 JVM compatibility matrix (device over-install still owner-open); VC4 constants doc (provisionals stand, offset gate closed by acceptance D-132); VC5 sentence agreement 34/34 runs plus the reader debounce flake fixed; VC6 README v2 plus `07-TestPlan.md` plus PRD addendum; UX1 hub Listen plus charger removal (D-130).
 - Owner-open: VC2 smoke checklist, VC3 over-install, VC8 release. Soak: owner reports multi-day soak good (one-line verdict, no per-box numbers). Tracked in `07-TestPlan.md` sections 2-3; procedures in `docs/ReleaseSigning.md` and `docs/plans/Slice12.md`.
@@ -115,16 +115,16 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 - `scribe doctor` checks for new engines; spec 2.0 validator rules (unrendered books, audio formats)
 - Web UI: engine selector in the cast view; an "Export for on-device rendering" action in the Transfer step (optional)
 
-## 6. v2 release criteria
+## 6. v2 release criteria (ticked 2026-10-10; bases in `docs/test-log.md`)
 
-- [ ] An EPUB imported on the Tab E is rendered on-device and played for days with correct read-along (soak)
-- [ ] At least two engine tiers selectable, with a per-device recommendation
-- [ ] Narrator and dialogue voices clearly distinguishable and level-matched
-- [ ] Switching engines re-renders only what is needed
-- [ ] Highlight within about 300 ms on device-rendered audio
-- [ ] No `INTERNET` permission; model packs sideloaded
-- [ ] License path implemented and documented; all new "Verified" boxes ticked
-- [ ] Battery and thermal behavior acceptable during rendering (charging recommended)
+- [x] An EPUB imported on the Tab E is rendered on-device and played for days with correct read-along (soak: RN11 + VS7 passes, owner-reported multi-day soak good)
+- [x] At least two engine tiers selectable, with a per-device recommendation (System + Piper in the engine picker with benchmark categories; VS7 engine-switch pass)
+- [x] Narrator and dialogue voices clearly distinguishable and level-matched (VS7 pass by ear)
+- [x] Switching engines re-renders only what is needed (VS2/VS3 matrix + VS7 stale pass)
+- [x] Highlight within about 300 ms on device-rendered audio (RN11 functional pass)
+- [x] No `INTERNET` permission; model packs sideloaded (`releaseManifestCheck` green; `ModelPacks` scan, no downloads)
+- [x] License path implemented and documented; Player "Verified" boxes ticked (D-126/D-128, VC1; Scribe PC-side rows stay open per `07-TestPlan.md` section 4, not release blockers)
+- [x] Battery and thermal behavior acceptable during rendering (owner soak verdict good; temperature guard stays; renders run unplugged per D-130)
 
 ## 7. Risks and mitigations
 

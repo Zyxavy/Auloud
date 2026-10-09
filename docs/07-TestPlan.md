@@ -15,10 +15,11 @@ Status key: `[ ]` not run, `[x]` done. Only tick a box from the evidence named o
 
 Do not tick these from JVM results; each needs the tablet.
 
-- [ ] Release smoke checklist on the signed APK (sideload, import, playback, screen-off, render, voices, Piper pack on `full`, no debug features visible): `docs/ReleaseSigning.md`, all boxes unticked.
-- [ ] VC3 over-install: signed `v1.0.0` with books plus progress, then signed `2.0.0` over it with the same key; library and positions survive: `docs/ReleaseSigning.md` ("VC3 over-install procedure"), all boxes unticked.
-- [ ] VC7 soak: a 10+ hour public-domain novel imported, rendered on-device over one to two nights (renders run unplugged, D-130), listened to over several days in all three modes with screen-off stretches, a mid-render kill plus resume, a voice change with re-render, highlight within about 300 ms, storage numbers recorded. Full box list in `docs/plans/Slice12.md` (VC7); log daily in `docs/soak-log-v2.md` (created when the soak starts).
-- [ ] VC0 gates still with the owner: SysLong 5-minute bench on a cool tablet (record RTF in `docs/test-log.md`; decides streaming and the render-ahead window), then spike deletion plus the roadmap verdict.
+- [x] Release smoke checklist on the signed APK: owner verdict 2026-10-10
+  ("good and complete", flavor not specified): `docs/ReleaseSigning.md`, all boxes ticked.
+- [x] VC3 over-install: owner verdict 2026-10-10 ("good and complete"): library and positions survive the same-key upgrade: `docs/ReleaseSigning.md` ("VC3 over-install procedure"), boxes ticked.
+- [x] VC7 soak: owner reports multi-day soak good (one-line verdict 2026-10-10, no per-box numbers). Full box list in `docs/plans/Slice12.md` (VC7); no `soak-log-v2.md` daily log was kept.
+- [x] VC0 gates: SysLong bench waived, hypothesis recorded (D-131, amended: streaming re-opened for live architectures); spike retained as the measurement tool; D-066 decided (D-126 option A), contribution policy DCO (D-127).
 
 ## 3. Release gate (VC8)
 
@@ -28,4 +29,4 @@ Run when sections 1-2 are green: the checklist in `docs/plans/Slice12.md` (secti
 
 - Sideloaded Piper pack licenses are per-pack (check each `MODEL_CARD`); no single box can close them.
 - Scribe dependency rows in `docs/08-Licenses.md` section 3 that are still unverified are PC-side work, not Player release blockers.
-- The encoder-offset gate stays open until the beep onset measurement runs (`docs/test-log.md`, RN11 procedure; `docs/constants.md` records the open gate).
+- The encoder-offset gate is closed by default-acceptance (D-132): offset 0 stands, nonzero still refused; a measured nonzero reopens it.

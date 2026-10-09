@@ -66,26 +66,28 @@ release builds never reach those paths.
 
 ## Release smoke checklist (OWNER-RUN, on the signed APK)
 
-Do not tick these from JVM results; they need the Tab E.
+Owner verdict 2026-10-10: both checklists pass ("1 and 2 are good and
+complete", flavor not specified). Boxes ticked on that verdict, not
+from JVM results.
 
-- [ ] Sideload: signed `core` release installs over the v1 install (same
+- [x] Sideload: signed `core` release installs over the v1 install (same
   key); library and progress survive (VC3 procedure)
-- [ ] Import: an EPUB imports on the tablet, chapter list and text read
+- [x] Import: an EPUB imports on the tablet, chapter list and text read
   correctly (Slice 9 path)
-- [ ] Playback: a PC-rendered (Scribe) multi-voice book plays with
+- [x] Playback: a PC-rendered (Scribe) multi-voice book plays with
   read-along highlight within about 300 ms (Slices 1-4 path)
-- [ ] Screen-off: playback continues with the screen off for 30+ minutes;
+- [x] Screen-off: playback continues with the screen off for 30+ minutes;
   lock-screen controls work (Slice 1 path)
-- [ ] Render: an imported book renders on-device (System TTS) and plays
+- [x] Render: an imported book renders on-device (System TTS) and plays
   with correct highlight; kill mid-render resumes without redoing
   finished sentences (Slice 10 path)
-- [ ] Voices: narrator and dialogue voices are clearly distinct and
+- [x] Voices: narrator and dialogue voices are clearly distinct and
   level-matched; switching engines re-renders only what is needed
   (Slice 11 path)
-- [ ] If shipping `full`: a Piper pack loads, synthesizes and renders at
+- [x] If shipping `full`: a Piper pack loads, synthesizes and renders at
   least one chapter (record the speed); licenses screen shows the
   sherpa-onnx/onnxruntime/espeak-ng/Piper rows
-- [ ] No debug-only features visible in release: no beep engine, debug
+- [x] No debug-only features visible in release: no beep engine, debug
   overlays, or spike/preview entries anywhere in the UI
 
 ## VC3 over-install procedure (OWNER-RUN, on the Tab E)
@@ -93,23 +95,24 @@ Do not tick these from JVM results; they need the Tab E.
 The Room v1-to-v2 migration cannot run on the JVM (the v1 schema was
 never exported and the unit harness has no Robolectric/room-testing),
 so data survival is proven here, on the tablet. Same signing key for
-both installs, no uninstall in between. Do not tick these from JVM
-results.
+both installs, no uninstall in between. Ticked 2026-10-10 on the
+owner verdict ("good and complete"), not from JVM results.
 
-- [ ] Install the signed `v1.0.0` APK (same release key as the `2.0.0`
+- [x] Install the signed `v1.0.0` APK (same release key as the `2.0.0`
   build); confirm the install succeeds and the app launches
-- [ ] Import at least two books (one PC-rendered Scribe bundle, one
+- [x] Import at least two books (one PC-rendered Scribe bundle, one
   PC multi-voice bundle); play each past chapter 1 so a mid-book
   position is saved
-- [ ] Record the library count plus each book's chapter and position
+- [x] Record the library count plus each book's chapter and position
   (a note or screenshot) before upgrading
-- [ ] Install the signed `2.0.0` APK (`core` or `full`) OVER v1 without
+- [x] Install the signed `2.0.0` APK (`core` or `full`) OVER v1 without
   uninstalling; confirm the install succeeds and the app launches
-- [ ] Library shows the same books (same count and titles, no
+- [x] Library shows the same books (same count and titles, no
   duplicates, no missing flags); each saved position lands on the same
   chapter and offset (v1 ms positions read back with NULL sid per the
   Slice 9 rule)
-- [ ] Playback resumes from a saved position with read-along; a fresh
+- [x] Playback resumes from a saved position with read-along; a fresh
   EPUB import works alongside the migrated library
-- [ ] Fallback if anything is lost: re-import (books are plain bundles
+- [ ] Fallback if anything is lost: N/A (nothing lost per the verdict).
+  If it ever applies: re-import (books are plain bundles
   on storage); report the failure with `adb logcat -s Auloud:V` output

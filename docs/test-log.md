@@ -544,3 +544,19 @@ architecture; our band numbers describe the `synthesizeToFile` render
 path and do not transfer. Streaming feasibility returns to OPEN for
 a live architecture, gated on Slice 13 design plus measurement
 (D-131 amended). Background rendering stays the v2.0 story.
+
+---
+
+## VC8 release (2026-10-10): smoke + over-install pass, tagged
+
+Owner verdict: smoke checklist and over-install procedure both
+"good and complete" (flavor not specified). Boxes ticked in
+`docs/ReleaseSigning.md` on that verdict (the conditional fallback
+box marked N/A, nothing lost). Release criteria (`09-V2Roadmap.md`
+section 6) all ticked with evidence bases; `07-TestPlan.md` device
+rounds ticked. Release APKs at head: core 3.5 MB, full 55.4 MB,
+`licenseScan` + `releaseManifestCheck` green, suites green both
+flavors. Tags: `slice-12`, `v2.0.0`. Not pushed (push needs owner
+permission); until `dev/v2` plus tags are pushed, the SOURCE_OFFER
+URL (tag v2.0.0) does not resolve. GitHub tracker admin still owed
+(tools down).
