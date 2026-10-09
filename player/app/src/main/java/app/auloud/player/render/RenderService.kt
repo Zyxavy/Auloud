@@ -1273,7 +1273,8 @@ class RenderService : Service() {
 
     /** VS3: swap-path finish for one already-rendered chapter (D-116, D-117, D-120). */
     // Position converts after a successful swap via RerenderProgressAfterSwap;
-    // a swap failure returns before conversion so old audio keeps old position.
+    // a swap failure returns before conversion so old audio keeps old position,
+    // and a cancelled job stops before conversion via shouldConvertAfterSwap.
     private suspend fun renderRerenderSwap(
         bookId: String,
         bundleDir: String,
@@ -1346,6 +1347,14 @@ class RenderService : Service() {
             io = fileIo
         ).getOrElse { e ->
             failJob(job, bundleDir, "chapter $number: swap failed (${e.message})")
+            return ChapterStepV2.Stop
+        }
+        if (!RerenderProgressAfterSwap.shouldConvertAfterSwap(
+                swapSucceeded = true,
+                cancelled = cancelRequested
+            )
+        ) {
+            cancelJob(job, bundleDir)
             return ChapterStepV2.Stop
         }
         convertRerenderProgressAfterSwap(bookId, bundleDir, pos, number, oldChapter)

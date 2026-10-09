@@ -1,5 +1,6 @@
 package app.auloud.player.render
 
+import app.auloud.player.tts.BookVoices
 import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -206,6 +207,22 @@ class RerenderRecoveryTest {
             .parseText(io.files["$bundleDir/manifest.json"]!!).getOrThrow()
         assertEquals(newRel, manifest.chapters[0].audio)
         assertEquals(2100L, manifest.chapters[0].durationMs)
+        // Fingerprint removed (absent means unknown, never invented).
+        assertTrue(manifest.chapters[0].renderFingerprint == null)
+        // Absent fingerprint reads STALE so the next run re-verifies.
+        val voices = BookVoices(
+            narratorVoiceId = "system:narr",
+            dialogueVoiceId = "system:dial",
+            narratorSpeed = 1.0f,
+            dialogueSpeed = 1.0f,
+            readOnly = false
+        )
+        assertEquals(
+            ChapterStaleState.STALE,
+            RenderStaleness.classifyChapter(
+                manifest.chapters[0], voices, versionOf = { "v1" }, hasDialogue = true
+            )
+        )
         // New audio kept, old audio swept as unreferenced after the switch.
         assertTrue(io.files.containsKey("$bundleDir/$newRel"))
         assertEquals(listOf("$bundleDir/audio/ch001.m4a"), sweep.sweptAudio)

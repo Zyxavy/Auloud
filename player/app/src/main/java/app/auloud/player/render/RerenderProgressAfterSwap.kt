@@ -22,6 +22,17 @@ import app.auloud.player.data.ProgressEntity
 object RerenderProgressAfterSwap {
 
     /**
+     * True only after a successful swap when the job was not cancelled.
+     *
+     * The service checks this between [RerenderSwap.finalizeRerender]
+     * and [convertAfterSwap]: a swap failure returns before conversion
+     * and a cancelled job stops before conversion, so old audio keeps
+     * the old position. Pure, API 24 safe.
+     */
+    fun shouldConvertAfterSwap(swapSucceeded: Boolean, cancelled: Boolean): Boolean =
+        swapSucceeded && !cancelled
+
+    /**
      * Reads the swapped chapter JSON at `text/chNNN.json` and converts
      * [saved] from [oldChapter] timings into the new timings.
      *

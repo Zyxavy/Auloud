@@ -118,23 +118,39 @@ object RerenderRecovery {
         val preserved = ArrayList<String>()
         val forwardCandidates = ArrayList<String>()
         for (entry in fresh.chapters.sortedBy { it.index }) {
-            val durationMs = entry.durationMs ?: continue
-            val audioRel = entry.audio.takeIf { it.isNotBlank() } ?: continue
-            if (RerenderSwap.isVersionedAudioRel(audioRel)) continue
             val versioned = existing.filter { path ->
                 val rel = toRel(bundleDir, path) ?: return@filter false
                 RerenderSwap.isVersionedAudioRel(rel) &&
                     RerenderSwap.chapterNumberFromAudioRel(rel) == entry.index
             }
             if (versioned.isEmpty()) continue
-            val textRel = entry.text.takeIf { it.isNotBlank() } ?: continue
+            val durationMs = entry.durationMs
+            if (durationMs == null) {
+                preserved.addAll(versioned)
+                continue
+            }
+            val audioRel = entry.audio.takeIf { it.isNotBlank() }
+            if (audioRel == null) {
+                preserved.addAll(versioned)
+                continue
+            }
+            if (RerenderSwap.isVersionedAudioRel(audioRel)) continue
+            val textRel = entry.text.takeIf { it.isNotBlank() }
+            if (textRel == null) {
+                preserved.addAll(versioned)
+                continue
+            }
             val timed = try {
                 val raw = io.readText(join(bundleDir, textRel))
                 ChapterTextLoader.parse(textRel, raw).getOrNull()
             } catch (_: Exception) {
                 null
             }
-            val jsonDuration = timed?.durationMs ?: continue
+            val jsonDuration = timed?.durationMs
+            if (jsonDuration == null) {
+                preserved.addAll(versioned)
+                continue
+            }
             if (versioned.size != 1) {
                 preserved.addAll(versioned)
                 continue
@@ -143,13 +159,20 @@ object RerenderRecovery {
                 continue
             }
             val candidateAbs = versioned[0]
-            val candidateRel = toRel(bundleDir, candidateAbs) ?: continue
+            val candidateRel = toRel(bundleDir, candidateAbs)
+            if (candidateRel == null) {
+                preserved.addAll(versioned)
+                continue
+            }
             val present = try {
                 io.exists(candidateAbs)
             } catch (_: Exception) {
                 false
             }
-            if (!present) continue
+            if (!present) {
+                preserved.addAll(versioned)
+                continue
+            }
             val updated = RenderFinalize.buildUpdatedManifestJson(
                 rawManifestJson = manifestTextForSweep,
                 chapterNumber = entry.index,

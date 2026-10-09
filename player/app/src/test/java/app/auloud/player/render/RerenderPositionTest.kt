@@ -5,7 +5,9 @@ import app.auloud.player.bundle.ChapterText
 import app.auloud.player.bundle.Sentence
 import app.auloud.player.data.ProgressEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -143,6 +145,99 @@ class RerenderPositionTest {
 
         assertEquals(saved, converted)
     }
+
+    @Test
+    fun swapGate_onlySuccessWithoutCancelConverts() {
+        assertTrue(RerenderProgressAfterSwap.shouldConvertAfterSwap(true, false))
+        assertFalse(RerenderProgressAfterSwap.shouldConvertAfterSwap(false, false))
+        assertFalse(RerenderProgressAfterSwap.shouldConvertAfterSwap(true, true))
+        assertFalse(RerenderProgressAfterSwap.shouldConvertAfterSwap(false, true))
+    }
+
+    @Test
+    fun swapOrdering_successConverts_failureAndCancelSkip() {
+        // Service order: finalize first, then gate, then convert. Success
+        // converts via the fresh JSON; failure or cancel skips convert so
+        // old audio keeps the old position.
+        val bundleDir = "/books/b1"
+        val old = oldChapter()
+        val saved = ProgressEntity("b1", 0, 800L, 10L, sentenceSid = null)
+        val newFp = RenderFingerprint(
+            engine = "system",
+            voices = mapOf("narrator" to "system:new-narr", "dialogue" to "system:dial"),
+            speeds = mapOf("narrator" to 1.0f, "dialogue" to 1.0f),
+            engineVersions = mapOf("system" to "v1")
+        )
+        val newRel = RerenderSwap.versionedAudioRel(1, newFp)
+        val timings = listOf(
+            AssemblySentenceTiming(sid = 1, startMs = 0, endMs = 800),
+            AssemblySentenceTiming(sid = 2, startMs = 1000, endMs = 1800),
+            AssemblySentenceTiming(sid = 3, startMs = 2200, endMs = 3000)
+        )
+
+        // Success: finalize writes the new JSON, gate opens, convert maps
+        // old 800ms (sid 2) to new sid 2 start (1000ms).
+        val okIo = FakeAfterSwapIo()
+        okIo.files["$bundleDir/manifest.json"] = swapManifestJson()
+        okIo.files["$bundleDir/text/ch001.json"] = oldChapterJson()
+        okIo.files["$bundleDir/audio/ch001.m4a"] = "old-audio"
+        okIo.files["$bundleDir/$newRel"] = "new-audio"
+        val ok = RerenderSwap.finalizeRerender(
+            bundleDir, 1, "audio/ch001.m4a", newRel, timings, 3000,
+            newFp, null, 0, okIo, sleeper = { }
+        )
+        assertTrue(ok.isSuccess)
+        assertTrue(RerenderProgressAfterSwap.shouldConvertAfterSwap(ok.isSuccess, false))
+        val converted = RerenderProgressAfterSwap.convertAfterSwap(
+            bundleDir, 1, saved, 0, old, okIo
+        )
+        assertEquals(1000L, converted?.positionMs)
+        assertNull(converted?.sentenceSid)
+
+        // Failure: missing new audio fails the swap, gate stays closed so
+        // the service never calls convert and the old position stays valid.
+        val badIo = FakeAfterSwapIo()
+        badIo.files["$bundleDir/manifest.json"] = swapManifestJson()
+        badIo.files["$bundleDir/text/ch001.json"] = oldChapterJson()
+        badIo.files["$bundleDir/audio/ch001.m4a"] = "old-audio"
+        val bad = RerenderSwap.finalizeRerender(
+            bundleDir, 1, "audio/ch001.m4a", newRel, timings, 3000,
+            newFp, null, 0, badIo, sleeper = { }
+        )
+        assertTrue(bad.isFailure)
+        assertFalse(RerenderProgressAfterSwap.shouldConvertAfterSwap(bad.isSuccess, false))
+        assertEquals("audio/ch001.m4a", swapManifestAudio(badIo))
+
+        // Cancel: even a successful swap skips convert when cancelled.
+        assertFalse(RerenderProgressAfterSwap.shouldConvertAfterSwap(true, true))
+    }
+
+    private fun oldChapterJson(): String =
+        """{"spec_version":"2.0","chapter":1,"title":"Ch 1","duration_ms":2000,"blocks":[{"id":1,"type":"para","sentences":[{"sid":1,"speaker":"narrator","start_ms":0,"end_ms":500,"text":"Hello. "},{"sid":2,"speaker":"dialogue","start_ms":750,"end_ms":1250,"text":"Hi. "},{"sid":3,"speaker":"narrator","start_ms":1500,"end_ms":2000,"text":"Bye. "}]}]}"""
+
+    private fun swapManifestJson(): String = """
+        {
+          "spec_version": "2.0",
+          "id": "b1",
+          "title": "Rendered",
+          "type": "epub",
+          "render_state": "partial",
+          "audio": {"format": "m4a", "channels": 1, "sample_rate": 24000, "bitrate_kbps": 64, "cbr": true},
+          "voices": {
+            "narrator": {"engine": "system", "voice": "narr", "speed": 1.0, "pitch": 1.0},
+            "dialogue": {"engine": "system", "voice": "dial", "speed": 1.0, "pitch": 1.0}
+          },
+          "chapters": [
+            {"index": 1, "title": "Ch 1", "audio": "audio/ch001.m4a", "text": "text/ch001.json", "duration_ms": 2000,
+             "render_fingerprint": {"engine": "system", "voices": {"narrator": "system:narr", "dialogue": "system:dial"}, "speeds": {"narrator": 1.0, "dialogue": 1.0}, "engine_versions": {"system": "v1"}}},
+            {"index": 2, "title": "Ch 2", "text": "text/ch002.json"}
+          ]
+        }
+        """.trimIndent()
+
+    private fun swapManifestAudio(io: FakeAfterSwapIo): String =
+        app.auloud.player.bundle.BundleParser
+            .parseText(io.files["/books/b1/manifest.json"]!!).getOrThrow().chapters[0].audio
 
     private fun newChapterJson(): String =
         """{"spec_version":"2.0","chapter":1,"title":"Ch 1","duration_ms":3000,"blocks":[{"id":1,"type":"para","sentences":[{"sid":1,"speaker":"narrator","start_ms":0,"end_ms":800,"text":"Hello. "},{"sid":2,"speaker":"dialogue","start_ms":1000,"end_ms":1800,"text":"Hi. "},{"sid":3,"speaker":"narrator","start_ms":2200,"end_ms":3000,"text":"Bye. "}]}]}"""

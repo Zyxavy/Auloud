@@ -36,8 +36,9 @@ import kotlinx.serialization.json.put
  * only): before the first render the service must call
  * [needsFirstRenderCopy], then [firstRenderCopy] plus
  * [toManifestVoices] plus a storage write, then resolve from the book.
- * Call site: `RenderService.resolveVoices` (reads globals today) called
- * from the render loop before the first chapter. No service change in
+ * Call site: `RenderService.ensureFirstRenderCopy` (plus
+ * `RenderService.buildRenderGraph` for the engine graph) called from
+ * the render path before the first chapter. No service change in
  * VS1; this file never touches storage.
  *
  * Pure Kotlin, API 24 safe: kotlinx.serialization only, no java.time,
