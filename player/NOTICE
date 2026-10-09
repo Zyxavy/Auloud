@@ -6,7 +6,11 @@ Copyright (c) 2026 Zyxavy.
 The Player is licensed under the Apache License, Version 2.0 (see LICENSE
 in this directory; D-015 decided Apache-2.0 over MIT).
 
-This app ships no GPL code. Open-source libraries it uses are listed in
+The core release ships no GPL code. WARNING (D-126, interim until VC1):
+dev builds from the single app module link sherpa-onnx, whose native libs
+bundle static espeak-ng (GPL-3.0). Do not distribute APKs built from this
+tree until VC1 splits the core/full flavors with per-flavor notices and the
+GPL-3.0 source offer. Open-source libraries it uses are listed in
 THIRD_PARTY_LICENSES.md with their versions and licenses; the same list is
 shown in the app under Settings > Licenses.
 

@@ -227,7 +227,7 @@ Use it only with books you have the right to use, such as public-domain works or
 
 ## License
 
-Player: Apache-2.0. Scribe: AGPL-3.0-or-later. Voice models have their own licenses, see `docs/08-Licenses.md`.
+Player core: Apache-2.0. Scribe: AGPL-3.0-or-later. Voice models have their own licenses, see `docs/08-Licenses.md`. WARNING (D-126, interim until VC1): dev builds link sherpa-onnx with static espeak-ng (GPL-3.0) in the single app module, so do not distribute APKs until VC1 ships the GPL-3.0 full flavor with its source offer.
 
 ## Contributing
 

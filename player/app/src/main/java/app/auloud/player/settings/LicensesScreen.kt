@@ -89,8 +89,9 @@ fun LicensesScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "Auloud Player is open source. This app ships no GPL " +
-                    "code; the voice items below run on the PC (Scribe).",
+                text = "Auloud Player is open source. Dev builds also link sherpa/espeak-ng (GPL); " +
+                    "do not distribute this build until VC1 ships the licensed flavors (D-126). " +
+                    "The voice items below run on the PC (Scribe).",
                 style = MaterialTheme.typography.bodyMedium
             )
             for (entry in playerLicenses) {

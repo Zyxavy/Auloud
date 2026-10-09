@@ -4,7 +4,7 @@
 # Coil 2.6.0: minSdk 21, Apache-2.0/MIT.
 # Compose BOM 2024.09.00, coroutines 1.9.0, serialization 1.7.3: Apache-2.0.
 # androidx.test runner + junit-ext (WP4, user-approved): Apache-2.0, test-only.
-# sherpa-onnx 1.13.8 via JitPack (Slice 7 spike, user-approved):
+# sherpa-onnx 1.13.8 via JitPack (ships in :app main implementation, single APK until VC1 splits flavors):
 # AAR minSdk 21, POM Apache-2.0; native libs bundle static espeak-ng
 # (see Slice7.md research) (D-126: option A - full ships GPL-3.0; SHIP path owned by VC1).
 # jsoup 1.23.2 (Slice 9 IN4, user-approved per D-079): MIT (POM license
