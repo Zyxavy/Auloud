@@ -159,6 +159,8 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.turbine)
     testImplementation(libs.mockk)
+    // VC5: virtual time for the reader debounce tests (test-only).
+    testImplementation(libs.coroutines.test)
     androidTestImplementation(libs.test.runner)
     androidTestImplementation(libs.test.junit.ext)
 }

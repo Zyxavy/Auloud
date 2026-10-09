@@ -348,3 +348,105 @@ in `docs/ReleaseSigning.md` ("VC3 over-install procedure").
 
 No new dependency, no permission change, no bundle-format change.
 Not claimed: anything on the tablet.
+
+---
+
+## VC5 quality sweep (agent, 2026-10-09, JVM only, no device claimed)
+
+### Sentence agreement (quote-heavy probe)
+
+Method: 18 self-authored quote-heavy paragraphs (straight and curly
+dialogue with tags, multi-sentence quotes short and long, abbreviations
+and initials in dialogue, ellipsis dialogue, scare quotes,
+apostrophes, single-quote-mode dialogue, a multi-paragraph open-quote
+continuation, a stray inch-mark, question/exclamation dialogue, plus
+one narration-only control) ran through the real Scribe splitters
+(`text.sentences.split_paragraph` per paragraph plus
+`text.dialogue.split_chapter_dialogue` over the chapter) and through
+the real on-device chain (`SentenceSplitter.splitChapter` plus
+`DialogueTagger.tagChapter`) via a throwaway probe test (deleted after
+the run; no fixture committed, no copyrighted text used). Per-block
+sentence-text sequences, tagged (text, kind) sequences, and
+narration/dialogue runs (adjacent same-kind sentences merged, the IN6
+acceptance shape) were compared exactly. Both sides round-trip every
+paragraph byte for byte (asserted in both harnesses).
+
+Result:
+
+- Sentences: 17/18 blocks exact; 41 of 44 Scribe sentences identical
+  (Kotlin yields 46: the one differing block splits after closing
+  `?"`/`!"` before the dialogue tag where pysbd glues -
+  `"Are you coming?"` / `he asked.` / `"Yes!"` / `she cried.`).
+  Baseline-iterator behavior, erased downstream: the tagged texts on
+  that block agree exactly on both sides.
+- Tagged sentences: 17/18 blocks exact. The one diff is the known
+  accepted singles-glue compensation (multi-sentence single-quoted
+  region: 1 glued dialogue sentence on device vs 4 in Scribe,
+  recorded in the IN6 entry and D-087).
+- Runs: 18/18 blocks, 34/34 runs exact (100%).
+
+Verdict: numbers are good, Android rules left alone (no code change).
+The sentence-level `?"`-tag split is BreakIterator baseline behavior,
+not a ported rule, and dialogue splitting normalizes it away; adding a
+glue rule would fork from Scribe for no user-facing gain.
+
+Environment: Windows 11, OpenJDK 21 (JDK `BreakIterator`, not Android
+ICU). The tablet runs different BreakIterator tables; the device
+re-check stays owner-deferred with the soak (VC7).
+
+### Flake fix (UnrenderedReaderViewModelTest on virtual time)
+
+Root cause: the class used `Dispatchers.Unconfined` with real-time
+`delay` debounces plus a 2 s wall-clock poll loop (`awaitSaved`). Under
+full-suite load the settle or the initial save did not land inside the
+window (VC1 run: `jumpToChapter_loadsStartAndSaves`; VC3 run:
+`initialLoad_missingSavedSid_fallsBackToChapterStart` with the seeded
+sid 99 still stored at timeout). Both pass in isolation.
+
+Fix: the whole class now runs on `runTest` with a
+`StandardTestDispatcher` injected through the existing `dispatcher`
+constructor seam (production code untouched). Real-time waits are gone:
+initial loads and saves settle via `advanceUntilIdle`, and the debounce
+test proves last-report-wins explicitly (report, advance 25 of 50 ms,
+report again, advance past the debounce, assert sid 2 plus the saved
+row). The class runs in 0.2 s wall time with zero timing dependence.
+
+One test-only artifact added: `kotlinx-coroutines-test` 1.9.0
+(version-matched to the pinned coroutines 1.9.0, same Apache-2.0
+license; `testImplementation` only, never ships in either APK, so no
+minSdk, permission, or license-scan impact). The Slice 12 plan
+prescribes virtual time for this fix, which needs this artifact; no
+production dependency added. `ReaderViewModelTest` keeps the same
+real-time pattern but has no recorded flake, so it is left alone.
+
+Proof (from player/, all with --no-daemon):
+
+- `.\gradlew.bat :app:testCoreDebugUnitTest --tests
+  "app.auloud.player.reader.UnrenderedReaderViewModelTest"
+  --rerun-tasks` - 13/13 green.
+- `.\gradlew.bat :app:testCoreDebugUnitTest
+  :app:testFullDebugUnitTest --rerun-tasks` - three consecutive full
+  runs, each 2696 tests (1344 core + 1352 full), 0 failures, 0 errors.
+- `.\gradlew.bat :app:lintCoreDebug :app:lintFullDebug` - BUILD
+  SUCCESSFUL, 0 errors on both flavors (46 warnings + 2 info per
+  flavor, all pre-existing classes: pinned-version notices, which
+  need owner approval to change, plus prior Compose/service notes;
+  none in files this package touches except the generic version
+  notice on the new test artifact).
+
+### TODO/FIXME sweep and backlog
+
+- `TODO|FIXME` over the repo: no hits in Player code or tests. The
+  only matches are the Slice 12 plan prose naming this sweep and a
+  Scribe UI8 stub note (owner future work, not cheap). Nothing to fix.
+- Cheap backlog item (D-124 follow-up: complete-book bulk
+  delete-stale-audio routing): judged NOT small and left out. It needs
+  a delete path in `BookScreen` (which has no panel VM today), a
+  manifest reload to flip complete to partial mid-screen, safe
+  handling of the live playback/reader controllers holding deleted
+  audio, confirm dialogs on both the Listen and Read branches, and
+  tests. Honest deferral, no stub left behind.
+
+No new production dependency, no permission change, no bundle-format
+change. Not claimed: anything on the tablet (listening checks and the
+device sentence re-check stay owner-deferred).

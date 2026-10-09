@@ -3,13 +3,13 @@ package app.auloud.player.reader
 import android.net.Uri
 import app.auloud.player.data.ProgressDao
 import app.auloud.player.data.ProgressEntity
-import app.auloud.player.data.ProgressRepository
 import app.auloud.player.data.RoomProgressRepository
 import app.auloud.player.storage.BundleStorage
 import app.cash.turbine.test
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -17,12 +17,19 @@ import org.junit.Test
 
 /**
  * IN9: [UnrenderedReaderViewModel] against map-backed storage and the real
- * [RoomProgressRepository] over a fake DAO (plain JVM; the scroll settle
- * runs at 25 ms here).
+ * [RoomProgressRepository] over a fake DAO (plain JVM).
+ *
+ * VC5: every test runs on virtual time (`runTest` plus a
+ * [StandardTestDispatcher] injected as the ViewModel dispatcher). The old
+ * real-time version flaked under full-suite load (VC1 and VC3 runs: the
+ * debounce settle or the initial save did not land inside the wall-clock
+ * poll window); here delays and saves advance only when the test says so,
+ * so timing load cannot move the assertions.
  *
  * Covers the brief Verify: state, sid position save and restore (including
  * the missing-sid fallback), chapter list jumps and mode-free reading.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class UnrenderedReaderViewModelTest {
 
     private class FakeStorage(private val files: Map<String, String>) : BundleStorage {
@@ -73,6 +80,7 @@ class UnrenderedReaderViewModelTest {
     private fun viewModel(
         files: Map<String, String>,
         dao: FakeProgressDao,
+        dispatcher: CoroutineDispatcher,
         chapterCount: Int = 2,
         pathFor: (Int) -> String? = { "text/ch00${it + 1}.json" },
         debounceMs: Long = 25L
@@ -83,7 +91,7 @@ class UnrenderedReaderViewModelTest {
             textPathForChapter = pathFor,
             chapterCount = chapterCount,
             progress = RoomProgressRepository(dao),
-            dispatcher = Dispatchers.Unconfined,
+            dispatcher = dispatcher,
             debounceMs = debounceMs
         )
     }
@@ -98,32 +106,13 @@ class UnrenderedReaderViewModelTest {
         }
     }
 
-    private suspend fun awaitSaved(
-        repo: ProgressRepository,
-        chapter: Int,
-        sid: Int
-    ) {
-        var tries = 0
-        while (tries < 200) {
-            val loaded = repo.load("book-9").getOrThrow()
-            if (loaded?.chapterIndex == chapter && loaded?.sentenceSid == sid &&
-                loaded?.positionMs == 0L
-            ) {
-                return
-            }
-            delay(10L)
-            tries++
-        }
-        val loaded = repo.load("book-9").getOrThrow()
-        throw AssertionError("expected saved ($chapter, sid $sid), got: $loaded")
-    }
-
     @Test
-    fun initialLoad_noSavedProgress_opensChapterStartAndSaves() = runBlocking {
+    fun initialLoad_noSavedProgress_opensChapterStartAndSaves() = runTest {
         val dao = FakeProgressDao()
         val repo = RoomProgressRepository(dao)
-        val vm = viewModel(files(), dao)
+        val vm = viewModel(files(), dao, StandardTestDispatcher(testScheduler))
         vm.collectTest {
+            testScheduler.advanceUntilIdle()
             var state = awaitItem()
             while (state.chapter == null && state.textError == null) state = awaitItem()
             assertEquals(0, state.chapterIndex)
@@ -131,16 +120,20 @@ class UnrenderedReaderViewModelTest {
             assertEquals(1, state.currentSid)
             cancelAndIgnoreRemainingEvents()
         }
-        awaitSaved(repo, 0, 1)
+        val loaded = repo.load("book-9").getOrThrow()
+        assertEquals(0, loaded?.chapterIndex)
+        assertEquals(1, loaded?.sentenceSid)
+        assertEquals(0L, loaded?.positionMs)
     }
 
     @Test
-    fun initialLoad_savedChapterAndSid_restored() = runBlocking {
+    fun initialLoad_savedChapterAndSid_restored() = runTest {
         val dao = FakeProgressDao()
         val repo = RoomProgressRepository(dao)
         repo.save("book-9", 1, 0L, sentenceSid = 2).getOrThrow()
-        val vm = viewModel(files(), dao)
+        val vm = viewModel(files(), dao, StandardTestDispatcher(testScheduler))
         vm.collectTest {
+            testScheduler.advanceUntilIdle()
             var state = awaitItem()
             while (state.chapter == null && state.textError == null) state = awaitItem()
             assertEquals(1, state.chapterIndex)
@@ -151,28 +144,32 @@ class UnrenderedReaderViewModelTest {
     }
 
     @Test
-    fun initialLoad_missingSavedSid_fallsBackToChapterStart() = runBlocking {
+    fun initialLoad_missingSavedSid_fallsBackToChapterStart() = runTest {
         val dao = FakeProgressDao()
         val repo = RoomProgressRepository(dao)
         repo.save("book-9", 0, 0L, sentenceSid = 99).getOrThrow()
-        val vm = viewModel(files(), dao)
+        val vm = viewModel(files(), dao, StandardTestDispatcher(testScheduler))
         vm.collectTest {
+            testScheduler.advanceUntilIdle()
             var state = awaitItem()
             while (state.chapter == null && state.textError == null) state = awaitItem()
             assertEquals(0, state.chapterIndex)
             assertEquals(1, state.currentSid)
             cancelAndIgnoreRemainingEvents()
         }
-        awaitSaved(repo, 0, 1)
+        val loaded = repo.load("book-9").getOrThrow()
+        assertEquals(0, loaded?.chapterIndex)
+        assertEquals(1, loaded?.sentenceSid)
     }
 
     @Test
-    fun initialLoad_savedChapterOutOfRange_clampsToLast() = runBlocking {
+    fun initialLoad_savedChapterOutOfRange_clampsToLast() = runTest {
         val dao = FakeProgressDao()
         val repo = RoomProgressRepository(dao)
         repo.save("book-9", 7, 0L, sentenceSid = 2).getOrThrow()
-        val vm = viewModel(files(), dao)
+        val vm = viewModel(files(), dao, StandardTestDispatcher(testScheduler))
         vm.collectTest {
+            testScheduler.advanceUntilIdle()
             var state = awaitItem()
             while (state.chapter == null && state.textError == null) state = awaitItem()
             assertEquals(1, state.chapterIndex)
@@ -183,12 +180,13 @@ class UnrenderedReaderViewModelTest {
     }
 
     @Test
-    fun initialLoad_msRowWithoutSid_fallsBackToChapterStart() = runBlocking {
+    fun initialLoad_msRowWithoutSid_fallsBackToChapterStart() = runTest {
         val dao = FakeProgressDao()
         val repo = RoomProgressRepository(dao)
         repo.save("book-9", 0, 61_000L).getOrThrow()
-        val vm = viewModel(files(), dao)
+        val vm = viewModel(files(), dao, StandardTestDispatcher(testScheduler))
         vm.collectTest {
+            testScheduler.advanceUntilIdle()
             var state = awaitItem()
             while (state.chapter == null && state.textError == null) state = awaitItem()
             assertEquals(0, state.chapterIndex)
@@ -198,14 +196,16 @@ class UnrenderedReaderViewModelTest {
     }
 
     @Test
-    fun jumpToChapter_loadsStartAndSaves() = runBlocking {
+    fun jumpToChapter_loadsStartAndSaves() = runTest {
         val dao = FakeProgressDao()
         val repo = RoomProgressRepository(dao)
-        val vm = viewModel(files(), dao)
+        val vm = viewModel(files(), dao, StandardTestDispatcher(testScheduler))
         vm.collectTest {
+            testScheduler.advanceUntilIdle()
             var state = awaitItem()
             while (state.chapter == null) state = awaitItem()
             vm.jumpToChapter(1)
+            testScheduler.advanceUntilIdle()
             state = awaitItem()
             while (state.chapter?.title != "Ch 2") state = awaitItem()
             assertEquals(1, state.chapterIndex)
@@ -213,49 +213,59 @@ class UnrenderedReaderViewModelTest {
             assertEquals(FollowState.Following, state.follow)
             cancelAndIgnoreRemainingEvents()
         }
-        awaitSaved(repo, 1, 1)
+        val loaded = repo.load("book-9").getOrThrow()
+        assertEquals(1, loaded?.chapterIndex)
+        assertEquals(1, loaded?.sentenceSid)
     }
 
     @Test
-    fun jumpToChapter_outOfRange_noop() = runBlocking {
+    fun jumpToChapter_outOfRange_noop() = runTest {
         val dao = FakeProgressDao()
-        val vm = viewModel(files(), dao)
+        val vm = viewModel(files(), dao, StandardTestDispatcher(testScheduler))
         vm.collectTest {
+            testScheduler.advanceUntilIdle()
             var state = awaitItem()
             while (state.chapter == null) state = awaitItem()
             vm.jumpToChapter(5)
             vm.jumpToChapter(-1)
+            testScheduler.advanceUntilIdle()
             expectNoEvents()
             cancelAndIgnoreRemainingEvents()
         }
     }
 
     @Test
-    fun sentenceTap_movesAndSaves() = runBlocking {
+    fun sentenceTap_movesAndSaves() = runTest {
         val dao = FakeProgressDao()
         val repo = RoomProgressRepository(dao)
-        val vm = viewModel(files(), dao)
+        val vm = viewModel(files(), dao, StandardTestDispatcher(testScheduler))
         vm.collectTest {
+            testScheduler.advanceUntilIdle()
             var state = awaitItem()
             while (state.chapter == null) state = awaitItem()
             vm.onSentenceTap(2)
+            testScheduler.advanceUntilIdle()
             state = awaitItem()
             while (state.currentSid != 2) state = awaitItem()
             assertEquals(2, state.currentSid)
             cancelAndIgnoreRemainingEvents()
         }
-        awaitSaved(repo, 0, 2)
+        val loaded = repo.load("book-9").getOrThrow()
+        assertEquals(0, loaded?.chapterIndex)
+        assertEquals(2, loaded?.sentenceSid)
     }
 
     @Test
-    fun sentenceTap_unknownSid_ignored() = runBlocking {
+    fun sentenceTap_unknownSid_ignored() = runTest {
         val dao = FakeProgressDao()
         val repo = RoomProgressRepository(dao)
-        val vm = viewModel(files(), dao)
+        val vm = viewModel(files(), dao, StandardTestDispatcher(testScheduler))
         vm.collectTest {
+            testScheduler.advanceUntilIdle()
             var state = awaitItem()
             while (state.chapter == null) state = awaitItem()
             vm.onSentenceTap(99)
+            testScheduler.advanceUntilIdle()
             expectNoEvents()
             cancelAndIgnoreRemainingEvents()
         }
@@ -263,42 +273,57 @@ class UnrenderedReaderViewModelTest {
     }
 
     @Test
-    fun topVisible_settlesLastReportAndSaves() = runBlocking {
+    fun topVisible_settlesLastReportAndSaves() = runTest {
         val dao = FakeProgressDao()
         val repo = RoomProgressRepository(dao)
-        val vm = viewModel(files(), dao, debounceMs = 50L)
+        val vm = viewModel(
+            files(), dao, StandardTestDispatcher(testScheduler), debounceMs = 50L
+        )
         vm.collectTest {
+            testScheduler.advanceUntilIdle()
             var state = awaitItem()
             while (state.chapter == null) state = awaitItem()
             vm.onTopVisibleSid(1)
+            // Half the debounce: the first report is still pending, so the
+            // second report cancels it and only the last one settles.
+            testScheduler.advanceTimeBy(25)
             vm.onTopVisibleSid(2)
+            testScheduler.advanceTimeBy(100)
             state = awaitItem()
             while (state.currentSid != 2) state = awaitItem()
             assertEquals(2, state.currentSid)
             cancelAndIgnoreRemainingEvents()
         }
-        awaitSaved(repo, 0, 2)
+        testScheduler.advanceUntilIdle()
+        val loaded = repo.load("book-9").getOrThrow()
+        assertEquals(0, loaded?.chapterIndex)
+        assertEquals(2, loaded?.sentenceSid)
     }
 
     @Test
-    fun topVisible_unknownSid_ignored() = runBlocking {
+    fun topVisible_unknownSid_ignored() = runTest {
         val dao = FakeProgressDao()
-        val vm = viewModel(files(), dao, debounceMs = 50L)
+        val vm = viewModel(
+            files(), dao, StandardTestDispatcher(testScheduler), debounceMs = 50L
+        )
         vm.collectTest {
+            testScheduler.advanceUntilIdle()
             var state = awaitItem()
             while (state.chapter == null) state = awaitItem()
             vm.onTopVisibleSid(99)
-            delay(150L)
+            // Past the debounce: the settle ran and ignored the sid.
+            testScheduler.advanceUntilIdle()
             expectNoEvents()
             cancelAndIgnoreRemainingEvents()
         }
     }
 
     @Test
-    fun loadFailure_missingFile_setsMissingError() = runBlocking {
+    fun loadFailure_missingFile_setsMissingError() = runTest {
         val dao = FakeProgressDao()
-        val vm = viewModel(emptyMap(), dao)
+        val vm = viewModel(emptyMap(), dao, StandardTestDispatcher(testScheduler))
         vm.collectTest {
+            testScheduler.advanceUntilIdle()
             var state = awaitItem()
             while (state.textError == null) state = awaitItem()
             assertNull(state.chapter)
@@ -310,10 +335,11 @@ class UnrenderedReaderViewModelTest {
     }
 
     @Test
-    fun scrollAndBackToNow_flipFollow() = runBlocking {
+    fun scrollAndBackToNow_flipFollow() = runTest {
         val dao = FakeProgressDao()
-        val vm = viewModel(files(), dao)
+        val vm = viewModel(files(), dao, StandardTestDispatcher(testScheduler))
         vm.collectTest {
+            testScheduler.advanceUntilIdle()
             var state = awaitItem()
             while (state.chapter == null) state = awaitItem()
             assertEquals(FollowState.Following, state.follow)

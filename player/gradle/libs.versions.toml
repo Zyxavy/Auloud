@@ -4,6 +4,10 @@
 # Coil 2.6.0: minSdk 21, Apache-2.0/MIT.
 # Compose BOM 2024.09.00, coroutines 1.9.0, serialization 1.7.3: Apache-2.0.
 # androidx.test runner + junit-ext (WP4, user-approved): Apache-2.0, test-only.
+# kotlinx-coroutines-test (VC5, test-only): same Apache-2.0 license and
+# 1.9.0 pin as the coroutines stack; never ships in either APK, so no
+# minSdk or license-scan impact. Gives UnrenderedReaderViewModelTest
+# virtual time (StandardTestDispatcher plus runTest) for the debounce.
 # sherpa-onnx 1.13.8 via JitPack (VC1: full flavor only via
 # fullImplementation, so core builds with zero sherpa/onnxruntime/espeak
 # files; core is the main Apache-2.0 release, full ships GPL-3.0 per D-126):
@@ -60,6 +64,7 @@ room-compiler = { group = "androidx.room", name = "room-compiler", version.ref =
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
