@@ -348,6 +348,99 @@ object SpoolRenderer {
     }
 
     /**
+     * VS3 (D-114): spools one chapter with narrowed voices (used roles
+     * only, via [RenderVoices.resolveForRoles]).
+     *
+     * The chapter roles must be covered by [voices.bindings]; a sentence
+     * whose speaker has no binding fails naming chapter plus sid (stale
+     * at worst, never silent mis-rendering). Single-role chapters reuse
+     * the both-role pass shape with the present binding standing in for
+     * the unused role (its sid list is empty, so no synthesis runs and
+     * no engine release fires); the stored fingerprint stays narrowed,
+     * so old both-role spool invalidates and new narrowed spool reuses.
+     */
+    suspend fun renderChapterNarrowed(
+        chapterPos: Int,
+        chapterNumber: Int,
+        chapter: ChapterText,
+        voices: NarrowedResolvedVoices,
+        spoolDir: String,
+        io: SpoolIo,
+        shouldCancel: () -> Boolean = { false },
+        onReleasePass: (TtsEngine) -> Unit = {},
+        onSentenceDone: (Int) -> Unit = {}
+    ): ChapterSpoolOutcome {
+        for (sentence in chapter.sentencesInOrder()) {
+            if (sentence.speaker != SPEAKER_NARRATOR && sentence.speaker != SPEAKER_DIALOGUE) {
+                return ChapterSpoolOutcome.Failed(
+                    chapterPos = chapterPos,
+                    chapterNumber = chapterNumber,
+                    sid = sentence.sid,
+                    reason = "chapter $chapterNumber sentence ${sentence.sid} " +
+                        "has speaker \"${sentence.speaker}\" " +
+                        "(need narrator or dialogue)"
+                )
+            }
+            if (voices.bindings[sentence.speaker] == null) {
+                return ChapterSpoolOutcome.Failed(
+                    chapterPos = chapterPos,
+                    chapterNumber = chapterNumber,
+                    sid = sentence.sid,
+                    reason = "chapter $chapterNumber sentence ${sentence.sid} " +
+                        "needs voice role \"${sentence.speaker}\" (not resolved)"
+                )
+            }
+        }
+        val narrator = voices.bindings[SPEAKER_NARRATOR]
+        val dialogue = voices.bindings[SPEAKER_DIALOGUE]
+        val resolved = when {
+            narrator != null && dialogue != null ->
+                ResolvedRenderVoices(narrator, dialogue, voices.fingerprint)
+            narrator != null ->
+                ResolvedRenderVoices(
+                    narrator,
+                    RoleBinding(
+                        role = TtsRole.Dialogue,
+                        engine = narrator.engine,
+                        voice = narrator.voice,
+                        speed = narrator.speed
+                    ),
+                    voices.fingerprint
+                )
+            dialogue != null ->
+                ResolvedRenderVoices(
+                    RoleBinding(
+                        role = TtsRole.Narrator,
+                        engine = dialogue.engine,
+                        voice = dialogue.voice,
+                        speed = dialogue.speed
+                    ),
+                    dialogue,
+                    voices.fingerprint
+                )
+            else ->
+                return ChapterSpoolOutcome.Failed(
+                    chapterPos = chapterPos,
+                    chapterNumber = chapterNumber,
+                    sid = 0,
+                    reason = "chapter $chapterNumber: no voice roles resolved " +
+                        "(need narrator and/or dialogue)"
+                )
+        }
+        return renderChapter(
+            chapterPos = chapterPos,
+            chapterNumber = chapterNumber,
+            chapter = chapter,
+            voices = resolved,
+            spoolDir = spoolDir,
+            io = io,
+            shouldCancel = shouldCancel,
+            onReleasePass = onReleasePass,
+            onSentenceDone = onSentenceDone
+        )
+    }
+
+    /**
      * Spools every pending plan chapter of a RUNNING [job] in order.
      *
      * Chapter text arrives through [loadChapter] (keyed by 1-based manifest
