@@ -120,4 +120,4 @@ Bundling espeak-ng (GPL-3.0) or a GPL Piper build into the app means the app is 
 - [x] Voice table complete, with per-voice licenses (section 4 palette: 9 Kokoro-82M voices, all Apache-2.0, CP8)
 - [x] In-app licenses screen (Settings entry rendering the static list; legibility on the Tab E left for the user)
 - [x] README states the copyright/personal-use position (verbatim paragraph, CP10)
-- [ ] Contribution policy (for example DCO sign-off or a CLA) decided
+- [x] Contribution policy decided: DCO sign-off (see D-127)
