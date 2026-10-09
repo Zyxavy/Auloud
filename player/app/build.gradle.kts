@@ -119,7 +119,7 @@ dependencies {
     coreLibraryDesugaring(libs.desugar.nio)
     // PW7b (Slice 7 S7B approval covers this artifact): sherpa-onnx JitPack
     // AAR for the Piper tier (minSdk 21, Apache-2.0 POM). Native libs
-    // statically link espeak-ng — SHIP decision stays open (D-066).
+    // statically link espeak-ng (D-126: option A - full ships GPL-3.0; SHIP path owned by VC1).
     implementation(libs.sherpa.onnx)
     ksp(libs.room.compiler)
 
