@@ -181,11 +181,17 @@ Embed the EPUB/PDF in the app so the device runs its own TTS (Kokoro or Piper).
 
 ## v3
 
-Support later Android versions.
+Scribe desktop port (D-133): port Scribe to Rust with a Tauri v2 app for Windows 11 and Linux. The Python Scribe stays canonical until parity; the port honors `spec/` unchanged.
+
+## v4
+
+Android platform work (D-133), placeholder until v3 ships:
 
 - [ ] Update `targetSdk` and handle newer background-service and notification permission rules
 - [ ] Test on current Android versions and a range of devices
 - [ ] Revisit `minSdk` and the tablet-only assumptions
+- [ ] Word-level highlight callbacks (needs API 26+)
+- [ ] Scribe on Android (Tauri mobile targets)
 
 ## Risks to watch per slice
 

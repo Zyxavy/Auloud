@@ -157,4 +157,5 @@ If the soak exposes a bug, fix and re-run only the affected parts; keep the soak
 
 - **Slice 13 (streaming):** if SysLong shows 1.3x or more, plan press-to-listen with live highlight (v2.1); otherwise record it as not feasible on the tablet and keep background rendering
 - v1.1 backlog items (LLM attribution, real EPUB rendering, Page view, Wi-Fi transfer, bookmarks, themes), per-role audio caching, per-character device voices, a "device copy" of Scribe books
-- **v3:** newer Android support (`targetSdk`, `minSdk` revisit, notification and foreground-service rules, Storage Access Framework changes)
+- **v3:** Scribe Rust/Tauri v2 desktop port for Windows 11 and Linux (D-133)
+- **v4:** newer Android support (`targetSdk`, `minSdk` revisit, notification and foreground-service rules, Storage Access Framework changes, word-level callbacks, Scribe on Android)

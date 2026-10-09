@@ -34,7 +34,7 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 
 **Stays the same:** the bundle format and read-along, offline operation, no network permission, Android 7.1.1 as the base target.
 
-**Non-goals:** cloud TTS, voice cloning, per-character voices on the device (the device is narrator + dialogue only; the PC keeps per-character voices), newer-Android support (that is v3), iOS, on-device PDF extraction in the first v2 releases.
+**Non-goals:** cloud TTS, voice cloning, per-character voices on the device (the device is narrator + dialogue only; the PC keeps per-character voices), newer-Android support (that is v4), iOS, on-device PDF extraction in the first v2 releases.
 
 ## 3. Key decisions (log in `DECISIONS.md`)
 
@@ -143,4 +143,4 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 
 ## 8. Backlog beyond v2
 
-Per-character voices on the device (the data is already in Scribe bundles), an optional "collapse to two voices" setting in Scribe, v1.1 items still open (LLM attribution via Ollama, real EPUB rendering, Page view, Wi-Fi transfer, bookmarks, themes), on-device PDF extraction, optional model download, voice variety work from D-036, then v3 (newer Android: `targetSdk`, `minSdk` revisit, notification and foreground-service rules, Storage Access Framework changes).
+Per-character voices on the device (the data is already in Scribe bundles), an optional "collapse to two voices" setting in Scribe, v1.1 items still open (LLM attribution via Ollama, real EPUB rendering, Page view, Wi-Fi transfer, bookmarks, themes), on-device PDF extraction, optional model download, voice variety work from D-036, then v3 (Scribe Rust/Tauri v2 desktop port for Windows 11 and Linux, D-133), then v4 (newer Android: `targetSdk`, `minSdk` revisit, notification and foreground-service rules, Storage Access Framework changes, word-level callbacks, Scribe on Android).

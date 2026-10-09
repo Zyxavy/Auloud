@@ -96,7 +96,8 @@ A full novel (10+ hours) is converted on the PC, copied to the tablet, and read 
 ## 13. Later versions
 
 - **v2:** embed the EPUB/PDF in the app so the device runs its own TTS (Kokoro or Piper).
-- **v3:** support later Android versions.
+- **v3:** Scribe ported to Rust with a Tauri v2 desktop app for Windows 11 and Linux (D-133).
+- **v4:** support later Android versions.
 
 ## 14. v2 addendum (on-device rendering, Player 2.0.0, in development)
 

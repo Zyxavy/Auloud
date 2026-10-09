@@ -1126,3 +1126,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Owner ordered the measurement waived; the conservative behavior (refuse nonzero) is already the safe release posture.
 - Alternatives considered: keeping the gate open into release (rejected: it would block VC8 on a waived measurement); amending the spec pre-emptively for nonzero (rejected: no evidence needs it).
 - Consequences / revisit when: VC4 gate box closable; `docs/constants.md` updated. A future measured stable nonzero reopens this via the spec-first amendment path (unchanged).
+
+### D-133: v3 is the Scribe desktop port (Rust/Tauri v2, Windows 11 + Linux); all Android platform work moves to v4
+- Date: 2026-10-10
+- Status: Accepted (owner-ordered)
+- Decision: v3 is redefined as porting Scribe (Python CLI + library, AGPL-3.0-or-later) to Rust with a Tauri v2 desktop app for Windows 11 and Linux. All Android platform work moves to v4: Player newer-Android support (`targetSdk`/`minSdk` revisit, notification and foreground-service rules, Storage Access Framework changes), word-level highlight callbacks (needs API 26+), and Scribe-on-Android (Tauri mobile targets). This supersedes the old v3 definition ("newer Android") everywhere it was forward-looking; historical entries keep their wording.
+- Why: Owner order. The Tab E (Android 7.1.1) story is complete in v2; the next platform investment goes to the PC tool first.
+- Alternatives considered: keeping Player newer-Android in v3 alongside the port (rejected by owner: all Android to v4); Scribe-on-Android in v3 via Tauri mobile (rejected: desktop parity first).
+- Consequences / revisit when: roadmap docs (`04-Roadmap.md`, `09-V2Roadmap.md`, `01-PRD.md`, `02-ArchitectureV1.md`, Slice 12/13 plans) rewired to the new v3/v4 split. The Python Scribe stays canonical (and shippable) until the Rust port reaches parity; the port must read and write the same bundle format (`spec/` is the contract, unchanged). License: a Rust port stays AGPL-3.0-or-later; Tauri (MIT/Apache-2.0) is compatible, to confirm with versions pinned at v3 plan time, plus an `08-Licenses.md` pass then. A v3 plan gets written when the port starts; v4 is a placeholder section until then.
