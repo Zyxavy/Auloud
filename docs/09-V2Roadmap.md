@@ -9,7 +9,7 @@ Builds on v1.0.0 (PC renders the audiobook, the tablet plays it). Source for the
 - [ ] Rebuild the signed APK from `release/v1.0` (the merge added Player spec-1.2 handling after your last APK) and re-smoke it before calling the binary final
 - [ ] Back up the signing key from `D:\keys` to a second location
 - [ ] Add the `slice-6` tag; run the 3-browser runbook for the web UI
-- [ ] Decide the contribution policy (DCO or CLA), the one open box in `08-Licenses.md`
+- [x] Decide the contribution policy (DCO or CLA), the one open box in `08-Licenses.md` (decided: DCO sign-off, D-127)
 - [ ] Fix the `07-TestPlan.md` filename case drift
 
 ## 1. Can Auloud support Piper, Kokoro and others, and let the user switch?
@@ -92,7 +92,10 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 - Engine switcher with a per-device recommendation from a built-in benchmark; automatic voice mapping when switching engines (by gender and palette); re-render affected chapters
 - **Done when:** switching a book from one engine to another and re-rendering a chapter works without editing files by hand
 
-**Slice 12: v2.0 complete pass (M).**
+**Slice 12: v2.0 complete pass (M).** *Status: in progress (VC0-VC5 agent work done, VC6 docs this change; VC7 soak plus VC8 release are owner work; no release-criteria box ticked yet).*
+
+- Agent-complete: VC0 gates logged (D-126 option A, D-127 DCO) with SysLong plus spike deletion plus owed tracker admin still owner-open; VC1 two licensed flavors with passing `licenseScan`; VC2 version `2.0.0` with ARM-only signed-flavor builds and passing `releaseManifestCheck`; VC3 JVM compatibility matrix (device over-install still owner-open); VC4 constants doc (all provisionals stand, offset gate open); VC5 sentence agreement 34/34 runs plus the reader debounce flake fixed; VC6 README v2 plus `07-TestPlan.md` plus PRD addendum.
+- Owner-open: VC2 smoke checklist, VC3 over-install, SysLong bench, VC7 soak, VC8 release. Tracked in `07-TestPlan.md` sections 2-3; procedures in `docs/ReleaseSigning.md` and `docs/plans/Slice12.md`.
 
 - On-device soak: a full novel imported, rendered on the tablet, and listened to over days; battery and thermal checks during rendering
 - License decision implemented (GPL Player, or the adapter/plugin approach) with `NOTICE`, in-app licenses and `08-Licenses.md` updated (sherpa-onnx, onnxruntime, models, espeak-ng); README and docs updated; tag `v2.0.0`

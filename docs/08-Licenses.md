@@ -167,7 +167,7 @@ screen lists what its build ships.
 
 - [x] `LICENSE` file in each component (Player: `player/LICENSE` Apache-2.0; Scribe: `scribe/LICENSE` AGPL-3.0-or-later; root `LICENSE` MIT is the repo default) - decided D-015/D-050 on release/v1.0
 - [x] `NOTICE` and `THIRD_PARTY_LICENSES.md` generated (`player/NOTICE` + `player/THIRD_PARTY_LICENSES.md`, CP8)
-- [ ] All "Verified" boxes above ticked (Player section 2 + 2b v2 engine rows + voices done; Scribe section 3 rows for bs4/lxml, pysbd, yaml/numpy/typer/rich/pytest, soundfile, pyrubberband, ffmpeg and section 4 Kokoro package/Piper still open; section 4 sideloaded-packs row open by design, it is per-pack)
+- [ ] All "Verified" boxes above ticked (Player section 2 + 2b v2 engine rows + voices done; Scribe section 3 rows for bs4/lxml, pysbd, yaml/numpy/typer/rich/pytest, soundfile, pyrubberband, ffmpeg and section 4 Kokoro package/Piper still open; section 4 sideloaded-packs row open by design, it is per-pack; VC6 docs pass 2026-10-09 is prose only and changes no box; owner review of the NOTICE.full paragraphs plus the SOURCE_OFFER placeholders before any `full` distribution still open per D-128)
 - [x] Voice table complete, with per-voice licenses (section 4 palette: 9 Kokoro-82M voices, all Apache-2.0, CP8; 3 Piper proof voices with own licenses, SW1/SW4; sideload rule recorded)
 - [x] In-app licenses screen (Settings entry rendering the static list; legibility on the Tab E left for the user)
 - [x] Per-flavor license layout (VC1, D-126 option A): player/LICENSE (Apache-2.0 core) + player/LICENSE.full (GPL note); per-flavor NOTICE + THIRD_PARTY_LICENSES; full-only GPL text + source offer assets in the APK

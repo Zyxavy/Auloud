@@ -450,3 +450,26 @@ Proof (from player/, all with --no-daemon):
 No new production dependency, no permission change, no bundle-format
 change. Not claimed: anything on the tablet (listening checks and the
 device sentence re-check stay owner-deferred).
+
+---
+
+## VC6 docs pass (agent, 2026-10-09, docs only, no device claimed)
+
+Prose only: no code, no bundle-format, no dependency change. README
+gains the v2 on-device section (EPUB import to playing rendered book,
+requirements, core/full flavors plus model packs, offline System TTS
+voice prep, limitations, OWNER-RUN walkthrough with unchecked boxes);
+new `docs/07-TestPlan.md` holds the v2 test plan (suites, owner device
+rounds, VC8 gate) so the `07-TestPlan.md` pointers in
+`docs/plans/Slice12.md` and `docs/ReleaseSigning.md` resolve; short v2
+addendum appended to `docs/01-PRD.md`; Slice 12 status plus the decided
+DCO box in `docs/09-V2Roadmap.md`; v2 status notes in `README.md` and
+`docs/04-Roadmap.md`; the open `08-Licenses.md` box annotated, none
+ticked. No new DECISIONS entry (no new product decision). Link check:
+every path named above exists at head (`docs/07-TestPlan.md`,
+`docs/ReleaseSigning.md`, `docs/constants.md`, `docs/test-log.md`,
+`docs/plans/Slice12.md`, `docs/08-Licenses.md`,
+`docs/09-V2Roadmap.md`, `docs/04-Roadmap.md`, `docs/01-PRD.md`,
+`docs/archive/v1/07-Testplan.md`). The README walkthrough is written
+for a fresh install but unrun: do not claim it until the owner ticks
+its boxes on the Tab E.
