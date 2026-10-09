@@ -560,3 +560,27 @@ flavors. Tags: `slice-12`, `v2.0.0`. Not pushed (push needs owner
 permission); until `dev/v2` plus tags are pushed, the SOURCE_OFFER
 URL (tag v2.0.0) does not resolve. GitHub tracker admin still owed
 (tools down).
+
+---
+
+## Slice 13 ST0: live-`speak()` gate tooling ready (agent, 2026-10-10)
+
+Agent half done; gate numbers are owner device work (not claimed here).
+
+- New pure-Kotlin `StreamGapStats` (`player/app/.../tts/`, thresholds
+  median 150 ms / p95 400 ms / max 1 s per Slice13 decision 1): 10/10
+  JVM tests green (`:app:testCoreDebugUnitTest --tests
+  "...StreamGapStatsTest"`, BUILD SUCCESSFUL).
+- Spike app (throwaway, `:spike:assembleDebug` green) gains four live
+  buttons using `speak()` to audio out, not `synthesizeToFile`:
+  Live20 (20 sentences at 1.0x + 1.5x, start latency + gap verdict),
+  LiveSw (narrator/dialogue alternation on one instance, overall +
+  switch-only gaps), Live2x (same alternation across two instances,
+  sequential hand-off), LiveSil (silent-utterance accuracy at
+  100/250/1000 ms).
+- Owner run sheet (cool tablet, ReadEra engine + other engine if any):
+  tap Live20, LiveSw, Live2x, LiveSil with the screen on, Export, paste
+  `spike-results.txt` back; then Live20 once more with the screen off
+  and report whether audio continued (a kill is itself gate data for
+  ST4). Still owed: stop/restart latency and the 30-minute screen-off
+  run (ST0 list), recorded when the numbers land.
