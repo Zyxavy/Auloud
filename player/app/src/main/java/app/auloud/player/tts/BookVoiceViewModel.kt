@@ -9,6 +9,7 @@ import app.auloud.player.render.RenderJob
 import app.auloud.player.render.RenderJobState
 import app.auloud.player.render.RenderStaleness
 import app.auloud.player.render.RenderStateStore
+import app.auloud.player.render.RerenderGuards
 import app.auloud.player.render.RerenderMode
 import app.auloud.player.render.RerenderPlanner
 import app.auloud.player.render.StaleChapterInput
@@ -62,6 +63,17 @@ import kotlinx.coroutines.launch
  *   too, because the book voices are PC voice ids the device engines do
  *   not offer, so a preview would only fail confusingly.
  *
+ * VS6: apply-time guards ([RerenderGuards]) before any persist or start:
+ * edited voices must be offered by the live [registry] (missing engine,
+ * voice or model pack refuses naming the piece plus the voice-screen
+ * fix path), and a NOW start with stale audio must fit the swap
+ * ([freeBytes] vs old plus new per the VS2 math; LATER skips the
+ * storage check and defers it to the service). Every refusal sets
+ * [UiState.error] and persists nothing, leaving manifest plus audio
+ * byte-identical. A voice change on an unrendered book (no stale
+ * audio) persists with no start and no crash; the first render later
+ * uses the saved voices.
+ *
  * Plain class like [VoiceAuditionViewModel]: owns its coroutines, call
  * [clear] when the screen is disposed. Everything Android (service
  * intents, rescan) arrives as callbacks, so states plus the apply flow
@@ -83,6 +95,7 @@ class BookVoiceViewModel(
         { _, _ -> },
     private val onPauseRender: () -> Unit = {},
     private val onBookChanged: () -> Unit = {},
+    private val freeBytes: () -> Long = { Long.MAX_VALUE },
     dispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
 
@@ -353,6 +366,10 @@ class BookVoiceViewModel(
      * Computes the impact dialog content under the edited voices and,
      * when a render job is active, pauses it plus recomputes the plan
      * (VS3 ask state) so the dialog shows added minus removed chapters.
+     *
+     * VS6: edited voices must be offered by the live registry first;
+     * a missing engine, voice or model pack refuses here (naming the
+     * piece plus the fix path) with no pause and no dialog.
      */
     fun requestApply() {
         val base = original ?: return
@@ -363,6 +380,10 @@ class BookVoiceViewModel(
         }
         if (next == base) {
             _state.value = _state.value.copy(error = "No voice changes to apply.")
+            return
+        }
+        RerenderGuards.checkVoicesAvailable(next, registry).onFailure { e ->
+            _state.value = _state.value.copy(error = e.message)
             return
         }
         val summary = RenderStaleness.summarizeChapters(inputs, next, versionOf)
@@ -419,6 +440,13 @@ class BookVoiceViewModel(
      * re-render reading-position forward first; LATER only persists (the
      * mixed-voice state stays legal per D-119, VS5 badges show it); KEEP
      * discards the edits and keeps the old voices plus audio untouched.
+     *
+     * VS6: voices re-validate before any persist (an engine removed
+     * between dialog and confirm refuses with the fix path, manifest
+     * untouched); NOW with stale audio pre-checks the swap storage
+     * (needed vs free numbers, manifest untouched on refusal). LATER
+     * skips the storage check (the service re-checks at render time).
+     * Unrendered books (no stale audio) persist with no start.
      */
     fun confirmApply(choice: ApplyChoice) {
         val base = original ?: return
@@ -436,6 +464,22 @@ class BookVoiceViewModel(
             )
             syncEdits(clearImpact = false)
             return
+        }
+        RerenderGuards.checkVoicesAvailable(next, registry).onFailure { e ->
+            _state.value = _state.value.copy(error = e.message)
+            return
+        }
+        val preSummary = RenderStaleness.summarizeChapters(inputs, next, versionOf)
+        if (choice == ApplyChoice.NOW && preSummary.stale > 0 && preSummary.staleAudioMs > 0) {
+            val free = try {
+                freeBytes()
+            } catch (_: Exception) {
+                Long.MAX_VALUE
+            }
+            RerenderGuards.checkSwapStorage(free, preSummary.staleAudioMs).onFailure { e ->
+                _state.value = _state.value.copy(error = e.message)
+                return
+            }
         }
         val raw = try {
             storage.readText(join(bundleDir, MANIFEST_FILE))

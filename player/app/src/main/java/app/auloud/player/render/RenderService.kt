@@ -439,8 +439,28 @@ class RenderService : Service() {
             Log.w(TAG, "recoverBook failed: ${e.message}")
         }
         ensureFirstRenderCopy(bundleDir)
+        // VS6: the re-render plan needs the live registry for the
+        // missing-voice guard, so the graph builds before planning on
+        // the re-render path (first-render plans unrendered chapters
+        // and needs no voice guard). Playback is unaffected: it never
+        // reads the graph.
+        var rerenderGraph: RenderGraph? = null
+        if (rerenderMode != null) {
+            rerenderGraph = buildRenderGraph()
+            if (rerenderGraph == null) {
+                notifyError(
+                    "Re-render unavailable",
+                    "voice setup failed (choose narrator and dialogue voices)" +
+                        RerenderGuards.VOICE_FIX_SUFFIX
+                )
+                stopSelf()
+                return
+            }
+        }
         var job = if (rerenderMode != null) {
-            loadOrPlanRerenderJob(bookId, bundleDir, readingChapter, rerenderMode) ?: run {
+            loadOrPlanRerenderJob(
+                bookId, bundleDir, readingChapter, rerenderMode, rerenderGraph?.registry
+            ) ?: run {
                 stopSelf()
                 return
             }
@@ -463,8 +483,12 @@ class RenderService : Service() {
             return
         }
         acquireWakeLock()
-        val renderGraph = buildRenderGraph() ?: run {
-            failJob(job, bundleDir, "voice setup failed (choose narrator and dialogue voices)")
+        val renderGraph = rerenderGraph ?: buildRenderGraph() ?: run {
+            failJob(
+                job, bundleDir,
+                "voice setup failed (choose narrator and dialogue voices)" +
+                    RerenderGuards.VOICE_FIX_SUFFIX
+            )
             return
         }
         bookGainsLinear = readManifestGains(bundleDir)
@@ -934,12 +958,23 @@ class RenderService : Service() {
      * via [RerenderPlanner] from VS2 staleness (OUTDATED never auto,
      * NOT_RENDERED stays on the first-render path). Null when there is
      * nothing stale to do.
+     *
+     * VS6: fresh plans are guarded before any job is created
+     * ([RerenderGuards]): read-only books refuse with the plain model
+     * message, missing engine or voice refuses naming the missing piece
+     * plus the voice-screen fix path (only when [registry] is supplied),
+     * and low swap storage refuses with needed vs free numbers. Every
+     * refusal notifies and creates no job, leaving audio plus manifest
+     * untouched. Playback never consults these guards (it keys on audio
+     * presence only), so existing audio keeps playing while planning
+     * refuses.
      */
     private suspend fun loadOrPlanRerenderJob(
         bookId: String,
         bundleDir: String,
         readingChapter: Int,
-        modeName: String
+        modeName: String,
+        registry: EngineRegistry? = null
     ): RenderJob? {
         val stored = RenderStateStore.load(bundleDir, fileIo).getOrElse { e ->
             Log.w(TAG, "job load failed: ${e.message}")
@@ -1022,6 +1057,16 @@ class RenderService : Service() {
             Log.w(TAG, "book voices unreadable: ${e.message}")
             return null
         }
+        if (registry != null) {
+            val voiceCheck = RerenderGuards.checkVoicesAvailable(bookVoices, registry)
+            if (voiceCheck.isFailure) {
+                val message = voiceCheck.exceptionOrNull()?.message
+                    ?: "voice setup failed"
+                Log.w(TAG, "rerender voices unavailable: $message")
+                notifyError("Re-render unavailable", message)
+                return null
+            }
+        }
         val sorted = manifest.chapters.sortedBy { it.index }
         val hasDialogue = HashMap<Int, Boolean>()
         for ((pos, entry) in sorted.withIndex()) {
@@ -1058,6 +1103,31 @@ class RenderService : Service() {
             notifyDone("Nothing to re-render", "Every rendered chapter already matches the voices")
             return null
         }
+        var staleAudioMs = 0L
+        for (pos in plan.orderedChapters) {
+            val entry = sorted.getOrNull(pos) ?: continue
+            val known = entry.durationMs
+            staleAudioMs += if (known != null && known > 0) {
+                known
+            } else {
+                RenderEstimates.DEFAULT_CHAPTER_AUDIO_MS
+            }
+        }
+        if (staleAudioMs > 0) {
+            val free = try {
+                AndroidRenderSignals(this, bundleDir).freeBytes()
+            } catch (_: Exception) {
+                Long.MAX_VALUE
+            }
+            val storageCheck = RerenderGuards.checkSwapStorage(free, staleAudioMs)
+            if (storageCheck.isFailure) {
+                val message = storageCheck.exceptionOrNull()?.message
+                    ?: "Not enough storage for re-render swap"
+                Log.w(TAG, "rerender storage refused: $message")
+                notifyError("Re-render unavailable", message)
+                return null
+            }
+        }
         val now = System.currentTimeMillis()
         val fresh = RenderJob(
             bookId = bookId,
@@ -1089,6 +1159,12 @@ class RenderService : Service() {
      * after a successful swap via [RerenderProgressAfterSwap]). Cancel or
      * failure skips the conversion entirely and leaves old audio plus
      * the old fingerprint untouched and the chapter stays Stale.
+     *
+     * VS6: re-render chapters re-check voices plus swap storage before
+     * spooling (a byte of new audio): a missing engine, voice or model
+     * pack fails the job with the missing piece plus the voice-screen
+     * fix path, and low storage fails it with needed vs free numbers.
+     * Both leave the old audio plus the manifest untouched.
      */
     private suspend fun renderOneChapterV2(
         bookId: String,
@@ -1122,6 +1198,29 @@ class RenderService : Service() {
         val number = entry.index
         val textRel = entry.text
         val isRerender = entry.durationMs != null && entry.audio.isNotBlank()
+        if (isRerender) {
+            val voiceCheck = RerenderGuards.checkVoicesAvailable(bookVoices, graph.registry)
+            if (voiceCheck.isFailure) {
+                val message = voiceCheck.exceptionOrNull()?.message
+                    ?: "voice setup failed"
+                failJob(job, bundleDir, "chapter $number: $message")
+                return ChapterStepV2.Stop
+            }
+            val chapterAudioMs = entry.durationMs?.takeIf { it > 0 }
+                ?: RenderEstimates.DEFAULT_CHAPTER_AUDIO_MS
+            val free = try {
+                AndroidRenderSignals(this, bundleDir).freeBytes()
+            } catch (_: Exception) {
+                Long.MAX_VALUE
+            }
+            val storageCheck = RerenderGuards.checkSwapStorage(free, chapterAudioMs)
+            if (storageCheck.isFailure) {
+                val message = storageCheck.exceptionOrNull()?.message
+                    ?: "Not enough storage for re-render swap"
+                failJob(job, bundleDir, "chapter $number: $message")
+                return ChapterStepV2.Stop
+            }
+        }
         val oldAudioRel = entry.audio.takeIf { it.isNotBlank() }
         val oldFingerprint = (entry.renderFingerprint as? kotlinx.serialization.json.JsonObject)
             ?.let { RenderFingerprint.fromJsonObject(it) }

@@ -8,6 +8,7 @@ import app.auloud.player.playback.PlaybackQueue
 import app.auloud.player.storage.BundleStorage
 import app.auloud.player.storage.SafPaths
 import app.auloud.player.tts.BookVoices
+import app.auloud.player.tts.EngineRegistry
 import app.auloud.player.tts.TtsRole
 import app.auloud.player.tts.TtsVoiceStore
 import kotlinx.coroutines.CoroutineDispatcher
@@ -40,6 +41,15 @@ import kotlinx.coroutines.launch
  * versions (defaults to unknown, so expectations never build); re-render
  * starts ride [onStartRerender] as STALE_ONLY (see `StaleBadges` for why
  * there is no single-chapter mode).
+ *
+ * VS6: re-render starts are guarded before the service intent
+ * ([RerenderGuards]): read-only books refuse with the plain model
+ * message, missing engine or voice refuses naming the missing piece
+ * plus the voice-screen fix path (only when [registry] is supplied),
+ * and low storage refuses with needed vs free numbers (via [freeBytes];
+ * defaults to unbounded so old callers keep the VS5 behavior). Every
+ * refusal sets [RenderPanelState.error] and starts no job, leaving
+ * audio plus manifest untouched.
  */
 class RenderPanelViewModel(
     private val bookId: String,
@@ -59,6 +69,8 @@ class RenderPanelViewModel(
     private val versionOf: (namespace: String) -> String? = { null },
     private val onStartRerender: (readingChapter: Int, mode: RerenderMode) -> Unit =
         { _, _ -> },
+    private val registry: EngineRegistry? = null,
+    private val freeBytes: () -> Long = { Long.MAX_VALUE },
     dispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
 
@@ -152,15 +164,28 @@ class RenderPanelViewModel(
      * position). The tapped chapter list passes the reading position;
      * the selection wraps, so every stale chapter renders. An empty
      * stale set is a plain-language error, never a service start.
+     *
+     * VS6: guarded before the intent (read-only, then empty, then
+     * voices, then storage). Every refusal sets the error line and
+     * starts nothing.
      */
     fun rerenderStale() {
         val current = _state.value
         if (current.isLoading || current.manifestError != null) return
-        val stale = current.staleSummary?.stale ?: return
+        if (current.staleReadOnly) {
+            _state.value = current.copy(error = BookVoices.READ_ONLY_MESSAGE)
+            return
+        }
+        val stale = current.staleSummary?.stale ?: 0
         if (stale <= 0) {
             _state.value = current.copy(
                 error = "Every rendered chapter already matches the voices."
             )
+            return
+        }
+        val refused = guardRerender()
+        if (refused != null) {
+            _state.value = current.copy(error = refused)
             return
         }
         _state.value = current.copy(error = null)
@@ -173,14 +198,78 @@ class RenderPanelViewModel(
      * [chapterPos], so the tapped chapter renders first and the rest of
      * the stale set follows (there is no single-chapter pipeline mode;
      * see `StaleBadges`). The row shows this only for STALE chapters.
+     *
+     * VS6: same guards as the bulk button (read-only, then empty, then
+     * voices, then storage). Every refusal sets the error line and
+     * starts nothing.
      */
     fun rerenderChapterStale(chapterPos: Int) {
         val current = _state.value
         if (current.isLoading || current.manifestError != null) return
         if (chapterPos !in 0 until current.chapterCount) return
+        if (current.staleReadOnly) {
+            _state.value = current.copy(error = BookVoices.READ_ONLY_MESSAGE)
+            return
+        }
+        val stale = current.staleSummary?.stale ?: 0
+        if (stale <= 0) {
+            _state.value = current.copy(
+                error = "Every rendered chapter already matches the voices."
+            )
+            return
+        }
+        val refused = guardRerender()
+        if (refused != null) {
+            _state.value = current.copy(error = refused)
+            return
+        }
         _state.value = current.copy(error = null)
         onStartRerender(chapterPos, RerenderMode.STALE_ONLY)
         reloadJobOnly()
+    }
+
+    /**
+     * VS6: voice plus storage guards shared by both re-render starts.
+     *
+     * Returns the refusal message, or null when clear. Read-only and
+     * empty-set checks stay in the callers (they need the stale count
+     * first); this covers the live-registry voice check (skipped when
+     * no registry was supplied) plus the swap storage pre-check over
+     * the stale summary audio (skipped when nothing stale). Pure reads:
+     * no writes, no job, no audio or manifest touch on any path.
+     */
+    private fun guardRerender(): String? {
+        val current = _state.value
+        val manifest = current.manifest
+        val reg = registry
+        if (manifest != null && reg != null) {
+            val bookVoices = try {
+                BookVoices.read(manifest, voices)
+            } catch (_: Exception) {
+                null
+            }
+            if (bookVoices != null) {
+                val voiceCheck = RerenderGuards.checkVoicesAvailable(bookVoices, reg)
+                if (voiceCheck.isFailure) {
+                    return voiceCheck.exceptionOrNull()?.message
+                        ?: "voice setup failed"
+                }
+            }
+        }
+        val staleAudioMs = current.staleSummary?.staleAudioMs ?: 0L
+        if (staleAudioMs > 0) {
+            val free = try {
+                freeBytes()
+            } catch (_: Exception) {
+                Long.MAX_VALUE
+            }
+            val storageCheck = RerenderGuards.checkSwapStorage(free, staleAudioMs)
+            if (storageCheck.isFailure) {
+                return storageCheck.exceptionOrNull()?.message
+                    ?: "Not enough storage for re-render swap"
+            }
+        }
+        return null
     }
 
     /**
