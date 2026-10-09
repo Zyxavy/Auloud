@@ -2,7 +2,7 @@
 
 Project: Auloud Player (main). Follows `09-V2Roadmap.md` (Slice 13, v2.1) with the premise **changed by your ReadEra evidence**: the earlier file-synthesis numbers (System TTS 0.86x-2.56x, D-131) measure `synthesizeToFile`, which has per-utterance overhead and is not how readers stream. A live `speak()` pipeline may keep up in real time on the Tab E. This slice therefore starts with a measurement gate, then builds a live System TTS streaming path if the gate passes.
 
-## 0. Before Slice 13 (loose ends from Slice 12 — status 2026-10-10)
+## 0. Before Slice 13 (loose ends from Slice 12 - status 2026-10-10)
 
 - [x] Tags `slice-12` and `v2.0.0` exist (tagged at VC8 commit `31119b1`); signing key at `D:\keys\auloud-release.keystore`, backup still owner duty
 - [x] Over-install procedure run on the tablet (owner verdict 2026-10-10, boxes ticked in `docs/ReleaseSigning.md`)
