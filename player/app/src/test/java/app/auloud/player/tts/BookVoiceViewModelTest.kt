@@ -382,23 +382,33 @@ class BookVoiceViewModelTest {
             assertEquals(1, harness.bookChanged)
             assertTrue(harness.rerenderStarts.isEmpty())
             assertNotNull(harness.vm.state.value.notice)
+            val raw = harness.storage.files["$bundleDir/manifest.json"]!!
+            val persisted = BundleParser.parseText(raw).getOrThrow()
+            val reread = BookVoices.read(persisted, harness.globals)
+            assertEquals("system:voice-b", reread.narratorVoiceId)
+            assertFalse(harness.vm.state.value.hasChanges)
         } finally {
             harness.vm.clear()
         }
     }
 
     @Test
-    fun applyKeep_discardsWithoutPersisting() {
+    fun applyKeep_persistsWithoutStarting() {
         val harness = Harness()
         try {
             val before = harness.storage.files["$bundleDir/manifest.json"]!!
             harness.vm.selectVoice(TtsRole.Narrator, "system:voice-b")
             harness.vm.requestApply()
             harness.vm.confirmApply(BookVoiceViewModel.ApplyChoice.KEEP)
-            assertEquals(before, harness.storage.files["$bundleDir/manifest.json"])
-            assertEquals(0, harness.bookChanged)
+            assertEquals(1, harness.bookChanged)
             assertTrue(harness.rerenderStarts.isEmpty())
-            assertEquals("system:voice-a", harness.vm.state.value.narratorVoiceId)
+            assertNotNull(harness.vm.state.value.notice)
+            val raw = harness.storage.files["$bundleDir/manifest.json"]!!
+            assertTrue(raw != before)
+            val persisted = BundleParser.parseText(raw).getOrThrow()
+            val reread = BookVoices.read(persisted, harness.globals)
+            assertEquals("system:voice-b", reread.narratorVoiceId)
+            assertEquals("system:voice-b", harness.vm.state.value.narratorVoiceId)
             assertFalse(harness.vm.state.value.hasChanges)
         } finally {
             harness.vm.clear()

@@ -1047,6 +1047,7 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: The plan names the categories and the three choices but not their exact contents; each default above is the least surprising reading (a warning must never mislead, a failing preview is worse than a disabled button, three choices must have three distinct outcomes).
 - Alternatives considered: KEEP as persist-without-render (rejected: identical to LATER, so the third button would be dead); read-only audition enabled (rejected: PC voice ids fail against the device registry); unknown engines standard (rejected: a future slow engine would slip through unwarned).
 - Consequences / revisit when: the owner confirms or corrects the KEEP meaning in acceptance (VS7); VS5 badges show the LATER mixed state; categories retune with measured engine numbers.
+- Update 2026-10-09 (VS7 owner verdict on the Tab E, follow-up to commit a812743): KEEP now persists the edited BookVoices with no render start, using the same persist path as LATER (storage write, no start, old audio keeps playing, chapters read Stale for manual re-render). Checked the code before changing: LATER carries no queue or schedule flag (persist plus notice plus onBookChanged only), so KEEP and LATER are now behavior-identical and no fake distinction is kept.
 
 ### D-124: VS5 library and chapter badges (stale UI wiring, no new pipeline)
 - Date: 2026-10-09

@@ -56,8 +56,8 @@ import kotlinx.coroutines.launch
  *   ([RerenderPlanner.onVoiceChange], the VS3 ask state) so the dialog
  *   shows added minus removed chapters. [confirmApply] then persists the
  *   manifest and either starts the stale-only re-render reading-position
- *   forward first (NOW), only persists (LATER), or discards the edits and
- *   keeps the old voices plus audio (KEEP).
+ *   forward first (NOW), or only persists with no start (LATER and KEEP,
+ *   owner verdict 2026-10-09: KEEP saves without rendering).
  * - Scribe (PC) books: voices visible, every edit refused with the plain
  *   model message ([BookVoices.READ_ONLY_MESSAGE]); audition is disabled
  *   too, because the book voices are PC voice ids the device engines do
@@ -67,8 +67,8 @@ import kotlinx.coroutines.launch
  * edited voices must be offered by the live [registry] (missing engine,
  * voice or model pack refuses naming the piece plus the voice-screen
  * fix path), and a NOW start with stale audio must fit the swap
- * ([freeBytes] vs old plus new per the VS2 math; LATER skips the
- * storage check and defers it to the service). Every refusal sets
+ * ([freeBytes] vs old plus new per the VS2 math; LATER and KEEP skip the
+ * storage check and defer it to the service). Every refusal sets
  * [UiState.error] and persists nothing, leaving manifest plus audio
  * byte-identical. A voice change on an unrendered book (no stale
  * audio) persists with no start and no crash; the first render later
@@ -437,15 +437,17 @@ class BookVoiceViewModel(
 
     /**
      * Applies the dialog choice: NOW persists plus starts the stale-only
-     * re-render reading-position forward first; LATER only persists (the
-     * mixed-voice state stays legal per D-119, VS5 badges show it); KEEP
-     * discards the edits and keeps the old voices plus audio untouched.
+     * re-render reading-position forward first; LATER and KEEP only persist
+     * with no start (the mixed-voice state stays legal per D-119, VS5 badges
+     * show it; old audio keeps playing until a manual re-render).
+     * KEEP and LATER are behavior-identical: no queue or schedule flag,
+     * no planned job (owner verdict 2026-10-09).
      *
      * VS6: voices re-validate before any persist (an engine removed
      * between dialog and confirm refuses with the fix path, manifest
      * untouched); NOW with stale audio pre-checks the swap storage
-     * (needed vs free numbers, manifest untouched on refusal). LATER
-     * skips the storage check (the service re-checks at render time).
+     * (needed vs free numbers, manifest untouched on refusal). LATER and
+     * KEEP skip the storage check (the service re-checks at render time).
      * Unrendered books (no stale audio) persist with no start.
      */
     fun confirmApply(choice: ApplyChoice) {
@@ -453,16 +455,6 @@ class BookVoiceViewModel(
         val next = edited ?: return
         if (base.readOnly || next.readOnly) {
             _state.value = _state.value.copy(error = BookVoices.READ_ONLY_MESSAGE)
-            return
-        }
-        if (choice == ApplyChoice.KEEP) {
-            edited = base
-            _state.value = _state.value.copy(
-                showImpact = false,
-                impact = null,
-                notice = "Kept old voices and audio."
-            )
-            syncEdits(clearImpact = false)
             return
         }
         RerenderGuards.checkVoicesAvailable(next, registry).onFailure { e ->
