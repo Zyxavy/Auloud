@@ -202,7 +202,7 @@ On the tablet, open Settings, then Language and input, then Text-to-speech outpu
 
 > OWNER-RUN, UNTESTED: no agent run has followed these steps end to end on hardware. Steps marked `[ ]` are unchecked until someone completes them on the Tab E.
 
-- [ ] Sideload the `2.0.0` APK (`core` unless you need Piper voices): build per section B above (release needs the signing key in `player\local.properties`, see `docs/ReleaseSigning.md`), allow unknown sources for the install.
+- [ ] Sideload the `2.0.0` APK (`core` unless you need Piper voices): build per Flavors and model packs above (release needs the signing key in `player\local.properties`, see `docs/ReleaseSigning.md`), allow unknown sources for the install.
 - [ ] Prepare offline voices per the previous section.
 - [ ] In the library, tap Import EPUB and pick the file with the system picker. The book opens with a chapter list and readable text, dialogue marked.
 - [ ] Open the book (it lands on the render hub while unrendered), then Choose voices: set the narrator voice and the dialogue voice, keeping or switching the engine (the recommended engine is marked; slow engines warn). Audition each role.

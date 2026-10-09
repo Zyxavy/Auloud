@@ -461,7 +461,7 @@ requirements, core/full flavors plus model packs, offline System TTS
 voice prep, limitations, OWNER-RUN walkthrough with unchecked boxes);
 new `docs/07-TestPlan.md` holds the v2 test plan (suites, owner device
 rounds, VC8 gate) so the `07-TestPlan.md` pointers in
-`docs/plans/Slice12.md` and `docs/ReleaseSigning.md` resolve; short v2
+`docs/plans/Slice12.md` resolve; short v2
 addendum appended to `docs/01-PRD.md`; Slice 12 status plus the decided
 DCO box in `docs/09-V2Roadmap.md`; v2 status notes in `README.md` and
 `docs/04-Roadmap.md`; the open `08-Licenses.md` box annotated, none
