@@ -18,18 +18,17 @@ import app.auloud.player.render.DebugRenderEngines
 import app.auloud.player.render.JavaFileRenderIo
 import app.auloud.player.render.RenderService
 import app.auloud.player.render.rerenderModeName
-import app.auloud.player.storage.BooksRootResolver
 import app.auloud.player.storage.BundleStorage
 import app.auloud.player.tts.AndroidSystemTtsDriver
 import app.auloud.player.tts.AudioTrackAudioPlayer
 import app.auloud.player.tts.BookVoiceScreen
 import app.auloud.player.tts.BookVoiceViewModel
 import app.auloud.player.tts.EngineRegistry
-import app.auloud.player.tts.ModelPacks
 import app.auloud.player.tts.PrefsTtsStore
 import app.auloud.player.tts.SherpaPiperEngine
 import app.auloud.player.tts.SystemTtsAdapter
 import app.auloud.player.tts.bookVoiceVersionOf
+import app.auloud.player.tts.scanAppModelPacks
 import java.io.File
 import kotlinx.coroutines.delay
 
@@ -59,7 +58,7 @@ internal fun BookVoiceHost(
         val scratch = File(appContext.cacheDir, "book-voice-audition")
         val driver = AndroidSystemTtsDriver(appContext)
         val adapter = SystemTtsAdapter(driver, scratch)
-        val packs = scanVoiceModelPacks(appContext)
+        val packs = scanAppModelPacks(appContext)
         val sherpa = SherpaPiperEngine(packs).takeIf { it.voices().isNotEmpty() }
         sherpaHolder[0] = sherpa
         val registry = EngineRegistry(
@@ -145,21 +144,6 @@ internal fun sendRenderAction(appContext: Context, action: String) {
         appContext.startService(Intent(appContext, RenderService::class.java).setAction(action))
     } catch (e: Exception) {
         Log.w(TAG, "render $action failed: ${e.message}")
-    }
-}
-
-/** VS4: sideloaded model packs for the Piper engine (files only). */
-private fun scanVoiceModelPacks(appContext: Context): List<app.auloud.player.tts.ModelPack> {
-    return try {
-        val internal = File(BooksRootResolver.defaultBooksRoot(appContext))
-        val removable = try {
-            BooksRootResolver.findRemovableRoot(appContext)
-        } catch (_: Exception) {
-            null
-        }
-        ModelPacks.scan(ModelPacks.roots(internal, removable))
-    } catch (_: Exception) {
-        emptyList()
     }
 }
 

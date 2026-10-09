@@ -655,7 +655,7 @@ class RerenderGuardsTest {
         val shared = renderedFiles()
         val beforeManifest = shared["$bundleDir/manifest.json"]
         val beforeAudio = shared["$bundleDir/audio/ch002.m4a"]
-        val harness = VoiceHarness(shared, engines = engines)
+        val harness = VoiceHarness(shared, engines = engines, free = 1_000_000_000L)
         try {
             harness.vm.selectVoice(TtsRole.Narrator, "system:new-narr")
             harness.vm.requestApply()
@@ -684,7 +684,7 @@ class RerenderGuardsTest {
             base
         }
         val beforeManifest = shared["$bundleDir/manifest.json"]
-        val harness = VoiceHarness(shared, engines = registryNoPiper())
+        val harness = VoiceHarness(shared, engines = registryNoPiper(), free = 1_000_000_000L)
         try {
             harness.vm.setSpeed(TtsRole.Narrator, 1.25f)
             harness.vm.requestApply()
@@ -777,7 +777,8 @@ class RerenderGuardsTest {
     // VS6 fixup: wiring pin. Production passes a live registry plus real
     // freeBytes (File.usableSpace, bounded); the ViewModel defaults
     // (registry=null, freeBytes=MAX) skip the voice plus storage guards.
-    // These tests pin that gap so a revert to defaults fails loudly.
+    // Production-style (registry plus bounded free) fires both guards;
+    // defaults start instead. These tests pin that gap.
 
     @Test
     fun panel_defaultsSkipVoiceGuard_startsInsteadOfRefusing() {
@@ -790,6 +791,7 @@ class RerenderGuardsTest {
         harness.versionOf = { ns -> if (ns == "piper" || ns == "system") "v1" else null }
         val vm = harness.viewModel()
         try {
+            assertTrue((vm.state.value.staleSummary?.staleAudioMs ?: 0L) > 0L)
             vm.rerenderStale()
             assertEquals(1, harness.rerenderStarts.size)
             assertNull(vm.state.value.error)
@@ -805,7 +807,7 @@ class RerenderGuardsTest {
             dialogueEngine = "piper", dialogueVoice = "voice-p",
             ch2DialogueVoice = "system:dial"
         )
-        val harness = PanelHarness(files, registry = registryNoPiper(), free = Long.MAX_VALUE)
+        val harness = PanelHarness(files, registry = registryNoPiper(), free = 1_000_000_000L)
         harness.versionOf = { ns -> if (ns == "piper" || ns == "system") "v1" else null }
         val vm = harness.viewModel()
         try {
@@ -814,6 +816,29 @@ class RerenderGuardsTest {
             val error = vm.state.value.error ?: ""
             assertTrue("was: $error", "piper" in error)
             assertTrue("was: $error", "voice screen" in error)
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    fun panel_productionWiringStorageBindingRefusesWithNumbers() {
+        val files = renderedFiles()
+        val beforeManifest = files["$bundleDir/manifest.json"]
+        val beforeAudio = files["$bundleDir/audio/ch002.m4a"]
+        val harness = PanelHarness(files, registry = registryFull(), free = 1L)
+        val vm = harness.viewModel()
+        try {
+            val staleAudioMs = vm.state.value.staleSummary?.staleAudioMs ?: 0L
+            assertTrue(staleAudioMs > 0L)
+            val needed = RerenderGuards.swapBytesFor(staleAudioMs)
+            vm.rerenderStale()
+            assertTrue(harness.rerenderStarts.isEmpty())
+            val error = vm.state.value.error ?: ""
+            assertTrue("was: $error", needed.toString() in error)
+            assertTrue("was: $error", "1" in error)
+            assertEquals(beforeManifest, files["$bundleDir/manifest.json"])
+            assertEquals(beforeAudio, files["$bundleDir/audio/ch002.m4a"])
         } finally {
             vm.clear()
         }
