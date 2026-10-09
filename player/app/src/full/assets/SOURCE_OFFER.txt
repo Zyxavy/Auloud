@@ -5,15 +5,11 @@ This offer covers the exact full-flavor APK this file shipped in. It is
 valid for at least three years from the date you received that APK, and
 for as long as spare parts or customer support are offered for it.
 
-[OWNER REVIEW before any full-APK distribution: fill in the publisher
-name, contact email, and public source URL below. Do not ship the full
-flavor with these placeholders in place.]
-
 To get the Corresponding Source, write to:
 
-    Name:  [publisher name]
-    Email: [contact email]
-    URL:   [public repo URL, tag for this release]
+    Name:  Zyxary
+    Email: kentandrewparejas@gmail.com
+    URL:   https://github.com/Zyxavy/Auloud (tag v2.0.0 for this release)
 
 State the APK version (Settings shows it under About, or read the
 versionName/versionCode of your APK) and you will receive the complete

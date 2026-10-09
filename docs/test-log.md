@@ -503,3 +503,30 @@ dependency, or permission change. All device proof stays owner-run.
 
 Not claimed: anything on the tablet (listen path by ear/eye, dropdown
 on cold open, render RTF from the debug overlay, unplugged render runs).
+
+---
+
+## Slice 12 close-out waivers (owner, 2026-10-10, no device numbers)
+
+Three gates closed by owner waiver instead of measurement (D-131, D-132):
+
+- SysLong bench waived. Hypothesis verdict from Tab E specs (quad
+  Cortex-A7 1.3 GHz, about 1.5 GB RAM, 32-bit) plus bands in hand
+  (System TTS 0.86x to 2.56x, Piper 0.36x, owner-measured about
+  3 s/sentence): streaming NOT feasible on the Tab E; v2 is
+  background rendering, render-ahead stays NextN 5, Slice 13 is
+  faster-devices-only. Flagged as hypothesis: no bench ran, and the
+  `:spike` module is retained so a measured SysLong can overturn it.
+- Beep onset measurement waived. Offset gate closed with the standing
+  default (offset 0, 50 ms AAC tolerance, finalize still refuses
+  nonzero). No evidence contradicts first-start-0.
+- Source offer filled: Name Zyxary, Email kentandrewparejas@gmail.com,
+  URL https://github.com/Zyxavy/Auloud (tag v2.0.0). Embedded in the
+  rebuilt `full` release below; owner confirm of the NOTICE.full GPL
+  paragraphs still owed before any `full` distribution.
+
+Soak: owner reports multi-day soak good (one-line verdict, no
+per-box numbers recorded).
+
+Still owner-open (batched device round): VC2 smoke checklist, VC3
+over-install proof, VC8 release tagging.

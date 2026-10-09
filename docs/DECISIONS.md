@@ -1109,3 +1109,19 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Owner verdict on the Tab E: with the gate defaulting on, an unplugged tablet's render job sat at `PAUSE_CHARGER` producing no audio, which read as "can't play anything". The tablet is the only supported device and the owner explicitly ordered the requirement removed.
 - Alternatives considered: defaulting charging-only off but keeping the toggle (rejected: dead setting the owner does not want, and the pause path would still confuse); keeping the gate for overnight renders only (rejected: same confusion, no measured battery case for it).
 - Consequences / revisit when: supersedes the charging-only halves of D-096 (RN3 guards), D-104 (RN8 service), and D-105 (RN9 panel); temperature/storage halves of those decisions stand. Soak boxes that named charging-only now run unplugged. Revisit only with measured battery/heat numbers from the soak showing unplugged renders harm the device.
+
+### D-131: SysLong verdict by hypothesis (bench waived, owner-ordered)
+- Date: 2026-10-10
+- Status: Accepted (hypothesis, flagged: no measured SysLong exists)
+- Decision: The 5-minute SysLong bench is waived as unnecessary. Verdict by hypothesis from Tab E specs plus measured bands: streaming is NOT feasible on the Tab E; v2 ships background rendering only. Tab E facts: quad Cortex-A7 1.3 GHz, about 1.5 GB RAM, 32-bit runtime (`is64=false`), one foreground service that must synthesize plus decode plus play at once. Measured bands: System TTS 0.86x to 2.56x (slow end below the 1.0 background line and far below the 1.3 streaming line, wide run-to-run variance), Piper lessac 0.36x, owner-measured about 3 s/sentence on System TTS. A sustained 1.3x-or-better live synth with no gaps over 30 minutes is not credible on this chip, so Slice 13 stays future work for faster devices. Render-ahead default stays NextN 5 (D-098/D-104). The `:spike` module is RETAINED (not deleted): it is the measurement tool, and a measured SysLong can overturn this hypothesis any time.
+- Why: Owner ordered the bench waived; the plan's own thresholds (1.3 streaming, about 1.0 background) already fail on the slow-end numbers in hand.
+- Alternatives considered: running the bench (rejected by owner as unnecessary); declaring streaming feasible on the System TTS fast end (rejected: slow end plus variance plus shared CPU means underruns, and a 30-minute gapless promise cannot rest on the fast end).
+- Consequences / revisit when: Slice 12 VC0 gate recorded as hypothesis, not measurement; roadmap Slice 13 marked faster-devices-only. Revisit with a measured SysLong on the cool tablet whenever the owner wants (procedure in `docs/test-log.md` RN11-adjacent spike notes); a measured 1.3x-or-better reopens streaming.
+
+### D-132: Encoder offset gate closed by default-acceptance (measurement waived)
+- Date: 2026-10-10
+- Status: Accepted
+- Decision: The beep onset measurement is waived as unnecessary. The gate closes with the standing default: `encoder_offset_ms` 0, 50 ms AAC tolerance kept, and `RenderFinalize` keeps refusing nonzero offsets (safe default, test-pinned). Nothing observed (RN11/VS7 functional passes, silence-bounded highlight) contradicts first-start-0, so no spec amendment.
+- Why: Owner ordered the measurement waived; the conservative behavior (refuse nonzero) is already the safe release posture.
+- Alternatives considered: keeping the gate open into release (rejected: it would block VC8 on a waived measurement); amending the spec pre-emptively for nonzero (rejected: no evidence needs it).
+- Consequences / revisit when: VC4 gate box closable; `docs/constants.md` updated. A future measured stable nonzero reopens this via the spec-first amendment path (unchanged).

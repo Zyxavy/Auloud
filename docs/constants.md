@@ -91,7 +91,7 @@ commit. A constants doc that changes nothing is the honest VC4
 outcome; the numbers that can move these constants are named in
 the next section.
 
-## Encoder offset gate: OPEN, waiting on the beep measurement
+## Encoder offset gate: CLOSED by default-acceptance (D-132, 2026-10-10)
 
 Open since Slice 10 (D-109): `RenderFinalize` refuses a nonzero
 `encoder_offset_ms` because shifting all timings would move the
@@ -99,12 +99,16 @@ first start and break the spec section 6 rule (first start 0,
 carried exactly into 2.0). The provisional 0 never hits that
 refusal, which is pinned by test.
 
-Disposition: the gate stays open. The beep onset measurement
-(RN11 procedure, `docs/test-log.md`) has not run, so
-nonzero-vs-zero is undecided. If it measures zero, record that
-and close the question with the tolerance kept. If it measures
-a stable nonzero, decide then whether device chapters may start
-at the offset (spec-first amendment, then the finalize check
-follows) or keep refusing. Do NOT close this gate without the
-onset numbers; nothing observed so far contradicts
-first-start-0, so no spec amendment was needed.
+Disposition: closed 2026-10-10 without the onset numbers (owner
+waived the beep measurement as unnecessary). Offset 0 stands, the
+50 ms AAC tolerance stands, and the finalize refusal of nonzero
+stays as the safe default. Nothing observed (RN11/VS7 functional
+passes) contradicts first-start-0, so no spec amendment was needed.
+A future measured stable nonzero reopens this via the spec-first
+amendment path described below (kept for that case): device
+chapters starting at the offset would need the spec amended first,
+then the finalize check follows. Original open-gate reasoning
+retained for the record: had the beep run measured zero, the
+question would have closed with the tolerance kept; had it
+measured a stable nonzero, the amendment-vs-refuse choice would
+have been forced then.

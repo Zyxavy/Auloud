@@ -94,8 +94,8 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 
 **Slice 12: v2.0 complete pass (M).** *Status: in progress (VC0-VC5 agent work done, VC6 docs this change; VC7 soak plus VC8 release are owner work; no release-criteria box ticked yet).*
 
-- Agent-complete: VC0 gates logged (D-126 option A, D-127 DCO) with SysLong plus spike deletion plus owed tracker admin still owner-open; VC1 two licensed flavors with passing `licenseScan`; VC2 version `2.0.0` with ARM-only signed-flavor builds and passing `releaseManifestCheck`; VC3 JVM compatibility matrix (device over-install still owner-open); VC4 constants doc (all provisionals stand, offset gate open); VC5 sentence agreement 34/34 runs plus the reader debounce flake fixed; VC6 README v2 plus `07-TestPlan.md` plus PRD addendum.
-- Owner-open: VC2 smoke checklist, VC3 over-install, SysLong bench, VC7 soak, VC8 release. Tracked in `07-TestPlan.md` sections 2-3; procedures in `docs/ReleaseSigning.md` and `docs/plans/Slice12.md`.
+- Agent-complete: VC0 gates logged (D-126 option A, D-127 DCO) with SysLong hypothesis-recorded (D-131, bench waived, spike retained); VC1 two licensed flavors with passing `licenseScan`; VC2 version `2.0.0` with ARM-only signed-flavor builds and passing `releaseManifestCheck`; VC3 JVM compatibility matrix (device over-install still owner-open); VC4 constants doc (provisionals stand, offset gate closed by acceptance D-132); VC5 sentence agreement 34/34 runs plus the reader debounce flake fixed; VC6 README v2 plus `07-TestPlan.md` plus PRD addendum; UX1 hub Listen plus charger removal (D-130).
+- Owner-open: VC2 smoke checklist, VC3 over-install, VC8 release. Soak: owner reports multi-day soak good (one-line verdict, no per-box numbers). Tracked in `07-TestPlan.md` sections 2-3; procedures in `docs/ReleaseSigning.md` and `docs/plans/Slice12.md`.
 
 - On-device soak: a full novel imported, rendered on the tablet, and listened to over days; battery and thermal checks during rendering
 - License decision implemented (GPL Player, or the adapter/plugin approach) with `NOTICE`, in-app licenses and `08-Licenses.md` updated (sherpa-onnx, onnxruntime, models, espeak-ng); README and docs updated; tag `v2.0.0`
@@ -106,7 +106,7 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 
 - Synthesize-ahead pipeline into an audio buffer so listening starts within seconds, falling back to rendered chapters when present; handle underruns; seeking into unsynthesized text starts synthesis from that sentence
 - Highlight sync from live timings; foreground service with the screen off
-- Gated by the measured device RTF (the Tab E may not support it for neural engines; System TTS or Piper-low might)
+- Gated by the measured device RTF (the Tab E may not support it for neural engines; System TTS or Piper-low might). Hypothesis verdict (D-131, no bench run): streaming is NOT feasible on the Tab E (Cortex-A7, 1.5 GB RAM, System TTS slow end 0.86x, Piper 0.36x), so Slice 13 is faster-devices-only until a measured SysLong says otherwise; the Tab E story stays background rendering.
 - **Done when:** on a capable device, pressing play on an unrendered chapter starts audio in a few seconds with no gaps over a 30-minute listen
 
 ## 5. Scribe and web UI changes in v2
