@@ -241,3 +241,48 @@ The scan is intentionally not wired into `check` (every test run
 would then build two APKs); run the exact assemble + licenseScan
 command above to re-verify. Release-build R8/manifest checks and all
 device checks stay with VC2/VC7 (owner).
+
+## VC2 release engineering (agent, 2026-10-09, D-129)
+
+Version 2.0.0, versionCode 2 (v1 was 1.0.0/code 1). Signing keeps the
+v1 convention (local.properties key, debug fallback + warning); the
+release doc is rewritten flavor-aware as `docs/ReleaseSigning.md` (the
+v1 sheet stays in `docs/archive/v1/`). No new dependency, no new
+permission, minSdk 24 unchanged.
+
+Commands (from player/, all with --no-daemon):
+
+- `.\gradlew.bat :app:assembleCoreRelease :app:assembleFullRelease`
+  - BUILD SUCCESSFUL (5m 37s, R8 minify + resource shrink on both).
+    One added keep rule (sherpa-onnx JNI bridge for `full`); no other
+    keep change needed. Both APKs are debug-signed: no release
+    keystore is configured on this machine, so the owner signs the
+    distribution build with the real key (same key as v1 for the VC3
+    over-install proof).
+- `.\gradlew.bat :app:licenseScan :app:releaseManifestCheck`
+  - licenseScan PASS both: core app-core-release.apk (224 entries, no
+    lib markers); full app-full-release.apk (8 lib entries, notices
+    present). The new releaseManifestCheck PASSes every merged release
+    manifest (no INTERNET).
+- `.\gradlew.bat :app:testCoreDebugUnitTest :app:testFullDebugUnitTest`
+  - 2688 tests (1340 core + 1348 full), 0 failures, 0 errors.
+    (Stale pre-flavor result dirs ignored in the count.)
+
+Sizes (release APKs):
+
+- app-core-release.apk: 3.5 MB. Only native lib is
+  libandroidx.graphics.path.so (Compose, 10 KB); no sherpa/onnx/espeak.
+- app-full-release.apk: 55.4 MB. Per-ABI native weight (uncompressed):
+  arm64-v8a 30.5 MB, armeabi-v7a 21.2 MB (4 sherpa/onnx libs each).
+  x86/x86_64 excluded by the new `abiFilters` (about 70 MB raw saved
+  against the 4-ABI spike build at about 130 MB). No per-ABI splits:
+  one universal APK per flavor keeps sideloading simple (D-129).
+
+Debug gating unchanged and pinned (`BeepDebugGateTest`,
+`ReleaseGuardsTest`, `RenderDebugGateTest` all green in the suite
+above); the spike entry stays `BuildConfig.DEBUG`-gated (spike deletion
+waits for the SysLong verdict in VC0).
+
+Not claimed: anything on the tablet. The smoke checklist in
+`docs/ReleaseSigning.md` is OWNER-RUN; the VC3 over-install proof and
+the VC7 soak stay with the owner (VC8).

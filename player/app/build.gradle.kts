@@ -19,10 +19,19 @@ android {
         applicationId = "app.auloud.player"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "2.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // VC2 (D-129): ARM-only native packaging. The sherpa-onnx AAR
+        // ships four ABIs; x86/x86_64 are emulator-only and cost about
+        // 73 MB raw. The Tab E needs armeabi-v7a; arm64-v8a covers
+        // modern devices. No per-ABI splits: one universal APK keeps
+        // sideloading and upgrades simple (see D-129 for the numbers).
+        ndk {
+            abiFilters += listOf("armeabi-v7a", "arm64-v8a")
+        }
     }
 
     // USER: release signing (CP8). Generate your key ONCE (see
@@ -200,7 +209,7 @@ tasks.register("licenseScan") {
             if (found.isEmpty()) {
                 logger.error(
                     "licenseScan: no .apk/.aab for flavor '$flavor' under ${outputs.path}. " +
-                        "Build first: :app:assemble${flavor.replaceFirstChar { it.uppercase() }}Debug"
+                        "Build first: :app:assembleCoreRelease :app:assembleFullRelease (or the Debug pair)"
                 )
                 failures++
                 continue
@@ -232,5 +241,41 @@ tasks.register("licenseScan") {
             }
         }
         if (failures > 0) throw GradleException("licenseScan: $failures failing archive(s), see errors above")
+    }
+}
+
+// VC2 (D-129): merged-manifest INTERNET guard for the signed flavors.
+// The unit test (ReleaseManifestTest) only sees the manifest source;
+// this task reads the merged release manifests instead. Run after the
+// release assembles (from player/):
+// .\gradlew.bat --no-daemon :app:assembleCoreRelease :app:assembleFullRelease :app:releaseManifestCheck
+tasks.register("releaseManifestCheck") {
+    group = "verification"
+    description = "VC2: fail when a merged release manifest requests INTERNET."
+    doLast {
+        val merged = layout.buildDirectory.dir("intermediates/merged_manifest").get().asFile
+        val manifests = if (merged.isDirectory) {
+            merged.walkTopDown().filter {
+                it.isFile && it.name == "AndroidManifest.xml" && "Release" in it.path
+            }.toList()
+        } else {
+            emptyList()
+        }
+        if (manifests.isEmpty()) {
+            throw GradleException(
+                "releaseManifestCheck: no merged release manifest under ${merged.path}. " +
+                    "Build first: :app:assembleCoreRelease :app:assembleFullRelease"
+            )
+        }
+        var failures = 0
+        for (manifest in manifests) {
+            if (manifest.readText().contains("android.permission.INTERNET")) {
+                logger.error("releaseManifestCheck FAIL ${manifest.parentFile.name}: INTERNET present")
+                failures++
+            } else {
+                logger.lifecycle("releaseManifestCheck PASS ${manifest.parentFile.name} (no INTERNET)")
+            }
+        }
+        if (failures > 0) throw GradleException("releaseManifestCheck: $failures failing manifest(s)")
     }
 }
