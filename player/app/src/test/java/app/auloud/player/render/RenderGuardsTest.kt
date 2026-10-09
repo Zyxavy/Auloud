@@ -1,8 +1,6 @@
 package app.auloud.player.render
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -10,18 +8,19 @@ import org.junit.Test
  * RN3: [RenderGuards] policy tests on plain JVM.
  *
  * Each signal is an injected field (no `android.*`); RN8 supplies the
- * real charger, temperature and storage readings behind the seam.
+ * real temperature and storage readings behind the seam.
+ *
+ * UX1 (2026-10-10, owner-ordered): the charging-only gate is removed;
+ * renders run unplugged, so only temperature and storage can pause.
  */
 class RenderGuardsTest {
 
     private fun conditions(
-        charging: Boolean = true,
-        chargingOnly: Boolean = true,
         batteryTempC: Float? = 32.0f,
         tempLimitC: Float = 40.0f,
         freeBytes: Long = 1_000_000_000L,
         requiredBytes: Long = 100_000_000L
-    ) = RenderConditions(charging, chargingOnly, batteryTempC, tempLimitC, freeBytes, requiredBytes)
+    ) = RenderConditions(batteryTempC, tempLimitC, freeBytes, requiredBytes)
 
     @Test
     fun proceed_whenAllClear() {
@@ -30,19 +29,10 @@ class RenderGuardsTest {
     }
 
     @Test
-    fun pause_whenChargerUnpluggedAndChargingOnly() {
-        val decision = RenderGuards.decide(conditions(charging = false, chargingOnly = true))
-
-        assertEquals(RenderGuardDecision.PAUSE_CHARGER, decision)
-        assertFalse(RenderGuards.shouldRender(conditions(charging = false, chargingOnly = true)))
-    }
-
-    @Test
-    fun proceed_whenChargerUnpluggedButChargingOnlyOff() {
-        assertEquals(
-            RenderGuardDecision.PROCEED,
-            RenderGuards.decide(conditions(charging = false, chargingOnly = false))
-        )
+    fun proceed_whenUnplugged_rendersRunUnplugged() {
+        // No charger signal exists anymore; temperature and storage
+        // clear means PROCEED regardless of plug state.
+        assertEquals(RenderGuardDecision.PROCEED, RenderGuards.decide(conditions()))
     }
 
     @Test
@@ -86,36 +76,37 @@ class RenderGuardsTest {
     }
 
     @Test
-    fun storage_beatsTemperature_beatsCharger() {
-        // All three failing: storage wins (hard failure over policy).
-        val allBad = conditions(charging = false, batteryTempC = 50.0f, freeBytes = 1L, requiredBytes = 9L)
+    fun storage_beatsTemperature() {
+        // Both failing: storage wins (hard failure over safety pause).
+        val allBad = conditions(batteryTempC = 50.0f, freeBytes = 1L, requiredBytes = 9L)
         assertEquals(RenderGuardDecision.PAUSE_STORAGE, RenderGuards.decide(allBad))
-        // Temperature beats the charger rule.
-        val hotUnplugged = conditions(charging = false, batteryTempC = 50.0f)
-        assertEquals(RenderGuardDecision.PAUSE_TEMPERATURE, RenderGuards.decide(hotUnplugged))
+        val hot = conditions(batteryTempC = 50.0f)
+        assertEquals(RenderGuardDecision.PAUSE_TEMPERATURE, RenderGuards.decide(hot))
     }
 
     @Test
     fun decideInputs_mapsLiveSignals() {
         val inputs = object : RenderSignalInputs {
-            override fun isCharging(): Boolean = false
             override fun batteryTempC(): Float? = 30.0f
             override fun freeBytes(): Long = 500L
         }
 
         assertEquals(
-            RenderGuardDecision.PAUSE_CHARGER,
-            RenderGuards.decideInputs(inputs, RenderPolicy(chargingOnly = true), requiredBytes = 100L)
-        )
-        assertEquals(
             RenderGuardDecision.PROCEED,
-            RenderGuards.decideInputs(inputs, RenderPolicy(chargingOnly = false), requiredBytes = 100L)
+            RenderGuards.decideInputs(inputs, RenderPolicy(), requiredBytes = 100L)
+        )
+        val hot = object : RenderSignalInputs {
+            override fun batteryTempC(): Float? = 50.0f
+            override fun freeBytes(): Long = 500L
+        }
+        assertEquals(
+            RenderGuardDecision.PAUSE_TEMPERATURE,
+            RenderGuards.decideInputs(hot, RenderPolicy(), requiredBytes = 100L)
         )
     }
 
     @Test
-    fun defaultPolicy_isChargingOnly() {
-        assertTrue(RenderPolicy().chargingOnly)
+    fun defaultPolicy_hasTempLimitOnly() {
         assertEquals(40.0f, RenderPolicy().tempLimitC)
     }
 }

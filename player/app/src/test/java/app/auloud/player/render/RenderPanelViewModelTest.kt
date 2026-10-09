@@ -124,7 +124,6 @@ class RenderPanelViewModelTest {
             setVoiceId(TtsRole.Narrator, "system:narrator-voice")
             setVoiceId(TtsRole.Dialogue, "system:dialogue-voice")
         }
-        var policy = RenderPolicy(chargingOnly = true)
         var starts = mutableListOf<Triple<Int, String, Int>>()
         var pauses = 0
         var resumes = 0
@@ -143,8 +142,6 @@ class RenderPanelViewModelTest {
                 progress = progress,
                 voices = voiceStore,
                 fileIo = io,
-                policy = policy,
-                onPolicyChange = { policy = it },
                 onStartRender = { chapter, scope, nextN ->
                     starts.add(Triple(chapter, scope, nextN))
                 },
@@ -227,19 +224,6 @@ class RenderPanelViewModelTest {
             assertEquals(3, vm.state.value.nextN)
             vm.setNextN(0)
             assertEquals(1, vm.state.value.nextN)
-        } finally {
-            vm.clear()
-        }
-    }
-
-    @Test
-    fun setChargingOnly_persistsThroughCallback() {
-        val harness = Harness(partialFiles())
-        val vm = harness.viewModel()
-        try {
-            vm.setChargingOnly(false)
-            assertEquals(false, harness.policy.chargingOnly)
-            assertEquals(false, vm.state.value.chargingOnly)
         } finally {
             vm.clear()
         }

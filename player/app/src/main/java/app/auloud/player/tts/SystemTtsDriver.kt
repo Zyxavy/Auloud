@@ -80,6 +80,10 @@ class AndroidSystemTtsDriver(
     private val lock = Any()
     private var pendingLatch: CountDownLatch? = null
     private var pendingDone: Boolean = false
+    // UX1: renders run sequentially with one voice+rate for long
+    // stretches, so skip the redundant setter IPCs when unchanged.
+    private var lastVoiceName: String? = null
+    private var lastRate: Float = Float.NaN
 
     init {
         val context = appContext.applicationContext
@@ -133,8 +137,15 @@ class AndroidSystemTtsDriver(
         } ?: return false
         if (voice.isNetworkConnectionRequired) return false
         return try {
-            engine.setSpeechRate(speechRate.coerceIn(MIN_TTS_SPEED, MAX_TTS_SPEED))
-            engine.voice = voice
+            val rate = speechRate.coerceIn(MIN_TTS_SPEED, MAX_TTS_SPEED)
+            if (rate != lastRate) {
+                engine.setSpeechRate(rate)
+                lastRate = rate
+            }
+            if (systemVoiceName != lastVoiceName) {
+                engine.voice = voice
+                lastVoiceName = systemVoiceName
+            }
             val utteranceId = UUID.randomUUID().toString()
             val latch = CountDownLatch(1)
             synchronized(lock) {

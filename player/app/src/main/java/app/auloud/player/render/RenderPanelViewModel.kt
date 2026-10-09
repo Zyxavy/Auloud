@@ -58,8 +58,6 @@ class RenderPanelViewModel(
     private val progress: ProgressRepository,
     private val voices: TtsVoiceStore,
     private val fileIo: RenderFileIo,
-    policy: RenderPolicy,
-    private val onPolicyChange: (RenderPolicy) -> Unit = {},
     private val onStartRender: (readingChapter: Int, scope: String, nextN: Int) -> Unit =
         { _, _, _ -> },
     private val onPauseRender: () -> Unit = {},
@@ -75,12 +73,11 @@ class RenderPanelViewModel(
 ) {
 
     private val _state = kotlinx.coroutines.flow.MutableStateFlow(
-        RenderPanelState(chargingOnly = policy.chargingOnly)
+        RenderPanelState()
     )
     val state: kotlinx.coroutines.flow.StateFlow<RenderPanelState> = _state
 
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
-    private var currentPolicy: RenderPolicy = policy
     private var audioMsByChapter: Map<Int, Long?> = emptyMap()
     private var noSleep: (Long) -> Unit = {}
     /** VS5: error a bulk delete carries across the reload (reload freshens states first). */
@@ -115,13 +112,6 @@ class RenderPanelViewModel(
         if (current.nextN == clamped) return
         _state.value = current.copy(nextN = clamped, error = null)
         recomputeEstimate()
-    }
-
-    /** Charging-only toggle (persisted by the host through [onPolicyChange]). */
-    fun setChargingOnly(enabled: Boolean) {
-        currentPolicy = currentPolicy.copy(chargingOnly = enabled)
-        onPolicyChange(currentPolicy)
-        _state.value = _state.value.copy(chargingOnly = enabled)
     }
 
     /**
@@ -357,7 +347,6 @@ class RenderPanelViewModel(
             _state.value = loaded.copy(
                 option = _state.value.option,
                 nextN = _state.value.nextN,
-                chargingOnly = currentPolicy.chargingOnly,
                 // VS5: a bulk delete carries its error across the reload.
                 error = carriedError
             )
@@ -390,15 +379,13 @@ class RenderPanelViewModel(
         } catch (e: Exception) {
             return RenderPanelState(
                 isLoading = false,
-                manifestError = renderErrorText("manifest unreadable (${e.message})"),
-                chargingOnly = currentPolicy.chargingOnly
+                manifestError = renderErrorText("manifest unreadable (${e.message})")
             )
         }
         val manifest = BundleParser.parseText(rawManifest).getOrElse {
             return RenderPanelState(
                 isLoading = false,
-                manifestError = renderErrorText("manifest unreadable (${it.message})"),
-                chargingOnly = currentPolicy.chargingOnly
+                manifestError = renderErrorText("manifest unreadable (${it.message})")
             )
         }
         val sorted = manifest.chapters.sortedBy { it.index }
@@ -473,8 +460,7 @@ class RenderPanelViewModel(
                 narratorSpeed = voices.speed(TtsRole.Narrator),
                 dialogueSpeed = voices.speed(TtsRole.Dialogue)
             ),
-            isFileBook = !SafPaths.isSafPath(bundleDir),
-            chargingOnly = currentPolicy.chargingOnly
+            isFileBook = !SafPaths.isSafPath(bundleDir)
         )
     }
 
@@ -568,7 +554,6 @@ data class RenderPanelState(
     val staleSummary: BookStalenessSummary? = null,
     /** VS5: the book is read-only for voices (Scribe PC audio, legacy). */
     val staleReadOnly: Boolean = false,
-    val chargingOnly: Boolean = true,
     val estimate: RenderEstimateView = RenderEstimateView(),
     val planSize: Int = 0,
     val voicesLine: String = "",

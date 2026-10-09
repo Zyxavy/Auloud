@@ -203,12 +203,6 @@ class RenderUiStateTest {
     }
 
     @Test
-    fun renderErrorText_charger_isPlain() {
-        val text = renderErrorText("Paused - connect the charger to keep rendering")
-        assertTrue("was: $text", "charger" in text)
-    }
-
-    @Test
     fun renderErrorText_safBook_isPlain() {
         val text = renderErrorText("Books in picked folders need app-storage output (later)")
         assertTrue("was: $text", "picked folder" in text)
@@ -429,6 +423,34 @@ class RenderUiStateTest {
             app.auloud.player.render.ChapterOpenTarget.READ,
             partialChapterTarget(1, map)
         )
+    }
+
+    // UX1: hub Listen entry point.
+
+    @Test
+    fun listenChapterTarget_noRendered_returnsNull() {
+        assertNull(listenChapterTarget(emptyList(), 0))
+    }
+
+    @Test
+    fun listenChapterTarget_savedRenderedChapter_wins() {
+        assertEquals(2, listenChapterTarget(listOf(0, 2, 3), 2))
+    }
+
+    @Test
+    fun listenChapterTarget_savedUnrendered_fallsBackToFirstRendered() {
+        assertEquals(0, listenChapterTarget(listOf(0, 2, 3), 1))
+        assertEquals(2, listenChapterTarget(listOf(2, 3), 9))
+    }
+
+    @Test
+    fun showRowPlayButton_onlyRenderedRows() {
+        assertTrue(showRowPlayButton(ChapterRenderState.RENDERED))
+        assertTrue(!showRowPlayButton(ChapterRenderState.UNRENDERED))
+        assertTrue(!showRowPlayButton(ChapterRenderState.RENDERING))
+        assertTrue(!showRowPlayButton(ChapterRenderState.PAUSED))
+        assertTrue(!showRowPlayButton(ChapterRenderState.FAILED))
+        assertTrue(!showRowPlayButton(null))
     }
 
     @Test

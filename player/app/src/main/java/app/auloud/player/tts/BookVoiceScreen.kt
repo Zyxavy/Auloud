@@ -18,6 +18,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -72,6 +73,7 @@ fun BookVoiceScreen(
     onPromoteToDefaults: () -> Unit,
     onDismissError: () -> Unit,
     onDismissNotice: () -> Unit,
+    onReloadVoices: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.fillMaxSize()) {
@@ -129,6 +131,7 @@ fun BookVoiceScreen(
                 voiceId = state.narratorVoiceId,
                 speed = state.narratorSpeed,
                 voices = state.engineVoices,
+                enginesReady = state.engines.isNotEmpty(),
                 sample = state.narrationSample,
                 sampleFallback = "No narration lines found in this book yet.",
                 alternateVoiceId = state.alternateNarratorVoiceId,
@@ -141,7 +144,8 @@ fun BookVoiceScreen(
                 onSetSpeed = onSetSpeed,
                 onSetAlternateVoice = onSetAlternateVoice,
                 onPreview = onPreview,
-                onStop = onStop
+                onStop = onStop,
+                onReloadVoices = onReloadVoices
             )
             Spacer(Modifier.height(16.dp))
             BookRoleCard(
@@ -150,6 +154,7 @@ fun BookVoiceScreen(
                 voiceId = state.dialogueVoiceId ?: state.narratorVoiceId,
                 speed = state.dialogueSpeed,
                 voices = state.engineVoices,
+                enginesReady = state.engines.isNotEmpty(),
                 sample = state.dialogueSample,
                 sampleFallback = "No dialogue lines in this book. Dialogue changes leave dialogue-free chapters current.",
                 alternateVoiceId = state.alternateDialogueVoiceId,
@@ -162,7 +167,8 @@ fun BookVoiceScreen(
                 onSetSpeed = onSetSpeed,
                 onSetAlternateVoice = onSetAlternateVoice,
                 onPreview = onPreview,
-                onStop = onStop
+                onStop = onStop,
+                onReloadVoices = onReloadVoices
             )
             Spacer(Modifier.height(16.dp))
             if (!state.readOnly) {
@@ -171,17 +177,17 @@ fun BookVoiceScreen(
                     enabled = state.hasChanges
                 ) { Text("Apply") }
                 Spacer(Modifier.height(8.dp))
-                TextButton(onClick = onPromoteToDefaults) { Text("Save as default for new books") }
+                OutlinedButton(onClick = onPromoteToDefaults) { Text("Save as default for new books") }
             }
             state.error?.let { error ->
                 Spacer(Modifier.height(8.dp))
                 Text(text = error, style = MaterialTheme.typography.bodyMedium)
-                TextButton(onClick = onDismissError) { Text("Dismiss") }
+                OutlinedButton(onClick = onDismissError) { Text("Dismiss") }
             }
             state.notice?.let { notice ->
                 Spacer(Modifier.height(8.dp))
                 Text(text = notice, style = MaterialTheme.typography.bodyMedium)
-                TextButton(onClick = onDismissNotice) { Text("Dismiss") }
+                OutlinedButton(onClick = onDismissNotice) { Text("Dismiss") }
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -222,7 +228,7 @@ private fun EngineSection(
                 if (namespace == state.selectedEngine) {
                     Button(onClick = { onSelectEngine(namespace) }) { Text(label) }
                 } else {
-                    TextButton(onClick = { onSelectEngine(namespace) }) { Text(label) }
+                    OutlinedButton(onClick = { onSelectEngine(namespace) }) { Text(label) }
                 }
             }
         }
@@ -254,7 +260,7 @@ private fun EngineSection(
                     onClick = onConfirmEngineSwitch,
                     enabled = !state.readOnly
                 ) { Text("Switch engine") }
-                TextButton(onClick = onCancelEngineSwitch) { Text("Keep") }
+                OutlinedButton(onClick = onCancelEngineSwitch) { Text("Keep") }
             }
         }
     }
@@ -289,6 +295,7 @@ private fun BookRoleCard(
     voiceId: String,
     speed: Float,
     voices: List<TtsVoice>,
+    enginesReady: Boolean,
     sample: String?,
     sampleFallback: String,
     alternateVoiceId: String?,
@@ -302,10 +309,16 @@ private fun BookRoleCard(
     onSetAlternateVoice: (TtsRole, String?) -> Unit,
     onPreview: (TtsRole, Boolean) -> Unit,
     onStop: () -> Unit,
+    onReloadVoices: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var expanded by remember(role, voices) { mutableStateOf(false) }
     var altExpanded by remember(role, voices) { mutableStateOf(false) }
+    // UX1: an empty voice list means the engines are still starting
+    // (async System TTS init) or truly have no voices; the field and
+    // the menu both say which, so tapping never silently does nothing.
+    val voicesEmpty = voices.isEmpty()
+    val emptyReason = if (!enginesReady) "Loading voices..." else "No voices available"
     Column(modifier = modifier.fillMaxWidth()) {
         Text(text = title, style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(4.dp))
@@ -318,10 +331,11 @@ private fun BookRoleCard(
         }
         ExposedDropdownMenuBox(
             expanded = expanded,
-            onExpandedChange = { expanded = it && editingEnabled && voices.isNotEmpty() }
+            onExpandedChange = { expanded = it && editingEnabled }
         ) {
             OutlinedTextField(
-                value = voiceId.ifEmpty { "No voice chosen" },
+                value = if (voicesEmpty && voiceId.isEmpty()) emptyReason
+                else voiceId.ifEmpty { "No voice chosen" },
                 onValueChange = {},
                 readOnly = true,
                 enabled = editingEnabled,
@@ -333,19 +347,42 @@ private fun BookRoleCard(
                 expanded = expanded,
                 onDismissRequest = { expanded = false }
             ) {
-                voices.forEach { voice ->
+                if (voicesEmpty) {
                     DropdownMenuItem(
-                        text = { Text(voice.id) },
-                        onClick = {
-                            onSelectVoice(role, voice.id)
-                            expanded = false
-                        }
+                        text = { Text(emptyReason) },
+                        onClick = { expanded = false },
+                        enabled = false
                     )
+                } else {
+                    voices.forEach { voice ->
+                        DropdownMenuItem(
+                            text = { Text(voice.id) },
+                            onClick = {
+                                onSelectVoice(role, voice.id)
+                                expanded = false
+                            }
+                        )
+                    }
                 }
             }
         }
+        if (voicesEmpty && editingEnabled) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = if (!enginesReady) {
+                    "$emptyReason The TTS service is still starting."
+                } else {
+                    "$emptyReason Tap Reload to try again."
+                },
+                style = MaterialTheme.typography.bodySmall
+            )
+            if (enginesReady) {
+                Spacer(Modifier.height(4.dp))
+                OutlinedButton(onClick = onReloadVoices) { Text("Reload") }
+            }
+        }
         if (role == TtsRole.Dialogue && editingEnabled) {
-            TextButton(onClick = onClearDialogueVoice) { Text("Same as narrator") }
+            OutlinedButton(onClick = onClearDialogueVoice) { Text("Same as narrator") }
         }
         Spacer(Modifier.height(4.dp))
         Text(
@@ -361,7 +398,7 @@ private fun BookRoleCard(
         ) {
             Text(text = "Speed", style = MaterialTheme.typography.bodyMedium)
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(
+                OutlinedButton(
                     onClick = { onSetSpeed(role, speed - 0.25f) },
                     enabled = editingEnabled && speed > MIN_TTS_SPEED + 0.001f
                 ) { Text("-") }
@@ -369,7 +406,7 @@ private fun BookRoleCard(
                     text = "%.2fx".format(speed),
                     style = MaterialTheme.typography.bodyMedium
                 )
-                TextButton(
+                OutlinedButton(
                     onClick = { onSetSpeed(role, speed + 0.25f) },
                     enabled = editingEnabled && speed < MAX_TTS_SPEED - 0.001f
                 ) { Text("+") }
@@ -388,7 +425,7 @@ private fun BookRoleCard(
         Text(text = "Compare with", style = MaterialTheme.typography.bodySmall)
         ExposedDropdownMenuBox(
             expanded = altExpanded,
-            onExpandedChange = { altExpanded = it && editingEnabled && voices.isNotEmpty() }
+            onExpandedChange = { altExpanded = it && editingEnabled }
         ) {
             OutlinedTextField(
                 value = alternateVoiceId ?: "No compare voice",
@@ -403,14 +440,22 @@ private fun BookRoleCard(
                 expanded = altExpanded,
                 onDismissRequest = { altExpanded = false }
             ) {
-                voices.filter { it.id != voiceId }.forEach { voice ->
+                if (voicesEmpty) {
                     DropdownMenuItem(
-                        text = { Text(voice.id) },
-                        onClick = {
-                            onSetAlternateVoice(role, voice.id)
-                            altExpanded = false
-                        }
+                        text = { Text(emptyReason) },
+                        onClick = { altExpanded = false },
+                        enabled = false
                     )
+                } else {
+                    voices.filter { it.id != voiceId }.forEach { voice ->
+                        DropdownMenuItem(
+                            text = { Text(voice.id) },
+                            onClick = {
+                                onSetAlternateVoice(role, voice.id)
+                                altExpanded = false
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -418,7 +463,7 @@ private fun BookRoleCard(
         if (previewingAlternate) {
             Button(onClick = onStop) { Text("Stop compare") }
         } else {
-            TextButton(
+            OutlinedButton(
                 onClick = { onPreview(role, true) },
                 enabled = editingEnabled && alternateVoiceId != null
             ) { Text("Preview compare") }
@@ -436,10 +481,10 @@ private fun ImpactDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         confirmButton = {
-            TextButton(onClick = { onChoice(ApplyChoice.NOW) }) { Text("Re-render now") }
+            Button(onClick = { onChoice(ApplyChoice.NOW) }) { Text("Re-render now") }
         },
         dismissButton = {
-            TextButton(onClick = { onChoice(ApplyChoice.LATER) }) { Text("Later") }
+            OutlinedButton(onClick = { onChoice(ApplyChoice.LATER) }) { Text("Later") }
         },
         title = { Text("Apply voice changes?") },
         text = {
@@ -468,7 +513,7 @@ private fun ImpactDialog(
                     )
                 }
                 Spacer(Modifier.height(8.dp))
-                TextButton(onClick = { onChoice(ApplyChoice.KEEP) }) { Text("Keep old audio") }
+                OutlinedButton(onClick = { onChoice(ApplyChoice.KEEP) }) { Text("Keep old audio") }
             }
         }
     )

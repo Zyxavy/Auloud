@@ -9,8 +9,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -627,6 +627,6 @@ private fun ModeButton(
     if (selected) {
         Button(onClick = onClick, enabled = enabled) { Text(label) }
     } else {
-        TextButton(onClick = onClick, enabled = enabled) { Text(label) }
+        OutlinedButton(onClick = onClick, enabled = enabled) { Text(label) }
     }
 }

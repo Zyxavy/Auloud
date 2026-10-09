@@ -48,16 +48,15 @@ class SystemTtsAdapter(
         require(text.isNotBlank()) { "blank text" }
         require(voice.engine == SYSTEM_NAMESPACE) { "voice ${voice.id} is not a system voice" }
         if (!driver.isReady) throw IllegalStateException("system TTS not ready")
+        // UX1: no installedVoices() lookup here (an IPC per sentence);
+        // the driver validates the name and fails the render the same way.
         val localName = voice.id.substringAfter(':')
-        val known = driver.installedVoices().firstOrNull {
-            it.name == localName && !it.requiresNetwork
-        } ?: throw IllegalArgumentException("unknown system voice ${voice.id}")
         if (!scratchDir.isDirectory && !scratchDir.mkdirs()) {
             throw IllegalStateException("scratch dir unavailable: $scratchDir")
         }
         val wav = File.createTempFile("auloud-tts-", ".wav", scratchDir)
         try {
-            val ok = driver.renderToFile(text, known.name, clampTtsSpeed(speed), wav)
+            val ok = driver.renderToFile(text, localName, clampTtsSpeed(speed), wav)
             if (!ok) throw IllegalStateException("system TTS render failed for ${voice.id}")
             return decodeWav16Mono(wav.readBytes())
         } finally {

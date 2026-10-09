@@ -103,7 +103,6 @@ class RenderServicePolicyTest {
     fun shouldAutoResume_onlyGuardPausesWithAllClear() {
         assertTrue(RenderServicePolicy.shouldAutoResume(true, RenderGuardDecision.PROCEED))
         assertFalse(RenderServicePolicy.shouldAutoResume(false, RenderGuardDecision.PROCEED))
-        assertFalse(RenderServicePolicy.shouldAutoResume(true, RenderGuardDecision.PAUSE_CHARGER))
         assertFalse(
             RenderServicePolicy.shouldAutoResume(true, RenderGuardDecision.PAUSE_TEMPERATURE)
         )
@@ -113,10 +112,6 @@ class RenderServicePolicyTest {
     @Test
     fun pauseMessage_namesEachGuard() {
         assertNull(RenderServicePolicy.pauseMessage(RenderGuardDecision.PROCEED))
-        assertEquals(
-            "Paused - connect the charger to keep rendering",
-            RenderServicePolicy.pauseMessage(RenderGuardDecision.PAUSE_CHARGER)
-        )
         assertEquals(
             "Paused - letting the battery cool down",
             RenderServicePolicy.pauseMessage(RenderGuardDecision.PAUSE_TEMPERATURE)

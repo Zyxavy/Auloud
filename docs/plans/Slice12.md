@@ -93,7 +93,7 @@ Per the D-066 choice.
 Log daily in `docs/soak-log-v2.md`, on the release candidate with the flavor you ship.
 
 - [ ] A public-domain novel of 10+ hours imported on the tablet (for example the Sherlock Holmes collection or *Pride and Prejudice*)
-- [ ] Rendered on-device with System TTS, charging-only, over one to two nights; listening starts on early chapters while later ones render (render-ahead)
+- [ ] Rendered on-device with System TTS over one to two nights (renders run unplugged, D-130); listening starts on early chapters while later ones render (render-ahead)
 - [ ] Listened over several days in all three modes; at least two screen-off stretches of 2+ hours
 - [ ] At least one mid-render kill (swipe away or reboot) and resume without redoing finished sentences
 - [ ] A voice change on the book, then a re-render of a few chapters while listening to others; position preserved
@@ -140,7 +140,7 @@ If the soak exposes a bug, fix and re-run only the affected parts; keep the soak
 | R8 breaks the native bridge or serialization in release only | Test the release build of each flavor, not just debug |
 | Room migration loses data on upgrade | VC3 over-install test with real data; keep a manual re-import fallback |
 | Samsung kills the render service on some nights | Soak counts kills; resume from the spool is already tested; document the battery setting |
-| Heat or battery drain in long renders | Charging-only default; guard tuned from real numbers |
+| Heat or battery drain in long renders | Temperature plus storage guards stay; guard tuned from real numbers |
 | Nonzero encoder offset conflicts with the spec | VC4 gate decides before release |
 | `full` APK size | ABI limits and split APKs; model packs stay separate |
 | Soak takes longer than expected | Start it on the first candidate; run polish in parallel |

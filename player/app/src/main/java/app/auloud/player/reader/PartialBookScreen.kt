@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.util.Log
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,7 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,12 +46,12 @@ import app.auloud.player.render.JavaFileRenderIo
 import app.auloud.player.render.RenderDebugOverlay
 import app.auloud.player.render.RenderPanel
 import app.auloud.player.render.RenderPanelViewModel
-import app.auloud.player.render.RenderPolicyPrefs
 import app.auloud.player.render.RenderService
 import app.auloud.player.render.RenderServicePolicy
 import app.auloud.player.render.bannerFor
 import app.auloud.player.render.buildChapterMediaMap
 import app.auloud.player.render.isChapterListeningEnabled
+import app.auloud.player.render.listenChapterTarget
 import app.auloud.player.render.partialChapterTarget
 import app.auloud.player.render.rerenderModeName
 import app.auloud.player.settings.isRenderDebugAvailable
@@ -71,8 +74,8 @@ import kotlinx.coroutines.withContext
  *
  * A partial book is neither fully playable nor read-only: rendered
  * chapters listen, unrendered chapters read. This screen owns the
- * [RenderPanelViewModel] (render panel: estimate, options, charging
- * toggle, voices, start, delete) plus a chapter list with per-chapter
+ * [RenderPanelViewModel] (render panel: estimate, options, voices,
+ * start, delete) plus a chapter list with per-chapter
  * states and actions. Tapping a chapter saves the position, then opens
  * the right screen: rendered chapters listen in [PlayerScreen] (the RN8
  * sparse playlist starts through the chapter map, and the
@@ -126,8 +129,6 @@ fun PartialBookScreen(
             progress = progress,
             voices = PrefsTtsStore.fromContext(appContext),
             fileIo = JavaFileRenderIo(),
-            policy = RenderPolicyPrefs.load(appContext),
-            onPolicyChange = { RenderPolicyPrefs.save(appContext, it) },
             onStartRender = { chapter, scopeName, nextN ->
                 try {
                     appContext.startService(
@@ -303,7 +304,11 @@ fun PartialBookScreen(
             } else {
                 null
             },
-            onOpenVoices = null
+            onOpenVoices = null,
+            onPlayChapter = {
+                showChapters = false
+                openChapter(it)
+            }
         )
     } else {
         Column(
@@ -325,7 +330,6 @@ fun PartialBookScreen(
                 state = panelState,
                 onSelectOption = panelVm::selectOption,
                 onSetNextN = panelVm::setNextN,
-                onSetChargingOnly = panelVm::setChargingOnly,
                 onStart = panelVm::start,
                 onPause = panelVm::pause,
                 onResume = panelVm::resume,
@@ -334,9 +338,22 @@ fun PartialBookScreen(
                 onOpenVoiceSettings = { showBookVoices = true },
                 onDismissError = panelVm::dismissError
             )
-            Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                TextButton(onClick = { showChapters = true }) { Text("Chapters") }
-                TextButton(onClick = { showBookVoices = true }) { Text("Voices") }
+            // UX1: prominent Listen entry (saved-rendered chapter, else
+            // first rendered); hidden while nothing is rendered.
+            val listenTarget = remember(panelState.renderedPositions, panelState.readingChapter, map) {
+                map?.let { listenChapterTarget(panelState.renderedPositions, panelState.readingChapter) }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Button(
+                    onClick = { listenTarget?.let { openChapter(it) } },
+                    enabled = listenTarget != null
+                ) { Text("Listen") }
+                Button(onClick = { showChapters = true }) { Text("Chapters") }
+                OutlinedButton(onClick = { showBookVoices = true }) { Text("Voices") }
             }
             Spacer(Modifier.height(8.dp))
             if (isRenderDebugAvailable(BuildConfig.DEBUG)) {
@@ -353,7 +370,7 @@ fun PartialBookScreen(
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
             confirmButton = {
-                TextButton(
+                OutlinedButton(
                     onClick = {
                         pendingDelete = null
                         panelVm.deleteChapterByPos(pos)
@@ -361,7 +378,7 @@ fun PartialBookScreen(
                 ) { Text("Delete") }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("Keep") }
+                OutlinedButton(onClick = { pendingDelete = null }) { Text("Keep") }
             },
             title = { Text("Delete this chapter's audio?") },
             text = { Text("The chapter returns to unrendered. This cannot be undone.") }
@@ -374,7 +391,7 @@ fun PartialBookScreen(
         AlertDialog(
             onDismissRequest = { pendingDeleteStale = false },
             confirmButton = {
-                TextButton(
+                OutlinedButton(
                     onClick = {
                         pendingDeleteStale = false
                         panelVm.deleteStaleAudio()
@@ -382,7 +399,7 @@ fun PartialBookScreen(
                 ) { Text("Delete") }
             },
             dismissButton = {
-                TextButton(onClick = { pendingDeleteStale = false }) { Text("Keep") }
+                OutlinedButton(onClick = { pendingDeleteStale = false }) { Text("Keep") }
             },
             title = { Text("Delete stale audio?") },
             text = {

@@ -134,6 +134,7 @@ internal fun BookVoiceHost(
         onPromoteToDefaults = viewModel::promoteToDefaults,
         onDismissError = viewModel::dismissError,
         onDismissNotice = viewModel::dismissNotice,
+        onReloadVoices = viewModel::refresh,
         modifier = modifier
     )
 }

@@ -81,7 +81,7 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 
 **Slice 10: Background rendering (L).** *Status: complete (tag `slice-10`; RN11 device-passed 2026-10-08, see #16; offset number unrecorded, fixture 0 stands).*
 
-- Foreground rendering service: per-chapter jobs, progress, pause and resume, optional "only while charging", wake lock, storage checks
+- Foreground rendering service: per-chapter jobs, progress, pause and resume, wake lock, storage checks (charging-only gate removed by D-130; renders run unplugged)
 - Narrator and dialogue voices synthesized per sentence; short pause at quote/tag boundaries; per-voice loudness leveling; timings from sample counts; chapters stored as AAC (decision 4) with timing JSON, so read-along works unchanged
 - Optional: import a Scribe script bundle (decision 6) as another source
 - **Done when:** an imported EPUB renders overnight on the Tab E and plays with correct highlight; killing the app mid-render resumes without redoing finished chapters

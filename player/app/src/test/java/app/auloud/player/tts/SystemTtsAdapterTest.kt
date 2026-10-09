@@ -38,10 +38,15 @@ class FakeSystemTtsDriver(
     val renders = mutableListOf<RenderCall>()
     var renderResult = true
     var shutDown = false
+    // UX1: counts voice-list reads so tests pin the per-sentence IPC saving.
+    var installedVoicesCalls = 0
 
     override val isReady: Boolean get() = ready
 
-    override fun installedVoices(): List<SystemVoice> = installed
+    override fun installedVoices(): List<SystemVoice> {
+        installedVoicesCalls++
+        return installed
+    }
 
     override fun renderToFile(
         text: String,
@@ -51,6 +56,9 @@ class FakeSystemTtsDriver(
     ): Boolean {
         renders.add(RenderCall(text, systemVoiceName, speechRate, outFile))
         if (!renderResult) return false
+        // Mirrors the production driver: unknown or network-dependent
+        // names refuse (the adapter no longer pre-validates, UX1).
+        if (installed.none { it.name == systemVoiceName && !it.requiresNetwork }) return false
         outFile.writeBytes(testWav16Mono(sampleRateHz, FloatArray(220) { 0.2f }))
         return true
     }
@@ -139,20 +147,38 @@ class SystemTtsAdapterTest {
     }
 
     @Test
-    fun synthesize_unknownVoice_throws() = runBlocking {
-        try {
-            adapter().synthesize("Hi.", TtsVoice(id = "system:nope", engine = "system"), 1.0f)
-            fail("expected IllegalArgumentException")
-        } catch (_: IllegalArgumentException) {
-        }
+    fun synthesize_skipsVoiceListLookup() = runBlocking {
+        val driver = FakeSystemTtsDriver()
+        adapter(driver).synthesize(
+            "Hello world.",
+            TtsVoice(id = "system:en-us-x-sfg#female", engine = "system"),
+            1.0f
+        )
+        assertEquals(0, driver.installedVoicesCalls)
+        assertEquals(1, driver.renders.size)
     }
 
     @Test
-    fun synthesize_networkVoice_throws() = runBlocking {
+    fun synthesize_unknownVoice_failsRender() = runBlocking {
+        // UX1: no adapter-side lookup anymore; the driver refuses the
+        // unknown name and the render fails the same way (one IPC saved).
+        val driver = FakeSystemTtsDriver()
+        try {
+            adapter(driver).synthesize("Hi.", TtsVoice(id = "system:nope", engine = "system"), 1.0f)
+            fail("expected IllegalStateException")
+        } catch (_: IllegalStateException) {
+        }
+        assertEquals(0, driver.installedVoicesCalls)
+    }
+
+    @Test
+    fun synthesize_networkVoice_failsRender() = runBlocking {
+        // UX1: same path as unknown (the fake refuses names outside its
+        // list; the production driver refuses network voices itself).
         try {
             adapter().synthesize("Hi.", TtsVoice(id = "system:net-voice", engine = "system"), 1.0f)
-            fail("expected IllegalArgumentException")
-        } catch (_: IllegalArgumentException) {
+            fail("expected IllegalStateException")
+        } catch (_: IllegalStateException) {
         }
     }
 

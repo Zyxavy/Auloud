@@ -11,9 +11,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,18 +26,20 @@ import androidx.compose.ui.unit.dp
  * RN9: book render panel (Slice 10).
  *
  * Estimate (audio length, size, wall-time RANGE), options (whole book,
- * next N, from here), charging-only toggle, voices summary with a link
- * to voice settings, start/pause/resume/cancel, job progress, plain
- * errors, and whole-book delete with confirm. Pure content: state in,
+ * next N, from here), voices summary with a link to voice settings,
+ * start/pause/resume/cancel, job progress, plain errors, and
+ * whole-book delete with confirm. Pure content: state in,
  * callbacks out, like the voice lab screen. Narrow params keep
  * recompositions cheap on the Tab E.
+ *
+ * UX1 (2026-10-10, owner-ordered): the charging-only toggle is gone;
+ * renders run unplugged.
  */
 @Composable
 fun RenderPanel(
     state: RenderPanelState,
     onSelectOption: (RenderOption) -> Unit,
     onSetNextN: (Int) -> Unit,
-    onSetChargingOnly: (Boolean) -> Unit,
     onStart: () -> Unit,
     onPause: () -> Unit,
     onResume: () -> Unit,
@@ -97,13 +98,8 @@ fun RenderPanel(
             }
             Spacer(Modifier.height(8.dp))
         }
-        ChargingRow(
-            chargingOnly = state.chargingOnly,
-            onSetChargingOnly = onSetChargingOnly
-        )
-        Spacer(Modifier.height(8.dp))
         Text(text = state.voicesLine, style = MaterialTheme.typography.bodySmall)
-        TextButton(onClick = onOpenVoiceSettings) { Text("Choose voices") }
+        OutlinedButton(onClick = onOpenVoiceSettings) { Text("Choose voices") }
         Spacer(Modifier.height(8.dp))
         JobBlock(
             state = state,
@@ -115,7 +111,7 @@ fun RenderPanel(
         state.error?.let { error ->
             Spacer(Modifier.height(4.dp))
             Text(text = error, style = MaterialTheme.typography.bodyMedium)
-            TextButton(onClick = onDismissError) { Text("Dismiss") }
+            OutlinedButton(onClick = onDismissError) { Text("Dismiss") }
         }
         state.jobError?.let { raw ->
             Spacer(Modifier.height(4.dp))
@@ -126,14 +122,14 @@ fun RenderPanel(
         }
         if (state.renderedCount > 0) {
             Spacer(Modifier.height(8.dp))
-            TextButton(onClick = { confirmDelete = true }) { Text("Delete audio") }
+            OutlinedButton(onClick = { confirmDelete = true }) { Text("Delete audio") }
         }
     }
     if (confirmDelete) {
         AlertDialog(
             onDismissRequest = { confirmDelete = false },
             confirmButton = {
-                TextButton(
+                OutlinedButton(
                     onClick = {
                         confirmDelete = false
                         onDeleteAllAudio()
@@ -141,7 +137,7 @@ fun RenderPanel(
                 ) { Text("Delete") }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) { Text("Keep") }
+                OutlinedButton(onClick = { confirmDelete = false }) { Text("Keep") }
             },
             title = { Text("Delete rendered audio?") },
             text = { Text("Every rendered chapter returns to unrendered. This cannot be undone.") }
@@ -210,7 +206,7 @@ private fun OptionButton(label: String, selected: Boolean, onClick: () -> Unit) 
     if (selected) {
         Button(onClick = onClick) { Text(label) }
     } else {
-        TextButton(onClick = onClick) { Text(label) }
+        OutlinedButton(onClick = onClick) { Text(label) }
     }
 }
 
@@ -228,7 +224,7 @@ private fun NextNStepper(
     ) {
         Text(text = "Chapters", style = MaterialTheme.typography.bodyMedium)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TextButton(
+            OutlinedButton(
                 onClick = { onSetNextN(nextN - 1) },
                 enabled = nextN > 1
             ) { Text("-") }
@@ -236,36 +232,11 @@ private fun NextNStepper(
                 text = "$nextN",
                 style = MaterialTheme.typography.bodyMedium
             )
-            TextButton(
+            OutlinedButton(
                 onClick = { onSetNextN(nextN + 1) },
                 enabled = nextN < chapterCount.coerceAtLeast(1)
             ) { Text("+") }
         }
-    }
-}
-
-@Composable
-private fun ChargingRow(
-    chargingOnly: Boolean,
-    onSetChargingOnly: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f).padding(end = 8.dp)) {
-            Text(
-                text = "Render only while charging",
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Text(
-                text = "Overnight renders pause when the charger unplugs.",
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
-        Switch(checked = chargingOnly, onCheckedChange = onSetChargingOnly)
     }
 }
 
@@ -288,7 +259,7 @@ private fun JobBlock(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onPause) { Text("Pause") }
-                    TextButton(onClick = onCancel) { Text("Cancel") }
+                    OutlinedButton(onClick = onCancel) { Text("Cancel") }
                 }
             }
             RenderJobState.PAUSED,
@@ -300,13 +271,13 @@ private fun JobBlock(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onResume) { Text("Resume") }
-                    TextButton(onClick = onCancel) { Text("Cancel") }
+                    OutlinedButton(onClick = onCancel) { Text("Cancel") }
                 }
             }
             RenderJobState.FAILED -> {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onStart) { Text("Retry") }
-                    TextButton(onClick = onCancel) { Text("Cancel") }
+                    OutlinedButton(onClick = onCancel) { Text("Cancel") }
                 }
             }
             RenderJobState.CANCELLED,

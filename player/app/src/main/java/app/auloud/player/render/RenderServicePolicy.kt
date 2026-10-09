@@ -24,7 +24,7 @@ package app.auloud.player.render
  *   next explicit start continues where the kill landed.
  * - auto-resume after a guard pause: only when the pause came from the
  *   guards ([autoPaused]) and the guards now report PROCEED. An explicit
- *   user pause never auto-resumes on a charger or temperature signal.
+ *   user pause never auto-resumes on a temperature signal.
  * - partial-book saves: playback positions are media (playlist) indexes;
  *   the progress store is keyed by manifest chapter position, so saves
  *   convert through [ChapterMediaMap]. Unmapped media indexes save
@@ -96,7 +96,6 @@ object RenderServicePolicy {
      */
     fun pauseMessage(decision: RenderGuardDecision): String? = when (decision) {
         RenderGuardDecision.PROCEED -> null
-        RenderGuardDecision.PAUSE_CHARGER -> "Paused - connect the charger to keep rendering"
         RenderGuardDecision.PAUSE_TEMPERATURE -> "Paused - letting the battery cool down"
         RenderGuardDecision.PAUSE_STORAGE -> "Paused - low storage (free space to keep rendering)"
     }

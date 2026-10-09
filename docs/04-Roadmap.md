@@ -176,7 +176,7 @@ Embed the EPUB/PDF in the app so the device runs its own TTS (Kokoro or Piper).
 - [ ] Benchmark spike first: measure real-time factor of Piper and Kokoro on target devices
 - [ ] Engine interface so voices are pluggable
 - [ ] On-device tagging with rules
-- [ ] Background render while charging; streaming synthesis for immediate listening
+- [ ] Background render (no charger requirement, D-130); streaming synthesis for immediate listening
 - [ ] Decide licensing impact of bundling espeak-ng
 
 ## v3

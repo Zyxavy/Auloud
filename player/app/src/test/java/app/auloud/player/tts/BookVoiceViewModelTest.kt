@@ -182,7 +182,8 @@ class BookVoiceViewModelTest {
     private inner class Harness(
         shared: HashMap<String, String> = files(),
         globalsNarrator: String = "system:voice-a",
-        globalsDialogue: String = "system:voice-a"
+        globalsDialogue: String = "system:voice-a",
+        val engines: EngineRegistry = registry()
     ) {
         val storage = FakeStorage(shared)
         val ioFiles: HashMap<String, String> = hashMapOf()
@@ -192,7 +193,6 @@ class BookVoiceViewModelTest {
             if (globalsNarrator.isNotBlank()) it.setVoiceId(TtsRole.Narrator, globalsNarrator)
             if (globalsDialogue.isNotBlank()) it.setVoiceId(TtsRole.Dialogue, globalsDialogue)
         }
-        val engines = registry()
         val audio = FakeAudioPlayer()
         var pauses = 0
         var rerenderStarts = mutableListOf<Pair<Int, RerenderMode>>()
@@ -505,5 +505,67 @@ class BookVoiceViewModelTest {
         } finally {
             harness.vm.clear()
         }
+    }
+
+    // UX1: empty voice list states (async System TTS init) plus reload.
+
+    @Test
+    fun freshState_isLoading() {
+        assertTrue(BookVoiceViewModel.UiState().isLoading)
+    }
+
+    @Test
+    fun emptyEngines_loadsEmptyVoiceList() {
+        val harness = Harness(engines = EngineRegistry(emptyList()))
+        try {
+            val state = harness.vm.state.value
+            assertFalse(state.isLoading)
+            assertNull(state.manifestError)
+            assertTrue(state.engines.isEmpty())
+            assertTrue(state.engineVoices.isEmpty())
+            assertEquals("", state.selectedEngine)
+        } finally {
+            harness.vm.clear()
+        }
+    }
+
+    @Test
+    fun refresh_picksUpLateVoices() {
+        val mutable = MutableVoiceEngine("system", emptyList())
+        val harness = Harness(engines = EngineRegistry(listOf(mutable)))
+        try {
+            assertTrue(harness.vm.state.value.engineVoices.isEmpty())
+            mutable.ids = listOf("system:voice-a", "system:voice-b")
+            harness.vm.refresh()
+            val state = harness.vm.state.value
+            assertEquals(listOf("system"), state.engines)
+            assertEquals(
+                listOf("system:voice-a", "system:voice-b"),
+                state.engineVoices.map { it.id }
+            )
+        } finally {
+            harness.vm.clear()
+        }
+    }
+
+    /** Mutable fake engine: the voice list can grow mid-test (late TTS init). */
+    private class MutableVoiceEngine(
+        override val namespace: String,
+        var ids: List<String>
+    ) : TtsEngine {
+        override fun voices(): List<TtsVoice> =
+            ids.map { TtsVoice(id = it, engine = namespace) }
+
+        override fun capabilities(): TtsCapabilities = TtsCapabilities(
+            multiSpeaker = true,
+            loadCostMb = 0,
+            sampleRateHz = 24_000
+        )
+
+        override suspend fun synthesize(
+            text: String,
+            voice: TtsVoice,
+            speed: Float
+        ): SynthesizedAudio = throw UnsupportedOperationException("not used here")
     }
 }

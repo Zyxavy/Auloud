@@ -473,3 +473,33 @@ every path named above exists at head (`docs/07-TestPlan.md`,
 `docs/archive/v1/07-Testplan.md`). The README walkthrough is written
 for a fresh install but unrun: do not claim it until the owner ticks
 its boxes on the Tab E.
+
+---
+
+## UX1 tablet fix batch (agent, 2026-10-10, JVM only, no device claimed)
+
+Owner-reported batch (D-130): hub Listen entry, charging-gate removal,
+voice-dropdown feedback, real buttons, synth IPC saving. No bundle-format,
+dependency, or permission change. All device proof stays owner-run.
+
+- Charging gate deleted outright (`PAUSE_CHARGER`, `chargingOnly`,
+  `isCharging`, ChargingRow, prefs key, service message, error mapping);
+  temperature plus storage guards untouched. Renders run unplugged.
+- Hub Listen button plus per-row Play buttons ride the existing
+  `openChapter`/`partialChapterTarget` path (gating single-sourced).
+- Voice dropdown names its empty state ("Loading voices..." while the
+  engines start, "No voices available" plus Reload after) reusing the
+  existing `refresh()` load path; no new engine code.
+- Synth overhead, safe part only: `SystemTtsAdapter.synthesize` no
+  longer calls `installedVoices()` per sentence (the driver validates
+  the name and fails the render the same way); `AndroidSystemTtsDriver`
+  skips redundant `setSpeechRate`/`setVoice` calls when voice plus rate
+  are unchanged. No sentence batching, no timing-math touch.
+- Remaining per-sentence cost (~3 s/sentence on the Tab E per the
+  owner) is engine-bound until a device RTF re-measure (owner job):
+  re-record the System TTS RTF band from the debug overlay during the
+  soak and retune `RENDER_RTF_LOW`/`RENDER_RTF_HIGH` plus
+  `EST_MS_PER_WORD` from real renders (`docs/constants.md` procedure).
+
+Not claimed: anything on the tablet (listen path by ear/eye, dropdown
+on cold open, render RTF from the debug overlay, unplugged render runs).

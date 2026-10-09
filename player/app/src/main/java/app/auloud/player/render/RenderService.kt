@@ -1503,7 +1503,7 @@ class RenderService : Service() {
             Log.i(
                 TAG,
                 "guard ${decision.name} free=${signals.freeBytes()} required=$required " +
-                    "charging=${signals.isCharging()} temp=${signals.batteryTempC()}"
+                    "temp=${signals.batteryTempC()}"
             )
         }
         return decision

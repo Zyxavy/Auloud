@@ -203,9 +203,6 @@ fun renderErrorText(raw: String?): String {
     if ("letting the battery cool" in lower || "too warm" in lower || "temperature" in lower) {
         return "The tablet is too warm. Rendering continues when it cools down. ($raw)"
     }
-    if ("connect the charger" in lower || "charger" in lower) {
-        return "Rendering paused. Connect the charger to continue. ($raw)"
-    }
     if ("app-storage output" in lower || "picked folder" in lower || "saf" in lower) {
         return "This book lives in a picked folder, which rendering cannot write to yet. " +
             "Move it into the Auloud folder to render it. ($raw)"
@@ -317,6 +314,28 @@ enum class ChapterOpenTarget {
 /** RN9: rendered chapters listen, unrendered chapters read. */
 fun partialChapterTarget(chapterPos: Int, map: ChapterMediaMap): ChapterOpenTarget =
     if (isChapterListeningEnabled(chapterPos, map)) ChapterOpenTarget.LISTEN else ChapterOpenTarget.READ
+
+/**
+ * UX1: hub Listen target (0-based manifest position), or null when no
+ * chapter is rendered yet (the hub then shows no Listen entry point).
+ *
+ * The saved reading chapter wins when it is rendered; otherwise the
+ * first rendered chapter, so Listen never lands on the text reader.
+ * Gating stays single-sourced: callers still open through
+ * [partialChapterTarget].
+ */
+fun listenChapterTarget(renderedPositions: List<Int>, readingChapter: Int): Int? {
+    if (renderedPositions.isEmpty()) return null
+    return if (readingChapter in renderedPositions) readingChapter
+    else renderedPositions.minOrNull()
+}
+
+/**
+ * UX1: per-row Play button shows only on rendered rows (which listen);
+ * unrendered rows keep tap-to-read with no Play button.
+ */
+fun showRowPlayButton(renderState: ChapterRenderState?): Boolean =
+    renderState == ChapterRenderState.RENDERED
 
 /**
  * RN9: one-line voices summary for the panel

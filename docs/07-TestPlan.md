@@ -17,7 +17,7 @@ Do not tick these from JVM results; each needs the tablet.
 
 - [ ] Release smoke checklist on the signed APK (sideload, import, playback, screen-off, render, voices, Piper pack on `full`, no debug features visible): `docs/ReleaseSigning.md`, all boxes unticked.
 - [ ] VC3 over-install: signed `v1.0.0` with books plus progress, then signed `2.0.0` over it with the same key; library and positions survive: `docs/ReleaseSigning.md` ("VC3 over-install procedure"), all boxes unticked.
-- [ ] VC7 soak: a 10+ hour public-domain novel imported, rendered on-device over one to two charging nights, listened to over several days in all three modes with screen-off stretches, a mid-render kill plus resume, a voice change with re-render, highlight within about 300 ms, storage numbers recorded. Full box list in `docs/plans/Slice12.md` (VC7); log daily in `docs/soak-log-v2.md` (created when the soak starts).
+- [ ] VC7 soak: a 10+ hour public-domain novel imported, rendered on-device over one to two nights (renders run unplugged, D-130), listened to over several days in all three modes with screen-off stretches, a mid-render kill plus resume, a voice change with re-render, highlight within about 300 ms, storage numbers recorded. Full box list in `docs/plans/Slice12.md` (VC7); log daily in `docs/soak-log-v2.md` (created when the soak starts).
 - [ ] VC0 gates still with the owner: SysLong 5-minute bench on a cool tablet (record RTF in `docs/test-log.md`; decides streaming and the render-ahead window), then spike deletion plus the roadmap verdict.
 
 ## 3. Release gate (VC8)

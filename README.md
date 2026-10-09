@@ -206,7 +206,7 @@ On the tablet, open Settings, then Language and input, then Text-to-speech outpu
 - [ ] Prepare offline voices per the previous section.
 - [ ] In the library, tap Import EPUB and pick the file with the system picker. The book opens with a chapter list and readable text, dialogue marked.
 - [ ] Open the book (it lands on the render hub while unrendered), then Choose voices: set the narrator voice and the dialogue voice, keeping or switching the engine (the recommended engine is marked; slow engines warn). Audition each role.
-- [ ] On the render panel, check the estimate range and the charging-only option, then start the render. Leave the tablet charging overnight; listening can start on early chapters while later ones still render.
+- [ ] On the render panel, check the estimate range, then start the render. Renders run unplugged (D-130); listening can start on early chapters while later ones still render.
 - [ ] Press play in any of the three modes. The highlight should follow the audio within about 300 ms.
 - [ ] (`full` only) Copy a Piper pack into `/Auloud/models/`, pick the `piper` engine for a role, and render at least one chapter; record the speed.
 

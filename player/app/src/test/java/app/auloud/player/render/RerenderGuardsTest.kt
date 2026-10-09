@@ -394,7 +394,6 @@ class RerenderGuardsTest {
             setVoiceId(TtsRole.Narrator, narratorGlobal)
             setVoiceId(TtsRole.Dialogue, dialogueGlobal)
         }
-        var policy = RenderPolicy(chargingOnly = true)
         var rerenderStarts = mutableListOf<Pair<Int, RerenderMode>>()
         var versionOf: (String) -> String? = { ns -> if (ns == "system") "v1" else null }
 
@@ -405,8 +404,6 @@ class RerenderGuardsTest {
             progress = progress,
             voices = voiceStore,
             fileIo = io,
-            policy = policy,
-            onPolicyChange = { policy = it },
             onStartRender = { _, _, _ -> },
             onPauseRender = {},
             onResumeRender = {},
