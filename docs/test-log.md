@@ -531,6 +531,12 @@ per-box numbers recorded).
 Still owner-open (batched device round): VC2 smoke checklist, VC3
 over-install proof, VC8 release tagging.
 
+NOTICE.full confirm recorded 2026-10-10: owner confirmed both GPL
+paragraphs (redistribute/modify under GPL-3.0-or-later with text in
+assets/gpl-3.0.txt; Corresponding Source via assets/SOURCE_OFFER.txt
+valid 3+ years) may ship with the filled offer (Zyxary /
+kentandrewparejas@gmail.com / github Zyxavy/Auloud tag v2.0.0).
+
 2026-10-10 correction to the SysLong waiver above: owner evidence
 (ReadEra reads aloud on the tablet via live system TTS) challenges
 the infeasibility hypothesis. ReadEra uses a live `speak()`

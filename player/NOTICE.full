@@ -3,9 +3,8 @@ Auloud Player (full flavor)
 
 Copyright (c) 2026 Zyxavy.
 
-[OWNER REVIEW before any full-APK distribution: the GPL-3.0 paragraphs
-below plus SOURCE_OFFER.txt placeholders must be confirmed. Do not ship
-the full flavor until they are.]
+[Owner-confirmed 2026-10-10: the GPL-3.0 paragraphs below and the
+filled SOURCE_OFFER.txt may ship.]
 
 This full build is a GPL-3.0 combined work (D-126 option A): Apache-2.0
 app code (see player/LICENSE) plus the bundled sherpa-onnx 1.13.8

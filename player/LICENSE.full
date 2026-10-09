@@ -1,8 +1,7 @@
 Auloud Player, full flavor: license note (D-126 option A).
 
-[OWNER REVIEW before any full-APK distribution, with NOTICE.full and
-the SOURCE_OFFER.txt placeholders. Do not ship the full flavor until
-all three are confirmed.]
+[Owner-confirmed 2026-10-10, with NOTICE.full and the filled
+SOURCE_OFFER.txt. The full flavor may ship.]
 
 The sherpa-carrying `full` flavor is distributed as a GPL-3.0 combined
 work, not under the Apache-2.0 LICENSE in this directory (that file
