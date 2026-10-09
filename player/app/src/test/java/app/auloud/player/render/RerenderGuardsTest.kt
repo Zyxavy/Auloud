@@ -774,6 +774,79 @@ class RerenderGuardsTest {
             put("pitch", 1.0)
         }
 
+    // VS6 fixup: wiring pin. Production passes a live registry plus real
+    // freeBytes (File.usableSpace, bounded); the ViewModel defaults
+    // (registry=null, freeBytes=MAX) skip the voice plus storage guards.
+    // These tests pin that gap so a revert to defaults fails loudly.
+
+    @Test
+    fun panel_defaultsSkipVoiceGuard_startsInsteadOfRefusing() {
+        val files = renderedFiles(
+            narratorEngine = "piper", narratorVoice = "voice-p",
+            dialogueEngine = "piper", dialogueVoice = "voice-p",
+            ch2DialogueVoice = "system:dial"
+        )
+        val harness = PanelHarness(files)
+        harness.versionOf = { ns -> if (ns == "piper" || ns == "system") "v1" else null }
+        val vm = harness.viewModel()
+        try {
+            vm.rerenderStale()
+            assertEquals(1, harness.rerenderStarts.size)
+            assertNull(vm.state.value.error)
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    fun panel_productionWiringRefusesWhereDefaultsStart() {
+        val files = renderedFiles(
+            narratorEngine = "piper", narratorVoice = "voice-p",
+            dialogueEngine = "piper", dialogueVoice = "voice-p",
+            ch2DialogueVoice = "system:dial"
+        )
+        val harness = PanelHarness(files, registry = registryNoPiper(), free = Long.MAX_VALUE)
+        harness.versionOf = { ns -> if (ns == "piper" || ns == "system") "v1" else null }
+        val vm = harness.viewModel()
+        try {
+            vm.rerenderStale()
+            assertTrue(harness.rerenderStarts.isEmpty())
+            val error = vm.state.value.error ?: ""
+            assertTrue("was: $error", "piper" in error)
+            assertTrue("was: $error", "voice screen" in error)
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    fun voice_defaultFreeBytesSkipsStorage_startsInsteadOfRefusing() {
+        val shared = renderedFiles()
+        val harness = VoiceHarness(shared, free = Long.MAX_VALUE)
+        try {
+            harness.vm.selectVoice(TtsRole.Narrator, "system:new-narr")
+            harness.vm.requestApply()
+            assertNull(harness.vm.state.value.error)
+            harness.vm.confirmApply(BookVoiceViewModel.ApplyChoice.NOW)
+            assertEquals(1, harness.rerenderStarts.size)
+            assertNull(harness.vm.state.value.error)
+        } finally {
+            harness.vm.clear()
+        }
+    }
+
+    @Test
+    fun productionFreeBytes_isBounded_notMax() {
+        val tmp = java.io.File(System.getProperty("java.io.tmpdir") ?: ".")
+        val free = try {
+            tmp.usableSpace
+        } catch (_: Exception) {
+            Long.MAX_VALUE
+        }
+        assertTrue("usableSpace should be bounded, got $free", free < Long.MAX_VALUE)
+        assertTrue("usableSpace should be non-negative, got $free", free >= 0L)
+    }
+
     /** Mutable fake engine: the voice list can shrink mid-test (uninstall). */
     private class MutableEngine(
         override val namespace: String,

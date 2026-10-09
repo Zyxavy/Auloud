@@ -94,7 +94,14 @@ internal fun BookVoiceHost(
                 }
             },
             onPauseRender = { sendRenderAction(appContext, RenderService.ACTION_PAUSE) },
-            onBookChanged = onBookChanged
+            onBookChanged = onBookChanged,
+            freeBytes = {
+                try {
+                    File(book.bundleDir).usableSpace
+                } catch (_: Exception) {
+                    0L
+                }
+            }
         )
     }
     DisposableEffect(book.id) {

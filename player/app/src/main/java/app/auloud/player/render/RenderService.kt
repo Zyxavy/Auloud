@@ -967,7 +967,8 @@ class RenderService : Service() {
      * refusal notifies and creates no job, leaving audio plus manifest
      * untouched. Playback never consults these guards (it keys on audio
      * presence only), so existing audio keeps playing while planning
-     * refuses.
+     * refuses. The voice block is conservative: it refuses the whole job
+     * even when only an unused role is missing (D-125).
      */
     private suspend fun loadOrPlanRerenderJob(
         bookId: String,
@@ -1041,8 +1042,8 @@ class RenderService : Service() {
             notifyError("Render failed", "Manifest unreadable")
             return null
         }
-        if (BookVoices.isReadOnly(manifest)) {
-            notifyError("Render unavailable", BookVoices.READ_ONLY_MESSAGE)
+        RerenderGuards.checkNotReadOnly(BookVoices.isReadOnly(manifest)).onFailure { e ->
+            notifyError("Render unavailable", e.message ?: BookVoices.READ_ONLY_MESSAGE)
             return null
         }
         val globals = try {
@@ -1180,8 +1181,8 @@ class RenderService : Service() {
             failJob(job, bundleDir, "manifest unreadable")
             return ChapterStepV2.Stop
         }
-        if (BookVoices.isReadOnly(manifest)) {
-            failJob(job, bundleDir, BookVoices.READ_ONLY_MESSAGE)
+        RerenderGuards.checkNotReadOnly(BookVoices.isReadOnly(manifest)).onFailure { e ->
+            failJob(job, bundleDir, e.message ?: BookVoices.READ_ONLY_MESSAGE)
             return ChapterStepV2.Stop
         }
         val bookVoices = try {

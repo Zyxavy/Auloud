@@ -4,7 +4,7 @@ import app.auloud.player.tts.BookVoices
 import app.auloud.player.tts.EngineRegistry
 
 /**
- * VS6: re-render edge-case guards (D-118, D-121).
+ * VS6: re-render edge-case guards (D-118, D-121, D-125).
  *
  * Pure planning-time checks every re-render entry point runs BEFORE
  * writing a byte of new audio or touching the manifest swap:

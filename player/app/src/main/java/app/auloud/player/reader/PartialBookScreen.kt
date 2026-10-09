@@ -38,6 +38,7 @@ import app.auloud.player.playback.PlayerScreen
 import app.auloud.player.render.ChapterOpenTarget
 import app.auloud.player.render.ChapterRenderState
 import app.auloud.player.render.ChapterStaleState
+import app.auloud.player.render.DebugRenderEngines
 import app.auloud.player.render.JavaFileRenderIo
 import app.auloud.player.render.RenderDebugOverlay
 import app.auloud.player.render.RenderPanel
@@ -52,7 +53,13 @@ import app.auloud.player.render.partialChapterTarget
 import app.auloud.player.render.rerenderModeName
 import app.auloud.player.settings.isRenderDebugAvailable
 import app.auloud.player.storage.BundleStorage
+import app.auloud.player.storage.BooksRootResolver
+import app.auloud.player.tts.AndroidSystemTtsDriver
+import app.auloud.player.tts.EngineRegistry
+import app.auloud.player.tts.ModelPacks
 import app.auloud.player.tts.PrefsTtsStore
+import app.auloud.player.tts.SherpaPiperEngine
+import app.auloud.player.tts.SystemTtsAdapter
 import app.auloud.player.tts.bookVoiceVersionOf
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -98,7 +105,21 @@ fun PartialBookScreen(
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
     val scope = rememberCoroutineScope()
+    val panelSherpaHolder = remember(book.id) { arrayOfNulls<SherpaPiperEngine>(1) }
     val panelVm = remember(book.id) {
+        val scratch = File(appContext.cacheDir, "panel-tts-probe")
+        val driver = AndroidSystemTtsDriver(appContext)
+        val adapter = SystemTtsAdapter(driver, scratch)
+        val packs = scanPanelVoiceModelPacks(appContext)
+        val sherpa = SherpaPiperEngine(packs).takeIf { it.voices().isNotEmpty() }
+        panelSherpaHolder[0] = sherpa
+        val registry = EngineRegistry(
+            listOfNotNull(
+                adapter,
+                sherpa,
+                DebugRenderEngines.beepEngineIfDebug(BuildConfig.DEBUG)
+            )
+        )
         RenderPanelViewModel(
             bookId = book.id,
             bundleDir = book.bundleDir,
@@ -135,11 +156,23 @@ fun PartialBookScreen(
                 } catch (e: Exception) {
                     Log.w(TAG, "re-render start failed: ${e.message}")
                 }
+            },
+            registry = registry,
+            freeBytes = {
+                try {
+                    File(book.bundleDir).usableSpace
+                } catch (_: Exception) {
+                    0L
+                }
             }
         )
     }
     DisposableEffect(book.id) {
-        onDispose { panelVm.clear() }
+        onDispose {
+            panelVm.clear()
+            panelSherpaHolder[0]?.release()
+            panelSherpaHolder[0] = null
+        }
     }
     val panelState by panelVm.state.collectAsState()
     val map = remember(panelState.manifest) {
@@ -454,6 +487,21 @@ private fun readSpoolBytes(appContext: Context, bookId: String): Long? {
         total
     } catch (_: Exception) {
         null
+    }
+}
+
+/** VS6 fixup: sideloaded model packs for the panel guard registry (files only). */
+private fun scanPanelVoiceModelPacks(appContext: Context): List<app.auloud.player.tts.ModelPack> {
+    return try {
+        val internal = File(BooksRootResolver.defaultBooksRoot(appContext))
+        val removable = try {
+            BooksRootResolver.findRemovableRoot(appContext)
+        } catch (_: Exception) {
+            null
+        }
+        ModelPacks.scan(ModelPacks.roots(internal, removable))
+    } catch (_: Exception) {
+        emptyList()
     }
 }
 

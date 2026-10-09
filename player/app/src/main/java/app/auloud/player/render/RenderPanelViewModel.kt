@@ -172,8 +172,8 @@ class RenderPanelViewModel(
     fun rerenderStale() {
         val current = _state.value
         if (current.isLoading || current.manifestError != null) return
-        if (current.staleReadOnly) {
-            _state.value = current.copy(error = BookVoices.READ_ONLY_MESSAGE)
+        RerenderGuards.checkNotReadOnly(current.staleReadOnly).onFailure { e ->
+            _state.value = current.copy(error = e.message)
             return
         }
         val stale = current.staleSummary?.stale ?: 0
@@ -207,8 +207,8 @@ class RenderPanelViewModel(
         val current = _state.value
         if (current.isLoading || current.manifestError != null) return
         if (chapterPos !in 0 until current.chapterCount) return
-        if (current.staleReadOnly) {
-            _state.value = current.copy(error = BookVoices.READ_ONLY_MESSAGE)
+        RerenderGuards.checkNotReadOnly(current.staleReadOnly).onFailure { e ->
+            _state.value = current.copy(error = e.message)
             return
         }
         val stale = current.staleSummary?.stale ?: 0
