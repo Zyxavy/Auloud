@@ -1134,3 +1134,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Owner order. The Tab E (Android 7.1.1) story is complete in v2; the next platform investment goes to the PC tool first.
 - Alternatives considered: keeping Player newer-Android in v3 alongside the port (rejected by owner: all Android to v4); Scribe-on-Android in v3 via Tauri mobile (rejected: desktop parity first).
 - Consequences / revisit when: roadmap docs (`04-Roadmap.md`, `09-V2Roadmap.md`, `01-PRD.md`, `02-ArchitectureV1.md`, Slice 12/13 plans) rewired to the new v3/v4 split. The Python Scribe stays canonical (and shippable) until the Rust port reaches parity; the port must read and write the same bundle format (`spec/` is the contract, unchanged). License: a Rust port stays AGPL-3.0-or-later; Tauri (MIT/Apache-2.0) is compatible, to confirm with versions pinned at v3 plan time, plus an `08-Licenses.md` pass then. A v3 plan gets written when the port starts; v4 is a placeholder section until then.
+
+### D-134: stream-paused render jobs resume only when the stream paused them
+- Date: 2026-10-10
+- Status: Accepted (design, ST1)
+- Decision: A live stream sends `RenderService.ACTION_PAUSE` for the same book on start (plan decision 7) and records that it did. On stream stop it sends `ACTION_RESUME` only for a job it paused itself. An explicit user pause stays paused; a guard pause stays under guard rules (`RenderServicePolicy.shouldAutoResume` unchanged). The rule lands as a new pure-Kotlin case in `RenderServicePolicy` in ST4 with JVM tests.
+- Why: The stream must not override an explicit user stop or a temperature/storage guard; resuming only what it paused keeps each pause reason owned by exactly one party.
+- Alternatives considered: always resuming on stream stop (rejected: overrides user intent and guard pauses); never resuming (rejected: strands a job the user never paused).
+- Consequences / revisit when: ST4 implements plus tests; revisit only with evidence that users expect auto-resume after explicit pauses.
