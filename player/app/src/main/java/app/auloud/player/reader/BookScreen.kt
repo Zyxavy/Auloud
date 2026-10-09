@@ -78,8 +78,7 @@ fun BookScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     progress: ProgressRepository,
-    onBookChanged: () -> Unit = {},
-    onOpenVoiceSettings: () -> Unit = {}
+    onBookChanged: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -132,8 +131,7 @@ fun BookScreen(
             onBack = onBack,
             modifier = modifier,
             chapters = chapters,
-            onBookChanged = onBookChanged,
-            onOpenVoiceSettings = onOpenVoiceSettings
+            onBookChanged = onBookChanged
         )
         return
     }

@@ -1038,3 +1038,12 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Source is `docs/plans/Slice11.md` section 4 decision 10; adopted as the Slice 11 direction in VS0 prep. Piper-class speeds can turn a book into a multi-night job; the warning sets that expectation before the user commits.
 - Alternatives considered: no warning (rejected: same surprise as D-121, at engine-pick time); blocking slow engines (rejected: the user may still want them with eyes open).
 - Consequences / revisit when: VS4 adds the warning to the engine picker using the benchmark category. Revisit categories only with measured engine numbers.
+
+### D-123: VS4 voice-screen judgment calls (engine categories, read-only audition, KEEP meaning)
+
+- Date: 2026-10-09
+- Status: Accepted
+- Decision: (1) Engine categories are provisional in `EngineBenchmark`: `system` and `beep` are STANDARD (no warning), `piper` is TOO_SLOW at the Slice 10 plan 0.36x (about 2 h 47 min of rendering per hour of audio), and any other namespace is BACKGROUND (conservative warning with the slow end of the system band until measured). (2) Scribe read-only books disable audition as well as editing: the book voices are PC voice ids the device engines do not offer, so a preview would only fail confusingly; samples stay visible as text. (3) The impact dialog KEEP choice discards the edits and keeps the old voices plus audio untouched (NOW persists plus starts the stale-only re-render reading-position forward first; LATER persists with no start, leaving the legal mixed-voice state for VS5 badges).
+- Why: The plan names the categories and the three choices but not their exact contents; each default above is the least surprising reading (a warning must never mislead, a failing preview is worse than a disabled button, three choices must have three distinct outcomes).
+- Alternatives considered: KEEP as persist-without-render (rejected: identical to LATER, so the third button would be dead); read-only audition enabled (rejected: PC voice ids fail against the device registry); unknown engines standard (rejected: a future slow engine would slip through unwarned).
+- Consequences / revisit when: the owner confirms or corrects the KEEP meaning in acceptance (VS7); VS5 badges show the LATER mixed state; categories retune with measured engine numbers.

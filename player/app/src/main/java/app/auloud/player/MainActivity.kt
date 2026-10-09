@@ -248,11 +248,7 @@ class MainActivity : ComponentActivity() {
                             storage = routingStorage,
                             onBack = libraryViewModel::clearSelection,
                             progress = progressRepository,
-                            onBookChanged = libraryViewModel::rescan,
-                            onOpenVoiceSettings = {
-                                libraryViewModel.clearSelection()
-                                showSettings = true
-                            }
+                            onBookChanged = libraryViewModel::rescan
                         )
                     } else {
                         LibraryScreen(

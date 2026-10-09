@@ -35,8 +35,10 @@ import app.auloud.player.BuildConfig
 import app.auloud.player.data.ProgressRepository
 import app.auloud.player.library.BookUiModel
 import app.auloud.player.playback.PlayerScreen
+import app.auloud.player.render.BeepTtsEngine
 import app.auloud.player.render.ChapterOpenTarget
 import app.auloud.player.render.ChapterRenderState
+import app.auloud.player.render.DebugRenderEngines
 import app.auloud.player.render.JavaFileRenderIo
 import app.auloud.player.render.RenderDebugOverlay
 import app.auloud.player.render.RenderPanel
@@ -49,7 +51,16 @@ import app.auloud.player.render.isChapterListeningEnabled
 import app.auloud.player.render.partialChapterTarget
 import app.auloud.player.settings.isRenderDebugAvailable
 import app.auloud.player.storage.BundleStorage
+import app.auloud.player.storage.BooksRootResolver
+import app.auloud.player.tts.AndroidSystemTtsDriver
+import app.auloud.player.tts.AudioTrackAudioPlayer
+import app.auloud.player.tts.BookVoiceScreen
+import app.auloud.player.tts.BookVoiceViewModel
+import app.auloud.player.tts.EngineRegistry
+import app.auloud.player.tts.ModelPacks
 import app.auloud.player.tts.PrefsTtsStore
+import app.auloud.player.tts.SherpaPiperEngine
+import app.auloud.player.tts.SystemTtsAdapter
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -72,6 +83,12 @@ import kotlinx.coroutines.withContext
  *
  * [chapters] arrives from [BookScreen] (null = not loaded yet).
  *
+ * VS4: the "Choose voices" panel link plus the hub "Voices" button open
+ * the book-scoped voice screen ([BookVoiceScreen]) hosted here, not the
+ * global Settings screen. The old Settings landing (panel to hub to book
+ * to MainActivity to Settings) is removed: this book's voices live in
+ * the manifest, globals stay in Settings.
+ *
  * API 24 safe: Compose + coroutines only (service contact is plain
  * `startService`, the API 24 entry the render service documents).
  */
@@ -83,8 +100,7 @@ fun PartialBookScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     chapters: List<ChapterEntry>? = null,
-    onBookChanged: () -> Unit = {},
-    onOpenVoiceSettings: () -> Unit = {}
+    onBookChanged: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -124,6 +140,7 @@ fun PartialBookScreen(
     var listenAt by remember(book.id) { mutableStateOf<Int?>(null) }
     var readAt by remember(book.id) { mutableStateOf<Int?>(null) }
     var showChapters by remember(book.id) { mutableStateOf(false) }
+    var showBookVoices by remember(book.id) { mutableStateOf(false) }
     var pendingDelete by remember(book.id) { mutableStateOf<Int?>(null) }
 
     fun openChapter(pos: Int) {
@@ -167,6 +184,23 @@ fun PartialBookScreen(
             onBack = {
                 readAt = null
                 panelVm.refresh()
+            },
+            modifier = modifier
+        )
+        return
+    }
+    if (showBookVoices) {
+        BookVoiceHost(
+            book = book,
+            storage = storage,
+            progress = progress,
+            onBack = {
+                showBookVoices = false
+                panelVm.refresh()
+            },
+            onBookChanged = {
+                panelVm.refresh()
+                onBookChanged()
             },
             modifier = modifier
         )
@@ -224,11 +258,12 @@ fun PartialBookScreen(
                 onResume = panelVm::resume,
                 onCancel = panelVm::cancel,
                 onDeleteAllAudio = panelVm::deleteAllAudio,
-                onOpenVoiceSettings = onOpenVoiceSettings,
+                onOpenVoiceSettings = { showBookVoices = true },
                 onDismissError = panelVm::dismissError
             )
             Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                 TextButton(onClick = { showChapters = true }) { Text("Chapters") }
+                TextButton(onClick = { showBookVoices = true }) { Text("Voices") }
             }
             Spacer(Modifier.height(8.dp))
             if (isRenderDebugAvailable(BuildConfig.DEBUG)) {
@@ -360,6 +395,155 @@ private fun readSpoolBytes(appContext: Context, bookId: String): Long? {
         total
     } catch (_: Exception) {
         null
+    }
+}
+
+/**
+ * VS4: book voice host. Builds the TTS graph by hand like the Settings
+ * voice-lab host (System adapter, sherpa Piper when complete packs are
+ * present, beep in debug builds) and tears it down on dispose. The book
+ * view-model reads per-book voices from the manifest with globals as
+ * fallback; the re-render start rides the VS3 intent, pause the plain
+ * render action. Renders and voice saves refresh the panel through
+ * [onBookChanged].
+ */
+@Composable
+private fun BookVoiceHost(
+    book: BookUiModel,
+    storage: BundleStorage,
+    progress: ProgressRepository,
+    onBack: () -> Unit,
+    onBookChanged: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val appContext = remember(context) { context.applicationContext }
+    val sherpaHolder = remember(book.id) { arrayOfNulls<SherpaPiperEngine>(1) }
+    val viewModel = remember(book.id) {
+        val scratch = File(appContext.cacheDir, "book-voice-audition")
+        val driver = AndroidSystemTtsDriver(appContext)
+        val adapter = SystemTtsAdapter(driver, scratch)
+        val packs = scanVoiceModelPacks(appContext)
+        val sherpa = SherpaPiperEngine(packs).takeIf { it.voices().isNotEmpty() }
+        sherpaHolder[0] = sherpa
+        val registry = EngineRegistry(
+            listOfNotNull(
+                adapter,
+                sherpa,
+                DebugRenderEngines.beepEngineIfDebug(BuildConfig.DEBUG)
+            )
+        )
+        BookVoiceViewModel(
+            bookId = book.id,
+            bundleDir = book.bundleDir,
+            storage = storage,
+            progress = progress,
+            globals = PrefsTtsStore.fromContext(appContext),
+            registry = registry,
+            audio = AudioTrackAudioPlayer(),
+            versionOf = bookVoiceVersionOf(appContext),
+            fileIo = JavaFileRenderIo(),
+            onStartRerender = { chapter, mode ->
+                try {
+                    appContext.startService(
+                        RenderService.startRerenderIntent(
+                            appContext,
+                            book.id,
+                            chapter,
+                            rerenderModeName(mode)
+                        )
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "re-render start failed: ${e.message}")
+                }
+            },
+            onPauseRender = { sendRenderAction(appContext, RenderService.ACTION_PAUSE) },
+            onBookChanged = onBookChanged
+        )
+    }
+    DisposableEffect(book.id) {
+        onDispose {
+            viewModel.clear()
+            sherpaHolder[0]?.release()
+            sherpaHolder[0] = null
+        }
+    }
+    val state by viewModel.state.collectAsState()
+    // Re-poll once the async TTS init lands (cheap: registry plus prefs read).
+    LaunchedEffect(book.id) {
+        delay(2_000L)
+        viewModel.refresh()
+    }
+    BookVoiceScreen(
+        state = state,
+        onBack = onBack,
+        onSelectEngine = viewModel::selectEngine,
+        onConfirmEngineSwitch = viewModel::confirmEngineSwitch,
+        onCancelEngineSwitch = viewModel::cancelEngineSwitch,
+        onSelectVoice = viewModel::selectVoice,
+        onClearDialogueVoice = viewModel::clearDialogueVoice,
+        onSetSpeed = viewModel::setSpeed,
+        onSetAlternateVoice = viewModel::setAlternateVoice,
+        onPreview = viewModel::preview,
+        onStop = viewModel::stop,
+        onRequestApply = viewModel::requestApply,
+        onConfirmApply = viewModel::confirmApply,
+        onDismissImpact = viewModel::dismissImpact,
+        onPromoteToDefaults = viewModel::promoteToDefaults,
+        onDismissError = viewModel::dismissError,
+        onDismissNotice = viewModel::dismissNotice,
+        modifier = modifier
+    )
+}
+
+/** VS4: VS3 re-render mode to the service intent mode name. */
+private fun rerenderModeName(mode: app.auloud.player.render.RerenderMode): String = when (mode) {
+    app.auloud.player.render.RerenderMode.FROM_HERE -> RenderService.RERENDER_FROM_HERE
+    app.auloud.player.render.RerenderMode.ALL -> RenderService.RERENDER_ALL
+    app.auloud.player.render.RerenderMode.STALE_ONLY -> RenderService.RERENDER_STALE_ONLY
+}
+
+/** VS4: sideloaded model packs for the Piper engine (files only). */
+private fun scanVoiceModelPacks(appContext: Context): List<app.auloud.player.tts.ModelPack> {
+    return try {
+        val internal = File(BooksRootResolver.defaultBooksRoot(appContext))
+        val removable = try {
+            BooksRootResolver.findRemovableRoot(appContext)
+        } catch (_: Exception) {
+            null
+        }
+        ModelPacks.scan(ModelPacks.roots(internal, removable))
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+/**
+ * VS4: live engine version strings for staleness compares (same sources
+ * as the render service: system TTS package version, the sherpa build
+ * pin, the beep pin; unknown namespaces read as null, never current).
+ */
+private fun bookVoiceVersionOf(appContext: Context): (String) -> String? = { namespace ->
+    when (namespace) {
+        SystemTtsAdapter.SYSTEM_NAMESPACE -> bookVoiceSystemVersion(appContext)
+        SherpaPiperEngine.PIPER_NAMESPACE -> "sherpa-1.13.8"
+        BeepTtsEngine.NAMESPACE -> BeepTtsEngine.VERSION
+        else -> null
+    }
+}
+
+/** VS4: system TTS package version, `"system"` when unreadable. */
+private fun bookVoiceSystemVersion(appContext: Context): String {
+    return try {
+        val engine = android.provider.Settings.Secure.getString(
+            appContext.contentResolver,
+            android.provider.Settings.Secure.TTS_DEFAULT_SYNTH
+        )
+        val info = appContext.packageManager.getPackageInfo(engine, 0)
+        @Suppress("DEPRECATION")
+        info.versionName?.takeIf { !it.isNullOrBlank() } ?: "system"
+    } catch (_: Exception) {
+        "system"
     }
 }
 
