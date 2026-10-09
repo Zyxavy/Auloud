@@ -286,3 +286,65 @@ waits for the SysLong verdict in VC0).
 Not claimed: anything on the tablet. The smoke checklist in
 `docs/ReleaseSigning.md` is OWNER-RUN; the VC3 over-install proof and
 the VC7 soak stay with the owner (VC8).
+
+---
+
+## VC3 upgrade path, JVM parts (agent, 2026-10-09, no device claimed)
+
+Commands (from player/, all with --no-daemon):
+
+- `.\gradlew.bat :app:testCoreDebugUnitTest --tests
+  "app.auloud.player.bundle.VC3CompatibilityMatrixTest"` - 4/4 green
+  (first run, before docs edits).
+- `.\gradlew.bat :app:testCoreDebugUnitTest
+  :app:testFullDebugUnitTest` - full flavor failed once in
+  `UnrenderedReaderViewModelTest.initialLoad_missingSavedSid_fallsBackToChapterStart`
+  (expected saved (0, sid 1), got sentenceSid=99); passes in
+  isolation. Same known-flaky class as the VC1 run (VC5 owns the
+  debounce fix); unrelated to VC3 (this change only adds a test
+  class with no shared state).
+- Same command with `--rerun-tasks`: BUILD SUCCESSFUL, 2696 tests
+  (1344 core + 1352 full), 0 failures, 0 errors. VC2 baseline was
+  2688; the +8 is the new `VC3CompatibilityMatrixTest` (4 tests x 2
+  flavors).
+
+Compatibility matrix (format x reader-version x result, all on JVM):
+
+- v1 MP3 bundle (`spec/fixtures/valid-bundle/`, spec 1.0) x v2
+  reader: parse OK, `BundleValidator.validate` clean, gate Playable,
+  `buildPlayable` 2 items (1832400 ms, 1640100 ms), all paths and
+  URIs non-blank. PASS.
+- Scribe (PC) bundle (`spec/fixtures/scribe-golden/`, spec 1.1, real
+  Scribe pipeline output) x v2 reader: parse OK, validate clean,
+  gate Playable, `buildPlayable` 2 items (7450 ms each). PASS.
+- PC multi-voice bundle (`spec/fixtures/multivoice-golden/`, spec
+  1.0, narrator plus Alice voices) x v2 reader: parse OK, validate
+  clean, gate Playable, `buildPlayable` 1 item (1550 ms). PASS.
+- 2.0 book (`spec/fixtures/unrendered-golden/`, spec 2.0) x v1
+  reader: the v1.0.0 tree is not checked out here, so its gate
+  cannot run on this JVM. Read instead at tag `v1.0.0`
+  (`player/.../bundle/BundleValidator.kt`): specVersion must be
+  "1.0", "1.1" or "1.2", else the named error
+  `manifest.json: spec_version "2.0" must be "1.0", "1.1" or "1.2"`.
+  A 2.0 book therefore takes the refusal branch; refusal
+  cleanliness (named error with file plus rule plus version, no
+  throw, fixture dir byte-identical before/after) is proven through
+  the same-shaped refusal path in this tree. PASS at the version
+  boundary, stated honestly.
+
+Room v1-to-v2 migration: NO JVM test, infeasible with this
+harness, and no fake test written instead. Exact reasons: the v1
+schema was never exported (`exportSchema = false` in v1; only
+`player/app/schemas/.../2.json` exists), and unit tests are plain
+JVM JUnit with no Robolectric or room-testing (adding either is a
+new dependency needing owner approval). The ms-to-NULL-sid rule the
+device check must confirm comes from `ProgressEntity`: `sentenceSid`
+is null for ms-based positions (every row written before v2), which
+is what the nullable `ADD COLUMN` in `MIGRATION_1_2` yields for
+existing rows. Data survival is proven by the owner-run over-install
+procedure (`v1.0.0` install, import plus progress, install `2.0.0`
+over it with the same key), now written as unticked OWNER-RUN steps
+in `docs/ReleaseSigning.md` ("VC3 over-install procedure").
+
+No new dependency, no permission change, no bundle-format change.
+Not claimed: anything on the tablet.

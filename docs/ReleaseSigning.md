@@ -87,3 +87,29 @@ Do not tick these from JVM results; they need the Tab E.
   sherpa-onnx/onnxruntime/espeak-ng/Piper rows
 - [ ] No debug-only features visible in release: no beep engine, debug
   overlays, or spike/preview entries anywhere in the UI
+
+## VC3 over-install procedure (OWNER-RUN, on the Tab E)
+
+The Room v1-to-v2 migration cannot run on the JVM (the v1 schema was
+never exported and the unit harness has no Robolectric/room-testing),
+so data survival is proven here, on the tablet. Same signing key for
+both installs, no uninstall in between. Do not tick these from JVM
+results.
+
+- [ ] Install the signed `v1.0.0` APK (same release key as the `2.0.0`
+  build); confirm the install succeeds and the app launches
+- [ ] Import at least two books (one PC-rendered Scribe bundle, one
+  PC multi-voice bundle); play each past chapter 1 so a mid-book
+  position is saved
+- [ ] Record the library count plus each book's chapter and position
+  (a note or screenshot) before upgrading
+- [ ] Install the signed `2.0.0` APK (`core` or `full`) OVER v1 without
+  uninstalling; confirm the install succeeds and the app launches
+- [ ] Library shows the same books (same count and titles, no
+  duplicates, no missing flags); each saved position lands on the same
+  chapter and offset (v1 ms positions read back with NULL sid per the
+  Slice 9 rule)
+- [ ] Playback resumes from a saved position with read-along; a fresh
+  EPUB import works alongside the migrated library
+- [ ] Fallback if anything is lost: re-import (books are plain bundles
+  on storage); report the failure with `adb logcat -s Auloud:V` output
