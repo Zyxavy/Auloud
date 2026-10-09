@@ -86,7 +86,7 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 - Optional: import a Scribe script bundle (decision 6) as another source
 - **Done when:** an imported EPUB renders overnight on the Tab E and plays with correct highlight; killing the app mid-render resumes without redoing finished chapters
 
-**Slice 11: Voice settings and engine switching (M).**
+**Slice 11: Voice settings and engine switching (M).** *Status: complete (tag `slice-11`; VS7 device-passed 2026-10-09, see #18; KEEP=persist per owner verdict c1e231a; estimate numbers unrecorded, constants stand).*
 
 - Settings screen: narrator voice, dialogue voice, speed per role, audition
 - Engine switcher with a per-device recommendation from a built-in benchmark; automatic voice mapping when switching engines (by gender and palette); re-render affected chapters

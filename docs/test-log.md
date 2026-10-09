@@ -152,6 +152,37 @@ Result: not run (owner job).
 
 ---
 
+## Slice 11 VS7 device acceptance (2026-10-09, Galaxy Tab E, owner-run)
+
+Build: dev/v2 debug APK (`app-debug.apk`, 136.7 MB, built
+2026-10-09, slices 8+9+10+11 through VS6).
+
+Owner verdict on issue #18: "everything works great",
+proceed. All checklist boxes pass: dialogue-only voice
+change stales only dialogue chapters; narrator speed
+change stales all rendered with plausible impact numbers;
+re-render while listening elsewhere glitch-free; position
+preserved through re-render of the current chapter;
+cancel keeps old audio playing with the chapter Stale;
+real-line audition plus A/B compare good by ear for both
+roles; Scribe book voices visible with editing disabled;
+chips/badges/counts match reality; Voices link opens the
+book voice screen; mixed-voice banner with one-tap
+finish; engine mapping preview sensible.
+
+Two verdicts with consequences:
+- KEEP choice: owner wants save-without-rendering, not
+  discard. Implemented post-run as c1e231a (KEEP shares
+  the LATER persist path, no render start; D-123
+  updated; LATER-vs-KEEP behavior-identical, stated
+  honestly, no fake distinction).
+- Estimates: owner reports predicted time "pretty close
+  to the real time". No precise predicted-vs-actual
+  numbers recorded, so the Slice 10 provisional
+  constants (RTF band, 400 ms/word) stand untuned.
+
+---
+
 ## Slice 10 RN11 device acceptance (2026-10-08, Galaxy Tab E, owner-run)
 
 Build: dev/v2 debug APK (`app-debug.apk`, 136.6 MB, built
