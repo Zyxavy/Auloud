@@ -85,3 +85,5 @@ Do not tick these from JVM results; they need the Tab E.
 - [ ] If shipping `full`: a Piper pack loads, synthesizes and renders at
   least one chapter (record the speed); licenses screen shows the
   sherpa-onnx/onnxruntime/espeak-ng/Piper rows
+- [ ] No debug-only features visible in release: no beep engine, debug
+  overlays, or spike/preview entries anywhere in the UI
