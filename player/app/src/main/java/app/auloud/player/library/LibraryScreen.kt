@@ -33,6 +33,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import app.auloud.player.R
 import app.auloud.player.render.renderChipText
+import app.auloud.player.render.staleChipText
 import coil.compose.AsyncImage
 
 /**
@@ -178,6 +179,17 @@ private fun BookRow(
             // "Render failed", "Partially rendered", "Not rendered";
             // rendered books show nothing).
             renderChipText(book.renderState, book.renderJob)?.let { chip ->
+                Spacer(Modifier.height(4.dp))
+                AssistChip(
+                    onClick = { onBookSelected(book.id) },
+                    label = { Text(chip) }
+                )
+            }
+            // VS5: stale chip ("N chapter(s) need re-render"; nothing
+            // when no chapter is stale). A second chip next to the RN9
+            // one: both may show, and the tap opens the book like the
+            // render chip.
+            staleChipText(book.staleChapters)?.let { chip ->
                 Spacer(Modifier.height(4.dp))
                 AssistChip(
                     onClick = { onBookSelected(book.id) },

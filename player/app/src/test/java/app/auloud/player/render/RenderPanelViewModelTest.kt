@@ -9,6 +9,8 @@ import app.auloud.player.tts.PrefsTtsStore
 import app.auloud.player.tts.TtsRole
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -128,6 +130,10 @@ class RenderPanelViewModelTest {
         var resumes = 0
         var cancels = 0
         var changed = 0
+        // VS5: live engine versions plus re-render starts (defaults keep
+        // every RN9 test on the old path: unknown versions, no starts).
+        var versionOf: (String) -> String? = { null }
+        var rerenderStarts = mutableListOf<Pair<Int, RerenderMode>>()
 
         fun viewModel(): RenderPanelViewModel {
             return RenderPanelViewModel(
@@ -146,6 +152,10 @@ class RenderPanelViewModelTest {
                 onResumeRender = { resumes++ },
                 onCancelRender = { cancels++ },
                 onBookChanged = { changed++ },
+                versionOf = versionOf,
+                onStartRerender = { chapter, mode ->
+                    rerenderStarts.add(chapter to mode)
+                },
                 dispatcher = Dispatchers.Unconfined
             )
         }
@@ -395,6 +405,194 @@ class RenderPanelViewModelTest {
         val vm = harness.viewModel()
         try {
             assertTrue("was: ${vm.state.value.voicesLine}", "not chosen" in vm.state.value.voicesLine)
+        } finally {
+            vm.clear()
+        }
+    }
+
+    // VS5: staleness over VS2/VS3 logic (badges, re-render wiring,
+    // delete-stale-audio semantics). The voice store globals
+    // (system:narrator-voice plus system:dialogue-voice) are the book
+    // voices via the placeholder fallback; version "v1" is live.
+
+    private fun fpJson(fp: RenderFingerprint): String =
+        Json.encodeToString(JsonObject.serializer(), fp.toJsonObject())
+
+    private fun staleTimedJson(chapter: Int, dialogue: Boolean): String {
+        val first =
+            """{"sid":1,"speaker":"narrator","start_ms":0,"end_ms":1000,"text":"He said. "}"""
+        val second =
+            """{"sid":2,"speaker":"dialogue","start_ms":1000,"end_ms":2000,"text":"Hi. "}"""
+        val sentences = if (dialogue) "$first,$second" else first
+        return """{"spec_version":"2.0","chapter":$chapter,"title":"Ch $chapter","duration_ms":60000,"blocks":[{"id":1,"type":"para","sentences":[$sentences]}]}"""
+    }
+
+    private fun staleManifestJson(ch2DialogueVoice: String): String {
+        val ch1Fp = fpJson(
+            RenderFingerprint(
+                engine = "system",
+                voices = mapOf("narrator" to "system:narrator-voice"),
+                speeds = mapOf("narrator" to 1.0f),
+                engineVersions = mapOf("system" to "v1")
+            )
+        )
+        val ch2Fp = fpJson(
+            RenderFingerprint(
+                engine = "system",
+                voices = mapOf(
+                    "narrator" to "system:narrator-voice",
+                    "dialogue" to ch2DialogueVoice
+                ),
+                speeds = mapOf("narrator" to 1.0f, "dialogue" to 1.0f),
+                engineVersions = mapOf("system" to "v1")
+            )
+        )
+        return """
+        {
+          "spec_version": "2.0",
+          "id": "b1",
+          "title": "Stale",
+          "type": "epub",
+          "render_state": "partial",
+          "audio": {"format": "m4a", "channels": 1, "sample_rate": 24000, "bitrate_kbps": 64, "cbr": true},
+          "voices": {
+            "narrator": {"engine": "system", "voice": "default", "speed": 1.0, "pitch": 1.0},
+            "dialogue": {"engine": "system", "voice": "default", "speed": 1.0, "pitch": 1.0}
+          },
+          "chapters": [
+            {"index": 1, "title": "Ch 1", "audio": "audio/ch001.m4a",
+             "text": "text/ch001.json", "duration_ms": 60000,
+             "render_fingerprint": $ch1Fp},
+            {"index": 2, "title": "Ch 2", "audio": "audio/ch002.m4a",
+             "text": "text/ch002.json", "duration_ms": 60000,
+             "render_fingerprint": $ch2Fp},
+            {"index": 3, "title": "Ch 3", "text": "text/ch003.json"}
+          ]
+        }
+        """.trimIndent()
+    }
+
+    private fun staleFiles(dialogueVoice: String = "system:old-dialogue"): HashMap<String, String> =
+        hashMapOf(
+            "$bundleDir/manifest.json" to staleManifestJson(dialogueVoice),
+            "$bundleDir/text/ch001.json" to staleTimedJson(1, dialogue = false),
+            "$bundleDir/text/ch002.json" to staleTimedJson(2, dialogue = true),
+            "$bundleDir/text/ch003.json" to untimedChapterJson(3, "Five six. "),
+            "$bundleDir/audio/ch001.m4a" to "fake-audio",
+            "$bundleDir/audio/ch002.m4a" to "fake-audio"
+        )
+
+    private fun staleHarness(dialogueVoice: String = "system:old-dialogue"): Harness {
+        val harness = Harness(staleFiles(dialogueVoice))
+        harness.versionOf = { namespace -> if (namespace == "system") "v1" else null }
+        return harness
+    }
+
+    @Test
+    fun stale_loadsStatesAndSummary() {
+        val harness = staleHarness()
+        val vm = harness.viewModel()
+        try {
+            val state = vm.state.value
+            assertEquals(ChapterStaleState.CURRENT, state.staleStates[0])
+            assertEquals(ChapterStaleState.STALE, state.staleStates[1])
+            assertEquals(ChapterStaleState.NOT_RENDERED, state.staleStates[2])
+            assertEquals(1, state.staleSummary?.current)
+            assertEquals(1, state.staleSummary?.stale)
+            assertEquals(0, state.staleSummary?.outdated)
+            assertEquals(1, state.staleSummary?.notRendered)
+            assertEquals(false, state.staleReadOnly)
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    fun rerenderStale_startsStaleOnlyFromReading() {
+        val harness = staleHarness()
+        val vm = harness.viewModel()
+        try {
+            // Saved progress sits at 0-based chapter 1 (see Harness).
+            vm.rerenderStale()
+            assertEquals(listOf(1 to RerenderMode.STALE_ONLY), harness.rerenderStarts)
+            assertNull(vm.state.value.error)
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    fun rerenderChapterStale_startsFromChapter() {
+        val harness = staleHarness()
+        val vm = harness.viewModel()
+        try {
+            vm.rerenderChapterStale(1)
+            assertEquals(listOf(1 to RerenderMode.STALE_ONLY), harness.rerenderStarts)
+            assertNull(vm.state.value.error)
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    fun rerenderStale_nothingStale_reportsPlainError() {
+        val harness = staleHarness(dialogueVoice = "system:dialogue-voice")
+        val vm = harness.viewModel()
+        try {
+            assertEquals(0, vm.state.value.staleSummary?.stale)
+            vm.rerenderStale()
+            assertTrue(harness.rerenderStarts.isEmpty())
+            assertEquals(
+                "Every rendered chapter already matches the voices.",
+                vm.state.value.error
+            )
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    fun deleteStaleAudio_removesOnlyStaleChapters() {
+        val harness = staleHarness()
+        val vm = harness.viewModel()
+        try {
+            vm.deleteStaleAudio()
+            assertEquals(1, harness.changed)
+            assertNull(vm.state.value.error)
+            // Stale ch2 lost its audio and reads unrendered; current ch1
+            // is untouched and still playable.
+            assertTrue("$bundleDir/audio/ch001.m4a" in harness.sharedFiles)
+            assertTrue("$bundleDir/audio/ch002.m4a" !in harness.sharedFiles)
+            val state = vm.state.value
+            assertEquals(ChapterStaleState.CURRENT, state.staleStates[0])
+            assertEquals(ChapterStaleState.NOT_RENDERED, state.staleStates[1])
+            assertEquals(0, state.staleSummary?.stale)
+            assertEquals(1, state.staleSummary?.current)
+            assertEquals(2, state.staleSummary?.notRendered)
+            assertEquals(ChapterRenderState.UNRENDERED, state.chapterStates[1])
+            assertEquals(ChapterRenderState.RENDERED, state.chapterStates[0])
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    fun readOnly_noStaleUiAndNoRerender() {
+        val files = staleFiles()
+        files["$bundleDir/manifest.json"] = staleManifestJson("system:old-dialogue").replace(
+            """"dialogue": {"engine": "system", "voice": "default", "speed": 1.0, "pitch": 1.0}""",
+            """"dialogue": {"engine": "system", "voice": "default", "speed": 1.0, "pitch": 1.0}, "alice": {"engine": "pc", "voice": "alice", "speed": 1.0, "pitch": 1.0}"""
+        )
+        val harness = Harness(files)
+        harness.versionOf = { namespace -> if (namespace == "system") "v1" else null }
+        val vm = harness.viewModel()
+        try {
+            val state = vm.state.value
+            assertNull(state.staleSummary)
+            assertTrue(state.staleStates.isEmpty())
+            assertEquals(true, state.staleReadOnly)
+            vm.rerenderStale()
+            assertTrue(harness.rerenderStarts.isEmpty())
         } finally {
             vm.clear()
         }

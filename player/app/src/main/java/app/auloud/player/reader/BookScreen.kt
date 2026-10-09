@@ -1,6 +1,7 @@
 package app.auloud.player.reader
 
 import android.content.Intent
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -45,9 +46,18 @@ import app.auloud.player.playback.cycleSleepOption
 import app.auloud.player.playback.nextSpeed
 import app.auloud.player.playback.readTotalPssMb
 import app.auloud.player.playback.sendSleepOption
+import app.auloud.player.render.ChapterStaleState
+import app.auloud.player.render.RenderService
+import app.auloud.player.render.RerenderMode
+import app.auloud.player.render.StaleBookData
+import app.auloud.player.render.StaleBookScan
+import app.auloud.player.render.bannerFor
+import app.auloud.player.render.rerenderModeName
 import app.auloud.player.settings.PrefsReaderModeStore
 import app.auloud.player.settings.ReaderModeStore
 import app.auloud.player.storage.BundleStorage
+import app.auloud.player.tts.PrefsTtsStore
+import app.auloud.player.tts.bookVoiceVersionOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -70,6 +80,15 @@ import kotlinx.coroutines.withContext
  * stored global mode is left untouched, so returning to a rendered book
  * keeps its mode. [UnrenderedBookScreen] stays as the hub's Read
  * destination.
+ *
+ * VS5: fully rendered (2.0 `complete`) books gain the stale-voice surface
+ * (D-115, D-119): the manifest load also classifies every chapter through
+ * [StaleBookScan] (sequential chapter reads off the composition path),
+ * and the chapter-list overlays in Listen and Read branches show badges,
+ * the mixed-voice banner and re-render actions plus the [BookVoiceHost]
+ * entry point (VS4 noted complete books had none). Read-only and legacy
+ * books scan as null and show no stale UI; the Voices entry still opens
+ * (the voice screen renders its read-only face).
  */
 @Composable
 fun BookScreen(
@@ -95,13 +114,37 @@ fun BookScreen(
     var manifestRenderState by remember(book.id) { mutableStateOf<String?>(null) }
     var manifestLoaded by remember(book.id) { mutableStateOf(false) }
     var showChapters by remember(book.id) { mutableStateOf(false) }
+    // VS5: staleness for complete books (null = not loaded yet, or no
+    // stale UI: read-only, legacy, or nothing rendered). Reloaded with
+    // [staleTick] after the voice screen closes (voices may have changed).
+    var staleData by remember(book.id) { mutableStateOf<StaleBookData?>(null) }
+    var staleTick by remember(book.id) { mutableIntStateOf(0) }
+    var showBookVoices by remember(book.id) { mutableStateOf(false) }
+    val voiceGlobals = remember(book.id) { PrefsTtsStore.fromContext(appContext) }
+    val staleVersionOf = remember(book.id) { bookVoiceVersionOf(appContext) }
     // Hoisted persist + state: both branches route mode changes through
     // here, so the setting and the UI can never disagree.
     val changeMode: (ReaderMode) -> Unit = {
         modeStore.setMode(it)
         mode = it
     }
-    LaunchedEffect(book.id) {
+    // VS5: re-render start for complete books (STALE_ONLY; the chapter
+    // list passes the tapped or current chapter, so it renders first).
+    fun startBookRerender(readingChapter: Int) {
+        try {
+            appContext.startService(
+                RenderService.startRerenderIntent(
+                    appContext,
+                    book.id,
+                    readingChapter,
+                    rerenderModeName(RerenderMode.STALE_ONLY)
+                )
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "re-render start failed: ${e.message}")
+        }
+    }
+    LaunchedEffect(book.id, staleTick) {
         val parsed = withContext(Dispatchers.IO) {
             try {
                 val root = book.bundleDir.trimEnd('/')
@@ -114,6 +157,31 @@ fun BookScreen(
         chapters = parsed?.chapters?.let(::toChapterEntries) ?: emptyList()
         manifestRenderState = parsed?.renderState
         manifestLoaded = true
+        // VS5: stale scan for complete books only (the same effect keeps
+        // one manifest read; hub books own their scan in the panel VM).
+        staleData = if (parsed?.renderState == "complete") {
+            withContext(Dispatchers.IO) {
+                try {
+                    val root = book.bundleDir.trimEnd('/')
+                    StaleBookScan.scan(
+                        manifest = parsed,
+                        readChapterText = { rel ->
+                            try {
+                                storage.readText("$root/$rel")
+                            } catch (_: Exception) {
+                                null
+                            }
+                        },
+                        globals = voiceGlobals,
+                        versionOf = staleVersionOf
+                    )
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        } else {
+            null
+        }
     }
     // IN9: read-only routing. The manifest wins once loaded; before that the
     // library map decides (a just-imported book shows read-only immediately
@@ -149,6 +217,32 @@ fun BookScreen(
         )
         return
     }
+    // VS5: book voice screen for complete books (the entry point VS4
+    // noted was missing). Back returns here; closing refreshes the stale
+    // states (voices may have changed) and rescans the library chips.
+    if (showBookVoices) {
+        BookVoiceHost(
+            book = book,
+            storage = storage,
+            progress = progress,
+            onBack = {
+                showBookVoices = false
+                staleTick++
+            },
+            onBookChanged = {
+                staleTick++
+                onBookChanged()
+            },
+            modifier = modifier
+        )
+        return
+    }
+    // VS5: stale chapter-list inputs for complete books (null map hides
+    // every stale piece; the Voices entry shows whenever the manifest
+    // loaded, so read-only books still reach the read-only face).
+    val staleStates = staleData?.states
+    val staleBanner = staleData?.summary?.let(::bannerFor)?.text
+    val staleCount = staleData?.summary?.stale ?: 0
     if (mode == ReaderMode.Listen) {
         PlayerScreen(
             book = book,
@@ -158,7 +252,19 @@ fun BookScreen(
             chapters = chapters,
             showChapters = showChapters,
             onOpenChapters = { showChapters = true },
-            onDismissChapters = { showChapters = false }
+            onDismissChapters = { showChapters = false },
+            staleStateOf = staleStates?.let { states ->
+                { pos: Int -> states[pos] ?: ChapterStaleState.NOT_RENDERED }
+            },
+            staleBannerText = staleBanner,
+            staleCount = staleCount,
+            onRerenderStale = staleStates?.let { { pos: Int -> startBookRerender(pos) } },
+            onRerenderChapter = staleStates?.let { { pos: Int -> startBookRerender(pos) } },
+            onOpenVoices = if (manifestLoaded) {
+                { showBookVoices = true }
+            } else {
+                null
+            }
         )
     } else {
         ReaderSession(
@@ -172,7 +278,19 @@ fun BookScreen(
             chapters = chapters,
             showChapters = showChapters,
             onOpenChapters = { showChapters = true },
-            onDismissChapters = { showChapters = false }
+            onDismissChapters = { showChapters = false },
+            staleStateOf = staleStates?.let { states ->
+                { pos: Int -> states[pos] ?: ChapterStaleState.NOT_RENDERED }
+            },
+            staleBannerText = staleBanner,
+            staleCount = staleCount,
+            onRerenderStale = staleStates?.let { { pos: Int -> startBookRerender(pos) } },
+            onRerenderChapter = staleStates?.let { { pos: Int -> startBookRerender(pos) } },
+            onOpenVoices = if (manifestLoaded) {
+                { showBookVoices = true }
+            } else {
+                null
+            }
         )
     }
 }
@@ -200,7 +318,18 @@ private fun ReaderSession(
     chapters: List<ChapterEntry>? = null,
     showChapters: Boolean = false,
     onOpenChapters: () -> Unit = {},
-    onDismissChapters: () -> Unit = {}
+    onDismissChapters: () -> Unit = {},
+    /**
+     * VS5: stale chapter-list inputs for complete books (all default to
+     * hidden; BookScreen supplies them from its [StaleBookScan]). Delete
+     * stays hub-only, so there is no delete callback here.
+     */
+    staleStateOf: ((Int) -> ChapterStaleState)? = null,
+    staleBannerText: String? = null,
+    staleCount: Int = 0,
+    onRerenderStale: ((Int) -> Unit)? = null,
+    onRerenderChapter: ((Int) -> Unit)? = null,
+    onOpenVoices: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -308,7 +437,14 @@ private fun ReaderSession(
                 onDismissChapters()
             },
             onBack = onDismissChapters,
-            modifier = modifier
+            modifier = modifier,
+            staleStateOf = staleStateOf,
+            staleBannerText = staleBannerText,
+            staleCount = staleCount,
+            onRerenderStale = onRerenderStale,
+            onRerenderChapter = onRerenderChapter,
+            onDeleteStaleAudio = null,
+            onOpenVoices = onOpenVoices
         )
     } else {
         Column(modifier = modifier.fillMaxSize()) {
@@ -407,6 +543,8 @@ private fun resumePlayback(
     }
     play()
 }
+
+private const val TAG = "AuloudBook"
 
 /** Mode switcher + Play/Pause + speed + sleep (compact; text stays maximal). */
 @Composable

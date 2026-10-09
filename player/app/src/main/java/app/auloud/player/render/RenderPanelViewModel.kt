@@ -7,6 +7,7 @@ import app.auloud.player.data.ProgressRepository
 import app.auloud.player.playback.PlaybackQueue
 import app.auloud.player.storage.BundleStorage
 import app.auloud.player.storage.SafPaths
+import app.auloud.player.tts.BookVoices
 import app.auloud.player.tts.TtsRole
 import app.auloud.player.tts.TtsVoiceStore
 import kotlinx.coroutines.CoroutineDispatcher
@@ -31,6 +32,14 @@ import kotlinx.coroutines.launch
  * durations always win; word counts size the rest at [EST_MS_PER_WORD];
  * unreadable chapters fall back to the [RenderEstimates] default and are
  * counted as unknown (the panel says the estimate is rough).
+ *
+ * VS5: the same load classifies every chapter through [StaleBookScan]
+ * (one rendered-chapter JSON at a time, flags only) into [staleStates]
+ * plus [staleSummary] for the chapter-list badges, the mixed-voice
+ * banner and the stale actions. [versionOf] supplies live engine
+ * versions (defaults to unknown, so expectations never build); re-render
+ * starts ride [onStartRerender] as STALE_ONLY (see `StaleBadges` for why
+ * there is no single-chapter mode).
  */
 class RenderPanelViewModel(
     private val bookId: String,
@@ -47,6 +56,9 @@ class RenderPanelViewModel(
     private val onResumeRender: () -> Unit = {},
     private val onCancelRender: () -> Unit = {},
     private val onBookChanged: () -> Unit = {},
+    private val versionOf: (namespace: String) -> String? = { null },
+    private val onStartRerender: (readingChapter: Int, mode: RerenderMode) -> Unit =
+        { _, _ -> },
     dispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
 
@@ -59,6 +71,8 @@ class RenderPanelViewModel(
     private var currentPolicy: RenderPolicy = policy
     private var audioMsByChapter: Map<Int, Long?> = emptyMap()
     private var noSleep: (Long) -> Unit = {}
+    /** VS5: error a bulk delete carries across the reload (reload freshens states first). */
+    private var carriedError: String? = null
 
     init {
         reload()
@@ -133,6 +147,69 @@ class RenderPanelViewModel(
         reloadJobOnly()
     }
 
+    /**
+     * VS5: re-renders the stale set (STALE_ONLY from the reading
+     * position). The tapped chapter list passes the reading position;
+     * the selection wraps, so every stale chapter renders. An empty
+     * stale set is a plain-language error, never a service start.
+     */
+    fun rerenderStale() {
+        val current = _state.value
+        if (current.isLoading || current.manifestError != null) return
+        val stale = current.staleSummary?.stale ?: return
+        if (stale <= 0) {
+            _state.value = current.copy(
+                error = "Every rendered chapter already matches the voices."
+            )
+            return
+        }
+        _state.value = current.copy(error = null)
+        onStartRerender(current.readingChapter, RerenderMode.STALE_ONLY)
+        reloadJobOnly()
+    }
+
+    /**
+     * VS5: per-chapter re-render action: STALE_ONLY starting at
+     * [chapterPos], so the tapped chapter renders first and the rest of
+     * the stale set follows (there is no single-chapter pipeline mode;
+     * see `StaleBadges`). The row shows this only for STALE chapters.
+     */
+    fun rerenderChapterStale(chapterPos: Int) {
+        val current = _state.value
+        if (current.isLoading || current.manifestError != null) return
+        if (chapterPos !in 0 until current.chapterCount) return
+        _state.value = current.copy(error = null)
+        onStartRerender(chapterPos, RerenderMode.STALE_ONLY)
+        reloadJobOnly()
+    }
+
+    /**
+     * VS5: deletes the audio of every STALE chapter (bulk "delete stale
+     * audio"). Semantic (D-124): stale audio is the current playable
+     * audio, so this removes playable audio and each chapter returns to
+     * NOT_RENDERED (the existing per-chapter delete path); the normal
+     * first-render path recreates them with the current voices. Current
+     * chapters are untouched. Partial failures still reload (states show
+     * the truth) and report the first failure naming file plus rule.
+     */
+    fun deleteStaleAudio() {
+        val current = _state.value
+        val stale = current.staleSummary?.stale ?: return
+        if (stale <= 0) return
+        val numbers = current.staleStates.entries
+            .filter { it.value == ChapterStaleState.STALE }
+            .mapNotNull { current.sortedNumbers.getOrNull(it.key) }
+            .sorted()
+        var firstFailure: Throwable? = null
+        for (number in numbers) {
+            RenderAudioDelete.deleteChapterAudio(bundleDir, number, fileIo, noSleep)
+                .onFailure { e -> if (firstFailure == null) firstFailure = e }
+        }
+        carriedError = firstFailure?.let { renderErrorText(it.message) }
+        onBookChanged()
+        reload()
+    }
+
     fun pause() {
         onPauseRender()
         reloadJobOnly()
@@ -191,8 +268,11 @@ class RenderPanelViewModel(
             _state.value = loaded.copy(
                 option = _state.value.option,
                 nextN = _state.value.nextN,
-                chargingOnly = currentPolicy.chargingOnly
+                chargingOnly = currentPolicy.chargingOnly,
+                // VS5: a bulk delete carries its error across the reload.
+                error = carriedError
             )
+            carriedError = null
             recomputeEstimate()
         }
     }
@@ -258,6 +338,25 @@ class RenderPanelViewModel(
         audioMsByChapter = audioMs
         val job = loadJob()
         val renderedSet = rendered.toSet()
+        // VS5: staleness over the same manifest (rendered chapters read
+        // one at a time, flags only; null for read-only books and books
+        // with nothing rendered, so those rows show no stale UI).
+        val stale = try {
+            StaleBookScan.scan(
+                manifest = manifest,
+                readChapterText = { rel ->
+                    try {
+                        storage.readText(join(bundleDir, rel))
+                    } catch (_: Exception) {
+                        null
+                    }
+                },
+                globals = voices,
+                versionOf = versionOf
+            )
+        } catch (_: Exception) {
+            null
+        }
         return RenderPanelState(
             isLoading = false,
             title = manifest.title,
@@ -269,6 +368,9 @@ class RenderPanelViewModel(
             chapterStates = sorted.indices.associateWith { pos ->
                 chapterStateFor(pos, pos in renderedSet, job)
             },
+            staleStates = stale?.states ?: emptyMap(),
+            staleSummary = stale?.summary,
+            staleReadOnly = BookVoices.isReadOnly(manifest),
             readingChapter = readingChapter,
             manifest = manifest,
             jobState = job?.state,
@@ -366,6 +468,17 @@ data class RenderPanelState(
     val nextN: Int = RenderPlanner.DEFAULT_NEXT_N,
     /** Per-chapter row states (positions to [ChapterRenderState]). */
     val chapterStates: Map<Int, ChapterRenderState> = emptyMap(),
+    /**
+     * VS5: per-chapter staleness (positions to [ChapterStaleState], every
+     * chapter incl. unrendered). Empty when the scan found nothing to
+     * show (read-only book, nothing rendered, manifest unreadable): rows
+     * then show no stale badge.
+     */
+    val staleStates: Map<Int, ChapterStaleState> = emptyMap(),
+    /** VS5: book staleness summary (null when [staleStates] is empty). */
+    val staleSummary: BookStalenessSummary? = null,
+    /** VS5: the book is read-only for voices (Scribe PC audio, legacy). */
+    val staleReadOnly: Boolean = false,
     val chargingOnly: Boolean = true,
     val estimate: RenderEstimateView = RenderEstimateView(),
     val planSize: Int = 0,

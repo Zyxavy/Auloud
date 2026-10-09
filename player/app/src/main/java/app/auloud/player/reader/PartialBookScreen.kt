@@ -35,10 +35,9 @@ import app.auloud.player.BuildConfig
 import app.auloud.player.data.ProgressRepository
 import app.auloud.player.library.BookUiModel
 import app.auloud.player.playback.PlayerScreen
-import app.auloud.player.render.BeepTtsEngine
 import app.auloud.player.render.ChapterOpenTarget
 import app.auloud.player.render.ChapterRenderState
-import app.auloud.player.render.DebugRenderEngines
+import app.auloud.player.render.ChapterStaleState
 import app.auloud.player.render.JavaFileRenderIo
 import app.auloud.player.render.RenderDebugOverlay
 import app.auloud.player.render.RenderPanel
@@ -46,21 +45,15 @@ import app.auloud.player.render.RenderPanelViewModel
 import app.auloud.player.render.RenderPolicyPrefs
 import app.auloud.player.render.RenderService
 import app.auloud.player.render.RenderServicePolicy
+import app.auloud.player.render.bannerFor
 import app.auloud.player.render.buildChapterMediaMap
 import app.auloud.player.render.isChapterListeningEnabled
 import app.auloud.player.render.partialChapterTarget
+import app.auloud.player.render.rerenderModeName
 import app.auloud.player.settings.isRenderDebugAvailable
 import app.auloud.player.storage.BundleStorage
-import app.auloud.player.storage.BooksRootResolver
-import app.auloud.player.tts.AndroidSystemTtsDriver
-import app.auloud.player.tts.AudioTrackAudioPlayer
-import app.auloud.player.tts.BookVoiceScreen
-import app.auloud.player.tts.BookVoiceViewModel
-import app.auloud.player.tts.EngineRegistry
-import app.auloud.player.tts.ModelPacks
 import app.auloud.player.tts.PrefsTtsStore
-import app.auloud.player.tts.SherpaPiperEngine
-import app.auloud.player.tts.SystemTtsAdapter
+import app.auloud.player.tts.bookVoiceVersionOf
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -127,7 +120,22 @@ fun PartialBookScreen(
             onPauseRender = { sendRenderAction(appContext, RenderService.ACTION_PAUSE) },
             onResumeRender = { sendRenderAction(appContext, RenderService.ACTION_RESUME) },
             onCancelRender = { sendRenderAction(appContext, RenderService.ACTION_CANCEL) },
-            onBookChanged = onBookChanged
+            onBookChanged = onBookChanged,
+            versionOf = bookVoiceVersionOf(appContext),
+            onStartRerender = { chapter, mode ->
+                try {
+                    appContext.startService(
+                        RenderService.startRerenderIntent(
+                            appContext,
+                            book.id,
+                            chapter,
+                            rerenderModeName(mode)
+                        )
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "re-render start failed: ${e.message}")
+                }
+            }
         )
     }
     DisposableEffect(book.id) {
@@ -142,6 +150,9 @@ fun PartialBookScreen(
     var showChapters by remember(book.id) { mutableStateOf(false) }
     var showBookVoices by remember(book.id) { mutableStateOf(false) }
     var pendingDelete by remember(book.id) { mutableStateOf<Int?>(null) }
+    // VS5: bulk delete-stale-audio confirm (the per-chapter confirm
+    // above stays untouched).
+    var pendingDeleteStale by remember(book.id) { mutableStateOf(false) }
 
     fun openChapter(pos: Int) {
         val target = map?.let { partialChapterTarget(pos, it) } ?: return
@@ -216,6 +227,13 @@ fun PartialBookScreen(
         return
     }
     if (showChapters) {
+        // VS5: stale actions ride the panel state (badges for every
+        // chapter, re-render only on file books with editable voices;
+        // the hub keeps its own Voices button, so no header Voices here).
+        val staleSummary = panelState.staleSummary
+        val staleActions = panelState.isFileBook && !panelState.staleReadOnly &&
+            staleSummary != null
+        val staleCount = staleSummary?.stale ?: 0
         ChapterListScreen(
             entries = entries,
             currentIndex = panelState.readingChapter,
@@ -230,7 +248,30 @@ fun PartialBookScreen(
             },
             markerListeningOf = { pos -> map?.let { isChapterListeningEnabled(pos, it) } ?: (pos in panelState.renderedPositions) },
             onRenderChapter = panelVm::renderChapter,
-            onDeleteChapterAudio = { pendingDelete = it }
+            onDeleteChapterAudio = { pendingDelete = it },
+            staleStateOf = if (staleSummary != null) {
+                { pos -> panelState.staleStates[pos] ?: ChapterStaleState.NOT_RENDERED }
+            } else {
+                null
+            },
+            staleBannerText = staleSummary?.let(::bannerFor)?.text,
+            staleCount = staleCount,
+            onRerenderStale = if (staleActions) {
+                { _ -> panelVm.rerenderStale() }
+            } else {
+                null
+            },
+            onRerenderChapter = if (staleActions) {
+                panelVm::rerenderChapterStale
+            } else {
+                null
+            },
+            onDeleteStaleAudio = if (staleActions && staleCount > 0) {
+                { pendingDeleteStale = true }
+            } else {
+                null
+            },
+            onOpenVoices = null
         )
     } else {
         Column(
@@ -294,6 +335,33 @@ fun PartialBookScreen(
             text = { Text("The chapter returns to unrendered. This cannot be undone.") }
         )
     }
+    // VS5: bulk delete-stale-audio confirm. Stale audio is the current
+    // playable audio, so every stale chapter returns to unrendered and
+    // the next render recreates it with the current voices.
+    if (pendingDeleteStale) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteStale = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDeleteStale = false
+                        panelVm.deleteStaleAudio()
+                    }
+                ) { Text("Delete") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteStale = false }) { Text("Keep") }
+            },
+            title = { Text("Delete stale audio?") },
+            text = {
+                Text(
+                    "Stale chapters lose their audio and return to unrendered. " +
+                        "Rendering them again uses the current voices. " +
+                        "This cannot be undone."
+                )
+            }
+        )
+    }
 }
 
 /**
@@ -316,15 +384,6 @@ private fun renderedMediaEntries(state: app.auloud.player.render.RenderPanelStat
             title = chapter.title,
             durationMs = chapter.durationMs ?: 0L
         )
-    }
-}
-
-/** RN9: plain `startService` render action (pause, resume, cancel). */
-private fun sendRenderAction(appContext: Context, action: String) {
-    try {
-        appContext.startService(Intent(appContext, RenderService::class.java).setAction(action))
-    } catch (e: Exception) {
-        Log.w(TAG, "render $action failed: ${e.message}")
     }
 }
 
@@ -395,155 +454,6 @@ private fun readSpoolBytes(appContext: Context, bookId: String): Long? {
         total
     } catch (_: Exception) {
         null
-    }
-}
-
-/**
- * VS4: book voice host. Builds the TTS graph by hand like the Settings
- * voice-lab host (System adapter, sherpa Piper when complete packs are
- * present, beep in debug builds) and tears it down on dispose. The book
- * view-model reads per-book voices from the manifest with globals as
- * fallback; the re-render start rides the VS3 intent, pause the plain
- * render action. Renders and voice saves refresh the panel through
- * [onBookChanged].
- */
-@Composable
-private fun BookVoiceHost(
-    book: BookUiModel,
-    storage: BundleStorage,
-    progress: ProgressRepository,
-    onBack: () -> Unit,
-    onBookChanged: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val context = LocalContext.current
-    val appContext = remember(context) { context.applicationContext }
-    val sherpaHolder = remember(book.id) { arrayOfNulls<SherpaPiperEngine>(1) }
-    val viewModel = remember(book.id) {
-        val scratch = File(appContext.cacheDir, "book-voice-audition")
-        val driver = AndroidSystemTtsDriver(appContext)
-        val adapter = SystemTtsAdapter(driver, scratch)
-        val packs = scanVoiceModelPacks(appContext)
-        val sherpa = SherpaPiperEngine(packs).takeIf { it.voices().isNotEmpty() }
-        sherpaHolder[0] = sherpa
-        val registry = EngineRegistry(
-            listOfNotNull(
-                adapter,
-                sherpa,
-                DebugRenderEngines.beepEngineIfDebug(BuildConfig.DEBUG)
-            )
-        )
-        BookVoiceViewModel(
-            bookId = book.id,
-            bundleDir = book.bundleDir,
-            storage = storage,
-            progress = progress,
-            globals = PrefsTtsStore.fromContext(appContext),
-            registry = registry,
-            audio = AudioTrackAudioPlayer(),
-            versionOf = bookVoiceVersionOf(appContext),
-            fileIo = JavaFileRenderIo(),
-            onStartRerender = { chapter, mode ->
-                try {
-                    appContext.startService(
-                        RenderService.startRerenderIntent(
-                            appContext,
-                            book.id,
-                            chapter,
-                            rerenderModeName(mode)
-                        )
-                    )
-                } catch (e: Exception) {
-                    Log.w(TAG, "re-render start failed: ${e.message}")
-                }
-            },
-            onPauseRender = { sendRenderAction(appContext, RenderService.ACTION_PAUSE) },
-            onBookChanged = onBookChanged
-        )
-    }
-    DisposableEffect(book.id) {
-        onDispose {
-            viewModel.clear()
-            sherpaHolder[0]?.release()
-            sherpaHolder[0] = null
-        }
-    }
-    val state by viewModel.state.collectAsState()
-    // Re-poll once the async TTS init lands (cheap: registry plus prefs read).
-    LaunchedEffect(book.id) {
-        delay(2_000L)
-        viewModel.refresh()
-    }
-    BookVoiceScreen(
-        state = state,
-        onBack = onBack,
-        onSelectEngine = viewModel::selectEngine,
-        onConfirmEngineSwitch = viewModel::confirmEngineSwitch,
-        onCancelEngineSwitch = viewModel::cancelEngineSwitch,
-        onSelectVoice = viewModel::selectVoice,
-        onClearDialogueVoice = viewModel::clearDialogueVoice,
-        onSetSpeed = viewModel::setSpeed,
-        onSetAlternateVoice = viewModel::setAlternateVoice,
-        onPreview = viewModel::preview,
-        onStop = viewModel::stop,
-        onRequestApply = viewModel::requestApply,
-        onConfirmApply = viewModel::confirmApply,
-        onDismissImpact = viewModel::dismissImpact,
-        onPromoteToDefaults = viewModel::promoteToDefaults,
-        onDismissError = viewModel::dismissError,
-        onDismissNotice = viewModel::dismissNotice,
-        modifier = modifier
-    )
-}
-
-/** VS4: VS3 re-render mode to the service intent mode name. */
-private fun rerenderModeName(mode: app.auloud.player.render.RerenderMode): String = when (mode) {
-    app.auloud.player.render.RerenderMode.FROM_HERE -> RenderService.RERENDER_FROM_HERE
-    app.auloud.player.render.RerenderMode.ALL -> RenderService.RERENDER_ALL
-    app.auloud.player.render.RerenderMode.STALE_ONLY -> RenderService.RERENDER_STALE_ONLY
-}
-
-/** VS4: sideloaded model packs for the Piper engine (files only). */
-private fun scanVoiceModelPacks(appContext: Context): List<app.auloud.player.tts.ModelPack> {
-    return try {
-        val internal = File(BooksRootResolver.defaultBooksRoot(appContext))
-        val removable = try {
-            BooksRootResolver.findRemovableRoot(appContext)
-        } catch (_: Exception) {
-            null
-        }
-        ModelPacks.scan(ModelPacks.roots(internal, removable))
-    } catch (_: Exception) {
-        emptyList()
-    }
-}
-
-/**
- * VS4: live engine version strings for staleness compares (same sources
- * as the render service: system TTS package version, the sherpa build
- * pin, the beep pin; unknown namespaces read as null, never current).
- */
-private fun bookVoiceVersionOf(appContext: Context): (String) -> String? = { namespace ->
-    when (namespace) {
-        SystemTtsAdapter.SYSTEM_NAMESPACE -> bookVoiceSystemVersion(appContext)
-        SherpaPiperEngine.PIPER_NAMESPACE -> "sherpa-1.13.8"
-        BeepTtsEngine.NAMESPACE -> BeepTtsEngine.VERSION
-        else -> null
-    }
-}
-
-/** VS4: system TTS package version, `"system"` when unreadable. */
-private fun bookVoiceSystemVersion(appContext: Context): String {
-    return try {
-        val engine = android.provider.Settings.Secure.getString(
-            appContext.contentResolver,
-            android.provider.Settings.Secure.TTS_DEFAULT_SYNTH
-        )
-        val info = appContext.packageManager.getPackageInfo(engine, 0)
-        @Suppress("DEPRECATION")
-        info.versionName?.takeIf { !it.isNullOrBlank() } ?: "system"
-    } catch (_: Exception) {
-        "system"
     }
 }
 

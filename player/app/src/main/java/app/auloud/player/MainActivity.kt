@@ -37,6 +37,7 @@ import app.auloud.player.reader.ReaderPreviewScreen
 import app.auloud.player.render.JavaFileRenderIo
 import app.auloud.player.render.RenderJobProgress
 import app.auloud.player.render.RenderStateStore
+import app.auloud.player.render.StaleBookScan
 import app.auloud.player.settings.SettingsScreen
 import app.auloud.player.storage.BooksRootResolver
 import app.auloud.player.storage.BundleStorage
@@ -52,6 +53,8 @@ import app.auloud.player.storage.WatchFolderGrants
 import app.auloud.player.storage.WatchFolderIntents
 import app.auloud.player.storage.WatchFolderStore
 import app.auloud.player.storage.WatchFolders
+import app.auloud.player.tts.PrefsTtsStore
+import app.auloud.player.tts.bookVoiceVersionOf
 import java.io.File
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -521,8 +524,7 @@ class MainActivity : ComponentActivity() {
      * Best effort and never throwing (a throw reads as no job): SAF
      * tokens have no `java.io.File` meaning, so they read as no job.
      */
-    private fun readRenderJobProgress(bundleDir: String): RenderJobProgress? {
-        return try {
+    private fun readRenderJobProgress(bundleDir: String): RenderJobProgress? {        return try {
             val job = RenderStateStore.load(bundleDir, JavaFileRenderIo()).getOrNull()
                 ?: return null
             val total = job.plan.orderedChapters.size
@@ -539,6 +541,36 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "AuloudMain"
+    }
+
+    /**
+     * VS5: stale chapter count for one imported book (library chips).
+     * Best effort and never throwing (null reads as no chip):
+     * read-only books and books with nothing rendered scan as null, and
+     * rendered chapter texts stream one at a time through the routing
+     * storage (file and picked-folder books alike).
+     */
+    private fun readStaleCount(
+        manifest: app.auloud.player.bundle.Manifest,
+        bundleDir: String
+    ): Int? {
+        return try {
+            val root = bundleDir.trimEnd('/')
+            StaleBookScan.scan(
+                manifest = manifest,
+                readChapterText = { rel ->
+                    try {
+                        routingStorage.readText("$root/$rel")
+                    } catch (_: Exception) {
+                        null
+                    }
+                },
+                globals = PrefsTtsStore.fromContext(applicationContext),
+                versionOf = bookVoiceVersionOf(applicationContext)
+            )?.summary?.stale
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /**
@@ -571,6 +603,11 @@ class MainActivity : ComponentActivity() {
                 // (`render-job.json` per book; best effort, never throws).
                 renderJobReader = { bundleDir ->
                     readRenderJobProgress(bundleDir)
+                },
+                // VS5: stale chapter counts for the library chips
+                // (`StaleBookScan` per book; best effort, never throws).
+                staleReader = { manifest, bundleDir ->
+                    readStaleCount(manifest, bundleDir)
                 }
             ) as T
         }

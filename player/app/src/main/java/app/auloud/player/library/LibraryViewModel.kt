@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.auloud.player.bundle.BundleParser
 import app.auloud.player.bundle.BundleValidator
+import app.auloud.player.bundle.Manifest
 import app.auloud.player.data.BookEntity
 import app.auloud.player.data.LibraryRepository
 import app.auloud.player.data.ProgressRepository
@@ -64,7 +65,14 @@ data class BookUiModel(
      * by a rescan; null when no job file was read). The library chip
      * prefers it over [renderState] (see `renderChipText`).
      */
-    val renderJob: RenderJobProgress? = null
+    val renderJob: RenderJobProgress? = null,
+    /**
+     * VS5: chapters whose audio no longer matches the book voices (0
+     * when unknown or none stale). The library shows the stale chip next
+     * to the render chip (see `staleChipText`); tap opens the book like
+     * the RN9 chip.
+     */
+    val staleChapters: Int = 0
 )
 
 /**
@@ -132,7 +140,16 @@ class LibraryViewModel(
      * wires the file reader, tests inject a fake. Defaults to null so
      * the chip falls back to the `render_state` map exactly as before.
      */
-    private val renderJobReader: ((bundleDir: String) -> RenderJobProgress?) = { null }
+    private val renderJobReader: ((bundleDir: String) -> RenderJobProgress?) = { null },
+    /**
+     * VS5: counts stale chapters for an imported book (parsed manifest
+     * plus bundle dir), or null when unknown (read-only book, nothing
+     * rendered, unreadable). Best effort and never throwing (a throw or
+     * null reads as no chip); production scans through `StaleBookScan`
+     * (rendered chapter texts stream one at a time), tests inject a
+     * fake. Defaults to null so rows render exactly as before.
+     */
+    private val staleReader: ((manifest: Manifest, bundleDir: String) -> Int?)? = null
 ) : ViewModel() {
 
     // `viewModelScope` is only touched when no test scope is supplied, so
@@ -157,6 +174,10 @@ class LibraryViewModel(
     // finished render plus rescan moves the chip from "Rendering N%" to
     // the render_state chip with no extra invalidation).
     private val renderJobs = MutableStateFlow<Map<String, RenderJobProgress>>(emptyMap())
+    // VS5: stale chapter counts by book id, same wholesale refresh (a
+    // voice change plus rescan moves the chip from nothing to "N
+    // chapters need re-render" with no extra invalidation).
+    private val staleCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
     private val isScanning = MutableStateFlow(false)
     private val hasPermission = MutableStateFlow(false)
     private val selectedBookId = MutableStateFlow<String?>(null)
@@ -167,21 +188,23 @@ class LibraryViewModel(
         }
         // RN9: states plus jobs pair first (the 4-flow combine below
         // keeps typed params; a 5-flow combine would drop to Any?).
-        val renderPart = combine(renderStates, renderJobs) { states, jobs ->
-            states to jobs
+        // VS5: stale counts ride the same pair (a typed Triple keeps the
+        // combine readable).
+        val renderPart = combine(renderStates, renderJobs, staleCounts) { states, jobs, stale ->
+            RenderPart(states, jobs, stale)
         }
         val booksPart = combine(
             books, progressPositions, errorsAll, renderPart
         ) { bookList, positions, errorList, render ->
-            val (states, jobs) = render
-            BooksPart(bookList, positions, errorList, states, jobs)
+            val (states, jobs, stale) = render
+            BooksPart(bookList, positions, errorList, states, jobs, stale)
         }
         val flagsPart =
             combine(isScanning, hasPermission, selectedBookId) { scanning, permission, selected ->
                 Triple(scanning, permission, selected)
             }
         combine(booksPart, flagsPart) { left, right ->
-            val (bookList, positions, errorList, states, jobs) = left
+            val (bookList, positions, errorList, states, jobs, stale) = left
             val (scanning, permission, selected) = right
             LibraryUiState(
                 hasPermission = permission,
@@ -199,7 +222,8 @@ class LibraryViewModel(
                         isMissing = book.isMissing,
                         bundleDir = book.bundlePath,
                         renderState = states[book.id],
-                        renderJob = jobs[book.id]
+                        renderJob = jobs[book.id],
+                        staleChapters = stale[book.id] ?: 0
                     )
                 },
                 errors = errorList,
@@ -253,6 +277,7 @@ class LibraryViewModel(
                 val allDirs = mutableListOf<String>()
                 val states = mutableMapOf<String, String?>()
                 val jobs = mutableMapOf<String, RenderJobProgress>()
+                val stale = mutableMapOf<String, Int>()
                 for (folder in folders) {
                     val root = WatchFolders.rootString(folder)
                     // User-visible folder label: decoded display name, never
@@ -332,6 +357,15 @@ class LibraryViewModel(
                                         renderJobReader(dir)?.let { jobs[manifest.id] = it }
                                     } catch (_: Exception) {
                                     }
+                                    // VS5: stale count for the chip (best
+                                    // effort; null or a throw reads as no
+                                    // chip, never fails the rescan).
+                                    try {
+                                        stale[manifest.id] =
+                                            staleReader?.invoke(manifest, dir) ?: 0
+                                    } catch (_: Exception) {
+                                        stale[manifest.id] = 0
+                                    }
                                     // One error per bad chapter (a chapter with
                                     // both audio+text problems joins its
                                     // messages); each names chapter+file+rule.
@@ -357,6 +391,15 @@ class LibraryViewModel(
                                     try {
                                         renderJobReader(dir)?.let { jobs[manifest.id] = it }
                                     } catch (_: Exception) {
+                                    }
+                                    // VS5: stale count for the chip (best
+                                    // effort; null or a throw reads as no
+                                    // chip, never fails the rescan).
+                                    try {
+                                        stale[manifest.id] =
+                                            staleReader?.invoke(manifest, dir) ?: 0
+                                    } catch (_: Exception) {
+                                        stale[manifest.id] = 0
                                     }
                                 }
                         } catch (e: CancellationException) {
@@ -390,6 +433,7 @@ class LibraryViewModel(
                 scanErrors.value = failures
                 renderStates.value = states
                 renderJobs.value = jobs
+                staleCounts.value = stale
             } finally {
                 isScanning.value = false
             }
@@ -512,15 +556,28 @@ class LibraryViewModel(
 
 /**
  * IN8: rescan snapshot for the library rows (books, saved positions,
- * scan failures, render states, render jobs). Destructured once in the
- * uiState combine; a tiny holder keeps the 5-flow combine readable.
+ * scan failures, render states, render jobs, stale counts).
+ * Destructured once in the uiState combine; a tiny holder keeps the
+ * combine readable.
  */
 private data class BooksPart(
     val books: List<BookEntity>,
     val positions: Map<String, Long>,
     val errors: List<ImportError>,
     val renderStates: Map<String, String?>,
-    val renderJobs: Map<String, RenderJobProgress>
+    val renderJobs: Map<String, RenderJobProgress>,
+    val staleCounts: Map<String, Int>
+)
+
+/**
+ * VS5: render-state half of the rescan snapshot (states, jobs, stale
+ * counts). A typed Triple keeps the outer combine readable (a 5-flow
+ * combine would drop to Any?).
+ */
+private data class RenderPart(
+    val states: Map<String, String?>,
+    val jobs: Map<String, RenderJobProgress>,
+    val stale: Map<String, Int>
 )
 
 /**

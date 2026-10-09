@@ -20,7 +20,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import app.auloud.player.render.ChapterRenderState
+import app.auloud.player.render.ChapterStaleState
 import app.auloud.player.render.chapterStatusText
+import app.auloud.player.render.staleBadgeText
 
 /**
  * CP3: chapter list screen (titles, durations, current marker, tap to jump).
@@ -37,6 +39,19 @@ import app.auloud.player.render.chapterStatusText
  * [markerListeningOf] maps a position to per-row listening (null uses
  * [isListening] for every row); [onRenderChapter] renders one unrendered
  * chapter; [onDeleteChapterAudio] deletes one rendered chapter's audio.
+ *
+ * VS5: stale-voice rows. [staleStateOf] maps a position to its VS2
+ * staleness (null shows no stale badges); the badge line always carries
+ * the `Voices:` prefix so it reads as a second axis, never as job
+ * progress. [staleBannerText] plus [onRerenderStale] render the
+ * mixed-voice banner with one-tap "finish re-rendering" (both null hides
+ * it); [staleCount] plus [onRerenderStale] render the bulk "Re-render
+ * stale" button only when there is no banner (the banner button already
+ * does that job); [onRerenderChapter] re-renders from one stale chapter;
+ * [onDeleteStaleAudio] deletes every stale chapter's audio (hub only:
+ * complete books pass null); [onOpenVoices] opens the book voice screen
+ * (the complete-book entry point; the hub passes null because its Voices
+ * button already exists).
  */
 @Composable
 fun ChapterListScreen(
@@ -49,7 +64,14 @@ fun ChapterListScreen(
     renderStateOf: ((Int) -> ChapterRenderState)? = null,
     markerListeningOf: ((Int) -> Boolean)? = null,
     onRenderChapter: ((Int) -> Unit)? = null,
-    onDeleteChapterAudio: ((Int) -> Unit)? = null
+    onDeleteChapterAudio: ((Int) -> Unit)? = null,
+    staleStateOf: ((Int) -> ChapterStaleState)? = null,
+    staleBannerText: String? = null,
+    staleCount: Int = 0,
+    onRerenderStale: ((Int) -> Unit)? = null,
+    onRerenderChapter: ((Int) -> Unit)? = null,
+    onDeleteStaleAudio: (() -> Unit)? = null,
+    onOpenVoices: (() -> Unit)? = null
 ) {
     ChapterListContent(
         entries = entries,
@@ -61,7 +83,14 @@ fun ChapterListScreen(
         renderStateOf = renderStateOf,
         markerListeningOf = markerListeningOf,
         onRenderChapter = onRenderChapter,
-        onDeleteChapterAudio = onDeleteChapterAudio
+        onDeleteChapterAudio = onDeleteChapterAudio,
+        staleStateOf = staleStateOf,
+        staleBannerText = staleBannerText,
+        staleCount = staleCount,
+        onRerenderStale = onRerenderStale,
+        onRerenderChapter = onRerenderChapter,
+        onDeleteStaleAudio = onDeleteStaleAudio,
+        onOpenVoices = onOpenVoices
     )
 }
 
@@ -76,12 +105,29 @@ private fun ChapterListContent(
     renderStateOf: ((Int) -> ChapterRenderState)? = null,
     markerListeningOf: ((Int) -> Boolean)? = null,
     onRenderChapter: ((Int) -> Unit)? = null,
-    onDeleteChapterAudio: ((Int) -> Unit)? = null
+    onDeleteChapterAudio: ((Int) -> Unit)? = null,
+    staleStateOf: ((Int) -> ChapterStaleState)? = null,
+    staleBannerText: String? = null,
+    staleCount: Int = 0,
+    onRerenderStale: ((Int) -> Unit)? = null,
+    onRerenderChapter: ((Int) -> Unit)? = null,
+    onDeleteStaleAudio: (() -> Unit)? = null,
+    onOpenVoices: (() -> Unit)? = null
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
             TextButton(onClick = onBack) { Text("Back") }
         }
+        // VS5: stale header (banner, bulk actions, voices entry). One
+        // block for every book kind; nulls hide each piece.
+        StaleListHeader(
+            bannerText = staleBannerText,
+            staleCount = staleCount,
+            currentIndex = currentIndex,
+            onRerenderStale = onRerenderStale,
+            onDeleteStaleAudio = onDeleteStaleAudio,
+            onOpenVoices = onOpenVoices
+        )
         Spacer(Modifier.height(8.dp))
         if (entries.isEmpty()) {
             Text(
@@ -102,9 +148,61 @@ private fun ChapterListContent(
                         renderState = renderStateOf?.invoke(entry.index),
                         onJump = onJump,
                         onRenderChapter = onRenderChapter,
-                        onDeleteChapterAudio = onDeleteChapterAudio
+                        onDeleteChapterAudio = onDeleteChapterAudio,
+                        staleState = staleStateOf?.invoke(entry.index),
+                        onRerenderChapter = onRerenderChapter
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * VS5: chapter-list stale header. The mixed-voice banner (with
+ * "Finish re-rendering") wins when present; otherwise the bulk
+ * "Re-render stale (N)" button shows while chapters are stale. Delete
+ * and Voices buttons ride alongside when their callbacks are set.
+ */
+@Composable
+private fun StaleListHeader(
+    bannerText: String?,
+    staleCount: Int,
+    currentIndex: Int,
+    onRerenderStale: ((Int) -> Unit)?,
+    onDeleteStaleAudio: (() -> Unit)?,
+    onOpenVoices: (() -> Unit)?,
+    modifier: Modifier = Modifier
+) {
+    val showBulk = bannerText == null && staleCount > 0 && onRerenderStale != null
+    val showDelete = staleCount > 0 && onDeleteStaleAudio != null
+    if (bannerText == null && !showBulk && !showDelete && onOpenVoices == null) return
+    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+        if (bannerText != null) {
+            Text(text = bannerText, style = MaterialTheme.typography.bodyMedium)
+            if (onRerenderStale != null) {
+                TextButton(onClick = { onRerenderStale(currentIndex) }) {
+                    Text("Finish re-rendering")
+                }
+            }
+        } else if (showBulk) {
+            val label = if (staleCount == 1) {
+                "Re-render stale (1 chapter)"
+            } else {
+                "Re-render stale ($staleCount chapters)"
+            }
+            // showBulk implies a non-null callback (see above).
+            TextButton(onClick = { onRerenderStale?.invoke(currentIndex) }) { Text(label) }
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+            if (showDelete) {
+                // showDelete implies a non-null callback (see above).
+                TextButton(onClick = { onDeleteStaleAudio?.invoke() }) {
+                    Text("Delete stale audio")
+                }
+            }
+            if (onOpenVoices != null) {
+                TextButton(onClick = onOpenVoices) { Text("Voices") }
             }
         }
     }
@@ -122,7 +220,9 @@ private fun ChapterRow(
     isListening: Boolean = true,
     renderState: ChapterRenderState? = null,
     onRenderChapter: ((Int) -> Unit)? = null,
-    onDeleteChapterAudio: ((Int) -> Unit)? = null
+    onDeleteChapterAudio: ((Int) -> Unit)? = null,
+    staleState: ChapterStaleState? = null,
+    onRerenderChapter: ((Int) -> Unit)? = null
 ) {
     Row(
         modifier = modifier
@@ -144,11 +244,20 @@ private fun ChapterRow(
                     style = MaterialTheme.typography.bodySmall
                 )
             }
+            // VS5: second axis (never merged with the job line above).
+            if (staleState != null) {
+                Text(
+                    text = staleBadgeText(staleState),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
             ChapterRowActions(
                 index = index,
                 renderState = renderState,
                 onRenderChapter = onRenderChapter,
-                onDeleteChapterAudio = onDeleteChapterAudio
+                onDeleteChapterAudio = onDeleteChapterAudio,
+                staleState = staleState,
+                onRerenderChapter = onRerenderChapter
             )
         }
         // RN7 deferred wiring: the marker reads "Now playing" for a
@@ -169,18 +278,27 @@ private fun ChapterRowActions(
     renderState: ChapterRenderState?,
     onRenderChapter: ((Int) -> Unit)?,
     onDeleteChapterAudio: ((Int) -> Unit)?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    staleState: ChapterStaleState? = null,
+    onRerenderChapter: ((Int) -> Unit)? = null
 ) {
-    if (renderState == null) return
+    if (renderState == null && staleState == null) return
     Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
-        if (renderState != ChapterRenderState.RENDERED &&
-            renderState != ChapterRenderState.RENDERING &&
-            onRenderChapter != null
-        ) {
-            TextButton(onClick = { onRenderChapter(index) }) { Text("Render") }
+        if (renderState != null) {
+            if (renderState != ChapterRenderState.RENDERED &&
+                renderState != ChapterRenderState.RENDERING &&
+                onRenderChapter != null
+            ) {
+                TextButton(onClick = { onRenderChapter(index) }) { Text("Render") }
+            }
+            if (renderState == ChapterRenderState.RENDERED && onDeleteChapterAudio != null) {
+                TextButton(onClick = { onDeleteChapterAudio(index) }) { Text("Delete audio") }
+            }
         }
-        if (renderState == ChapterRenderState.RENDERED && onDeleteChapterAudio != null) {
-            TextButton(onClick = { onDeleteChapterAudio(index) }) { Text("Delete audio") }
+        // VS5: stale rows offer re-render (STALE only; OUTDATED never
+        // auto re-renders, CURRENT and NOT_RENDERED have nothing stale).
+        if (staleState == ChapterStaleState.STALE && onRerenderChapter != null) {
+            TextButton(onClick = { onRerenderChapter(index) }) { Text("Re-render") }
         }
     }
 }
