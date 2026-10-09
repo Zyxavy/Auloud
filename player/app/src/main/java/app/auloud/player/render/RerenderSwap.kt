@@ -32,7 +32,8 @@ import kotlinx.serialization.json.put
  *    changed roles, `encoder_offset_ms`),
  * 4. old audio delete (best effort after the switch; when the player
  *    still has the old file open the delete is recorded as deferred and
- *    the next recovery sweep finishes it).
+ *    a later recovery or render run finishes it; when no further render
+ *    runs the deferred file stays on disk until then).
  *
  * Cancel or failure leaves the old audio plus the old fingerprint
  * untouched (the manifest is only written on success, and the old file
@@ -44,9 +45,14 @@ import kotlinx.serialization.json.put
  *   unreferenced (orphan, swept); old audio plus old JSON plus old
  *   manifest stay consistent.
  * - JSON done, manifest stale: manifest still points at old while the
- *   JSON carries new timings; recovery completes forward when the new
- *   audio is present (see [RerenderRecovery]), never leaving new timings
- *   on old audio silently.
+ *   JSON carries new timings; [RerenderRecovery] forward-completes the
+ *   manifest to the versioned audio when exactly one versioned
+ *   candidate for the chapter exists and the JSON duration differs
+ *   from the manifest duration, with the fingerprint removed (STALE
+ *   until re-verified). A same-duration retimed JSON is
+ *   indistinguishable from old and follows the orphan path; other
+ *   ambiguity (many candidates, untimed JSON) preserves the versioned
+ *   file for retry, so new audio is never silently lost.
  * - manifest done, old delete pending: manifest points at new, both
  *   files present; recovery deletes the unreferenced old (deferred while
  *   open).

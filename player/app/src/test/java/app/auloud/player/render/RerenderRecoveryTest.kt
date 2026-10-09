@@ -167,4 +167,62 @@ class RerenderRecoveryTest {
         assertTrue(base.repairs.isEmpty())
         assertTrue(sweep.sweptAudio.isEmpty())
     }
+
+    @Test
+    fun jsonDoneManifestStale_forwardCompletes() {
+        // Kill after the JSON rename, before the manifest write: the
+        // JSON carries new timings (duration 2100) while the manifest
+        // still points at old audio (duration 2000). Recovery must
+        // forward-complete the manifest to the single versioned
+        // candidate instead of sweeping the new audio as an orphan.
+        val io = FakeIo()
+        io.files["$bundleDir/manifest.json"] = manifestPartialJson("audio/ch001.m4a")
+        io.files["$bundleDir/text/ch001.json"] = timedChapterJson()
+        io.files["$bundleDir/text/ch002.json"] = untimedChapterJson()
+        io.files["$bundleDir/audio/ch001.m4a"] = "old-audio"
+        val newRel = RerenderSwap.versionedAudioRel(1, newFingerprint())
+        io.files["$bundleDir/$newRel"] = "new-audio"
+        val retimed = RerenderSwap.buildRetimedChapterJson(
+            1, io.files["$bundleDir/text/ch001.json"]!!,
+            listOf(
+                AssemblySentenceTiming(sid = 1, startMs = 0, endMs = 600),
+                AssemblySentenceTiming(sid = 2, startMs = 850, endMs = 1350)
+            ),
+            2100, 0
+        ).getOrThrow()
+        RenderFinalize.atomicWriteText("$bundleDir/text/ch001.json", retimed, io, io.sleeper)
+
+        val (base, sweep) = RerenderRecovery.recoverBookWithRerender(
+            bundleDir = bundleDir,
+            io = io,
+            listAudioFiles = { listOf("$bundleDir/audio/ch001.m4a", "$bundleDir/$newRel") },
+            sleeper = io.sleeper
+        ).getOrThrow()
+
+        assertEquals(listOf(1), sweep.forwardCompleted)
+        assertTrue(sweep.preservedForRetry.isEmpty())
+        // Manifest now points at the versioned file with JSON duration.
+        val manifest = app.auloud.player.bundle.BundleParser
+            .parseText(io.files["$bundleDir/manifest.json"]!!).getOrThrow()
+        assertEquals(newRel, manifest.chapters[0].audio)
+        assertEquals(2100L, manifest.chapters[0].durationMs)
+        // New audio kept, old audio swept as unreferenced after the switch.
+        assertTrue(io.files.containsKey("$bundleDir/$newRel"))
+        assertEquals(listOf("$bundleDir/audio/ch001.m4a"), sweep.sweptAudio)
+        assertTrue(
+            "expected clean, got: ${
+                app.auloud.player.bundle.BundleValidator.validate(
+                    bundleDir, manifest,
+                    exists = { io.files.containsKey(it) },
+                    readText = { io.files[it] }
+                )
+            }",
+            app.auloud.player.bundle.BundleValidator.validate(
+                bundleDir, manifest,
+                exists = { io.files.containsKey(it) },
+                readText = { io.files[it] }
+            ).isEmpty()
+        )
+        assertTrue(base.repairs.isEmpty())
+    }
 }

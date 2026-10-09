@@ -416,7 +416,8 @@ class RenderService : Service() {
                 "recoverBook swept=${report.sweptTemps.size} spool=${report.sweptSpool.size} " +
                     "repairs=${report.repairs.size} manifest=${report.manifestRewritten} " +
                     "job=${report.jobAfter?.state} readable=${report.manifestReadable} " +
-                    "rerenderSwept=${sweep.sweptAudio.size} deferred=${sweep.deferred.size}"
+                    "rerenderSwept=${sweep.sweptAudio.size} deferred=${sweep.deferred.size} " +
+                    "forward=${sweep.forwardCompleted} preserved=${sweep.preservedForRetry.size}"
             )
             for (repair in report.repairs) {
                 Log.i(TAG, "repair chapter ${repair.chapterNumber} ${repair.kind}: ${repair.detail}")
@@ -426,6 +427,12 @@ class RenderService : Service() {
             }
             for (path in sweep.deferred) {
                 Log.i(TAG, "rerender sweep deferred (open) $path")
+            }
+            for (chapter in sweep.forwardCompleted) {
+                Log.i(TAG, "rerender forward-completed chapter $chapter (JSON-done-manifest-stale)")
+            }
+            for (path in sweep.preservedForRetry) {
+                Log.i(TAG, "rerender preserved for retry $path")
             }
             if (report.jobError != null) Log.w(TAG, "recover job: ${report.jobError}")
         }.onFailure { e ->
@@ -520,142 +527,6 @@ class RenderService : Service() {
         data object Stop : ChapterStepV2
     }
 
-    private sealed interface ChapterStep {
-        data class Done(val job: RenderJob) : ChapterStep
-        data object Stop : ChapterStep
-    }
-
-    /** Renders, encodes and finalizes one plan chapter; advances the job on success. */
-    private suspend fun renderOneChapter(
-        bookId: String,
-        bundleDir: String,
-        spoolDir: String,
-        job: RenderJob,
-        pos: Int,
-        voices: ResolvedRenderVoices
-    ): ChapterStep {
-        val manifest = readManifest(bundleDir) ?: run {
-            failJob(job, bundleDir, "manifest unreadable")
-            return ChapterStep.Stop
-        }
-        val sorted = manifest.chapters.sortedBy { it.index }
-        val entry = sorted.getOrNull(pos) ?: run {
-            failJob(job, bundleDir, "plan chapter $pos is out of range")
-            return ChapterStep.Stop
-        }
-        val number = entry.index
-        val textRel = entry.text
-        Log.i(TAG, "chapter start book=$bookId number=$number pos=$pos")
-        chapterLabel = "Chapter $number"
-        chapterSentences = 0
-        chapterSentenceDone = 0
-        refreshNotification(progressText())
-        val rawChapter = try {
-            storage.readText(joinPath(bundleDir, textRel))
-        } catch (e: Exception) {
-            failJob(job, bundleDir, "chapter $number: cannot read text (${e.message})")
-            return ChapterStep.Stop
-        }
-        val chapter = ChapterTextLoader.parse(textRel, rawChapter).getOrElse { e ->
-            failJob(job, bundleDir, "chapter $number: text unreadable (${e.message})")
-            return ChapterStep.Stop
-        }
-        chapterSentences = chapter.sentencesInOrder().size
-        val spooled = SpoolRenderer.renderChapter(
-            chapterPos = pos,
-            chapterNumber = number,
-            chapter = chapter,
-            voices = voices,
-            spoolDir = spoolDir,
-            io = spoolIo,
-            shouldCancel = { pauseRequested || cancelRequested },
-            onReleasePass = { },
-            onSentenceDone = {
-                chapterSentenceDone++
-                refreshNotification(progressText())
-            }
-        )
-        when (spooled) {
-            is ChapterSpoolOutcome.Failed -> {
-                failJob(job, bundleDir, spooled.reason)
-                return ChapterStep.Stop
-            }
-            is ChapterSpoolOutcome.Cancelled -> {
-                if (cancelRequested) cancelJob(job, bundleDir) else pauseJob(job, bundleDir)
-                return ChapterStep.Stop
-            }
-            is ChapterSpoolOutcome.Completed -> {
-                val summary = spooled.summary
-                Log.i(
-                    TAG,
-                    "chapter $number spooled=${summary.spooled} skipped=${summary.skipped} " +
-                        "retried=${summary.retried.size}"
-                )
-                if (bookGainsLinear.isEmpty()) {
-                    try {
-                        val derived = BookGains.derive(
-                            mapOf(
-                                "narrator" to summary.peakNarrator,
-                                "dialogue" to summary.peakDialogue
-                            )
-                        )
-                        bookGainsLinear = derived.linear
-                        Log.i(TAG, "book gains derived: ${derived.db}")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "book gain derive failed: ${e.message}")
-                    }
-                }
-                val audioRel = RenderFinalize.deviceAudioRel(number)
-                val encoded = assembleAndEncode(bundleDir, spoolDir, number, chapter, audioRel)
-                    ?: run {
-                        failJob(job, bundleDir, "chapter $number: assembly or encode failed")
-                        return ChapterStep.Stop
-                    }
-                val gainDb = try {
-                    BookGains.derive(
-                        mapOf(
-                            "narrator" to summary.peakNarrator,
-                            "dialogue" to summary.peakDialogue
-                        )
-                    ).db
-                } catch (_: Exception) {
-                    emptyMap()
-                }
-                val finalized = RenderFinalize.finalizeChapter(
-                    bundleDir = bundleDir,
-                    chapterNumber = number,
-                    audioRel = audioRel,
-                    timings = encoded.first.timings,
-                    durationMs = encoded.first.durationMs,
-                    fingerprint = voices.fingerprint,
-                    gainDb = gainDb,
-                    encoderOffsetMs = 0,
-                    io = fileIo
-                ).getOrElse { e ->
-                    failJob(job, bundleDir, "chapter $number: finalize failed (${e.message})")
-                    return ChapterStep.Stop
-                }
-                convertProgress(bookId, bundleDir, pos, number)
-                sweepChapterSpool(spoolDir, number)
-                val advanced = try {
-                    RenderJobs.onChapterDone(job, pos)
-                } catch (e: Exception) {
-                    failJob(job, bundleDir, "chapter $number: job advance failed (${e.message})")
-                    return ChapterStep.Stop
-                }
-                persistJob(bundleDir, advanced)
-                planDone = advanced.completedChapters.size
-                Log.i(
-                    TAG,
-                    "chapter done book=$bookId number=$number " +
-                        "duration=${finalized.durationMs}ms done=$planDone/$planTotal"
-                )
-                refreshNotification(progressText())
-                return ChapterStep.Done(advanced)
-            }
-        }
-    }
-
     /** Assembly plus platform encode for one chapter (null on any failure). */
     private fun assembleAndEncode(
         bundleDir: String,
@@ -728,48 +599,27 @@ class RenderService : Service() {
         }
     }
 
-    /** VS3: best-effort ms-to-sid-to-ms conversion before the re-render swap (D-117). */
-    private suspend fun convertRerenderProgress(
+    /** VS3: best-effort ms conversion after a successful re-render swap (D-117). */
+    private suspend fun convertRerenderProgressAfterSwap(
         bookId: String,
+        bundleDir: String,
         pos: Int,
-        oldChapter: app.auloud.player.bundle.ChapterText,
-        newTimings: List<AssemblySentenceTiming>,
-        newDurationMs: Int
+        number: Int,
+        oldChapter: app.auloud.player.bundle.ChapterText
     ) {
         try {
             val saved = progressRepository.load(bookId).getOrNull() ?: return
-            if (saved.chapterIndex != pos) return
-            if (saved.sentenceSid != null) {
-                val newChapter = oldChapter.copy(
-                    durationMs = newDurationMs.toLong(),
-                    blocks = oldChapter.blocks.map { block ->
-                        block.copy(
-                            sentences = block.sentences.map { sentence ->
-                                val timing = newTimings.firstOrNull { it.sid == sentence.sid }
-                                    ?: return@map sentence
-                                sentence.copy(
-                                    startMs = timing.startMs.toLong(),
-                                    endMs = timing.endMs.toLong()
-                                )
-                            }
-                        )
-                    }
+            val converted = RerenderProgressAfterSwap.convertAfterSwap(
+                bundleDir, number, saved, pos, oldChapter, fileIo
+            ) ?: return
+            if (converted != saved) {
+                progressRepository.save(
+                    converted.bookId,
+                    converted.chapterIndex,
+                    converted.positionMs,
+                    converted.sentenceSid
                 )
-                val converted = RenderProgress.convertOnRender(saved, pos, newChapter)
-                if (converted != null && converted != saved) {
-                    progressRepository.save(converted.bookId, converted.chapterIndex, converted.positionMs)
-                    Log.i(TAG, "progress sid converted book=$bookId chapter=$pos")
-                }
-                return
-            }
-            val oldSid = RenderProgress.sidForMs(oldChapter, saved.positionMs) ?: run {
-                Log.i(TAG, "progress rerender: old position has no sentence, keeping")
-                return
-            }
-            val newMs = newTimings.firstOrNull { it.sid == oldSid }?.startMs?.toLong() ?: 0L
-            if (newMs != saved.positionMs) {
-                progressRepository.save(saved.bookId, saved.chapterIndex, newMs)
-                Log.i(TAG, "progress rerender converted book=$bookId chapter=$pos sid=$oldSid to ${newMs}ms")
+                Log.i(TAG, "progress rerender converted book=$bookId chapter=$pos to ${converted.positionMs}ms")
             }
         } catch (e: Exception) {
             Log.w(TAG, "progress rerender conversion skipped: ${e.message}")
@@ -1236,8 +1086,9 @@ class RenderService : Service() {
      * narrowed fingerprint, first-wins gains, sid conversion). Rendered
      * chapters take the swap path (versioned audio, retimed JSON,
      * manifest switch, deferred old delete, merged gains, ms conversion
-     * before the swap). Cancel or failure leaves old audio plus the old
-     * fingerprint untouched and the chapter stays Stale.
+     * after a successful swap via [RerenderProgressAfterSwap]). Cancel or
+     * failure skips the conversion entirely and leaves old audio plus
+     * the old fingerprint untouched and the chapter stays Stale.
      */
     private suspend fun renderOneChapterV2(
         bookId: String,
@@ -1421,6 +1272,8 @@ class RenderService : Service() {
     }
 
     /** VS3: swap-path finish for one already-rendered chapter (D-116, D-117, D-120). */
+    // Position converts after a successful swap via RerenderProgressAfterSwap;
+    // a swap failure returns before conversion so old audio keeps old position.
     private suspend fun renderRerenderSwap(
         bookId: String,
         bundleDir: String,
@@ -1448,7 +1301,6 @@ class RenderService : Service() {
                 failJob(job, bundleDir, "chapter $number: assembly or encode failed")
                 return ChapterStepV2.Stop
             }
-        convertRerenderProgress(bookId, pos, oldChapter, encoded.first.timings, encoded.first.durationMs)
         var didGain = false
         val gainForManifest: Map<String, Double>? = if (rerenderGainsDone) {
             rerenderGainDb
@@ -1496,6 +1348,7 @@ class RenderService : Service() {
             failJob(job, bundleDir, "chapter $number: swap failed (${e.message})")
             return ChapterStepV2.Stop
         }
+        convertRerenderProgressAfterSwap(bookId, bundleDir, pos, number, oldChapter)
         if (swapped.deferredOldAudio != null) {
             Log.i(TAG, "chapter $number old audio deferred (open): ${swapped.deferredOldAudio}")
         }
@@ -1662,39 +1515,6 @@ class RenderService : Service() {
             out[role] = AssemblyMath.gainForDb(db)
         }
         return out
-    }
-
-    /** Engine graph for one render run (fresh instances; released when the run ends). */
-    private fun resolveVoices(): ResolvedRenderVoices? {
-        val driver = AndroidSystemTtsDriver(this)
-        systemDriver = driver
-        val scratch = File(cacheDir, "tts-render")
-        val adapter = SystemTtsAdapter(driver, scratch)
-        val packs = try {
-            val internal = File(BooksRootResolver.defaultBooksRoot(this))
-            val removable = try {
-                BooksRootResolver.findRemovableRoot(this)
-            } catch (_: Exception) {
-                null
-            }
-            ModelPacks.scan(ModelPacks.roots(internal, removable))
-        } catch (_: Exception) {
-            emptyList()
-        }
-        val sherpa = SherpaPiperEngine(packs).takeIf { it.voices().isNotEmpty() }
-        sherpaEngine = sherpa
-        val registry = EngineRegistry(
-            listOfNotNull(
-                adapter,
-                sherpa,
-                DebugRenderEngines.beepEngineIfDebug(BuildConfig.DEBUG)
-            )
-        )
-        val store = PrefsTtsStore.fromContext(this)
-        return RenderVoices.resolve(registry, store, ::engineVersion).getOrElse { e ->
-            Log.w(TAG, "voice resolve failed: ${e.message}")
-            null
-        }
     }
 
     /**

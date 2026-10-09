@@ -111,4 +111,63 @@ class RerenderPositionTest {
     fun convert_nullSaved_isNull() {
         assertNull(RenderProgress.convertOnRerender(null, 0, oldChapter(), newChapter()))
     }
+
+    @Test
+    fun afterSwap_readsNewJsonAndDelegates() {
+        // Wired path: the service calls convertAfterSwap after a
+        // successful finalize, reading the freshly written JSON from
+        // disk and delegating to convertOnRerender (no inline duplicate).
+        val io = FakeAfterSwapIo()
+        val bundleDir = "/books/b1"
+        io.files["$bundleDir/text/ch001.json"] = newChapterJson()
+        val old = oldChapter()
+        val saved = ProgressEntity("b1", 0, 800L, 10L, sentenceSid = null)
+
+        val converted = RerenderProgressAfterSwap.convertAfterSwap(
+            bundleDir, 1, saved, 0, old, io
+        )
+
+        // Old 800ms is sid 2; new sid 2 starts at 1000.
+        assertEquals(1000L, converted?.positionMs)
+        assertNull(converted?.sentenceSid)
+    }
+
+    @Test
+    fun afterSwap_unreadableNewJson_keepsOld() {
+        val io = FakeAfterSwapIo()
+        val saved = ProgressEntity("b1", 0, 800L, 10L, sentenceSid = null)
+
+        val converted = RerenderProgressAfterSwap.convertAfterSwap(
+            "/books/b1", 1, saved, 0, oldChapter(), io
+        )
+
+        assertEquals(saved, converted)
+    }
+
+    private fun newChapterJson(): String =
+        """{"spec_version":"2.0","chapter":1,"title":"Ch 1","duration_ms":3000,"blocks":[{"id":1,"type":"para","sentences":[{"sid":1,"speaker":"narrator","start_ms":0,"end_ms":800,"text":"Hello. "},{"sid":2,"speaker":"dialogue","start_ms":1000,"end_ms":1800,"text":"Hi. "},{"sid":3,"speaker":"narrator","start_ms":2200,"end_ms":3000,"text":"Bye. "}]}]}"""
+
+    private class FakeAfterSwapIo : RenderFileIo {
+        val files = HashMap<String, String>()
+
+        override fun exists(path: String): Boolean = files.containsKey(path)
+
+        override fun readText(path: String): String =
+            files[path] ?: throw java.io.IOException("$path: file not found or not readable")
+
+        override fun writeText(path: String, text: String) {
+            files[path] = text
+        }
+
+        override fun renameTempToTarget(tmpPath: String, targetPath: String): Boolean {
+            val text = files[tmpPath] ?: return false
+            files[targetPath] = text
+            files.remove(tmpPath)
+            return true
+        }
+
+        override fun deleteIfExists(path: String) {
+            files.remove(path)
+        }
+    }
 }

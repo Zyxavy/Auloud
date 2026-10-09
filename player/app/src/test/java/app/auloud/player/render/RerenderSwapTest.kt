@@ -220,11 +220,12 @@ class RerenderSwapTest {
     }
 
     @Test
-    fun crashSimulation_jsonDoneManifestStale_recoversForward() {
+    fun crashSimulation_jsonDoneManifestStale_finalizeRetryCompletes() {
         // Kill after the JSON rename, before the manifest write: JSON has
-        // new timings, manifest still points at old. Recovery must not
-        // leave new timings on old audio silently; the forward repair
-        // completes the manifest to the versioned audio when present.
+        // new timings, manifest still points at old. The live retry path
+        // re-runs the swap finalize end to end (same order as live).
+        // The recovery forward-complete for this window lives in
+        // RerenderRecoveryTest.jsonDoneManifestStale_forwardCompletes.
         val io = FakeIo()
         seedRendered(io)
         val newFp = newFingerprint()
