@@ -106,7 +106,7 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 
 - Synthesize-ahead pipeline into an audio buffer so listening starts within seconds, falling back to rendered chapters when present; handle underruns; seeking into unsynthesized text starts synthesis from that sentence
 - Highlight sync from live timings; foreground service with the screen off
-- Gated by the measured device RTF (the Tab E may not support it for neural engines; System TTS or Piper-low might). Hypothesis verdict (D-131, no bench run): streaming is NOT feasible on the Tab E (Cortex-A7, 1.5 GB RAM, System TTS slow end 0.86x, Piper 0.36x), so Slice 13 is faster-devices-only until a measured SysLong says otherwise; the Tab E story stays background rendering.
+- Gated by the measured device RTF. Hypothesis verdict (D-131, no bench run): file-synthesis streaming is NOT feasible on the Tab E (Cortex-A7, 1.5 GB RAM, System TTS slow end 0.86x, Piper 0.36x). 2026-10-10 amendment: owner evidence (ReadEra live system-TTS read-aloud works on the tablet) re-opens streaming for a `speak()`-style live architecture, whose numbers our file-synthesis measurements do not cover; Slice 13 feasibility is OPEN again, gated on its design plus a measured SysLong on that path. The Tab E v2.0 story stays background rendering.
 - **Done when:** on a capable device, pressing play on an unrendered chapter starts audio in a few seconds with no gaps over a 30-minute listen
 
 ## 5. Scribe and web UI changes in v2

@@ -530,3 +530,11 @@ per-box numbers recorded).
 
 Still owner-open (batched device round): VC2 smoke checklist, VC3
 over-install proof, VC8 release tagging.
+
+2026-10-10 correction to the SysLong waiver above: owner evidence
+(ReadEra reads aloud on the tablet via live system TTS) challenges
+the infeasibility hypothesis. ReadEra uses a live `speak()`
+architecture; our band numbers describe the `synthesizeToFile` render
+path and do not transfer. Streaming feasibility returns to OPEN for
+a live architecture, gated on Slice 13 design plus measurement
+(D-131 amended). Background rendering stays the v2.0 story.
