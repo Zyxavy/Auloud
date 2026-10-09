@@ -213,3 +213,31 @@ tolerance stands, and the D-109 spec question (nonzero
 offset vs first-start-0) stays open for lack of a nonzero
 measurement — nothing observed contradicts first-start-0,
 so no spec amendment was needed.
+
+## VC1 license implementation (agent, 2026-10-09, D-126 option A)
+
+Commands (from player/, all with --no-daemon):
+
+- `.\gradlew.bat :app:assembleCoreDebug` - BUILD SUCCESSFUL (1m 55s)
+- `.\gradlew.bat :app:assembleFullDebug` - BUILD SUCCESSFUL (1m 45s)
+- `.\gradlew.bat :app:licenseScan` - PASS both:
+  core app-core-debug.apk (256 entries, no lib markers);
+  full app-full-debug.apk (16 lib entries, notices present).
+  Cross-checked by unzipping both APKs: core has no
+  sherpa/onnx/espeak/gpl entries; full has 16 .so files
+  (libonnxruntime + 3 sherpa libs x 4 ABIs) plus
+  assets/gpl-3.0.txt, assets/SOURCE_OFFER.txt, assets/NOTICE.txt.
+- `.\gradlew.bat :app:testCoreDebugUnitTest :app:testFullDebugUnitTest`
+  - first run: 1340 core tests, 1 failure in
+    UnrenderedReaderViewModelTest.jumpToChapter_loadsStartAndSaves
+    (the known pre-existing debounce flake, VC5 owns the fix);
+    it passes in isolation, unrelated to VC1.
+  - full rerun with --rerun-tasks: 243 result files, 2688 tests,
+    0 failures, 0 errors across both flavors. Includes the moved
+    SherpaPiperEngineTest (testFull only) and the new per-flavor
+    FlavorLicensesTest suites (testCore + testFull).
+
+The scan is intentionally not wired into `check` (every test run
+would then build two APKs); run the exact assemble + licenseScan
+command above to re-verify. Release-build R8/manifest checks and all
+device checks stay with VC2/VC7 (owner).

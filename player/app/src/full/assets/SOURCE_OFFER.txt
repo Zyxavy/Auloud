@@ -1,0 +1,45 @@
+Auloud Player, full flavor: written offer of Corresponding Source
+(GPL-3.0, section 6b).
+
+This offer covers the exact full-flavor APK this file shipped in. It is
+valid for at least three years from the date you received that APK, and
+for as long as spare parts or customer support are offered for it.
+
+[OWNER REVIEW before any full-APK distribution: fill in the publisher
+name, contact email, and public source URL below. Do not ship the full
+flavor with these placeholders in place.]
+
+To get the Corresponding Source, write to:
+
+    Name:  [publisher name]
+    Email: [contact email]
+    URL:   [public repo URL, tag for this release]
+
+State the APK version (Settings shows it under About, or read the
+versionName/versionCode of your APK) and you will receive the complete
+tagged source for that build: the Player source, the pinned dependency
+list, and build instructions, on a durable medium or by network
+download at no charge beyond reasonable media cost.
+
+To rebuild the full APK yourself from that source:
+
+1. Install JDK 17 and the Android SDK (compileSdk 36; minSdk stays 24).
+2. Check out the tagged source named in the release notes.
+3. The exact speech runtime is pinned and needs no manual download:
+   com.github.k2-fsa.sherpa-onnx:sherpa-onnx:1.13.8, resolved from
+   https://jitpack.io (declared in player/settings.gradle.kts, pinned
+   in player/gradle/libs.versions.toml). Its AAR carries the native
+   libraries (libonnxruntime.so plus the sherpa libs with statically
+   linked espeak-ng) for arm64-v8a, armeabi-v7a, x86 and x86_64.
+4. From the player/ directory run:
+   gradlew.bat :app:assembleFullRelease
+   (a release signing key is needed for a distributable signature, see
+   docs/archive/v1/ReleaseSigning.md; without it the build signs with
+   the debug key and prints a warning).
+5. Verify the result with:
+   gradlew.bat :app:assembleCoreDebug :app:assembleFullDebug :app:licenseScan
+   (core must show no sherpa/onnxruntime/espeak files; full must show
+   the sherpa files plus these three asset files).
+
+The GPL-3.0 license text ships in this build as assets/gpl-3.0.txt.
+This is not legal advice (D-126).

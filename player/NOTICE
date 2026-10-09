@@ -3,16 +3,23 @@ Auloud Player
 
 Copyright (c) 2026 Zyxavy.
 
-The Player is licensed under the Apache License, Version 2.0 (see LICENSE
-in this directory; D-015 decided Apache-2.0 over MIT).
+The Player source is licensed under the Apache License, Version 2.0 (see LICENSE
+in this directory; D-015 decided Apache-2.0 over MIT, D-064 confirmed it).
 
-The core release ships no GPL code. WARNING (D-126, interim until VC1):
-dev builds from the single app module link sherpa-onnx, whose native libs
-bundle static espeak-ng (GPL-3.0). Do not distribute APKs built from this
-tree until VC1 splits the core/full flavors with per-flavor notices and the
-GPL-3.0 source offer. Open-source libraries it uses are listed in
-THIRD_PARTY_LICENSES.md with their versions and licenses; the same list is
-shown in the app under Settings > Licenses.
+Two flavors (D-126 option A):
+
+- core (this notice): the main Apache-2.0 release. It ships no GPL code.
+- full (see NOTICE.full and LICENSE.full): adds the bundled sherpa-onnx
+  speech runtime with static espeak-ng (GPL-3.0) and is distributed as a
+  GPL-3.0 combined work, with its license text and written source offer
+  inside the APK.
+
+Open-source libraries each flavor uses are listed with their versions
+and licenses in THIRD_PARTY_LICENSES.md (core) and
+THIRD_PARTY_LICENSES.full.md (full); the same lists are shown in the app
+under Settings > Licenses (per flavor, matching each build).
 
 The voice models that made the audiobooks (Kokoro-82M, espeak-ng,
-en_core_web_sm) run on the PC (Scribe) and are not bundled in this app.
+en_core_web_sm) run on the PC (Scribe) and are not bundled in the core
+app. Piper voice packs are files you copy yourself and never ship in
+either APK; each pack has its own license.

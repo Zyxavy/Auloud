@@ -10,6 +10,10 @@ import java.io.File
 /**
  * PW7b: Piper tier as a [TtsEngine] on sherpa-onnx (D-065, D-077).
  *
+ * VC1: full-flavor only (`src/full`; the sherpa-onnx dependency is
+ * `fullImplementation`). The `core` flavor carries a same-named stub
+ * with no native imports, so `core` builds with zero sherpa files.
+ *
  * One loaded model per voice (VITS packs are single-speaker), so (like
  * Scribe's `PiperEngine`) voices load lazily and stay cached: two voices
  * means two native instances (~170 MB each on the Tab E per the Slice 7

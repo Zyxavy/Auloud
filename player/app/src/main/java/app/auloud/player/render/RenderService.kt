@@ -35,6 +35,7 @@ import app.auloud.player.tts.ModelPacks
 import app.auloud.player.tts.PrefsTtsStore
 import app.auloud.player.tts.SherpaPiperEngine
 import app.auloud.player.tts.SystemTtsAdapter
+import app.auloud.player.tts.piperEngineVersion
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -1633,7 +1634,8 @@ class RenderService : Service() {
      */
     private fun engineVersion(namespace: String): String? = when (namespace) {
         SystemTtsAdapter.SYSTEM_NAMESPACE -> systemTtsVersion()
-        SherpaPiperEngine.PIPER_NAMESPACE -> "sherpa-1.13.8"
+        // VC1: piper pin lives per flavor (null in `core`, sherpa pin in `full`).
+        SherpaPiperEngine.PIPER_NAMESPACE -> piperEngineVersion()
         BeepTtsEngine.NAMESPACE -> BeepTtsEngine.VERSION
         else -> null
     }

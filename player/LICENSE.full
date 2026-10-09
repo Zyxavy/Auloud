@@ -1,0 +1,32 @@
+Auloud Player, full flavor: license note (D-126 option A).
+
+[OWNER REVIEW before any full-APK distribution, with NOTICE.full and
+the SOURCE_OFFER.txt placeholders. Do not ship the full flavor until
+all three are confirmed.]
+
+The sherpa-carrying `full` flavor is distributed as a GPL-3.0 combined
+work, not under the Apache-2.0 LICENSE in this directory (that file
+covers the Player source and the `core` flavor):
+
+- App code: Apache-2.0 (this directory's LICENSE), included in the
+  GPL-3.0 work as the GPL permits.
+- sherpa-onnx 1.13.8 (JitPack AAR, Apache-2.0 POM): bundled speech
+  runtime; its native libraries include statically linked espeak-ng
+  (GPL-3.0-or-later), which is what makes the distributed full APK a
+  GPL-3.0 combined work.
+- onnxruntime native library (MIT): bundled inside the sherpa AAR.
+
+The full APK carries the GPL-3.0 license text
+(player/app/src/full/assets/gpl-3.0.txt), the written source offer
+(player/app/src/full/assets/SOURCE_OFFER.txt), and the full notice
+(player/app/src/full/assets/NOTICE.txt). The per-flavor dependency
+list is player/THIRD_PARTY_LICENSES.full.md; the in-app list under
+Settings > Licenses matches it.
+
+Build the flavors from player/ with:
+gradlew.bat :app:assembleCoreRelease (main Apache-2.0 release)
+gradlew.bat :app:assembleFullRelease (GPL-3.0 combined work)
+Verify with:
+gradlew.bat :app:assembleCoreDebug :app:assembleFullDebug :app:licenseScan
+
+This is not legal advice.

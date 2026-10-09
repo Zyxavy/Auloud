@@ -9,25 +9,22 @@ import app.auloud.player.render.BeepTtsEngine
  * Hoisted from the VS4 book-voice host (which owned a private copy):
  * the library stale scan (via MainActivity) and the complete-book stale
  * load (via BookScreen) need the same sources as the render service
- * (`RenderService.engineVersion`: system TTS package version, the sherpa
+ * (`RenderService.engineVersion`: system TTS package version, the piper
  * build pin, the beep pin). Unknown namespaces read as null, never
  * current (an unbuildable expectation classifies stale-ward per VS2).
  *
- * The sherpa pin duplicates the service literal until a shared const
- * exists; the service stays untouched (VS5 does not rewire the render
- * path). API 24 safe: package-manager read with a best-effort fallback.
+ * VC1: the piper pin lives per flavor ([piperEngineVersion]): null in
+ * `core` (no bundled engine), the sherpa pin in `full`. API 24 safe:
+ * package-manager read with a best-effort fallback.
  */
 internal fun bookVoiceVersionOf(appContext: Context): (String) -> String? = { namespace ->
     when (namespace) {
         SystemTtsAdapter.SYSTEM_NAMESPACE -> bookVoiceSystemVersion(appContext)
-        SherpaPiperEngine.PIPER_NAMESPACE -> SHERPA_ENGINE_VERSION
+        SherpaPiperEngine.PIPER_NAMESPACE -> piperEngineVersion()
         BeepTtsEngine.NAMESPACE -> BeepTtsEngine.VERSION
         else -> null
     }
 }
-
-/** VS5: sherpa build pin (mirrors the render service literal). */
-internal const val SHERPA_ENGINE_VERSION = "sherpa-1.13.8"
 
 /** VS5: system TTS package version, `"system"` when unreadable. */
 private fun bookVoiceSystemVersion(appContext: Context): String {

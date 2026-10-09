@@ -55,7 +55,7 @@ PDFs use the same flow (`draft` then `build`); scanned PDFs with no text layer f
 
 ### B. Play it on the device
 
-1. Build the release (or debug) APK on the PC, in `player/`: `gradlew.bat :app:assembleRelease` (release) or `gradlew.bat :app:assembleDebug` (debug). The release APK needs the signing key in gitignored `player\local.properties` (see `docs/archive/v1/ReleaseSigning.md`); without it the build signs with the debug key and prints a warning.
+1. Build the APK on the PC, in `player/`: `gradlew.bat :app:assembleCoreRelease` (release, main build) or `gradlew.bat :app:assembleCoreDebug` (debug). The `full` flavor with on-device Piper voices builds as `gradlew.bat :app:assembleFullRelease` (see License below). The release APK needs the signing key in gitignored `player\local.properties` (see `docs/archive/v1/ReleaseSigning.md`); without it the build signs with the debug key and prints a warning.
 2. Sideload the APK on the device (allow unknown sources for the install).
 3. Copy the finished bundle folder to the device: shared-internal `/Auloud/` (for example `/storage/emulated/0/Auloud`) or a microSD `Auloud/` folder.
 4. In the Player library: add a watch folder with the system folder picker (persistable permission, survives reboot), then import/rescan. The default watch folder is shared-internal `/Auloud`.
@@ -182,7 +182,7 @@ All three modes share one saved position per book, plus speed (0.75x to 2.0x), s
 
 ```
 scribe/   Python PC tool (AGPL-3.0-or-later)
-player/   Android app (Apache-2.0 or MIT, to be decided; see player/NOTICE)
+player/   Android app (core flavor Apache-2.0, full flavor GPL-3.0 combined work; see player/NOTICE)
 spec/     Bundle specification (spec/bundle.md mirrors docs/03-BundleSpec.md) + shared fixtures
 docs/     PRD, architecture, design, roadmap, test plan, runbooks, signing guide
 ```
@@ -227,7 +227,18 @@ Use it only with books you have the right to use, such as public-domain works or
 
 ## License
 
-Player core: Apache-2.0. Scribe: AGPL-3.0-or-later. Voice models have their own licenses, see `docs/08-Licenses.md`. WARNING (D-126, interim until VC1): dev builds link sherpa-onnx with static espeak-ng (GPL-3.0) in the single app module, so do not distribute APKs until VC1 ships the GPL-3.0 full flavor with its source offer.
+Two Player flavors (D-126 option A, see `docs/08-Licenses.md` section 5):
+
+- Player core (main release): Apache-2.0. Ships no GPL code.
+- Player full: GPL-3.0 combined work. It bundles sherpa-onnx 1.13.8
+  (JitPack AAR) whose native libraries include static espeak-ng, plus
+  the onnxruntime native library inside that AAR. The full APK carries
+  the GPL-3.0 license text and a written source offer with build
+  instructions pinning that exact AAR version. Piper voice packs are
+  files you copy yourself; each pack has its own license.
+
+Scribe: AGPL-3.0-or-later. Voice models have their own licenses, see
+`docs/08-Licenses.md`.
 
 ## Contributing
 
