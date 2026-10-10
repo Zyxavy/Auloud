@@ -30,7 +30,8 @@ import java.io.File
 class SherpaKittenEngine(
     packs: List<ModelPack>,
     private val numThreads: Int = 2,
-    private val openHandle: (pack: KittenPack) -> KittenHandle = ::SherpaKittenHandle,
+    private val openHandle: (pack: KittenPack, threads: Int) -> KittenHandle =
+        { pack, threads -> SherpaKittenHandle(pack, threads) },
 ) : TtsEngine {
 
     override val namespace: String = KITTEN_NAMESPACE
@@ -58,12 +59,12 @@ class SherpaKittenEngine(
         speed: Float
     ): SynthesizedAudio {
         require(text.isNotBlank()) { "blank text" }
+        check(!released) { "engine released" }
         val sid = parseKittenSid(voice)
             ?: throw IllegalArgumentException("unknown kitten voice ${voice.id}")
         val complete = pack ?: throw IllegalArgumentException("unknown kitten voice ${voice.id}")
         require(sid < complete.speakerCount) { "unknown kitten voice ${voice.id}" }
-        check(!released) { "engine released" }
-        val handle = loaded ?: openHandle(complete).also { loaded = it }
+        val handle = loaded ?: openHandle(complete, numThreads).also { loaded = it }
         val (samples, rate) = handle.generate(text, sid, clampTtsSpeed(speed))
         return SynthesizedAudio(sampleRateHz = rate, samples = samples)
     }

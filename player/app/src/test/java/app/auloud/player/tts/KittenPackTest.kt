@@ -99,6 +99,13 @@ class KittenPackTest {
     }
 
     @Test
+    fun detect_uppercaseExtension_accepted() {
+        val dir = kittenDir(tmp.root, "i", model = null)
+        File(dir, "MODEL.ONNX").writeBytes(ByteArray(100))
+        assertEquals("MODEL.ONNX", detectKittenPack(dir)?.model?.name)
+    }
+
+    @Test
     fun voiceIds_numericSids() {
         assertEquals("kitten:0", kittenVoiceId(0))
         assertEquals("kitten:7", kittenVoiceId(7))

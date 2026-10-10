@@ -56,10 +56,13 @@ class SherpaKittenEngineTest {
     }
 
     private val opened = mutableListOf<FakeKittenHandle>()
+    private val openedThreads = mutableListOf<Int>()
 
-    private fun engine(vararg packs: ModelPack): SherpaKittenEngine {
+    private fun engine(vararg packs: ModelPack, threads: Int = 2): SherpaKittenEngine {
         opened.clear()
-        return SherpaKittenEngine(packs.toList()) {
+        openedThreads.clear()
+        return SherpaKittenEngine(packs.toList(), threads) { _, threadCount ->
+            openedThreads += threadCount
             FakeKittenHandle().also { opened += it }
         }
     }
@@ -134,6 +137,54 @@ class SherpaKittenEngineTest {
         } catch (_: IllegalArgumentException) {
         }
         assertTrue(opened.isEmpty())
+    }
+
+    @Test
+    fun synthesize_threadCountReachesHandle(): Unit = runBlocking {
+        val engine = engine(packDir("k"), threads = 4)
+        engine.synthesize("Hi.", TtsVoice(id = "kitten:0", engine = "kitten"), 1.0f)
+        assertEquals(listOf(4), openedThreads)
+    }
+
+    @Test
+    fun voices_firstCompletePackWins(): Unit = runBlocking {
+        val first = packDir("a-first")
+        val second = packDir("b-second")
+        val engine = engine(first, second)
+        assertEquals(8, engine.voices().size)
+        engine.synthesize("Hi.", TtsVoice(id = "kitten:0", engine = "kitten"), 1.0f)
+        assertEquals(1, opened.size)
+    }
+
+    @Test
+    fun voices_packJsonCountBoundsVoices(): Unit = runBlocking {
+        val dir = File(tmp.root, "k-counted").apply { mkdirs() }
+        File(dir, "model.onnx").writeBytes(ByteArray(10))
+        File(dir, KITTEN_VOICES_FILENAME).writeBytes(ByteArray(10))
+        File(dir, KITTEN_TOKENS_FILENAME).writeBytes(ByteArray(10))
+        File(dir, KITTEN_ESPEAK_DIRNAME).mkdirs()
+        File(dir, KITTEN_PACK_FILENAME).writeText("""{"speakers": 2}""")
+        val pack = ModelPack(dir.name, dir.absolutePath, listOf("model"), 10L)
+        val engine = engine(pack)
+        assertEquals(listOf("kitten:0", "kitten:1"), engine.voices().map { it.id })
+        try {
+            engine.synthesize("Hi.", TtsVoice(id = "kitten:2", engine = "kitten"), 1.0f)
+            throw AssertionError("expected IllegalArgumentException")
+        } catch (_: IllegalArgumentException) {
+        }
+        assertTrue(opened.isEmpty())
+    }
+
+    @Test
+    fun synthesize_afterRelease_reportsReleased(): Unit = runBlocking {
+        val engine = engine(packDir("k"))
+        engine.synthesize("Hi.", TtsVoice(id = "kitten:0", engine = "kitten"), 1.0f)
+        engine.release()
+        try {
+            engine.synthesize("Hi.", TtsVoice(id = "kitten:0", engine = "kitten"), 1.0f)
+            throw AssertionError("expected IllegalStateException")
+        } catch (_: IllegalStateException) {
+        }
     }
 
     @Test

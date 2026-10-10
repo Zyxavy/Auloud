@@ -68,7 +68,7 @@ fun parseKittenSid(voice: TtsVoice): Int? {
 fun detectKittenPack(dir: File): KittenPack? {
     val model = try {
         dir.listFiles()
-            ?.filter { it.isFile && it.name.startsWith("model") && it.extension == "onnx" }
+            ?.filter { it.isFile && it.name.startsWith("model", ignoreCase = true) && it.extension.lowercase() == "onnx" }
             .orEmpty().sortedBy { it.name }.firstOrNull()
     } catch (_: Exception) {
         return null
