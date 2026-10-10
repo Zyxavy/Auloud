@@ -647,3 +647,22 @@ Slice 13 accepted (owner, 2026-10-10, "that should be it for this
 slice"): no per-box ST7 detail reported; acceptance is on the owner
 statement, same standing as the v2 soak one-liner. `slice-13`
 re-tags at 7444632 (the actual end state); #19 closes.
+
+## V2.1 release build (agent, 2026-10-10, commit 64efd81)
+
+Version `2.1.0`, `versionCode` 3 (bump + source-offer tag v2.1.0).
+Signed release APKs (release key CN=Auloud, V2 signature; both flavors
+share cert `985d45a2...28c9041611`, so either upgrades a v1/v2 install
+in place): core 3.5 MB, full 55.4 MB. aapt confirms
+`app.auloud.player` code 3 / 2.1.0 / minSdk 24. `licenseScan` PASS all
+four APKs; `releaseManifestCheck` PASS (no INTERNET, all three
+manifests); both unit suites green on the bumped tree. Tags:
+`v2.1.0` at 64efd81 (plus previously unpushed `slice-12`, `v2.0.0`).
+
+- core SHA256: D877BC59C12EF5ECEE79632D08F1EFB9ACA5AEAF7BB21F52CD22AC68FDC11242
+- full SHA256: 292D6CC37007CC6E9B5BDBA8535109BC9493138B4D608452834AD7258FEC721D
+
+Not claimed: 2.0.0-to-2.1.0 over-install proof and release smoke on
+the tablet (owner device work, same checklist as VC3/VC8). Push +
+tags, GitHub release page, and PR are owner-side (this environment
+has no git push auth; no MCP release/upload tools exist).
