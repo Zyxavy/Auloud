@@ -196,4 +196,24 @@ class SherpaKittenEngineTest {
         assertTrue(engine.voices().isEmpty())
         engine.release() // idempotent
     }
+
+    @Test
+    fun helper_kittenEngineOrNull_needsCompletePack() {
+        assertTrue(emptyList<ModelPack>().kittenEngineOrNull() == null)
+        val broken = ModelPack("broken", tmp.root.absolutePath, emptyList(), 0L)
+        assertTrue(listOf(broken).kittenEngineOrNull() == null)
+        val voices = listOf(packDir("k"))
+            .kittenEngineOrNull()?.voices().orEmpty()
+        assertEquals(8, voices.size)
+    }
+
+    @Test
+    fun registry_kittenJoinsByNamespace(): Unit = runBlocking {
+        val engine = engine(packDir("k"))
+        val registry = EngineRegistry(listOf(engine))
+        assertEquals(listOf("kitten"), registry.namespaces())
+        assertTrue(registry.engineFor("kitten:3") === engine)
+        assertTrue(registry.engineFor("piper:x") == null)
+        assertEquals(8, registry.allVoices().size)
+    }
 }

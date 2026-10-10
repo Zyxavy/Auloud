@@ -25,9 +25,11 @@ import app.auloud.player.tts.BookVoiceScreen
 import app.auloud.player.tts.BookVoiceViewModel
 import app.auloud.player.tts.EngineRegistry
 import app.auloud.player.tts.PrefsTtsStore
+import app.auloud.player.tts.SherpaKittenEngine
 import app.auloud.player.tts.SherpaPiperEngine
 import app.auloud.player.tts.SystemTtsAdapter
 import app.auloud.player.tts.bookVoiceVersionOf
+import app.auloud.player.tts.kittenEngineOrNull
 import app.auloud.player.tts.scanAppModelPacks
 import java.io.File
 import kotlinx.coroutines.delay
@@ -54,6 +56,7 @@ internal fun BookVoiceHost(
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
     val sherpaHolder = remember(book.id) { arrayOfNulls<SherpaPiperEngine>(1) }
+    val kittenHolder = remember(book.id) { arrayOfNulls<SherpaKittenEngine>(1) }
     val viewModel = remember(book.id) {
         val scratch = File(appContext.cacheDir, "book-voice-audition")
         val driver = AndroidSystemTtsDriver(appContext)
@@ -61,10 +64,15 @@ internal fun BookVoiceHost(
         val packs = scanAppModelPacks(appContext)
         val sherpa = SherpaPiperEngine(packs).takeIf { it.voices().isNotEmpty() }
         sherpaHolder[0] = sherpa
+        // KT2: Kitten joins the registry on the same rule (complete pack
+        // present); the holder releases it on dispose below.
+        val kitten = packs.kittenEngineOrNull()
+        kittenHolder[0] = kitten
         val registry = EngineRegistry(
             listOfNotNull(
                 adapter,
                 sherpa,
+                kitten,
                 DebugRenderEngines.beepEngineIfDebug(BuildConfig.DEBUG)
             )
         )
@@ -108,6 +116,8 @@ internal fun BookVoiceHost(
             viewModel.clear()
             sherpaHolder[0]?.release()
             sherpaHolder[0] = null
+            kittenHolder[0]?.release()
+            kittenHolder[0] = null
         }
     }
     val state by viewModel.state.collectAsState()

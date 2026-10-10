@@ -61,9 +61,11 @@ import app.auloud.player.storage.BundleStorage
 import app.auloud.player.tts.AndroidSystemTtsDriver
 import app.auloud.player.tts.EngineRegistry
 import app.auloud.player.tts.PrefsTtsStore
+import app.auloud.player.tts.SherpaKittenEngine
 import app.auloud.player.tts.SherpaPiperEngine
 import app.auloud.player.tts.SystemTtsAdapter
 import app.auloud.player.tts.bookVoiceVersionOf
+import app.auloud.player.tts.kittenEngineOrNull
 import app.auloud.player.tts.scanAppModelPacks
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -110,6 +112,7 @@ fun PartialBookScreen(
     val appContext = remember(context) { context.applicationContext }
     val scope = rememberCoroutineScope()
     val panelSherpaHolder = remember(book.id) { arrayOfNulls<SherpaPiperEngine>(1) }
+    val panelKittenHolder = remember(book.id) { arrayOfNulls<SherpaKittenEngine>(1) }
     val panelVm = remember(book.id) {
         val scratch = File(appContext.cacheDir, "panel-tts-probe")
         val driver = AndroidSystemTtsDriver(appContext)
@@ -117,10 +120,14 @@ fun PartialBookScreen(
         val packs = scanAppModelPacks(appContext)
         val sherpa = SherpaPiperEngine(packs).takeIf { it.voices().isNotEmpty() }
         panelSherpaHolder[0] = sherpa
+        // KT2: Kitten joins the registry on the same rule as Piper.
+        val kitten = packs.kittenEngineOrNull()
+        panelKittenHolder[0] = kitten
         val registry = EngineRegistry(
             listOfNotNull(
                 adapter,
                 sherpa,
+                kitten,
                 DebugRenderEngines.beepEngineIfDebug(BuildConfig.DEBUG)
             )
         )
@@ -174,6 +181,8 @@ fun PartialBookScreen(
             panelVm.clear()
             panelSherpaHolder[0]?.release()
             panelSherpaHolder[0] = null
+            panelKittenHolder[0]?.release()
+            panelKittenHolder[0] = null
         }
     }
     val panelState by panelVm.state.collectAsState()

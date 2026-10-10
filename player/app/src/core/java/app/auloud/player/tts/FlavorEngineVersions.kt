@@ -8,3 +8,8 @@ package app.auloud.player.tts
  * message (VS6 guards).
  */
 internal fun piperEngineVersion(): String? = null
+
+/**
+ * KT2: `core` has no bundled Kitten engine either (same rule as piper).
+ */
+internal fun kittenEngineVersion(): String? = null

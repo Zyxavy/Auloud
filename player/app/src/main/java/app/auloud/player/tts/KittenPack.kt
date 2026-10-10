@@ -48,6 +48,14 @@ data class KittenPack(
 )
 
 /**
+ * KT2: Kitten engine for a pack list, or null when no complete Kitten
+ * pack is present. One call per registry site (the four engine hosts
+ * share this so the take-if-voiced rule stays single-sourced).
+ */
+fun List<ModelPack>.kittenEngineOrNull(): SherpaKittenEngine? =
+    SherpaKittenEngine(this).takeIf { it.voices().isNotEmpty() }
+
+/**
  * Voice id for [sid] (`kitten:<sid>`).
  */
 fun kittenVoiceId(sid: Int): String = "$KITTEN_NAMESPACE:$sid"

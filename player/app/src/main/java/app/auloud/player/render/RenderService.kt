@@ -31,10 +31,14 @@ import app.auloud.player.storage.SafPaths
 import app.auloud.player.tts.AndroidSystemTtsDriver
 import app.auloud.player.tts.BookVoices
 import app.auloud.player.tts.EngineRegistry
+import app.auloud.player.tts.KITTEN_NAMESPACE
 import app.auloud.player.tts.ModelPacks
 import app.auloud.player.tts.PrefsTtsStore
+import app.auloud.player.tts.SherpaKittenEngine
 import app.auloud.player.tts.SherpaPiperEngine
 import app.auloud.player.tts.SystemTtsAdapter
+import app.auloud.player.tts.kittenEngineVersion
+import app.auloud.player.tts.kittenEngineOrNull
 import app.auloud.player.tts.piperEngineVersion
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -113,6 +117,7 @@ class RenderService : Service() {
     private var powerReceiver: BroadcastReceiver? = null
     private var systemDriver: AndroidSystemTtsDriver? = null
     private var sherpaEngine: SherpaPiperEngine? = null
+    private var kittenEngine: SherpaKittenEngine? = null
 
     private val storage: BundleStorage by lazy {
         RoutingBundleStorage(FileBundleStorage()) { treeUri ->
@@ -248,6 +253,11 @@ class RenderService : Service() {
         } catch (_: Exception) {
         }
         sherpaEngine = null
+        try {
+            kittenEngine?.release()
+        } catch (_: Exception) {
+        }
+        kittenEngine = null
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -700,10 +710,13 @@ class RenderService : Service() {
             }
             val sherpa = SherpaPiperEngine(packs).takeIf { it.voices().isNotEmpty() }
             sherpaEngine = sherpa
+            val kitten = packs.kittenEngineOrNull()
+            kittenEngine = kitten
             val registry = EngineRegistry(
                 listOfNotNull(
                     adapter,
                     sherpa,
+                    kitten,
                     DebugRenderEngines.beepEngineIfDebug(BuildConfig.DEBUG)
                 )
             )
@@ -1636,6 +1649,8 @@ class RenderService : Service() {
         SystemTtsAdapter.SYSTEM_NAMESPACE -> systemTtsVersion()
         // VC1: piper pin lives per flavor (null in `core`, sherpa pin in `full`).
         SherpaPiperEngine.PIPER_NAMESPACE -> piperEngineVersion()
+        // KT2: kitten pin lives per flavor the same way.
+        KITTEN_NAMESPACE -> kittenEngineVersion()
         BeepTtsEngine.NAMESPACE -> BeepTtsEngine.VERSION
         else -> null
     }

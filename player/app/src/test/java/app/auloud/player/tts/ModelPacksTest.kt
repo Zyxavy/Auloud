@@ -78,4 +78,71 @@ class ModelPacksTest {
             ModelPacks.roots(internal, "/storage/ABCD-1234/")
         )
     }
+
+    @Test
+    fun problems_completePacksSilent() {
+        val root = tmp.newFolder("models")
+        packDir(root, "piper", "en_US-lessac-low")
+        File(File(root, "piper"), "tokens.txt").writeText("a 0\n")
+        File(File(root, "piper"), "espeak-ng-data").mkdirs()
+        assertTrue(ModelPacks.scanProblems(listOf(root)).isEmpty())
+    }
+
+    @Test
+    fun problems_onnxWithoutTokensOrEspeak() {
+        val root = tmp.newFolder("models")
+        packDir(root, "half", "voice")
+        val byLabel = ModelPacks.scanProblems(listOf(root)).associate { it.label to it.reason }
+        assertEquals("missing tokens.txt", byLabel["half"])
+        File(File(root, "half"), "tokens.txt").writeText("a 0\n")
+        val again = ModelPacks.scanProblems(listOf(root)).associate { it.label to it.reason }
+        assertEquals("missing espeak-ng-data", again["half"])
+    }
+
+    @Test
+    fun problems_kittenAttemptMissingModel() {
+        val root = tmp.newFolder("models")
+        val dir = File(root, "kitten-nano").apply { mkdirs() }
+        File(dir, KITTEN_VOICES_FILENAME).writeBytes(ByteArray(10))
+        val problems = ModelPacks.scanProblems(listOf(root))
+        assertEquals(listOf("kitten-nano"), problems.map { it.label })
+        assertEquals("no .onnx model file", problems.single().reason)
+    }
+
+    @Test
+    fun problems_kittenAttemptMissingVoicesBin() {
+        val root = tmp.newFolder("models")
+        val dir = File(root, "kitten-micro").apply { mkdirs() }
+        File(dir, "model.onnx").writeBytes(ByteArray(10))
+        File(dir, KITTEN_TOKENS_FILENAME).writeBytes(ByteArray(10))
+        File(dir, KITTEN_ESPEAK_DIRNAME).mkdirs()
+        File(dir, KITTEN_PACK_FILENAME).writeText("""{"speakers": 8}""")
+        val problems = ModelPacks.scanProblems(listOf(root))
+        assertEquals("missing voices.bin", problems.single().reason)
+    }
+
+    @Test
+    fun problems_plainDirsSilentAndNestedIgnored() {
+        val root = tmp.newFolder("models")
+        File(root, "empty").mkdirs()
+        File(root, "notes").mkdirs()
+        File(File(root, "notes"), "readme.txt").writeText("hi")
+        val nested = File(File(root, "outer"), "inner").apply { mkdirs() }
+        File(nested, "voice.onnx").writeBytes(ByteArray(10))
+        // Depth rule matches scan(): the root itself plus immediate
+        // children only, so the grandchild attempt stays silent.
+        assertTrue(ModelPacks.scanProblems(listOf(root)).isEmpty())
+    }
+
+    @Test
+    fun problems_mixedRoots_sortedByLabel() {
+        val root = tmp.newFolder("models")
+        packDir(root, "zeta-voice", "v")
+        val kitten = File(root, "alpha-kitten").apply { mkdirs() }
+        File(kitten, KITTEN_VOICES_FILENAME).writeBytes(ByteArray(10))
+        assertEquals(
+            listOf("alpha-kitten", "zeta-voice"),
+            ModelPacks.scanProblems(listOf(root)).map { it.label }
+        )
+    }
 }

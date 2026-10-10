@@ -51,10 +51,13 @@ import app.auloud.player.tts.EngineRegistry
 import app.auloud.player.tts.ModelPack
 import app.auloud.player.tts.ModelPacks
 import app.auloud.player.tts.PrefsTtsStore
+import app.auloud.player.tts.SherpaKittenEngine
 import app.auloud.player.tts.SherpaPiperEngine
 import app.auloud.player.tts.SystemTtsAdapter
 import app.auloud.player.tts.VoiceAuditionScreen
 import app.auloud.player.tts.VoiceAuditionViewModel
+import app.auloud.player.tts.detectKittenPack
+import app.auloud.player.tts.kittenEngineOrNull
 import java.io.File
 
 /**
@@ -146,8 +149,11 @@ fun SettingsScreen(
             onClick = { showVoices = true },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         )
+        // KT2: problem rows ride the same scan (one pass, shared roots).
+        val modelRoots = remember(appContext) { modelPackRoots(appContext) }
         ModelPacksSection(
-            packs = remember(appContext) { scanModelPacks(appContext) },
+            packs = remember(modelRoots) { ModelPacks.scan(modelRoots) },
+            problems = remember(modelRoots) { ModelPacks.scanProblems(modelRoots) },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         )
         // RA0 throwaway: debug builds only, deleted with the spike screen.
@@ -403,6 +409,7 @@ private fun BatteryOptimizationEntry(
 @Composable
 private fun ModelPacksSection(
     packs: List<ModelPack>,
+    problems: List<ModelPacks.PackProblem> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.padding(vertical = 8.dp)) {
@@ -411,7 +418,7 @@ private fun ModelPacksSection(
             style = MaterialTheme.typography.titleMedium
         )
         Spacer(Modifier.height(4.dp))
-        if (packs.isEmpty()) {
+        if (packs.isEmpty() && problems.isEmpty()) {
             Text(
                 text = "No voice models found. Copy a pack folder " +
                     "(.onnx files) into /Auloud/models/ here or " +
@@ -420,20 +427,45 @@ private fun ModelPacksSection(
             )
         } else {
             packs.forEach { pack ->
+                // KT2: Kitten folders read as voice counts (their `.onnx`
+                // stem is the shared model file, not a voice); other packs
+                // keep the stem listing.
+                val kitten = detectKittenPack(File(pack.dirPath))
                 Text(
                     text = pack.label,
                     style = MaterialTheme.typography.bodyMedium
                 )
                 Text(
-                    text = "${pack.voices.size} voice(s), " +
-                        "%.1f MB".format(pack.bytesTotal / 1048576.0),
+                    text = if (kitten != null) {
+                        "${kitten.speakerCount} Kitten voice(s), "
+                    } else {
+                        "${pack.voices.size} voice(s), "
+                    } + "%.1f MB".format(pack.bytesTotal / 1048576.0),
                     style = MaterialTheme.typography.bodySmall
                 )
                 Text(
-                    text = pack.voices.joinToString(", "),
+                    text = if (kitten != null) {
+                        "kitten:0..${kitten.speakerCount - 1} (user-supplied pack)"
+                    } else {
+                        pack.voices.joinToString(", ")
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+            // KT2: incomplete attempts with the missing piece, so a bad
+            // copy reads as a fixable row instead of silence.
+            problems.forEach { problem ->
+                Text(
+                    text = problem.label,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = "Incomplete pack: ${problem.reason}. " +
+                        "Fix the folder with a file manager.",
+                    style = MaterialTheme.typography.bodySmall
                 )
                 Spacer(Modifier.height(4.dp))
             }
@@ -441,7 +473,7 @@ private fun ModelPacksSection(
     }
 }
 
-private fun scanModelPacks(appContext: android.content.Context): List<ModelPack> {
+private fun modelPackRoots(appContext: android.content.Context): List<java.io.File> {
     return try {
         val internal = java.io.File(BooksRootResolver.defaultBooksRoot(appContext))
         val removable = try {
@@ -449,7 +481,15 @@ private fun scanModelPacks(appContext: android.content.Context): List<ModelPack>
         } catch (_: Exception) {
             null
         }
-        ModelPacks.scan(ModelPacks.roots(internal, removable))
+        ModelPacks.roots(internal, removable)
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+
+private fun scanModelPacks(appContext: android.content.Context): List<ModelPack> {
+    return try {
+        ModelPacks.scan(modelPackRoots(appContext))
     } catch (_: Exception) {
         emptyList()
     }
@@ -489,6 +529,7 @@ private fun VoiceAuditionHost(
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
     val sherpaHolder = remember(appContext) { arrayOfNulls<SherpaPiperEngine>(1) }
+    val kittenHolder = remember(appContext) { arrayOfNulls<SherpaKittenEngine>(1) }
     val viewModel = remember(appContext) {
         val scratch = File(appContext.cacheDir, "tts-audition")
         val driver = AndroidSystemTtsDriver(appContext)
@@ -499,6 +540,9 @@ private fun VoiceAuditionHost(
         val packs = scanModelPacks(appContext)
         val sherpa = SherpaPiperEngine(packs).takeIf { it.voices().isNotEmpty() }
         sherpaHolder[0] = sherpa
+        // KT2: Kitten joins the registry on the same rule as Piper.
+        val kitten = packs.kittenEngineOrNull()
+        kittenHolder[0] = kitten
         // RN10: the beep engine joins the registry in debug builds only
         // (null in release, so the release list is exactly what it was
         // before RN10). The voice-lab beep card renders through it.
@@ -506,6 +550,7 @@ private fun VoiceAuditionHost(
             listOfNotNull(
                 adapter,
                 sherpa,
+                kitten,
                 DebugRenderEngines.beepEngineIfDebug(BuildConfig.DEBUG)
             )
         )
@@ -517,6 +562,8 @@ private fun VoiceAuditionHost(
             viewModel.clear()
             sherpaHolder[0]?.release()
             sherpaHolder[0] = null
+            kittenHolder[0]?.release()
+            kittenHolder[0] = null
         }
     }
     val state by viewModel.state.collectAsState()

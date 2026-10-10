@@ -42,6 +42,12 @@ class SherpaPiperEngine(
 
     private val complete: Map<String, Pair<File, File>> = packs.flatMap { pack ->
         val dir = File(pack.dirPath)
+        // KT2: Kitten-layout folders belong to the Kitten engine
+        // (`voices.bin`/`pack.json` never occur in Piper packs); without
+        // the skip their model file would surface as a bogus piper voice.
+        if (File(dir, KITTEN_VOICES_FILENAME).isFile || File(dir, KITTEN_PACK_FILENAME).isFile) {
+            return@flatMap emptyList()
+        }
         val tokens = File(dir, TOKENS_FILENAME)
         val dataDir = File(dir, ESPEAK_DATA_DIRNAME)
         if (!tokens.isFile || !dataDir.isDirectory) return@flatMap emptyList()
