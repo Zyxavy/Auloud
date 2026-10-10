@@ -539,6 +539,7 @@ private fun VoiceAuditionHost(
         onSetSpeed = viewModel::setSpeed,
         onPreview = viewModel::preview,
         onStop = viewModel::stop,
+        onCalibrateLevels = viewModel::calibrateLevels,
         modifier = modifier,
         beepCheckAvailable = isBeepSelfCheckAvailable(BuildConfig.DEBUG),
         beepStatus = beepStatus,

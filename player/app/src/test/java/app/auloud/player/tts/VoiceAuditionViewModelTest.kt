@@ -183,4 +183,61 @@ class VoiceAuditionViewModelTest {
         vm.clear()
         assertEquals(1, audio.releases)
     }
+
+    // ST6: level matching.
+
+    private fun systemEngine() = FakeTtsEngine(
+        namespace = "system",
+        voiceIds = listOf("system:narr", "system:dial"),
+        peakByVoice = mapOf("system:narr" to 0.8f, "system:dial" to 0.4f)
+    )
+
+    @Test
+    fun calibrateLevels_matchesSystemPairAndStores(): Unit = runBlocking {
+        val store = PrefsTtsStore(FakeSharedPreferences())
+        store.setVoiceId(TtsRole.Narrator, "system:narr")
+        store.setVoiceId(TtsRole.Dialogue, "system:dial")
+        val (vm, _, _) = viewModel(
+            store = store,
+            registry = EngineRegistry(listOf(systemEngine()))
+        )
+        try {
+            assertTrue(vm.state.value.canCalibrateLevels)
+            vm.calibrateLevels()
+            assertEquals(0.5f, store.streamVolume(TtsRole.Narrator), 0.0001f)
+            assertEquals(1.0f, store.streamVolume(TtsRole.Dialogue), 0f)
+            assertEquals("system:narr", store.streamVolumeVoice(TtsRole.Narrator))
+            assertEquals("system:dial", store.streamVolumeVoice(TtsRole.Dialogue))
+            assertEquals(false, vm.state.value.calibrating)
+            assertEquals(
+                "Levels matched (narrator 50%, dialogue 100%)",
+                vm.state.value.levelNote
+            )
+            assertNull(vm.state.value.error)
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    fun calibrateLevels_nonSystemPair_refusesWithoutStoring(): Unit = runBlocking {
+        val store = PrefsTtsStore(FakeSharedPreferences())
+        store.setVoiceId(TtsRole.Narrator, "kokoro:am_onyx")
+        store.setVoiceId(TtsRole.Dialogue, "system:dial")
+        val (vm, _, _) = viewModel(
+            store = store,
+            registry = EngineRegistry(listOf(kokoro, systemEngine()))
+        )
+        try {
+            assertTrue(!vm.state.value.canCalibrateLevels)
+            vm.calibrateLevels()
+            assertEquals("level matching needs two system voices", vm.state.value.error)
+            assertEquals(1.0f, store.streamVolume(TtsRole.Narrator), 0f)
+            assertEquals("", store.streamVolumeVoice(TtsRole.Narrator))
+            assertEquals(false, vm.state.value.calibrating)
+            assertNull(vm.state.value.levelNote)
+        } finally {
+            vm.clear()
+        }
+    }
 }

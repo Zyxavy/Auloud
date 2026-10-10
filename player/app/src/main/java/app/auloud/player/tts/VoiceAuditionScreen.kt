@@ -53,7 +53,8 @@ fun VoiceAuditionScreen(
     modifier: Modifier = Modifier,
     beepCheckAvailable: Boolean = false,
     beepStatus: String? = null,
-    onRunBeepCheck: (() -> Unit)? = null
+    onRunBeepCheck: (() -> Unit)? = null,
+    onCalibrateLevels: () -> Unit = {}
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -125,6 +126,19 @@ fun VoiceAuditionScreen(
             )
             state.error?.let {
                 Spacer(Modifier.height(8.dp))
+                Text(text = it, style = MaterialTheme.typography.bodyMedium)
+            }
+            // ST6: level match for live streaming (system pair only; the
+            // stream plays full volume until the pair matches).
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = onCalibrateLevels,
+                enabled = state.canCalibrateLevels && !state.calibrating
+            ) {
+                Text(if (state.calibrating) "Matching..." else "Match voice levels")
+            }
+            state.levelNote?.let {
+                Spacer(Modifier.height(4.dp))
                 Text(text = it, style = MaterialTheme.typography.bodyMedium)
             }
             // RN10: debug-only beep self-check (release builds never see

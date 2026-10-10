@@ -13,6 +13,17 @@ interface TtsVoiceStore {
     fun setVoiceId(role: TtsRole, voiceId: String)
     fun speed(role: TtsRole): Float
     fun setSpeed(role: TtsRole, speed: Float)
+
+    /**
+     * ST6: live-stream calibration (per-role volume plus the measured
+     * voice id). Defaults keep every existing fake compiling: no
+     * calibration means full volume on any voice. Production
+     * ([PrefsTtsStore]) persists both halves.
+     */
+    fun streamVolume(role: TtsRole): Float = 1.0f
+    fun setStreamVolume(role: TtsRole, volume: Float) {}
+    fun streamVolumeVoice(role: TtsRole): String = ""
+    fun setStreamVolumeVoice(role: TtsRole, voiceId: String) {}
 }
 
 /** Valid synthesis speeds (slower than playback: audibility floor). */

@@ -37,6 +37,7 @@ import app.auloud.player.render.buildChapterMediaMap
 import app.auloud.player.render.isEndOfRenderedPortion
 import app.auloud.player.tts.AndroidStreamTtsDriver
 import app.auloud.player.tts.PrefsTtsStore
+import app.auloud.player.tts.StreamLeveling
 import app.auloud.player.tts.StreamTtsDriver
 import app.auloud.player.tts.TtsRole
 import app.auloud.player.storage.BundleStorage
@@ -674,8 +675,9 @@ class PlaybackService : MediaSessionService() {
             }
         }
         if (sentences.isEmpty()) return refuseStream("stream unavailable (no sentences)")
+        val store = PrefsTtsStore.fromContext(this)
         val voices = try {
-            RerenderFirstRender.readBookVoices(manifest, PrefsTtsStore.fromContext(this))
+            RerenderFirstRender.readBookVoices(manifest, store)
         } catch (_: Exception) {
             null
         } ?: return refuseStream("stream unavailable (voice settings unreadable)")
@@ -709,8 +711,22 @@ class PlaybackService : MediaSessionService() {
                     TtsRole.Narrator to voices.narratorSpeed,
                     TtsRole.Dialogue to voices.dialogueSpeed
                 ),
-                // ST6 calibrates per-role volumes; full until then.
-                volumes = mapOf(TtsRole.Narrator to 1.0f, TtsRole.Dialogue to 1.0f),
+                // ST6: stored level match when the pair still uses the
+                // measured voices, else full (recalibrate after changes).
+                volumes = StreamLeveling.volumesFor(
+                    currentVoices = mapOf(
+                        TtsRole.Narrator to voices.narratorVoiceId,
+                        TtsRole.Dialogue to voices.resolvedDialogueVoiceId()
+                    ),
+                    calibratedVoices = mapOf(
+                        TtsRole.Narrator to store.streamVolumeVoice(TtsRole.Narrator),
+                        TtsRole.Dialogue to store.streamVolumeVoice(TtsRole.Dialogue)
+                    ),
+                    calibratedVolumes = mapOf(
+                        TtsRole.Narrator to store.streamVolume(TtsRole.Narrator),
+                        TtsRole.Dialogue to store.streamVolume(TtsRole.Dialogue)
+                    )
+                ),
                 pausesAfterSid = pauses,
                 title = text.title.ifBlank { chapter.title },
                 bookTitle = manifest.title

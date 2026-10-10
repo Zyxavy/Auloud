@@ -120,9 +120,14 @@ down to the quieter one. Calibration values live with the voice
 settings; uncalibrated roles play at full volume (no invented
 correction).
 
-Pauses are silent utterances matching the rendered rules (250/500/800/
-1000 ms plus the 100 ms quote-tag pause); LiveSil measures their
-accuracy on-device.
+Pauses are silent utterances matching the rendered block rules
+(250/500/800/1000 ms, LiveSil-measured). The 100 ms quote-tag pause
+stays render-only: the bundle carries no split-pair fields by design
+and recomputing them would need the ingest pipeline, so the stream
+keeps the 250 ms sentence pause at role boundaries instead. If device
+listening proves the missing tag pause audible as a pacing gap, the
+fix is a spec amendment carrying split pairs, not a heuristic in the
+planner (decided ST6, reopens via the spec-first path).
 
 ## 8. Streaming pauses rendering (decision 7, D-134)
 

@@ -41,7 +41,13 @@ class VoiceAuditionViewModel(
         val narratorSpeed: Float = DEFAULT_TTS_SPEED,
         val dialogueSpeed: Float = DEFAULT_TTS_SPEED,
         val previewingRole: TtsRole? = null,
-        val error: String? = null
+        val error: String? = null,
+        /** ST6: level-match run in progress. */
+        val calibrating: Boolean = false,
+        /** ST6: one-line result of the last match (null when never run). */
+        val levelNote: String? = null,
+        /** ST6: true when both roles use system voices (the only matchable pair). */
+        val canCalibrateLevels: Boolean = false
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -49,6 +55,7 @@ class VoiceAuditionViewModel(
 
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private var previewJob: Job? = null
+    private var calibrateJob: Job? = null
 
     init {
         refresh()
@@ -72,9 +79,21 @@ class VoiceAuditionViewModel(
             narratorSpeed = store.speed(TtsRole.Narrator),
             dialogueSpeed = store.speed(TtsRole.Dialogue),
             previewingRole = _state.value.previewingRole,
-            error = null
+            error = null,
+            calibrating = _state.value.calibrating,
+            levelNote = _state.value.levelNote,
+            canCalibrateLevels = canCalibrateLevels()
         )
     }
+
+    /** ST6: both roles on system voices (streaming is system-only). */
+    private fun canCalibrateLevels(): Boolean =
+        isSystemVoiceId(store.voiceId(TtsRole.Narrator)) &&
+            isSystemVoiceId(store.voiceId(TtsRole.Dialogue))
+
+    private fun isSystemVoiceId(voiceId: String): Boolean =
+        voiceId.startsWith(SystemTtsAdapter.SYSTEM_NAMESPACE + ":") &&
+            voiceId.length > SystemTtsAdapter.SYSTEM_NAMESPACE.length + 1
 
     private fun storeSelectedEngine(namespaces: List<String>): String {
         val narratorEngine = TtsVoice.parse(store.voiceId(TtsRole.Narrator))?.engine
@@ -145,8 +164,52 @@ class VoiceAuditionViewModel(
         _state.value = _state.value.copy(previewingRole = null)
     }
 
+    /**
+     * ST6: match the two role levels for live streaming: synthesize the
+     * standard sentence per role, store the relative volumes keyed by
+     * voice id. System pair only (anything else refuses with the reason
+     * in [UiState.error]); a voice change afterwards needs a re-run
+     * (the stream plays full until the pair matches again).
+     */
+    fun calibrateLevels() {
+        calibrateJob?.cancel()
+        _state.value = _state.value.copy(calibrating = true, levelNote = null, error = null)
+        calibrateJob = scope.launch {
+            try {
+                val narrator = systemVoiceOrThrow(TtsRole.Narrator)
+                val dialogue = systemVoiceOrThrow(TtsRole.Dialogue)
+                val engine = registry.engineFor(narrator.id)
+                    ?: throw IllegalStateException("system engine unavailable")
+                val volumes = StreamLeveling.calibrate(engine, narrator, dialogue)
+                store.setStreamVolume(TtsRole.Narrator, volumes[TtsRole.Narrator] ?: 1.0f)
+                store.setStreamVolumeVoice(TtsRole.Narrator, narrator.id)
+                store.setStreamVolume(TtsRole.Dialogue, volumes[TtsRole.Dialogue] ?: 1.0f)
+                store.setStreamVolumeVoice(TtsRole.Dialogue, dialogue.id)
+                _state.value = _state.value.copy(
+                    calibrating = false,
+                    levelNote = StreamLeveling.describe(volumes)
+                )
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                _state.value = _state.value.copy(
+                    calibrating = false,
+                    error = e.message ?: "level match failed"
+                )
+            }
+        }
+    }
+
+    private fun systemVoiceOrThrow(role: TtsRole): TtsVoice {
+        val voice = TtsVoice.parse(store.voiceId(role))
+        if (voice == null || !isSystemVoiceId(voice.id)) {
+            throw IllegalArgumentException("level matching needs two system voices")
+        }
+        return voice
+    }
+
     fun clear() {
         previewJob?.cancel()
+        calibrateJob?.cancel()
         scope.cancel()
         audio.release()
     }

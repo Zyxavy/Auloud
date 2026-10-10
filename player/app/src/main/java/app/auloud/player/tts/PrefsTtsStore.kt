@@ -29,6 +29,26 @@ class PrefsTtsStore(
         prefs.edit().putFloat(speedKeyFor(role), clampTtsSpeed(speed)).apply()
     }
 
+    /** ST6: calibrated live-stream volume (0..1, garbage reads full). */
+    override fun streamVolume(role: TtsRole): Float {
+        val stored = prefs.getFloat(streamVolumeKeyFor(role), 1.0f)
+        if (!stored.isFinite()) return 1.0f
+        return stored.coerceIn(0.0f, 1.0f)
+    }
+
+    override fun setStreamVolume(role: TtsRole, volume: Float) {
+        val clean = if (!volume.isFinite()) 1.0f else volume.coerceIn(0.0f, 1.0f)
+        prefs.edit().putFloat(streamVolumeKeyFor(role), clean).apply()
+    }
+
+    /** ST6: voice id the calibration above was measured for. */
+    override fun streamVolumeVoice(role: TtsRole): String =
+        prefs.getString(streamVolumeVoiceKeyFor(role), "") ?: ""
+
+    override fun setStreamVolumeVoice(role: TtsRole, voiceId: String) {
+        prefs.edit().putString(streamVolumeVoiceKeyFor(role), voiceId).apply()
+    }
+
     companion object {
         /** Same file as the other settings stores (one prefs file per app). */
         const val PREFS_NAME = "auloud_settings"
@@ -36,6 +56,10 @@ class PrefsTtsStore(
         const val KEY_DIALOGUE_VOICE = "tts_dialogue_voice"
         const val KEY_NARRATOR_SPEED = "tts_narrator_speed"
         const val KEY_DIALOGUE_SPEED = "tts_dialogue_speed"
+        const val KEY_NARRATOR_STREAM_VOLUME = "tts_narrator_stream_volume"
+        const val KEY_DIALOGUE_STREAM_VOLUME = "tts_dialogue_stream_volume"
+        const val KEY_NARRATOR_STREAM_VOLUME_VOICE = "tts_narrator_stream_volume_voice"
+        const val KEY_DIALOGUE_STREAM_VOLUME_VOICE = "tts_dialogue_stream_volume_voice"
 
         private fun keyFor(role: TtsRole): String = when (role) {
             TtsRole.Narrator -> KEY_NARRATOR_VOICE
@@ -45,6 +69,16 @@ class PrefsTtsStore(
         private fun speedKeyFor(role: TtsRole): String = when (role) {
             TtsRole.Narrator -> KEY_NARRATOR_SPEED
             TtsRole.Dialogue -> KEY_DIALOGUE_SPEED
+        }
+
+        private fun streamVolumeKeyFor(role: TtsRole): String = when (role) {
+            TtsRole.Narrator -> KEY_NARRATOR_STREAM_VOLUME
+            TtsRole.Dialogue -> KEY_DIALOGUE_STREAM_VOLUME
+        }
+
+        private fun streamVolumeVoiceKeyFor(role: TtsRole): String = when (role) {
+            TtsRole.Narrator -> KEY_NARRATOR_STREAM_VOLUME_VOICE
+            TtsRole.Dialogue -> KEY_DIALOGUE_STREAM_VOLUME_VOICE
         }
 
         fun fromContext(context: Context): PrefsTtsStore =

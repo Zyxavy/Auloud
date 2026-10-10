@@ -55,4 +55,25 @@ class PrefsTtsStoreTest {
         assertEquals(1.0f, clampTtsSpeed(Float.NaN), 0f)
         assertEquals(1.25f, clampTtsSpeed(1.25f), 0f)
     }
+
+    @Test
+    fun streamVolumes_defaultFullAndRoundTrip() {
+        val store = PrefsTtsStore(FakeSharedPreferences())
+        assertEquals(1.0f, store.streamVolume(TtsRole.Narrator), 0f)
+        assertEquals("", store.streamVolumeVoice(TtsRole.Dialogue))
+        store.setStreamVolume(TtsRole.Dialogue, 0.8f)
+        store.setStreamVolumeVoice(TtsRole.Dialogue, "system:dial")
+        assertEquals(0.8f, store.streamVolume(TtsRole.Dialogue), 0f)
+        assertEquals("system:dial", store.streamVolumeVoice(TtsRole.Dialogue))
+    }
+
+    @Test
+    fun streamVolumes_clampedAndGarbageSanitized() {
+        val prefs = FakeSharedPreferences()
+        val store = PrefsTtsStore(prefs)
+        store.setStreamVolume(TtsRole.Narrator, 9.0f)
+        assertEquals(1.0f, store.streamVolume(TtsRole.Narrator), 0f)
+        prefs.edit().putFloat(PrefsTtsStore.KEY_DIALOGUE_STREAM_VOLUME, Float.NaN).apply()
+        assertEquals(1.0f, store.streamVolume(TtsRole.Dialogue), 0f)
+    }
 }
