@@ -85,4 +85,14 @@ class StreamRouteTest {
         assertNull(StreamRoute.systemVoiceNameOrNull("system:"))
         assertNull(StreamRoute.systemVoiceNameOrNull("nosuchprefix"))
     }
+
+    @Test
+    fun streamVoiceNameOrDefault_blankFallsBackNonSystemRefuses() {
+        assertEquals("en-default", StreamRoute.streamVoiceNameOrDefault("", "en-default"))
+        assertEquals("en-default", StreamRoute.streamVoiceNameOrDefault("  ", "en-default"))
+        assertNull(StreamRoute.streamVoiceNameOrDefault("", null))
+        assertNull(StreamRoute.streamVoiceNameOrDefault("", ""))
+        assertEquals("en-picked", StreamRoute.streamVoiceNameOrDefault("system:en-picked", "en-default"))
+        assertNull(StreamRoute.streamVoiceNameOrDefault("piper:en-low", "en-default"))
+    }
 }

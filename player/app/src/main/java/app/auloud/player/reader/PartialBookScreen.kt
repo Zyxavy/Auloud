@@ -182,6 +182,8 @@ fun PartialBookScreen(
     }
     var listenAt by remember(book.id) { mutableStateOf<Int?>(null) }
     var readAt by remember(book.id) { mutableStateOf<Int?>(null) }
+    // ST7-fix: "Listen now" opens the reader already playing the stream.
+    var readAutoPlay by remember(book.id) { mutableStateOf(false) }
     var showChapters by remember(book.id) { mutableStateOf(false) }
     var showBookVoices by remember(book.id) { mutableStateOf(false) }
     var pendingDelete by remember(book.id) { mutableStateOf<Int?>(null) }
@@ -189,8 +191,9 @@ fun PartialBookScreen(
     // above stays untouched).
     var pendingDeleteStale by remember(book.id) { mutableStateOf(false) }
 
-    fun openChapter(pos: Int) {
+    fun openChapter(pos: Int, autoplay: Boolean = false) {
         val target = map?.let { partialChapterTarget(pos, it) } ?: return
+        readAutoPlay = autoplay
         scope.launch(Dispatchers.IO) {
             try {
                 progress.save(book.id, pos, 0L)
@@ -229,9 +232,11 @@ fun PartialBookScreen(
             progress = progress,
             onBack = {
                 readAt = null
+                readAutoPlay = false
                 panelVm.refresh()
             },
-            modifier = modifier
+            modifier = modifier,
+            autoPlayChapter = readAt?.takeIf { readAutoPlay }
         )
         return
     }
@@ -312,7 +317,7 @@ fun PartialBookScreen(
             onOpenVoices = null,
             onPlayChapter = {
                 showChapters = false
-                openChapter(it)
+                openChapter(it, autoplay = true)
             }
         )
     } else {
@@ -362,7 +367,7 @@ fun PartialBookScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Button(
-                    onClick = { listenTarget?.let { openChapter(it) } },
+                    onClick = { listenTarget?.let { openChapter(it, autoplay = listenLive) } },
                     enabled = listenTarget != null
                 ) { Text(if (listenLive) "Listen now" else "Listen") }
                 Button(onClick = { showChapters = true }) { Text("Chapters") }

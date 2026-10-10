@@ -2,6 +2,7 @@ package app.auloud.player.tts
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -38,6 +39,12 @@ class FakeStreamTtsDriver : StreamTtsDriver {
 
     override fun offlineVoiceNames(): Set<String> =
         if (isReady) voices else emptySet()
+
+    /** Scripted default voice for [defaultVoiceName]. */
+    var defaultVoice: String? = null
+
+    override fun defaultVoiceName(): String? =
+        if (isReady) defaultVoice else null
 
     override fun speak(
         text: String,
@@ -162,6 +169,16 @@ class StreamTtsDriverTest {
         assertEquals(setOf("narr", "dial"), fake.offlineVoiceNames())
         fake.isReady = false
         assertTrue(fake.offlineVoiceNames().isEmpty())
+    }
+
+    @Test
+    fun defaultVoiceReportedWhenReady() {
+        val fake = FakeStreamTtsDriver()
+        assertNull(fake.defaultVoiceName())
+        fake.defaultVoice = "narr"
+        assertEquals("narr", fake.defaultVoiceName())
+        fake.isReady = false
+        assertNull(fake.defaultVoiceName())
     }
 
     @Test

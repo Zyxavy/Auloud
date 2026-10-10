@@ -47,6 +47,13 @@ interface StreamTtsDriver {
      */
     fun offlineVoiceNames(): Set<String>
 
+    /**
+     * Default engine voice name (null when not ready or online-only):
+     * the service falls back to it when no voice was ever chosen, so
+     * "Listen now" works out of the box.
+     */
+    fun defaultVoiceName(): String?
+
     fun setListener(listener: StreamTtsListener?)
 
     /**
@@ -148,6 +155,16 @@ class AndroidStreamTtsDriver(
                 .toSet()
         } catch (_: Exception) {
             emptySet()
+        }
+    }
+
+    override fun defaultVoiceName(): String? {
+        val engine = tts ?: return null
+        if (!isReady) return null
+        return try {
+            engine.defaultVoice?.takeUnless { it.isNetworkConnectionRequired }?.name
+        } catch (_: Exception) {
+            null
         }
     }
 

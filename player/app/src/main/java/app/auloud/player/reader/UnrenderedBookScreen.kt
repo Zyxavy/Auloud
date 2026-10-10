@@ -6,7 +6,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -64,7 +66,12 @@ fun UnrenderedBookScreen(
     chapters: List<ChapterEntry>? = null,
     showChapters: Boolean = false,
     onOpenChapters: () -> Unit = {},
-    onDismissChapters: () -> Unit = {}
+    onDismissChapters: () -> Unit = {},
+    /**
+     * ST7-fix: manifest chapter position to start streaming on open
+     * ("Listen now" from the hub, null = read-only open as before).
+     */
+    autoPlayChapter: Int? = null
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -99,7 +106,8 @@ fun UnrenderedBookScreen(
         onOpenChapters = onOpenChapters,
         onDismissChapters = onDismissChapters,
         onBack = onBack,
-        modifier = modifier
+        modifier = modifier,
+        autoPlayChapter = autoPlayChapter
     )
 }
 
@@ -114,7 +122,8 @@ private fun UnrenderedContent(
     onOpenChapters: () -> Unit,
     onDismissChapters: () -> Unit,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    autoPlayChapter: Int? = null
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -167,6 +176,31 @@ private fun UnrenderedContent(
     }
     val unrendered by viewModel.state.collectAsState()
     val playerState by controller.state.collectAsState()
+    // ST7-fix: one shared "start the stream here" for the live bar and
+    // the mode row (the service auto-plays fresh loads and jumps, so
+    // this is safe before the controller connects).
+    fun playLive() {
+        appContext.startService(
+            PlaybackIntents.serviceIntent(appContext)
+                .putExtra(PlaybackIntents.EXTRA_BOOK_ID, book.id)
+                .putExtra(
+                    PlaybackIntents.EXTRA_STREAM_CHAPTER,
+                    unrendered.chapterIndex
+                )
+        )
+        controller.play()
+    }
+    // ST7-fix: "Listen now" opens already playing (hub autoplay target).
+    LaunchedEffect(book.id, autoPlayChapter, streamingAvailable) {
+        if (streamingAvailable && autoPlayChapter != null) {
+            appContext.startService(
+                PlaybackIntents.serviceIntent(appContext)
+                    .putExtra(PlaybackIntents.EXTRA_BOOK_ID, book.id)
+                    .putExtra(PlaybackIntents.EXTRA_STREAM_CHAPTER, autoPlayChapter)
+            )
+            controller.play()
+        }
+    }
     // Reading prefs read once per session (same rule as the timed reader:
     // the session remounts when returning from Settings).
     val fontSize = remember(book.id) { modeStore.fontSize() }
@@ -201,18 +235,9 @@ private fun UnrenderedContent(
             val sentences = unrendered.chapter?.sentencesInOrder().orEmpty()
             LiveListenBar(
                 isPlaying = playerState.isPlaying,
+                preparing = playerState.isPlaying && unrendered.liveSid == null,
                 fraction = liveFractionOf(unrendered.liveSid, sentences),
-                onPlay = {
-                    appContext.startService(
-                        PlaybackIntents.serviceIntent(appContext)
-                            .putExtra(PlaybackIntents.EXTRA_BOOK_ID, book.id)
-                            .putExtra(
-                                PlaybackIntents.EXTRA_STREAM_CHAPTER,
-                                unrendered.chapterIndex
-                            )
-                    )
-                    controller.play()
-                },
+                onPlay = ::playLive,
                 onPause = controller::pause
             )
         }
@@ -243,9 +268,17 @@ private fun UnrenderedContent(
         )
         ModeSwitcherRow(
             mode = ReaderMode.Read,
-            onMode = {},
-            listenEnabled = false,
-            listenHint = LISTEN_UNAVAILABLE_HINT
+            // ST7-fix: the Listen buttons start the live voice (the reader
+            // stays put: this screen IS read + listen for streams).
+            onMode = { mode ->
+                if (streamingAvailable &&
+                    (mode == ReaderMode.Listen || mode == ReaderMode.ReadListen)
+                ) {
+                    playLive()
+                }
+            },
+            listenEnabled = streamingAvailable,
+            listenHint = if (streamingAvailable) "Live voice, not saved" else LISTEN_UNAVAILABLE_HINT
         )
     }
 }
@@ -267,6 +300,7 @@ private fun UnrenderedLoading(onBack: () -> Unit, modifier: Modifier = Modifier)
 @Composable
 private fun LiveListenBar(
     isPlaying: Boolean,
+    preparing: Boolean,
     fraction: Float?,
     onPlay: () -> Unit,
     onPause: () -> Unit,
@@ -277,6 +311,14 @@ private fun LiveListenBar(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (preparing) {
+            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+            Text(
+                text = "Preparing live voice…",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            return
+        }
         Button(onClick = { if (isPlaying) onPause() else onPlay() }) {
             Text(if (isPlaying) "Pause" else "Listen now")
         }

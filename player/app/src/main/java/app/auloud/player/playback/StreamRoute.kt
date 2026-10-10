@@ -92,4 +92,15 @@ object StreamRoute {
         if (!voiceId.startsWith(prefix)) return null
         return voiceId.removePrefix(prefix).takeIf { it.isNotBlank() }
     }
+
+    /**
+     * ST7-fix: role voice for the stream feed. A blank configured id
+     * (voice never chosen) falls back to the engine [defaultName], so
+     * "Listen now" works out of the box; a non-system id refuses (null).
+     * Pure; the installed-voice check still runs downstream.
+     */
+    fun streamVoiceNameOrDefault(configuredId: String, defaultName: String?): String? {
+        if (configuredId.isBlank()) return defaultName?.takeIf { it.isNotBlank() }
+        return systemVoiceNameOrNull(configuredId)
+    }
 }

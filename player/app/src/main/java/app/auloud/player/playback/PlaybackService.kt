@@ -161,6 +161,13 @@ class PlaybackService : MediaSessionService() {
     private var streamPausedRender = false
     /** Book the active stream belongs to (render-resume scoping, D-134). */
     private var streamBookId: String? = null
+    /**
+     * ST7-fix: chapter requested through the stream extra while its book
+     * loads (fresh Tap-to-Listen races the async load; the jump branch
+     * only runs when the book is already loaded). Consumed once by
+     * [loadBook], cleared on every use.
+     */
+    private var pendingStreamChapter: Int? = null
     private var currentManifest: Manifest? = null
     private var currentBundlePath: String? = null
     /**
@@ -302,11 +309,14 @@ class PlaybackService : MediaSessionService() {
         // timer can be set/cancelled without touching playback).
         intent?.getStringExtra(PlaybackIntents.EXTRA_SLEEP_OPTION)?.let { applySleepOption(it) }
         // ST5: live chapter jump inside the loaded book (reader chapter
-        // list while streaming; ignored unless this book is loaded).
-        if (intent?.hasExtra(PlaybackIntents.EXTRA_STREAM_CHAPTER) == true &&
-            bookId != null && bookId == currentBookId
-        ) {
-            jumpStreamToChapter(intent.getIntExtra(PlaybackIntents.EXTRA_STREAM_CHAPTER, -1))
+        // list while streaming); ST7-fix: a jump for a loading book is
+        // stashed for loadBook (fresh Listen-now races the async load).
+        if (intent?.hasExtra(PlaybackIntents.EXTRA_STREAM_CHAPTER) == true && bookId != null) {
+            val requested = intent.getIntExtra(PlaybackIntents.EXTRA_STREAM_CHAPTER, -1)
+            pendingStreamChapter = requested.takeIf { it >= 0 }
+            if (bookId == currentBookId) {
+                jumpStreamToChapter(requested)
+            }
         }
         return super.onStartCommand(intent, flags, startId)
     }
@@ -415,19 +425,33 @@ class PlaybackService : MediaSessionService() {
             // stream path when the gate allows it.
             if (prepared.mediaItems.isEmpty()) {
                 val ordered = prepared.manifest.chapters.sortedBy { it.index }
-                val pos = (prepared.savedChapter
-                    ?.coerceIn(0, (ordered.size - 1).coerceAtLeast(0)))
+                val count = ordered.size
+                val requested = pendingStreamChapter?.takeIf { it in 0 until count }
+                pendingStreamChapter = null
+                val pos = requested
+                    ?: (prepared.savedChapter
+                        ?.coerceIn(0, (count - 1).coerceAtLeast(0)))
                     ?: 0
-                startStreamChapter(bookId, pos, prepared.savedSid, generation, stopOnRefusal = true)
+                val sid =
+                    if (requested != null && requested != prepared.savedChapter) null
+                    else prepared.savedSid
+                startStreamChapter(bookId, pos, sid, generation, stopOnRefusal = true)
                 return@launch
             }
             // ST4: a saved unrendered chapter streams instead of falling
-            // back to the first rendered item.
+            // back to the first rendered item. ST7-fix: a requested
+            // chapter (fresh Listen-now) wins over the saved one.
             val savedPos = prepared.savedChapter
-            if (streamingAvailable() && savedPos != null &&
-                !isRenderedAt(prepared.manifest, savedPos)
+            val requestedPos = pendingStreamChapter?.takeIf {
+                it in 0 until prepared.manifest.chapters.size
+            }
+            pendingStreamChapter = null
+            val streamPos = requestedPos ?: savedPos
+            if (streamingAvailable() && streamPos != null &&
+                !isRenderedAt(prepared.manifest, streamPos)
             ) {
-                startStreamChapter(bookId, savedPos, prepared.savedSid, generation, stopOnRefusal = true)
+                val sid = if (streamPos == savedPos) prepared.savedSid else null
+                startStreamChapter(bookId, streamPos, sid, generation, stopOnRefusal = true)
                 return@launch
             }
             // A render paused for another book's stream stays paused (its
@@ -681,15 +705,32 @@ class PlaybackService : MediaSessionService() {
         } catch (_: Exception) {
             null
         } ?: return refuseStream("stream unavailable (voice settings unreadable)")
-        val narrator = StreamRoute.systemVoiceNameOrNull(voices.narratorVoiceId)
-            ?: return refuseStream("streaming needs a system voice")
-        val dialogue = StreamRoute.systemVoiceNameOrNull(voices.resolvedDialogueVoiceId())
-            ?: return refuseStream("streaming needs a system voice")
         val driver = AndroidStreamTtsDriver(this)
         var waited = 0
         while (!driver.isReady && waited < STREAM_TTS_READY_WAIT_MS) {
             delay(100L)
             waited += 100
+        }
+        // ST7-fix: blank voice ids (never chosen) fall back to the engine
+        // default, so "Listen now" works out of the box; non-system ids
+        // still refuse.
+        val narrator = StreamRoute.streamVoiceNameOrDefault(
+            voices.narratorVoiceId, driver.defaultVoiceName()
+        ) ?: run {
+            try {
+                driver.shutdown()
+            } catch (_: Exception) {
+            }
+            return refuseStream("streaming needs a system voice")
+        }
+        val dialogue = StreamRoute.streamVoiceNameOrDefault(
+            voices.resolvedDialogueVoiceId(), driver.defaultVoiceName()
+        ) ?: run {
+            try {
+                driver.shutdown()
+            } catch (_: Exception) {
+            }
+            return refuseStream("streaming needs a system voice")
         }
         val installed = driver.offlineVoiceNames()
         if (narrator !in installed || dialogue !in installed) {
@@ -875,6 +916,7 @@ class PlaybackService : MediaSessionService() {
     private fun jumpStreamToChapter(chapterPos: Int) {
         val manifest = currentManifest ?: return
         if (chapterPos < 0 || chapterPos >= manifest.chapters.size) return
+        pendingStreamChapter = null
         val bookId = currentBookId ?: return
         if (isRenderedAt(manifest, chapterPos)) {
             stopStreamPath(resumeRender = true)
