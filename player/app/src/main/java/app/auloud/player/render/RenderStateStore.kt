@@ -53,6 +53,16 @@ interface RenderFileIo {
     fun writeText(path: String, text: String)
     fun renameTempToTarget(tmpPath: String, targetPath: String): Boolean
     fun deleteIfExists(path: String)
+
+    /**
+     * FP4: immediate files in [dir] whose names start with [prefix] and
+     * end with [suffix], as absolute paths, sorted. Lets recovery sweep
+     * orphan `*.tmp` files by directory listing when the manifest is
+     * unreadable (no chapter entries to derive candidates from). Missing
+     * or unreadable dirs yield an empty list, never an exception. Default
+     * empty so existing fakes compile untouched.
+     */
+    fun listFiles(dir: String, prefix: String, suffix: String): List<String> = emptyList()
 }
 
 /** Production [RenderFileIo] over `java.io.File` (API 24 safe). */
@@ -85,6 +95,19 @@ class JavaFileRenderIo : RenderFileIo {
             val file = File(path)
             if (file.isFile) file.delete()
         } catch (_: Exception) {
+        }
+    }
+
+    override fun listFiles(dir: String, prefix: String, suffix: String): List<String> {
+        return try {
+            val root = File(dir)
+            if (!root.isDirectory) return emptyList()
+            root.listFiles()
+                ?.filter { it.isFile && it.name.startsWith(prefix) && it.name.endsWith(suffix) }
+                ?.map { it.absolutePath }
+                ?.sorted().orEmpty()
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 }

@@ -42,6 +42,13 @@ class RenderRecoveryTest {
         override fun deleteIfExists(path: String) {
             files.remove(path)
         }
+
+        override fun listFiles(dir: String, prefix: String, suffix: String): List<String> {
+            val root = dir.trimEnd('/') + '/'
+            return files.keys
+                .filter { it.startsWith(root) && it.substringAfterLast('/').startsWith(prefix) && it.endsWith(suffix) }
+                .sorted()
+        }
     }
 
     private class FakeSpool : SpoolIo {
@@ -284,15 +291,62 @@ class RenderRecoveryTest {
     }
 
     @Test
-    fun unreadableManifest_sweepsFixedTempsOnly() {
+    fun unreadableManifest_sweepsFixedAndOrphanTemps() {
+        // FP4: kill mid-finalize with no manifest at all: the fixed temps
+        // plus per-chapter residue found by directory listing are swept.
         val io = FakeIo()
         io.files["$bundleDir/manifest.json.tmp"] = "torn"
+        io.files["$bundleDir/audio/ch001.m4a.tmp"] = "torn-audio"
+        io.files["$bundleDir/text/ch001.json.tmp"] = "torn-json"
+        io.files["$bundleDir/audio/ch001.m4a"] = "live-audio"
+        io.files["$bundleDir/text/ch001.json"] = untimedChapterJson(1)
 
         val report = RenderRecovery.recoverBook(bundleDir, io, sleeper = io.sleeper).getOrThrow()
 
         assertFalse(report.manifestReadable)
-        assertEquals(listOf("$bundleDir/manifest.json.tmp"), report.sweptTemps)
+        assertEquals(
+            listOf(
+                "$bundleDir/audio/ch001.m4a.tmp",
+                "$bundleDir/manifest.json.tmp",
+                "$bundleDir/text/ch001.json.tmp"
+            ),
+            report.sweptTemps
+        )
+        assertTrue(io.files.keys.none { it.endsWith(".tmp") })
+        // Live files are never touched.
+        assertTrue(io.files.containsKey("$bundleDir/audio/ch001.m4a"))
+        assertTrue(io.files.containsKey("$bundleDir/text/ch001.json"))
         assertTrue(report.repairs.isEmpty())
+    }
+
+    @Test
+    fun brokenManifest_sweepsOrphanTempsAndReportsFailure() {
+        // FP4: kill mid-finalize with a torn manifest: per-chapter temps
+        // are still swept by listing before the failure is reported.
+        val io = FakeIo()
+        io.files["$bundleDir/manifest.json"] = "{ torn"
+        io.files["$bundleDir/audio/ch001.m4a.tmp"] = "torn-audio"
+        io.files["$bundleDir/text/ch002.json.tmp"] = "torn-json"
+        io.files["$bundleDir/render-job.json.tmp"] = "torn-job"
+
+        val result = RenderRecovery.recoverBook(bundleDir, io, sleeper = io.sleeper)
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message?.contains("manifest unreadable") == true)
+        assertTrue(io.files.keys.none { it.endsWith(".tmp") })
+        assertTrue(io.files.containsKey("$bundleDir/manifest.json"))
+    }
+
+    @Test
+    fun sweepOrphanTemps_leavesLiveFilesAlone() {
+        val io = FakeIo()
+        io.files["$bundleDir/audio/ch001.m4a"] = "live"
+        io.files["$bundleDir/audio/ch001.m4a.tmp"] = "torn"
+
+        val swept = RenderRecovery.sweepOrphanTemps(bundleDir, io)
+
+        assertEquals(listOf("$bundleDir/audio/ch001.m4a.tmp"), swept)
+        assertTrue(io.files.containsKey("$bundleDir/audio/ch001.m4a"))
     }
 
     @Test

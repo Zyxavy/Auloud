@@ -109,6 +109,21 @@ class RoutingBundleStorage(
     }
 
     /**
+     * FP4: byte size routes like [exists]; SAF tokens read as unknown
+     * (null), so the validator falls back to its post-read byte check.
+     */
+    override fun sizeBytes(path: String): Long? =
+        if (SafPaths.isSafPath(path)) {
+            null
+        } else {
+            try {
+                fileStorage.sizeBytes(path)
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+    /**
      * IN8: stray import temps route file roots to the file branch; SAF
      * roots yield an empty list (imports never target picked trees, so no
      * temp can exist there).

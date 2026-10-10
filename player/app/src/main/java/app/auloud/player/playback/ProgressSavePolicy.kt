@@ -16,6 +16,13 @@ object ProgressSavePolicy {
     /** Save cadence while playing (android-api24 skill rule). */
     const val SAVE_INTERVAL_MS = 5_000L
 
+    /**
+     * FP2: consecutive failed writes before the service surfaces a notice.
+     * Three keeps one transient failure silent (a busy disk) while a stuck
+     * store (full disk, dead SD) speaks up within ~15 s of periodic saves.
+     */
+    const val SAVE_FAILURE_NOTICE_AFTER = 3
+
     /** A persistable listening spot: book manifest `id` + 0-based playlist chapter + ms. */
     data class SavePoint(val bookId: String, val chapterIndex: Int, val positionMs: Long) {
         init {
@@ -48,6 +55,14 @@ object ProgressSavePolicy {
         if (bookId.isNullOrBlank() || chapterIndex < 0 || positionMs < 0) return null
         return SavePoint(bookId, chapterIndex, positionMs)
     }
+
+    /**
+     * FP2: true once [consecutiveFailures] reaches the notice threshold. The
+     * service resets its streak when this fires, so a stuck store
+     * re-notifies every threshold instead of spamming every save.
+     */
+    fun shouldNotifySaveFailure(consecutiveFailures: Int): Boolean =
+        consecutiveFailures >= SAVE_FAILURE_NOTICE_AFTER
 
     /**
      * True when playback ended on the final playlist item: the book is

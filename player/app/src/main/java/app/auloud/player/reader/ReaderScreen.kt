@@ -138,13 +138,17 @@ fun ReaderScreen(
                     )
                 }
                 // CP3 follow-up: a tap arms the jump; the audio moves only on
-                // confirm, so accidental taps never lose the place.
+                // confirm, so accidental taps never lose the place. The
+                // excerpt is hoisted out of the dialog so the sentence list
+                // is not rebuilt on every recomposition.
                 val pending = state.pendingTapSid
-                if (pending != null) {
-                    val excerpt = state.chapter
+                val pendingExcerpt = remember(state.chapter, pending) {
+                    state.chapter
                         ?.sentencesInOrder()
                         ?.firstOrNull { it.sid == pending }
                         ?.text
+                }
+                if (pending != null) {
                     AlertDialog(
                         onDismissRequest = onDismissTapJump,
                         confirmButton = {
@@ -154,7 +158,7 @@ fun ReaderScreen(
                             TextButton(onClick = onDismissTapJump) { Text("Cancel") }
                         },
                         title = { Text("Jump to this line?") },
-                        text = excerpt?.let { { Text(it) } }
+                        text = pendingExcerpt?.let { { Text(it) } }
                     )
                 }
             }
@@ -202,24 +206,29 @@ private fun ChapterContent(
             visibleBlocks = first until first + count
         }
     }
-    LaunchedEffect(listState, chapter) {
-        snapshotFlow {
-            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
-        }.collect { (blockIndex, scrollPx) ->
-            val block = chapter.blocks.getOrNull(blockIndex) ?: return@collect
-            val layout = layouts.getOrNull(blockIndex) ?: return@collect
-            if (block.type != "para" && block.type != "quote") {
-                block.sentences.firstOrNull()?.let { onTopVisibleSentence(it.sid) }
-                return@collect
-            }
-            val offset = layoutResults[block.id]?.let { result ->
-                try {
-                    result.getOffsetForPosition(Offset(100f, scrollPx + 4f))
-                } catch (_: Exception) {
-                    0
+    // FP3: the top-visible hit test feeds Read-mode position only (the
+    // ViewModel ignores it elsewhere), so the effect does not run outside
+    // Read mode: no layout hit tests whose results would die.
+    if (state.mode == ReaderMode.Read) {
+        LaunchedEffect(listState, chapter) {
+            snapshotFlow {
+                listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+            }.collect { (blockIndex, scrollPx) ->
+                val block = chapter.blocks.getOrNull(blockIndex) ?: return@collect
+                val layout = layouts.getOrNull(blockIndex) ?: return@collect
+                if (block.type != "para" && block.type != "quote") {
+                    block.sentences.firstOrNull()?.let { onTopVisibleSentence(it.sid) }
+                    return@collect
                 }
-            } ?: 0
-            sidAtOffset(layout.sentences, offset)?.let { onTopVisibleSentence(it) }
+                val offset = layoutResults[block.id]?.let { result ->
+                    try {
+                        result.getOffsetForPosition(Offset(100f, scrollPx + 4f))
+                    } catch (_: Exception) {
+                        0
+                    }
+                } ?: 0
+                sidAtOffset(layout.sentences, offset)?.let { onTopVisibleSentence(it) }
+            }
         }
     }
     // Drag source only: finger drags detach, programmatic auto-scrolls never

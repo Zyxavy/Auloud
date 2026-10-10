@@ -223,6 +223,85 @@ class BundleValidatorTest {
     }
 
     @Test
+    fun cjkTextFile_cappedOnBytesNotChars() {
+        // FP4: 3M CJK chars are ~9 MB UTF-8: over the 8 MB byte cap while
+        // under the old char count, so the old check passed it.
+        val dir = "/books/book"
+        val manifest = textManifest()
+        val present = setOf(
+            "$dir/audio/ch001.mp3", "$dir/audio/ch002.mp3",
+            "$dir/text/ch001.json", "$dir/text/ch002.json"
+        )
+        val cjk = "あ".repeat(3_000_000)
+        assertTrue(
+            "fixture must exceed the byte cap or the test proves nothing",
+            BundleValidator.utf8ByteLength(cjk) > BundleValidator.MAX_TEXT_BYTES
+        )
+        assertTrue(cjk.length < BundleValidator.MAX_TEXT_BYTES)
+        val texts = mapOf(
+            "$dir/text/ch001.json" to validChapterJson(),
+            "$dir/text/ch002.json" to cjk
+        )
+        val errors = BundleValidator.validate(
+            dir, manifest,
+            exists = { it in present },
+            readText = { texts[it] }
+        )
+        val joined = errors.joinToString("\n")
+        assertTrue("expected too-large error, got: $errors", errors.isNotEmpty())
+        assertTrue(joined.contains("chapter 2"))
+        assertTrue(joined.contains("text/ch002.json"))
+        assertTrue(joined.contains("too large"))
+    }
+
+    @Test
+    fun oversizeTextFile_shortCircuitsTheRead() {
+        // FP4: the size seam refuses before any read (the read must never run).
+        val dir = "/books/book"
+        val manifest = textManifest()
+        val present = setOf(
+            "$dir/audio/ch001.mp3", "$dir/audio/ch002.mp3",
+            "$dir/text/ch001.json", "$dir/text/ch002.json"
+        )
+        var reads = 0
+        val errors = BundleValidator.validate(
+            dir, manifest,
+            exists = { it in present },
+            readText = { path ->
+                reads++
+                error("must not read $path")
+            },
+            textSize = { BundleValidator.MAX_TEXT_BYTES + 1L }
+        )
+        assertEquals("oversize file must short-circuit the read", 0, reads)
+        val joined = errors.joinToString("\n")
+        assertTrue("expected too-large errors, got: $errors", errors.isNotEmpty())
+        assertTrue(joined.contains("too large"))
+    }
+
+    @Test
+    fun unknownSize_fallsBackToPostReadByteCheck() {
+        // FP4: null size (e.g. SAF) still refuses CJK over the byte cap.
+        val dir = "/books/book"
+        val manifest = textManifest()
+        val present = setOf(
+            "$dir/audio/ch001.mp3", "$dir/audio/ch002.mp3",
+            "$dir/text/ch001.json", "$dir/text/ch002.json"
+        )
+        val texts = mapOf(
+            "$dir/text/ch001.json" to validChapterJson(),
+            "$dir/text/ch002.json" to "あ".repeat(3_000_000)
+        )
+        val errors = BundleValidator.validate(
+            dir, manifest,
+            exists = { it in present },
+            readText = { texts[it] },
+            textSize = { null }
+        )
+        assertTrue(errors.joinToString("\n").contains("too large"))
+    }
+
+    @Test
     fun validTextFiles_pass() {
         val (dir, manifest, seams) = textSetup()
         val (present, texts) = seams

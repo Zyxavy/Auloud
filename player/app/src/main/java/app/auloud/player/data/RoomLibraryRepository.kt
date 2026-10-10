@@ -2,9 +2,17 @@ package app.auloud.player.data
 
 import app.auloud.player.bundle.Manifest
 import app.auloud.player.storage.BundleStorage
+import app.auloud.player.storage.SafPaths
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+
+/**
+ * Runs [block] in one Room transaction. Production passes
+ * `database.withTransaction`; the default runs the block directly (unit
+ * tests over fake DAOs, callers without a second DAO).
+ */
+typealias RoomTransaction = suspend (suspend () -> Unit) -> Unit
 
 /**
  * WP4: [LibraryRepository] over Room + [BundleStorage].
@@ -18,7 +26,13 @@ import kotlinx.coroutines.flow.catch
 class RoomLibraryRepository(
     private val bookDao: BookDao,
     private val storage: BundleStorage,
-    private val now: () -> Long = System::currentTimeMillis
+    private val now: () -> Long = System::currentTimeMillis,
+    /**
+     * FP2: progress rows fall with the book row in one [inTransaction].
+     * Null keeps the row-only delete (callers that never delete books).
+     */
+    private val progressDao: ProgressDao? = null,
+    private val inTransaction: RoomTransaction = { it() }
 ) : LibraryRepository {
 
     override fun books(): Flow<List<BookEntity>> =
@@ -58,6 +72,18 @@ class RoomLibraryRepository(
                 }
             }
             val existing = bookDao.getById(manifest.id)
+            // FP2: the same id in two folders must not flap the row. The
+            // first import wins; the second skips and the rescan reports
+            // this failure as the bundle error (no schema change: the key
+            // stays the manifest id).
+            if (existing != null &&
+                existing.bundlePath.trimEnd('/') != bundleDir.trimEnd('/')
+            ) {
+                throw DataError.InvalidBundle(
+                    "$bundleDir/manifest.json: duplicate book id ${manifest.id} " +
+                        "(already imported from ${existing.bundlePath})"
+                )
+            }
             val book = BookEntity(
                 id = manifest.id,
                 title = manifest.title,
@@ -80,13 +106,28 @@ class RoomLibraryRepository(
      * contract) and then the row, so a row never points at a folder the
      * delete meant to remove. An unknown id fails naming the file and
      * the rule and deletes nothing.
+     *
+     * FP2: the folder delete is verified before the row delete (a failed
+     * delete keeps its row); book plus progress rows fall in one Room
+     * transaction, so a kill between the steps can never orphan a saved
+     * position a later re-import would resurrect. SAF trees have no
+     * delete support (the `BundleStorage` default is a no-op), so only
+     * file folders verify.
      */
     override suspend fun deleteBook(bookId: String): Result<Unit> =
         runBoundary {
             val existing = bookDao.getById(bookId)
                 ?: throw DataError.InvalidBundle("$bookId: book not in library (nothing to delete)")
             storage.deleteRecursively(existing.bundlePath)
-            bookDao.deleteById(bookId)
+            if (!SafPaths.isSafPath(existing.bundlePath) &&
+                storage.exists(join(existing.bundlePath, MANIFEST_FILE))
+            ) {
+                throw DataError.InvalidBundle("$bookId: could not delete book folder (delete failed)")
+            }
+            inTransaction {
+                bookDao.deleteById(bookId)
+                progressDao?.deleteById(bookId)
+            }
         }
 
     override suspend fun refreshMissing(presentBundleDirs: Collection<String>): Result<Unit> =

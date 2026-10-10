@@ -86,6 +86,16 @@ interface BundleStorage {
     }
 
     /**
+     * FP4: byte size of the file at [path], or null when unknown
+     * (missing file, SAF branch, or any failure). Lets import validation
+     * refuse oversize chapter text BEFORE reading it into memory.
+     * Default null so read-only fakes compile untouched.
+     *
+     * API 24 safe: plain strings, no `java.time`, no `java.nio.file`.
+     */
+    fun sizeBytes(path: String): Long? = null
+
+    /**
      * IN8: immediate `.tmp-*` import-residue folders under [root] (a sudden
      * process kill between manifest write and rename leaves one; only
      * sudden death does, cancel/failure clean up). Returns absolute paths,

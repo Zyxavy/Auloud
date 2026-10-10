@@ -40,6 +40,13 @@ class FileBundleStorage : BundleStorage {
 
     override fun exists(path: String): Boolean = File(path).exists()
 
+    /** FP4: file length, null when not a file (missing or unreadable). Never throws. */
+    override fun sizeBytes(path: String): Long? = try {
+        File(path).takeIf { it.isFile }?.length()
+    } catch (_: Exception) {
+        null
+    }
+
     /**
      * Resolves [relPath] (e.g. `audio/ch001.mp3`) against [bundleDir] as a
      * `file://` URI.

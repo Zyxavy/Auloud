@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.room.withTransaction
 import app.auloud.player.BuildConfig
 import app.auloud.player.data.AuloudDatabase
 import app.auloud.player.data.LibraryRepository
@@ -127,7 +128,13 @@ class MainActivity : ComponentActivity() {
     // import driver (built once here so both see the same rows).
     private val database by lazy { AuloudDatabase.open(applicationContext) }
     private val libraryRepository: LibraryRepository by lazy {
-        RoomLibraryRepository(database.bookDao(), routingStorage)
+        RoomLibraryRepository(
+            database.bookDao(),
+            routingStorage,
+            progressDao = database.progressDao(),
+            // FP2: book plus progress rows fall in one Room transaction.
+            inTransaction = { block -> database.withTransaction { block() } }
+        )
     }
     private val progressRepository: ProgressRepository by lazy {
         RoomProgressRepository(database.progressDao())

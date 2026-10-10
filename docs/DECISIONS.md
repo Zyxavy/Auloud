@@ -1174,3 +1174,19 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Owner order, same standing as the D-131/D-132 waivers: the numbers are data, the verdict is a product call.
 - Alternatives considered: holding NO-GO on the numbers (rejected by owner); reduced-go single voice as a separate tier (moot: the full path is ordered go, the single-voice fallback stays in code regardless).
 - Consequences / revisit when: `GATE_PASSED` flips true; `slice-13` re-tags at the flip commit; #19 reopens to ST7. ST7 acceptance (or rejection by ear) is the next verdict; a fail there re-closes the gate with device evidence.
+
+### D-139: FP2 library and progress safety fixes
+- Date: 2026-10-10
+- Status: Accepted
+- Decision: (1) The save throttle advances only on write success; three consecutive failed writes publish "Progress not saving - storage unavailable" through the notice channel and reset the streak. Load-time throttle baselines are unchanged (no write involved). (2) Delete verifies the folder is gone before the row falls (file folders only) and removes book plus progress rows in one Room transaction (`database.withTransaction` in production). (3) Same id in two folders: first import wins, the second skips and the rescan reports it as the bundle error. (4) Rescan holds a Mutex across the whole scan (`tryLock`: a rapid second rescan returns). (5) Library progress reads one `loadAll()` map query per books emission instead of one load per book.
+- Why: Audit FP2 data-loss findings, fixed with the smallest diffs; JVM tests pin each (failing-store throttle/notice, failed-delete-keeps-row, transaction contents, duplicate-id skip, single-scan, single-query).
+- Alternatives considered: composite `(bundlePath, id)` row key (rejected: needs a Room migration for a case the rescan already detects and reports); debounced progress loads (rejected: delays the progress display, `loadAll` is deterministic); verifying SAF folder deletes (rejected: SAF has no delete support, the default is a no-op, so the row delete stays the only removal there and the folder must be removed by hand).
+- Consequences / revisit when: needs device test (full-disk listen for the save notice, eject/reinsert around delete, two-folder duplicate on the tablet, cold-start library feel). Revisit the notice threshold only with device evidence.
+
+### D-140: FP1/FP3-FP6 audit fixes
+- Date: 2026-10-10
+- Status: Accepted
+- Decision: (1) FP1: End-of-chapter sleep is refused on streams (sentence index is not ms; any estimate would be invented), minute options work on both paths; wake lock uses `acquire()` with no timeout. (2) FP3: sleep-cycle base derives from live `sleepRemainingMs`, one shared `formatMmSs`, reader hit-tests compose in Read mode only. (3) FP4: text cap enforced on UTF-8 bytes before reading; unreadable-manifest paths sweep `audio/*.tmp` plus `text/*.tmp` by directory listing. (4) FP5: uploads capped at 100 MiB, streamed to disk in 1 MiB chunks with `O_CREAT|O_EXCL` plus atomic `os.link` placement; resume re-validates the destination plus dirname match before any delete; `safe_join` compares `\\?\`-stripped forms (Windows `resolve()` transient prefix under concurrent mkdir). (5) FP6: source hash streams in 1 MB chunks; bundle writes stage in a sibling tmp dir and publish via `.bak` rotation; dead `_narrator_voice` wrapper and the `TypeError` back-compat branch deleted.
+- Why: Smallest diffs clearing the remaining audit findings; JVM tests (FP1/FP3/FP4) and pytest (FP5/FP6) pin each.
+- Alternatives considered: ms estimation for stream sleep (rejected: no duration signal exists); composite row key and debounce (see D-139); FAT/exFAT hardlink fallback for uploads (not built: workspaces are NTFS in practice).
+- Consequences / revisit when: needs device test (stream End-of-chapter refusal notice, 15+ min screen-off stream, rotation UX). Revisit the 100 MiB cap only with maintainer evidence.

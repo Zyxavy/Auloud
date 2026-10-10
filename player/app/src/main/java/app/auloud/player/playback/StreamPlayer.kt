@@ -263,6 +263,13 @@ class StreamPlayer(
 
     // -- feed -------------------------------------------------------------
 
+    /**
+     * FP1: timeout-free acquire (a 10-minute timeout cannot cover long
+     * chapters); the lock is held only while speaking and released on
+     * every exit path (pause, chapter done, failure, release), each
+     * guarded by isHeld.
+     */
+    @android.annotation.SuppressLint("WakelockTimeout")
     private fun startSpeaking() {
         val chapter = input
         val stream = core
@@ -273,7 +280,7 @@ class StreamPlayer(
             return startSpeaking()
         }
         requestFocus()
-        wakeLock.acquire(10 * 60 * 1000L)
+        wakeLock.acquire()
         val first = when (stream.status) {
             StreamCore.Status.Paused -> stream.resume()
             StreamCore.Status.Playing -> stream.requeue()

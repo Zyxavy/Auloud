@@ -42,6 +42,7 @@ import app.auloud.player.playback.SleepTimerButton
 import app.auloud.player.playback.SpeedButton
 import app.auloud.player.playback.TransientNotice
 import app.auloud.player.playback.cycleSleepOption
+import app.auloud.player.playback.sleepCycleBase
 import app.auloud.player.playback.nextSpeed
 import app.auloud.player.playback.readTotalPssMb
 import app.auloud.player.playback.sendSleepOption
@@ -508,7 +509,7 @@ private fun ReaderSession(
             },
             sleepRemainingMs = playbackState.sleepRemainingMs,
             onSleep = {
-                sleepOption = cycleSleepOption(sleepOption)
+                sleepOption = cycleSleepOption(sleepCycleBase(sleepOption, playbackState.sleepRemainingMs))
                 sendSleepOption(appContext, sleepOption)
             }
             )

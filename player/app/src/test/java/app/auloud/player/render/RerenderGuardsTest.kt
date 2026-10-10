@@ -91,6 +91,8 @@ class RerenderGuardsTest {
         }
         override suspend fun load(bookId: String): Result<ProgressEntity?> =
             Result.success(rows[bookId])
+        override suspend fun loadAll(): Result<Map<String, Long>> =
+            Result.success(rows.mapValues { it.value.positionMs })
         override suspend fun delete(bookId: String): Result<Unit> {
             rows.remove(bookId)
             return Result.success(Unit)

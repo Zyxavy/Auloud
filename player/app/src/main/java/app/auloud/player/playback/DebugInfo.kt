@@ -50,12 +50,7 @@ fun debugPlayerLabel(isConnected: Boolean, isPlaying: Boolean): String = when {
 }
 
 /**
- * mm:ss for the overlay position. Mirrors the private `formatMs` in
- * `PlayerScreen` (kept separate so this file stays plain-JVM-testable).
+ * mm:ss for the overlay position (the shared [formatMmSs]; kept as a thin
+ * alias so existing call sites read as overlay code).
  */
-fun formatDebugMs(ms: Long): String {
-    val totalSeconds = (ms.coerceAtLeast(0L) / 1_000L).coerceAtMost(599_999L)
-    val minutes = totalSeconds / 60L
-    val seconds = totalSeconds % 60L
-    return "$minutes:${if (seconds < 10L) "0$seconds" else "$seconds"}"
-}
+fun formatDebugMs(ms: Long): String = formatMmSs(ms)

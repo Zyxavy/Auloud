@@ -47,6 +47,8 @@ class UnrenderedReaderViewModelTest {
 
         override suspend fun load(bookId: String): ProgressEntity? = rows[bookId]
 
+        override suspend fun getAll(): List<ProgressEntity> = rows.values.toList()
+
         override suspend fun upsert(progress: ProgressEntity) {
             rows[progress.bookId] = progress
         }

@@ -45,17 +45,9 @@ fun SleepTimerButton(
     val label = if (remainingMs == null) {
         "Sleep: off"
     } else {
-        "Sleep ${formatCountdown(remainingMs)}"
+        "Sleep ${formatMmSs(remainingMs)}"
     }
     TextButton(onClick = onClick, modifier = modifier) { Text(label) }
-}
-
-/** mm:ss countdown, API 24 safe (no java.time). */
-private fun formatCountdown(ms: Long): String {
-    val totalSeconds = (ms.coerceAtLeast(0L) / 1_000L).coerceAtMost(599_999L)
-    val minutes = totalSeconds / 60L
-    val seconds = totalSeconds % 60L
-    return "$minutes:${if (seconds < 10L) "0$seconds" else "$seconds"}"
 }
 
 private const val TAG = "AuloudPlayer"

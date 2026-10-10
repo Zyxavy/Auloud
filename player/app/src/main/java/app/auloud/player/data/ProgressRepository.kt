@@ -29,6 +29,13 @@ interface ProgressRepository {
     suspend fun load(bookId: String): Result<ProgressEntity?>
 
     /**
+     * FP2: every saved `positionMs` keyed by book id, in one query. The
+     * library screen maps one books emission with one call instead of one
+     * load per book.
+     */
+    suspend fun loadAll(): Result<Map<String, Long>>
+
+    /**
      * IN8: removes the saved position for [bookId]. Deleting a missing
      * position still succeeds (there is nothing to resurrect).
      */

@@ -13,11 +13,15 @@ import app.auloud.player.storage.WatchFolderStore
 import app.auloud.player.storage.WatchFolders
 import app.cash.turbine.test
 import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -50,8 +54,8 @@ class LibraryViewModelTest {
     fun setUp() {
         storage = FakeBundleStorage()
         folderStore = FakeWatchFolderStore(listOf(WatchFolder.FilePath(root)))
-        libraryRepo = FakeLibraryRepository()
         progressRepo = FakeProgressRepository()
+        libraryRepo = FakeLibraryRepository(progress = progressRepo)
         permissionGranted = true
         permissionRequests = 0
         // Unconfined: rescan runs synchronously, so tests can subscribe late
@@ -649,8 +653,74 @@ class LibraryViewModelTest {
         assertTrue(libraryRepo.deletedFolders.isEmpty())
     }
 
+    @Test
+    fun progress_threeBookImport_usesSingleMapQuery() = runBlocking {
+        val dirs = listOf("$root/book-a", "$root/book-b", "$root/book-c")
+        storage.dirs = dirs
+        val texts = mutableMapOf<String, String>()
+        val existing = mutableSetOf<String>()
+        dirs.forEachIndexed { i, dir ->
+            val id = "book-${i + 1}"
+            texts["$dir/manifest.json"] =
+                manifestJson(id = id, title = "Book ${i + 1}", ch1Ms = 750L, ch2Ms = 250L)
+            texts["$dir/text/ch001.json"] = chapterTextJson()
+            texts["$dir/text/ch002.json"] = chapterTextJson()
+            existing += "$dir/manifest.json"
+            existing += "$dir/audio/ch001.mp3"
+            existing += "$dir/audio/ch002.mp3"
+            existing += "$dir/text/ch001.json"
+            existing += "$dir/text/ch002.json"
+        }
+        storage.texts = texts
+        storage.existing = existing
+        progressRepo.positions["book-1"] = ProgressEntity("book-1", 0, 250L, 0L)
+        progressRepo.positions["book-2"] = ProgressEntity("book-2", 0, 100L, 0L)
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertEquals(3, state.books.size)
+            val byId = state.books.associateBy { it.id }
+            assertEquals(0.25f, byId["book-1"]!!.progressFraction, 0.0001f)
+            assertEquals(0.1f, byId["book-2"]!!.progressFraction, 0.0001f)
+            assertEquals(0f, byId["book-3"]!!.progressFraction, 0f)
+        }
+        // FP2: one map query per books emission, never one load per book.
+        assertEquals(0, progressRepo.loadCalls)
+        assertTrue(progressRepo.loadAllCalls >= 1)
+    }
+
+    @Test
+    fun rescan_secondConcurrentScan_skipped() = runBlocking {
+        // No init scan: permission starts denied, so the gate below only
+        // blocks the two explicit rescans.
+        permissionGranted = false
+        val vm = viewModel(ioDispatcher = Dispatchers.IO)
+        storage.dirs = listOf(novelDir)
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting()
+        val gate = CompletableDeferred<Unit>()
+        libraryRepo.importGate = gate
+        permissionGranted = true
+        vm.rescan()
+        // The first scan now holds the mutex at the import gate; the
+        // second rescan must find it held and return without importing.
+        withTimeout(10_000) {
+            while (libraryRepo.importCalls == 0) delay(10)
+        }
+        vm.rescan()
+        gate.complete(Unit)
+        withTimeout(10_000) {
+            while (vm.uiState.value.isScanning || vm.uiState.value.books.isEmpty()) delay(10)
+        }
+        assertEquals(1, libraryRepo.importCalls)
+        assertEquals(1, vm.uiState.value.books.size)
+    }
+
     private fun viewModel(
-        storage: BundleStorage = this.storage
+        storage: BundleStorage = this.storage,
+        ioDispatcher: CoroutineDispatcher = Dispatchers.Unconfined
     ) = LibraryViewModel(
         storage = storage,
         watchFolderStore = folderStore,
@@ -658,7 +728,7 @@ class LibraryViewModelTest {
         progressRepository = progressRepo,
         isPermissionGranted = { permissionGranted },
         requestPermission = { permissionRequests++ },
-        ioDispatcher = Dispatchers.Unconfined,
+        ioDispatcher = ioDispatcher,
         externalScope = scope
     )
 
@@ -915,9 +985,14 @@ class LibraryViewModelTest {
 
     /** In-memory [LibraryRepository] mirroring the upsert-by-id + missing-flag semantics. */
     private class FakeLibraryRepository(
-        val deletedFolders: MutableList<String> = mutableListOf()
+        val deletedFolders: MutableList<String> = mutableListOf(),
+        // FP2: the real repository deletes the saved position with the row
+        // in one transaction, so this fake clears both as well.
+        private val progress: FakeProgressRepository? = null
     ) : LibraryRepository {
         private val rows = MutableStateFlow<List<BookEntity>>(emptyList())
+        var importCalls = 0
+        var importGate: CompletableDeferred<Unit>? = null
 
         override fun books(): Flow<List<BookEntity>> = rows
 
@@ -925,6 +1000,8 @@ class LibraryViewModelTest {
             bundleDir: String,
             manifest: Manifest
         ): Result<BookEntity> {
+            importCalls += 1
+            importGate?.await()
             if (manifest.id.isBlank() || manifest.title.isBlank()) {
                 return Result.failure(
                     DataError.InvalidBundle("manifest.json: missing required field id/title")
@@ -961,12 +1038,15 @@ class LibraryViewModelTest {
                 )
             deletedFolders.add(existing.bundlePath)
             rows.value = rows.value.filterNot { it.id == bookId }
+            progress?.positions?.remove(bookId)
             return Result.success(Unit)
         }
     }
 
     private class FakeProgressRepository : ProgressRepository {
         val positions = mutableMapOf<String, ProgressEntity>()
+        var loadCalls = 0
+        var loadAllCalls = 0
 
         override suspend fun save(
             bookId: String,
@@ -978,8 +1058,15 @@ class LibraryViewModelTest {
             return Result.success(Unit)
         }
 
-        override suspend fun load(bookId: String): Result<ProgressEntity?> =
-            Result.success(positions[bookId])
+        override suspend fun load(bookId: String): Result<ProgressEntity?> {
+            loadCalls += 1
+            return Result.success(positions[bookId])
+        }
+
+        override suspend fun loadAll(): Result<Map<String, Long>> {
+            loadAllCalls += 1
+            return Result.success(positions.mapValues { it.value.positionMs })
+        }
 
         override suspend fun delete(bookId: String): Result<Unit> {
             positions.remove(bookId)
