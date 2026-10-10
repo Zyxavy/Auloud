@@ -9,7 +9,7 @@ To get the Corresponding Source, write to:
 
     Name:  Zyxary
     Email: kentandrewparejas@gmail.com
-    URL:   https://github.com/Zyxavy/Auloud (tag v2.0.0 for this release)
+    URL:   https://github.com/Zyxavy/Auloud (tag v2.1.0 for this release)
 
 State the APK version (Settings shows it under About, or read the
 versionName/versionCode of your APK) and you will receive the complete
