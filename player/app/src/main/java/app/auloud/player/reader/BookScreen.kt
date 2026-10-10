@@ -466,6 +466,10 @@ private fun ReaderSession(
             onConfirmTapJump = viewModel::confirmTapJump,
             onDismissTapJump = viewModel::dismissTapJump,
                 onOpenChapters = onOpenChapters,
+                onPreviousChapter = controller::previousChapter,
+                onNextChapter = controller::nextChapter,
+                canGoPrevious = playbackState.chapterIndex > 0,
+                canGoNext = chapters?.let { playbackState.chapterIndex < it.size - 1 } ?: true,
                 dialogueMarking = dialogueMarking,
                 modifier = Modifier.weight(1f)
             )

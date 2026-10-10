@@ -34,6 +34,7 @@ import kotlinx.coroutines.launch
  * - [jumpToChapter] validates with [coerceChapterJump] (out-of-range is a
  *   no-op) and loads the chapter start, saving it on success. Failures
  *   keep the error state and do not overwrite the last good position.
+ *   [nextChapter] and [previousChapter] step through it (ends no-op).
  * - [onSentenceTap] moves the reading position immediately (no confirm
  *   prompt: there is no audio to lose) and saves it; unknown sids are
  *   ignored. [onTopVisibleSid] debounces rapid scroll reports and settles
@@ -112,6 +113,20 @@ class UnrenderedReaderViewModel(
         settleJob?.cancel()
         live?.seekToChapter(target)
         loadChapter(target, null)
+    }
+
+    /**
+     * Read-mode chapter stepping (ends are no-ops via [coerceChapterJump]).
+     * Loads the chapter start and saves it on success, same as
+     * [jumpToChapter]; a live stream moves along too.
+     */
+    fun nextChapter() {
+        jumpToChapter(_state.value.chapterIndex + 1)
+    }
+
+    /** Twin of [nextChapter] toward the book start. */
+    fun previousChapter() {
+        jumpToChapter(_state.value.chapterIndex - 1)
     }
 
     /** Manual scroll detached the view (same rule as the timed reader). */

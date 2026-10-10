@@ -263,6 +263,10 @@ private fun UnrenderedContent(
             onSentenceTap = viewModel::onSentenceTap,
             onTopVisibleSentence = viewModel::onTopVisibleSid,
             onOpenChapters = onOpenChapters,
+            onPreviousChapter = viewModel::previousChapter,
+            onNextChapter = viewModel::nextChapter,
+            canGoPrevious = unrendered.chapterIndex > 0,
+            canGoNext = unrendered.chapterIndex < entries.size - 1,
             dialogueMarking = marking,
             modifier = Modifier.weight(1f).fillMaxWidth()
         )

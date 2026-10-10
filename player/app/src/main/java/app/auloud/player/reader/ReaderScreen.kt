@@ -86,6 +86,16 @@ fun ReaderScreen(
     onConfirmTapJump: () -> Unit = {},
     onDismissTapJump: () -> Unit = {},
     /**
+     * Read-mode chapter stepping (null hides both buttons, so every
+     * existing caller renders exactly as before). The flags disable the
+     * buttons at the book ends; stepping itself stays a host decision
+     * (controller seek for timed books, ViewModel jump for untimed ones).
+     */
+    onPreviousChapter: (() -> Unit)? = null,
+    onNextChapter: (() -> Unit)? = null,
+    canGoPrevious: Boolean = true,
+    canGoNext: Boolean = true,
+    /**
      * IN9: dialogue marking (dialogue sentences in the tertiary accent).
      * Defaults to on; 1.x books carry no `dialogue` speakers so they render
      * exactly as before either way.
@@ -100,6 +110,12 @@ fun ReaderScreen(
         ) {
             TextButton(onClick = onBack) { Text("Back") }
             TextButton(onClick = onOpenChapters) { Text("Chapters") }
+            if (onPreviousChapter != null) {
+                TextButton(onClick = onPreviousChapter, enabled = canGoPrevious) { Text("Previous") }
+            }
+            if (onNextChapter != null) {
+                TextButton(onClick = onNextChapter, enabled = canGoNext) { Text("Next") }
+            }
             Text(
                 text = state.chapter?.title ?: "",
                 style = MaterialTheme.typography.titleMedium,
