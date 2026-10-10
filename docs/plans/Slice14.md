@@ -127,7 +127,7 @@ The agent prepares the materials; you listen.
 | 5 | KT5, KT6 | get a data-driven recommendation and a rendered chapter |
 | 6 | KT7 | close the slice |
 
-**Stop points:** if KT0 shows Kitten cannot load on any device you have, stop after recording it. If it loads but KT3 and KT4 show it is both slow and worse than Piper, finish KT1 to KT3 so the engine exists for faster devices, record the result, and skip the recommendation change.
+**Stop points:** if KT0 shows Kitten cannot load on any device you have, stop after recording it. If it loads but KT3 and KT4 show it is both slow and worse than Piper, finish KT1 to KT3 so the engine exists for faster devices, record the result, and skip the recommendation change. Pack switcher backlog: the engine serves one pack at a time (first complete pack wins); comparing nano against micro means swapping folders between runs.
 
 ## 7. Definition of done
 

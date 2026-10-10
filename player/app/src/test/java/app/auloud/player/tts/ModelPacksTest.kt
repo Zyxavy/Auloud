@@ -85,6 +85,11 @@ class ModelPacksTest {
         packDir(root, "piper", "en_US-lessac-low")
         File(File(root, "piper"), "tokens.txt").writeText("a 0\n")
         File(File(root, "piper"), "espeak-ng-data").mkdirs()
+        val kitten = File(root, "kitten-nano-en-v0_8-int8").apply { mkdirs() }
+        File(kitten, "model.int8.onnx").writeBytes(ByteArray(10))
+        File(kitten, KITTEN_VOICES_FILENAME).writeBytes(ByteArray(10))
+        File(kitten, KITTEN_TOKENS_FILENAME).writeBytes(ByteArray(10))
+        File(kitten, KITTEN_ESPEAK_DIRNAME).mkdirs()
         assertTrue(ModelPacks.scanProblems(listOf(root)).isEmpty())
     }
 

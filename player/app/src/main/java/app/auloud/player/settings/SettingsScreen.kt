@@ -149,7 +149,8 @@ fun SettingsScreen(
             onClick = { showVoices = true },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         )
-        // KT2: problem rows ride the same scan (one pass, shared roots).
+        // KT2: problem rows share the scan roots (a second walk, same
+        // folders; both stay cheap enough for settings visits).
         val modelRoots = remember(appContext) { modelPackRoots(appContext) }
         ModelPacksSection(
             packs = remember(modelRoots) { ModelPacks.scan(modelRoots) },
@@ -418,6 +419,11 @@ private fun ModelPacksSection(
             style = MaterialTheme.typography.titleMedium
         )
         Spacer(Modifier.height(4.dp))
+        // KT2 review: pack validation runs once per pack list (removable
+        // storage stalls the main thread; never per recomposition).
+        val kittenByDir = remember(packs) {
+            packs.associate { it.dirPath to detectKittenPack(File(it.dirPath)) }
+        }
         if (packs.isEmpty() && problems.isEmpty()) {
             Text(
                 text = "No voice models found. Copy a pack folder " +
@@ -430,7 +436,7 @@ private fun ModelPacksSection(
                 // KT2: Kitten folders read as voice counts (their `.onnx`
                 // stem is the shared model file, not a voice); other packs
                 // keep the stem listing.
-                val kitten = detectKittenPack(File(pack.dirPath))
+                val kitten = kittenByDir[pack.dirPath]
                 Text(
                     text = pack.label,
                     style = MaterialTheme.typography.bodyMedium

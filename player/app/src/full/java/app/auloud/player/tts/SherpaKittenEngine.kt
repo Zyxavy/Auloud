@@ -18,7 +18,8 @@ import java.io.File
  * narrator and dialogue are two sids of the same instance, so unlike
  * Piper there is no second model to load and no voice-switch gap. The
  * engine uses the first complete pack ([detectKittenPack]); extra packs
- * stay invisible until KT2 refines multi-pack handling.
+ * stay invisible (one pack at a time; a pack switcher is backlog, since
+ * shared `kitten:<sid>` ids cannot address two packs at once).
  *
  * The JNI boundary is untestable on JVM (native lib load fails), so all
  * logic (pack completeness, sid routing, lazy load, release) runs
