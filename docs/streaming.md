@@ -1,8 +1,8 @@
 # Live streaming design (Slice 13, ST1)
 
-> 2026-10-10 status: measured NO-GO (D-137), overridden to GO by owner
-> verdict the same day (D-138, variant (a)). ST7 decides by ear on the
-> Tab E; `GATE_PASSED=true`.
+> 2026-10-10 status: shipped behind owner-accepted GO (D-138);
+> ST7-fix round landed (autoplay, default-voice fallback, preparing
+> state). Slice complete.
 
 Press play on an **unrendered** chapter and hear the system voice within a
 second or two, with the sentence highlight following, screen off, two

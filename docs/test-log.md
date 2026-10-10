@@ -630,3 +630,20 @@ Gate-flip verification (agent, 2026-10-10, commit 416b65e tree):
 core suite 1417 green + `lintCoreDebug` green; full suite 1425 green
 + `lintFullDebug` green. Both flavors build (`app-core-debug.apk`
 14.8 MB, gate-passed, for the ST7 round).
+
+ST7-fix round (agent, 2026-10-10, commit 7444632): owner device
+report found three gaps (Listen-now opened silent text with no
+autoplay; no voice chosen refused silently; 10 s start with no
+feedback; dead mode row). Fixes: hub/chapter autoplay into the
+stream (requested chapter wins the fresh-load race via
+`pendingStreamChapter`), engine-default voice fallback for unchosen
+roles (`streamVoiceNameOrDefault`, non-system still refuses),
+"Preparing live voice" spinner (playing with no sid yet), mode-row
+Listen buttons start the voice. Verified: core 1419 + full 1427
+green, `lintCoreDebug` green; rebuilt `app-core-debug.apk` (14.9 MB)
+for the retest.
+
+Slice 13 accepted (owner, 2026-10-10, "that should be it for this
+slice"): no per-box ST7 detail reported; acceptance is on the owner
+statement, same standing as the v2 soak one-liner. `slice-13`
+re-tags at 7444632 (the actual end state); #19 closes.

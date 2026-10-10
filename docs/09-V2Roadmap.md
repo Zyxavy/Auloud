@@ -102,9 +102,9 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 
 ### v2.1: Instant listening
 
-**Slice 13: Streaming synthesis (M-L).** *Status: GO by owner verdict
-(D-138, variant (a)); ST7 runs on the Tab E against a gate-passed
-build. Tag `slice-13` at the flip commit.*
+**Slice 13: Streaming synthesis (M-L).** *Status: complete (owner
+acceptance 2026-10-10; tag `slice-13`, no release — v2.1 ships
+whenever the release pass runs).*
 
 - Synthesize-ahead pipeline into an audio buffer so listening starts within seconds, falling back to rendered chapters when present; handle underruns; seeking into unsynthesized text starts synthesis from that sentence
 - Highlight sync from live timings; foreground service with the screen off

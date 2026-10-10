@@ -1,8 +1,9 @@
 # Slice 13 Implementation Plan: Live Streaming (press play, hear it now)
 
 > 2026-10-10 outcome: measured NO-GO (D-137), overridden to GO by owner
-> verdict the same day (D-138, variant (a)). ST7 runs on the Tab E
-> against a gate-passed build; its verdict closes the slice.
+> verdict the same day (D-138, variant (a)), ST7-fix round for the
+> three device-found gaps, owner acceptance the same day. Slice
+> complete; tag `slice-13` (no release).
 
 Project: Auloud Player (main). Follows `09-V2Roadmap.md` (Slice 13, v2.1) with the premise **changed by your ReadEra evidence**: the earlier file-synthesis numbers (System TTS 0.86x-2.56x, D-131) measure `synthesizeToFile`, which has per-utterance overhead and is not how readers stream. A live `speak()` pipeline may keep up in real time on the Tab E. This slice therefore starts with a measurement gate, then builds a live System TTS streaming path if the gate passes.
 
