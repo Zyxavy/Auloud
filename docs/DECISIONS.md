@@ -1142,3 +1142,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: The stream must not override an explicit user stop or a temperature/storage guard; resuming only what it paused keeps each pause reason owned by exactly one party.
 - Alternatives considered: always resuming on stream stop (rejected: overrides user intent and guard pauses); never resuming (rejected: strands a job the user never paused).
 - Consequences / revisit when: ST4 implements plus tests; revisit only with evidence that users expect auto-resume after explicit pauses.
+
+### D-135: stream handler futures use media3's transitive Guava, no new dependency
+- Date: 2026-10-10
+- Status: Accepted (design, ST4)
+- Decision: `StreamPlayer` handler returns use `com.google.common.util.concurrent.Futures.immediateFuture` from the Guava that media3 itself ships (compile classpath today, runtime-guaranteed: media3 code uses it everywhere). No Guava entry is added to the version catalog.
+- Why: Adding Guava to the catalog needs owner approval per repo rules; the class cannot be absent at runtime while media3 is present. Smallest complete change.
+- Alternatives considered: asking to pin Guava (rejected: blocks ST4 on process for zero behavior difference); hand-rolling a future (rejected: more code around a stable API).
+- Consequences / revisit when: if media3 ever drops Guava, the import fails at compile time (loud, not silent) and Guava gets pinned then. Revisit only on that compile failure.

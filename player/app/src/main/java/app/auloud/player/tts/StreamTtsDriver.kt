@@ -40,6 +40,13 @@ interface StreamTtsDriver {
     /** True once the engine reported `SUCCESS` (false = not ready). */
     val isReady: Boolean
 
+    /**
+     * Offline system voice names usable by [speak] (empty when not
+     * ready): the service refuses the stream before any silence when
+     * the needed voice is absent.
+     */
+    fun offlineVoiceNames(): Set<String>
+
     fun setListener(listener: StreamTtsListener?)
 
     /**
@@ -129,6 +136,19 @@ class AndroidStreamTtsDriver(
 
     override fun setListener(listener: StreamTtsListener?) {
         this.listener = listener
+    }
+
+    override fun offlineVoiceNames(): Set<String> {
+        val engine = tts ?: return emptySet()
+        if (!isReady) return emptySet()
+        return try {
+            engine.voices.orEmpty()
+                .filter { !it.isNetworkConnectionRequired }
+                .map { it.name }
+                .toSet()
+        } catch (_: Exception) {
+            emptySet()
+        }
     }
 
     private fun offlineVoice(engine: TextToSpeech, name: String): Voice? =

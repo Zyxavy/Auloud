@@ -124,6 +124,14 @@ object RenderServicePolicy {
         map == null || map.isIdentity
 
     /**
+     * D-134: resume a render job after a live stream stops only when the
+     * stream paused it. An explicit user pause stays paused and a guard
+     * pause stays under guard rules; the playback service sets the flag
+     * only when it sent `ACTION_PAUSE` against a RUNNING stored job.
+     */
+    fun resumeAfterStream(pausedByStream: Boolean): Boolean = pausedByStream
+
+    /**
      * Spool workspace dir for [bookId] under the app [cacheDirPath]
      * (`<cache>/render-spool/<bookId>`).
      *

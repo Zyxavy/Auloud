@@ -66,12 +66,16 @@ path, so notification, lock-screen, Bluetooth buttons, audio focus, the
 wake lock and the sleep timer keep working unchanged. Rendered chapters
 keep the existing player; the service routes per chapter (section 5).
 
-Session state shape: the plan proposes a custom Media3 player (a
-`SimpleBasePlayer` subclass). ST4 must first confirm that class exists
-in the pinned Media3 version with `minSdk 24`; if it does not, the
-fallback is a plain state broadcaster driving the existing session UI
-instead of a second `Player`. Either way the service owns exactly one
-audible path at a time.
+Session state shape: a custom Media3 player (a `SimpleBasePlayer`
+subclass). Confirmed 2026-10-10 against the real artifact:
+`SimpleBasePlayer` plus its `State`/`MediaItemData`/`PositionSupplier`
+classes are in the pinned media3-common 1.5.1 AAR (Gradle cache
+`transformed/media3-common-1.5.1-api.jar` class list), and the library
+minSdk is below our 24, so no version guard is needed. The fallback
+below stays only if the subclass proves unworkable on the device. If it
+does not, the fallback is a plain state broadcaster driving the
+existing session UI instead of a second `Player`. Either way the
+service owns exactly one audible path at a time.
 
 ## 5. Chapter routing and hand-off
 

@@ -162,4 +162,10 @@ class RenderServicePolicyTest {
             RenderServicePolicy.spoolDirFor("/cache/", "book-1")
         )
     }
+
+    @Test
+    fun resumeAfterStream_onlyWhenStreamPausedIt() {
+        assertTrue(RenderServicePolicy.resumeAfterStream(pausedByStream = true))
+        assertFalse(RenderServicePolicy.resumeAfterStream(pausedByStream = false))
+    }
 }

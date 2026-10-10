@@ -19,6 +19,8 @@ class FakeStreamTtsDriver : StreamTtsDriver {
     data class SilenceCall(val durationMs: Long, val id: String)
 
     override var isReady: Boolean = true
+    /** Offline voice names reported by [offlineVoiceNames] (empty when not ready). */
+    var voices: Set<String> = emptySet()
     val speaks = mutableListOf<SpeakCall>()
     val silences = mutableListOf<SilenceCall>()
     var stops = 0
@@ -33,6 +35,9 @@ class FakeStreamTtsDriver : StreamTtsDriver {
     override fun setListener(listener: StreamTtsListener?) {
         this.listener = listener
     }
+
+    override fun offlineVoiceNames(): Set<String> =
+        if (isReady) voices else emptySet()
 
     override fun speak(
         text: String,
@@ -147,6 +152,16 @@ class StreamTtsDriverTest {
         assertFalse(fake.playSilence(250L, "s0:1:p"))
         assertFalse(fake.stop())
         assertTrue(fake.speaks.isEmpty())
+    }
+
+    @Test
+    fun offlineVoicesReportedWhenReady() {
+        val fake = FakeStreamTtsDriver()
+        assertTrue(fake.offlineVoiceNames().isEmpty())
+        fake.voices = setOf("narr", "dial")
+        assertEquals(setOf("narr", "dial"), fake.offlineVoiceNames())
+        fake.isReady = false
+        assertTrue(fake.offlineVoiceNames().isEmpty())
     }
 
     @Test
