@@ -1,5 +1,9 @@
 # Live streaming design (Slice 13, ST1)
 
+> 2026-10-10 status: NO-GO on the Tab E (D-137). This design is
+> retained for faster devices; nothing below runs on this tablet
+> (`GATE_PASSED=false`).
+
 Press play on an **unrendered** chapter and hear the system voice within a
 second or two, with the sentence highlight following, screen off, two
 voices, speed and sleep timer, no rendering wait. Rendering stays the

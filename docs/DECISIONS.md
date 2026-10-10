@@ -1158,3 +1158,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Function-level markers propagate to every caller (listener, ticker, load paths), and the marker on any service member infects the whole service plus every file naming it. One class marker plus a stable intent surface is the smallest contained shape.
 - Alternatives considered: per-function markers (rejected: viral propagation across the service); a lint baseline to swallow the errors (rejected: hides the signal this check exists to give); pinning around it with abstraction layers (rejected: more code, same marker).
 - Consequences / revisit when: ST5 UI work already uses only the stable surface. If media3 freezes this API, remove the markers then. A future second unstable integration reuses `PlaybackIntents`, never new markers in UI files.
+
+### D-137: ST0 gate verdict NO-GO, streaming not feasible on the Tab E
+- Date: 2026-10-10
+- Status: Accepted (measured, owner spike run)
+- Decision: Live `speak()` streaming is NOT feasible on the Tab E. Best single-voice numbers (Live20 at 1.5x: med 401 ms, p95 658 ms) miss the gate (150/400/1000 ms) by 2.7x, and start latency (10 s at 1.0x, 51 s at 1.5x) misses the listen-now goal (~2 s) by 5x or more. The single-voice reduced go fails with the full go, so no fallback survives. Background rendering stays the listening path; Slice 13 ends per plan section 6 after ST0 plus ST1.
+- Why: Measured on the cool tablet with the ST0 spike (numbers in `docs/test-log.md`), not hypothesized this time. Two-instance hand-off (p95 5 s) is dramatically worse than one instance; silent-utterance pacing is exact, so the gap is engine throughput, not our queue.
+- Alternatives considered: re-running with English voices (rejected: the spike picked ru-ru/es-es, but 3-10x margins do not justify more device time); reduced-go single voice (rejected: Live20 single-voice also fails); deleting the ST1-ST6 code (rejected: it stays behind `GATE_PASSED=false` as the faster-device head start with `docs/streaming.md` as its design).
+- Consequences / revisit when: `GATE_PASSED` stays false; no `slice-13` release (the tag marks slice conclusion only); ST7 never runs on this tablet. A measured go on a faster device (or a new engine) reopens streaming by flipping the gate plus ST7.

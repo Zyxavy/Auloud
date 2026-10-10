@@ -566,7 +566,6 @@ URL (tag v2.0.0) does not resolve. GitHub tracker admin still owed
 ## Slice 13 ST0: live-`speak()` gate tooling ready (agent, 2026-10-10)
 
 Agent half done; gate numbers are owner device work (not claimed here).
-
 - New pure-Kotlin `StreamGapStats` (`player/app/.../tts/`, thresholds
   median 150 ms / p95 400 ms / max 1 s per Slice13 decision 1): 10/10
   JVM tests green (`:app:testCoreDebugUnitTest --tests
@@ -584,3 +583,40 @@ Agent half done; gate numbers are owner device work (not claimed here).
   and report whether audio continued (a kill is itself gate data for
   ST4). Still owed: stop/restart latency and the 30-minute screen-off
   run (ST0 list), recorded when the numbers land.
+
+## Slice 13 ST0 verdict: NO-GO on the Tab E (owner numbers, 2026-10-10)
+
+Spike `09:54` run, Tab E confirmed (sdk 25, 7.1.1, 32-bit, 1427 MB,
+battery 98 to 96%, temp 33.9 to 38.7 C). Thresholds: median 150 ms,
+p95 400 ms, max 1 s; start-listen goal a second or two.
+
+- Live20 single voice at 1.0x: n=19, med 526 ms, p95 1648 ms, max
+  1648 ms, start latency 10241 ms. NO-GO.
+- Live20 single voice at 1.5x: n=19, med 401 ms, p95 658 ms, max
+  658 ms, start latency 51307 ms. NO-GO (the 51 s start smells of
+  engine warmup variance, not architecture; the gaps alone fail).
+- LiveSw one-instance alternation: all med 476 ms, switch-only med
+  483 ms, p95 622 ms. NO-GO.
+- Live2x two-instance hand-off: med 963 ms, p95 5012 ms, max 5012 ms.
+  Dramatically worse; one instance is the less-bad variant by 4-5x.
+- LiveSil pause accuracy: 100 ms reads 101, 250 reads 250, 1000 reads
+  1000. Silent utterances are exact; pacing is not the problem.
+- Context: file-synthesis SysLong on the same run 0.40 RTF
+  (NEITHER); the old `systemWarmedRtf` line reads 14.07 with a 20 s
+  per-switch gap, confirming those numbers were switch-cost-polluted
+  (Samsung voice switching is catastrophic) and never described live
+  speech. Piper file path about 0.30x, two models 274 MB (fits RAM,
+  still far too slow).
+
+Caveats: the spike picked ru-ru/es-es voices (first offline pair, not
+English); a re-run with English voices is available on request but the
+margins (best med 2.7x over, best start latency 5x over the goal) do
+not justify more device time for the verdict. The screen-off
+continuation and 30-minute run were not reported and are moot: with
+half-second median gaps the path fails sitting still.
+
+Verdict (D-137): NO-GO, including the single-voice reduced go (Live20
+single-voice also fails). Background rendering stays the listening
+path. The ST1-ST6 code stays behind `GATE_PASSED=false` as the
+faster-device head start, not deleted; `docs/streaming.md` is the
+retained design. Slice 13 ends here per plan section 6.
