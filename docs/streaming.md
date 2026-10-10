@@ -1,8 +1,8 @@
 # Live streaming design (Slice 13, ST1)
 
-> 2026-10-10 status: NO-GO on the Tab E (D-137). This design is
-> retained for faster devices; nothing below runs on this tablet
-> (`GATE_PASSED=false`).
+> 2026-10-10 status: measured NO-GO (D-137), overridden to GO by owner
+> verdict the same day (D-138, variant (a)). ST7 decides by ear on the
+> Tab E; `GATE_PASSED=true`.
 
 Press play on an **unrendered** chapter and hear the system voice within a
 second or two, with the sentence highlight following, screen off, two

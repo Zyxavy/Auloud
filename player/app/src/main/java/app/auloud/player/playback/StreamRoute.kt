@@ -19,11 +19,12 @@ import app.auloud.player.tts.SystemTtsAdapter
 object StreamRoute {
 
     /**
-     * ST0 gate verdict flips this true (Slice13 decision 1). Until then
-     * every unrendered chapter routes [Target.Unavailable] and the
-     * service behaves exactly as v2.0.
+     * ST0 gate verdict, flipped true by owner order 2026-10-10 (D-138):
+     * the measured medians (400-500 ms) and start latency (10+ s) are
+     * accepted as good enough for "listen now". Until ST7 proves it on
+     * the tablet, every device claim stays with the owner.
      */
-    const val GATE_PASSED = false
+    const val GATE_PASSED = true
 
     /** Where one chapter plays. */
     enum class Target {

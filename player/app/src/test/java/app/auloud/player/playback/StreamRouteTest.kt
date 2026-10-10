@@ -15,10 +15,11 @@ class StreamRouteTest {
     private val rendered = listOf(true, false, true)
 
     @Test
-    fun gateClosedByDefault() {
-        // ST0 go verdict flips this true in its own diff; until then the
-        // service behaves exactly as v2.0 (unrendered refuses).
-        assertEquals(false, StreamRoute.GATE_PASSED)
+    fun gateOpenByOwnerVerdict() {
+        // ST0 measured NO-GO (D-137); owner ordered GO anyway (D-138:
+        // half-second gaps plus 10 s start accepted as "listen now").
+        // Flipping back is its own deliberate diff.
+        assertEquals(true, StreamRoute.GATE_PASSED)
     }
 
     @Test

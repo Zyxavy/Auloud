@@ -620,3 +620,8 @@ single-voice also fails). Background rendering stays the listening
 path. The ST1-ST6 code stays behind `GATE_PASSED=false` as the
 faster-device head start, not deleted; `docs/streaming.md` is the
 retained design. Slice 13 ends here per plan section 6.
+
+2026-10-10 override (D-138): owner ordered the gate GO anyway ("good
+enough", variant (a)). Numbers above stand unchanged; verdict and
+`GATE_PASSED` flip, `slice-13` re-tags, #19 reopens to ST7. ST7 by ear
+is the next verdict.

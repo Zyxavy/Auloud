@@ -1166,3 +1166,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Measured on the cool tablet with the ST0 spike (numbers in `docs/test-log.md`), not hypothesized this time. Two-instance hand-off (p95 5 s) is dramatically worse than one instance; silent-utterance pacing is exact, so the gap is engine throughput, not our queue.
 - Alternatives considered: re-running with English voices (rejected: the spike picked ru-ru/es-es, but 3-10x margins do not justify more device time); reduced-go single voice (rejected: Live20 single-voice also fails); deleting the ST1-ST6 code (rejected: it stays behind `GATE_PASSED=false` as the faster-device head start with `docs/streaming.md` as its design).
 - Consequences / revisit when: `GATE_PASSED` stays false; no `slice-13` release (the tag marks slice conclusion only); ST7 never runs on this tablet. A measured go on a faster device (or a new engine) reopens streaming by flipping the gate plus ST7.
+
+### D-138: ST0 gate ordered GO against the measured numbers (owner verdict)
+- Date: 2026-10-10
+- Status: Accepted (owner-ordered, against measurement)
+- Decision: The ST0 numbers stand unchanged (best live med 401 ms vs the 150 ms proposal, start latency 10+ s vs the ~2 s goal), but the gate is recorded GO by owner verdict ("good enough"): half-second gaps and a 10-second start are accepted as a shippable "listen now". Variant (a), one `TextToSpeech` instance (the less-bad measured path; two-instance hand-off was 4-5x worse). ST7 runs on the Tab E against a gate-passed build and tells the real story.
+- Why: Owner order, same standing as the D-131/D-132 waivers: the numbers are data, the verdict is a product call.
+- Alternatives considered: holding NO-GO on the numbers (rejected by owner); reduced-go single voice as a separate tier (moot: the full path is ordered go, the single-voice fallback stays in code regardless).
+- Consequences / revisit when: `GATE_PASSED` flips true; `slice-13` re-tags at the flip commit; #19 reopens to ST7. ST7 acceptance (or rejection by ear) is the next verdict; a fail there re-closes the gate with device evidence.

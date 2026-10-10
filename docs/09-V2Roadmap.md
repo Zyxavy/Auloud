@@ -102,13 +102,15 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 
 ### v2.1: Instant listening
 
-**Slice 13: Streaming synthesis (M-L).** *Status: NO-GO on the Tab E
-(tag `slice-13` marks slice conclusion, no release; D-137).*
+**Slice 13: Streaming synthesis (M-L).** *Status: GO by owner verdict
+(D-138, variant (a)); ST7 runs on the Tab E against a gate-passed
+build. Tag `slice-13` at the flip commit.*
 
 - Synthesize-ahead pipeline into an audio buffer so listening starts within seconds, falling back to rendered chapters when present; handle underruns; seeking into unsynthesized text starts synthesis from that sentence
 - Highlight sync from live timings; foreground service with the screen off
 - Gated by the measured device RTF. Hypothesis verdict (D-131, no bench run): file-synthesis streaming is NOT feasible on the Tab E (Cortex-A7, 1.5 GB RAM, System TTS slow end 0.86x, Piper 0.36x). 2026-10-10 amendment: owner evidence (ReadEra live system-TTS read-aloud works on the tablet) re-opens streaming for a `speak()`-style live architecture, whose numbers our file-synthesis measurements do not cover; Slice 13 feasibility is OPEN again, gated on its design plus a measured SysLong on that path. The Tab E v2.0 story stays background rendering.
 - 2026-10-10 gate outcome (D-137): measured NO-GO on the Tab E (best live med 401 ms vs 150, start latency 10+ s vs ~2 s; single-voice reduced go fails too). Background rendering stays the listening path on this tablet; the ST1-ST6 agent build stays behind `GATE_PASSED=false` as the faster-device head start (`docs/streaming.md` retained).
+- 2026-10-10 override (D-138): owner ordered GO ("good enough", variant (a)). Numbers stand; `GATE_PASSED` flips true and ST7 decides by ear.
 - **Done when:** on a capable device, pressing play on an unrendered chapter starts audio in a few seconds with no gaps over a 30-minute listen
 
 ## 5. Scribe and web UI changes in v2
