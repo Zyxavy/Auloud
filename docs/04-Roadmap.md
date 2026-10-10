@@ -1,6 +1,6 @@
 # Roadmap: Read-Along Audiobook Player
 
-Working doc. Update the status boxes as you go. Relates to `01-PRD.md`, `02-ArchitectureV1.md`, `03-BundleSpec.md`.
+Working doc. Update the status boxes as you go. Relates to `01-PRD.md`, `03-BundleSpec.md` (v1 architecture frozen at `archive/v1/02-ArchitectureV1.md`).
 
 Status key: `[ ]` not started, `[~]` in progress, `[x]` done. Size: S (a few evenings), M (a few weekends), L (longer).
 

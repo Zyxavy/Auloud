@@ -7,7 +7,8 @@ Target device: Samsung Galaxy Tab E (SM-T560NU), Android 7.1.1, `minSdk 24`, abo
 ## Read first
 - `docs/03-BundleSpec.md` (or `spec/bundle.md`): the contract between Scribe and Player. Treat as law.
 - `docs/04-Roadmap.md`: the current slice and its checklist.
-- `docs/plans/` holds the slice plans (`docs/archive/v1/plans/` for v1).
+- `docs/10-V3Roadmap.md`: the v3 plan (Scribe Rust/Tauri port plus KittenTTS).
+- `docs/plans/` holds the slice plans (`docs/archive/v1/plans/` for v1, `docs/archive/v2/plans/` for v2).
 - `docs/06-PlayerDesign.md`, `docs/05-ScribeDesign.md`: design for each side.
 - `docs/DECISIONS.md`: past decisions. Do not contradict them without asking.
 

@@ -18,12 +18,12 @@ Do not tick these from JVM results; each needs a physical device.
 - [x] Release smoke checklist on the signed APK: device verdict 2026-10-10
   ("good and complete", flavor not specified): `docs/ReleaseSigning.md`, all boxes ticked.
 - [x] VC3 over-install: device verdict 2026-10-10 ("good and complete"): library and positions survive the same-key upgrade: `docs/ReleaseSigning.md` ("VC3 over-install procedure"), boxes ticked.
-- [x] VC7 soak: maintainer reports multi-day soak good (one-line verdict 2026-10-10, no per-box numbers). Full box list in `docs/plans/Slice12.md` (VC7); no `soak-log-v2.md` daily log was kept.
+- [x] VC7 soak: maintainer reports multi-day soak good (one-line verdict 2026-10-10, no per-box numbers). Full box list in `docs/archive/v2/plans/Slice12.md` (VC7); no `soak-log-v2.md` daily log was kept.
 - [x] VC0 gates: SysLong bench waived, hypothesis recorded (D-131, amended: streaming re-opened for live architectures); spike retained as the measurement tool; D-066 decided (D-126 option A), contribution policy DCO (D-127).
 
 ## 3. Release gate (VC8)
 
-Run when sections 1-2 are green: the checklist in `docs/plans/Slice12.md` (section 6 definition of done) plus `docs/08-Licenses.md` section 7 plus the VC1-VC7 outcomes. Done 2026-10-10: tagged `slice-12` and `v2.0.0`. Slice 13 streaming (ST0-ST7) is covered in `docs/plans/Slice13.md` plus `docs/streaming.md`, tagged `slice-13` and `v2.1.0`.
+Run when sections 1-2 are green: the checklist in `docs/archive/v2/plans/Slice12.md` (section 6 definition of done) plus `docs/08-Licenses.md` section 7 plus the VC1-VC7 outcomes. Done 2026-10-10: tagged `slice-12` and `v2.0.0`. Slice 13 streaming (ST0-ST7) is covered in `docs/archive/v2/plans/Slice13.md` plus `docs/streaming.md`, tagged `slice-13` and `v2.1.0`.
 
 ## 4. What stays open by design
 

@@ -8,10 +8,10 @@ Press play on an **unrendered** chapter and hear the system voice within a
 second or two, with the sentence highlight following, screen off, two
 voices, speed and sleep timer, no rendering wait. Rendering stays the
 saved-audio path; streaming is the "listen now" path. Plan:
-`docs/plans/Slice13.md`. Premise (D-131 amendment): only a live `speak()`
+`docs/archive/v2/plans/Slice13.md`. Premise (D-131 amendment): only a live `speak()`
 path can reopen streaming on the Tab E; file-synthesis numbers do not
 apply, so the claims below were verified against the ST0/ST7 device
-numbers in `docs/plans/Slice13.md`.
+numbers in `docs/archive/v2/plans/Slice13.md`.
 
 ## 1. Layers
 

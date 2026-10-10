@@ -231,11 +231,10 @@ docs/     PRD, architecture, design, roadmap, test plan, runbooks, signing guide
 Start here, then follow the map:
 
 - `docs/01-PRD.md` - what v1 promises (EPUB + PDF text view, three modes, multi-voice)
-- `docs/02-ArchitectureV1.md` - PC-renders plus light-player split, bundle sketch
+- `docs/06-PlayerDesign.md` - Player screens, service, reader, storage (replaces the frozen v1 split sketch at `docs/archive/v1/02-ArchitectureV1.md`)
 - `docs/03-BundleSpec.md` - the contract (v1.1); `spec/bundle.md` is the byte-identical mirror
 - `docs/04-Roadmap.md` - slices plus Slice 5 soak list (device boxes left for the user)
 - `docs/05-ScribeDesign.md` - Scribe commands, pipeline, cast.yaml
-- `docs/06-PlayerDesign.md` - Player screens, service, reader, storage
 - `docs/08-Licenses.md` - licenses and per-voice table (Player deps verified; Scribe rows partly unverified; UI extra verified with versions)
 - `docs/DECISIONS.md` - D-001 through D-140 current (v2 engine, license, release, streaming and audit decisions at the tail)
 - `docs/09-V2Roadmap.md` - v2 plan (on-device voices); v1 loose ends listed in its section 0. Slices 9-13 complete on device; Player `2.1.0` tagged.
@@ -243,8 +242,8 @@ Start here, then follow the map:
 - `docs/ReleaseSigning.md` - v2 signing, per-flavor builds, release smoke checklist plus the VC3 over-install procedure (both device-run)
 - `docs/constants.md` - on-device render tuning constants with sources (mostly provisional until device numbers land)
 - `docs/fingerprint.md` - render fingerprint rules; `docs/ingestion-rules.md` - on-device text oracle
-- `docs/test-log.md` - v2 automated and device evidence; `docs/plans/` - Slice 7-13 work plans
-- `docs/archive/v1/` - frozen v1 records: test plan (`07-Testplan.md`), device/test/soak logs, Slice 3 and browser runbooks, signing procedure, Web UI spec, all slice plans in `plans/`
+- `docs/test-log.md` - v2 automated and device evidence; `docs/plans/` - v3 slice plans (v2 plans frozen at `docs/archive/v2/plans/`)
+- `docs/archive/v1/` - frozen v1 records: architecture (`02-ArchitectureV1.md`), test plan (`07-Testplan.md`), device/test/soak logs, Slice 3 and browser runbooks, signing procedure, Web UI spec, all slice plans in `plans/`; `docs/archive/v2/` - frozen v2 slice plans plus an index
 - `spec/fixtures/pdf-golden/README.md` - the v1.1 contract fixture and its pinned sentences
 - `scribe/dev/make_pdf_golden.py` - generator header for that fixture
 

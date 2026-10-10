@@ -95,7 +95,7 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 **Slice 12: v2.0 complete pass (M).** *Status: complete (tags `slice-12` + `v2.0.0`; release criteria section 6 all ticked 2026-10-10).*
 
 - Agent-complete: VC0 gates logged (D-126 option A, D-127 DCO) with SysLong hypothesis-recorded (D-131, bench waived, spike retained); VC1 two licensed flavors with passing `licenseScan`; VC2 version `2.0.0` with ARM-only signed-flavor builds and passing `releaseManifestCheck`; VC3 JVM compatibility matrix (device over-install verified 2026-10-10, see below); VC4 constants doc (provisionals stand, offset gate closed by acceptance D-132); VC5 sentence agreement 34/34 runs plus the reader debounce flake fixed; VC6 README v2 plus `07-TestPlan.md` plus PRD addendum; UX1 hub Listen plus charger removal (D-130).
-- Device-verified 2026-10-10: VC2 smoke checklist, VC3 over-install, VC8 release. Soak: multi-day soak reported good (one-line verdict, no per-box numbers). Tracked in `07-TestPlan.md` sections 2-3; procedures in `docs/ReleaseSigning.md` and `docs/plans/Slice12.md`.
+- Device-verified 2026-10-10: VC2 smoke checklist, VC3 over-install, VC8 release. Soak: multi-day soak reported good (one-line verdict, no per-box numbers). Tracked in `07-TestPlan.md` sections 2-3; procedures in `docs/ReleaseSigning.md` and `docs/archive/v2/plans/Slice12.md`.
 
 - On-device soak: a full novel imported, rendered on the tablet, and listened to over days; battery and thermal checks during rendering
 - License decision implemented (GPL Player, or the adapter/plugin approach) with `NOTICE`, in-app licenses and `08-Licenses.md` updated (sherpa-onnx, onnxruntime, models, espeak-ng); README and docs updated; tag `v2.0.0`

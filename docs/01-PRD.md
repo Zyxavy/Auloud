@@ -16,7 +16,7 @@ Primary: for personal use. Secondary: webnovel and ebook listeners who want free
 
 ## 4. Key decision
 
-The Tab E cannot run neural TTS in real time, so **all synthesis happens on a PC or server** (v1; v2 supersedes this in section 14). The tablet only plays audio and shows text. See `02-ArchitectureV1.md` and `03-BundleSpec.md`.
+The Tab E cannot run neural TTS in real time, so **all synthesis happens on a PC or server** (v1; v2 supersedes this in section 14). The tablet only plays audio and shows text. See `03-BundleSpec.md` (v1 architecture frozen at `archive/v1/02-ArchitectureV1.md`).
 
 ## 5. Scope (v1)
 
