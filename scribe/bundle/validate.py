@@ -30,7 +30,6 @@ the real ffprobe path on generated MP3s).
 
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import shutil
@@ -51,6 +50,7 @@ from bundle.models import (
     RenderFingerprint,
     Sentence,
 )
+from draft import sha256_of_file
 
 DURATION_TOLERANCE_MS = 50
 #: Spec 2.0 part 2 (RN1, D-102): M4A duration agreement. PROVISIONAL until
@@ -812,7 +812,7 @@ def _validate_source(root: Path, manifest: Manifest, result: ValidationResult) -
     if len(source.sha256) != 64 or any(c not in "0123456789abcdefABCDEF" for c in source.sha256):
         result.errors.append("manifest.json: source sha256 is not a 64-char hex string")
         return
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    digest = sha256_of_file(path)
     if digest.lower() != source.sha256.lower():
         result.errors.append(
             f"{source.file}: sha256 mismatch: expected {source.sha256}, got {digest}"

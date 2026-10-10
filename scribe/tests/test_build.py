@@ -402,7 +402,7 @@ def test_build_cli_prints_totals(
     _needs_ffmpeg()
     import build as build_module
 
-    monkeypatch.setattr(build_module, "create_engine", lambda _models: FakeEngine())
+    monkeypatch.setattr(build_module, "create_engine", lambda _models, **_k: FakeEngine())
     epub_path = _make_epub(tmp_path / "book.epub", ["Chapter One", "Chapter Two"])
     runner = CliRunner()
     outcome = runner.invoke(
@@ -421,6 +421,26 @@ def test_build_cli_prints_totals(
     assert "total audio" in outcome.output
     assert "wall time" in outcome.output
     assert "real-time factor" in outcome.output
+
+
+def test_resolve_engines_genuine_typeerror_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """FP6: no TypeError back-compat may mask a genuine engine bug.
+
+    The double takes the real two-arg shape but fails inside; its
+    TypeError must reach the caller verbatim (the deleted branch would
+    have retried single-arg and hidden it behind a missing-argument
+    error instead).
+    """
+    import build as build_module
+
+    def _buggy(_models_dir: object, device: object) -> object:
+        raise TypeError("genuine engine bug")
+
+    monkeypatch.setattr(build_module, "create_engine", _buggy)
+    with pytest.raises(TypeError, match="genuine engine bug"):
+        build_module._resolve_engines({}, None, None, Path("models"), "auto", strict=True)
 
 
 # ---------------------------------------------------------------------------

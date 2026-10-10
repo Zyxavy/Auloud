@@ -282,6 +282,35 @@ def test_mini_book_writes_valid_bundle_real_probe(tmp_path: Path) -> None:
     assert sha == sha256_of_file(epub_path)
 
 
+def test_killed_rebuild_keeps_old_bundle_valid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FP6: a rebuild dying mid-write leaves the previous bundle valid."""
+    _needs_ffmpeg()
+    epub_path = _make_epub(tmp_path / "mini.epub")
+    timed, mp3s = _build_inputs(_mini_chapters(), tmp_path / "mp3")
+    bundle = tmp_path / "bundle"
+    write_bundle(timed, mp3s, epub_path, bundle)
+    before = (bundle / "manifest.json").read_text(encoding="utf-8")
+
+    real_copy = shutil.copyfile
+    calls = 0
+
+    def _flaky(src: object, dst: object, **kwargs: object) -> object:
+        nonlocal calls
+        calls += 1
+        if calls > 2:
+            raise OSError("simulated kill mid-write")
+        return real_copy(src, dst)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(shutil, "copyfile", _flaky)
+    with pytest.raises(BundleWriteError):
+        write_bundle(timed, mp3s, epub_path, bundle)
+
+    assert (bundle / "manifest.json").read_text(encoding="utf-8") == before
+    assert validate_bundle(bundle).ok
+
+
 # ---------------------------------------------------------------------------
 # Cover: present, sniff fallback, invalid input
 # ---------------------------------------------------------------------------
@@ -409,8 +438,10 @@ def test_validation_failure_raises_loudly(
     with pytest.raises(BundleWriteError) as excinfo:
         write_bundle([chapter], [fake_mp3], epub_path, bundle)
     assert poison in str(excinfo.value)
-    # Partial output is left for inspection but is NOT a valid bundle.
-    assert (bundle / "manifest.json").is_file()
+    # Partial staging output is left next to the bundle for inspection, but
+    # no bundle dir is published (a previous bundle would stay valid).
+    assert (tmp_path / "bundle.tmp" / "manifest.json").is_file()
+    assert not bundle.exists()
 
 
 def test_chapter_audio_count_mismatch_raises(tmp_path: Path) -> None:

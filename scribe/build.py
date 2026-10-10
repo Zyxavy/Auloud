@@ -540,12 +540,6 @@ def _narrator_entry(cast_path: Path) -> tuple[str, float, str]:
     return voice, speed, _entry_engine(entry)
 
 
-def _narrator_voice(cast_path: Path) -> tuple[str, float]:
-    """``(voice, speed)`` for the narrator entry of ``cast.yaml``."""
-    voice, speed, _engine = _narrator_entry(cast_path)
-    return voice, speed
-
-
 def resolve_sentence_voice(
     cast: dict[str, Any],
     sentence: Sentence,
@@ -651,12 +645,7 @@ def _resolve_engines(
             engines[NARRATOR_ENGINE] = primary
         else:
             try:
-                try:
-                    engines[NARRATOR_ENGINE] = create_engine(models_dir, device=device)
-                except TypeError:
-                    # Back-compat for test monkeypatches replacing
-                    # create_engine with a single-arg lambda (pre-UI1).
-                    engines[NARRATOR_ENGINE] = create_engine(models_dir)
+                engines[NARRATOR_ENGINE] = create_engine(models_dir, device=device)
             except BuildError:
                 if strict:
                     raise

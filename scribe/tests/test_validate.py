@@ -201,6 +201,23 @@ def test_shared_valid_bundle_passes(tmp_path: Path) -> None:
     assert isinstance(result, ValidationResult)
 
 
+def test_source_sha256_streams_without_read_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FP6: the source hash streams in chunks, never loads the whole file."""
+    root = write_ok_bundle(tmp_path / "bundle")
+    _real_read_bytes = Path.read_bytes
+
+    def _boom(self: Path, *args: object, **kwargs: object) -> bytes:
+        if self.name == "book.epub":
+            raise AssertionError("source hash must stream, not Path.read_bytes()")
+        return _real_read_bytes(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_bytes", _boom)
+    result = validate_bundle(root, probe=make_probe())
+    assert result.ok, result.errors
+
+
 def test_shared_bad_json_fails_naming_manifest(tmp_path: Path) -> None:
     root = tmp_path / "bad-json"
     shutil.copytree(FIXTURES / "bad-json", root)

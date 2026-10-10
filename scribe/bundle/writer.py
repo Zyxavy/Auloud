@@ -273,7 +273,8 @@ def write_bundle(
     :returns: :class:`WriteResult` (the bundle passed ``validate_bundle``).
     :raises BundleWriteError: bad inputs, unwritable output, or the
         written bundle failed validation (every validator error is listed;
-        the partial bundle is left on disk for inspection but is NOT valid).
+        the partial staging dir is left next to the output for inspection
+        while any previous bundle stays untouched and valid).
     """
     source = Path(source_file)
     is_pdf = source.suffix.lower() == ".pdf"
@@ -358,10 +359,15 @@ def write_bundle(
     title, author = read_book_metadata(source)
 
     bundle = Path(out_dir)
-    audio_dir = bundle / "audio"
-    text_dir = bundle / "text"
-    source_dir = bundle / "source"
+    # FP6: never write into the output dir directly. Everything lands in a
+    # sibling staging dir; the previous bundle stays valid until the rename
+    # below, so a killed rebuild cannot leave a half-written bundle behind.
+    staging = bundle.parent / f"{bundle.name}.tmp"
     try:
+        shutil.rmtree(staging, ignore_errors=True)
+        audio_dir = staging / "audio"
+        text_dir = staging / "text"
+        source_dir = staging / "source"
         audio_dir.mkdir(parents=True, exist_ok=True)
         text_dir.mkdir(parents=True, exist_ok=True)
         source_dir.mkdir(parents=True, exist_ok=True)
@@ -381,7 +387,7 @@ def write_bundle(
     cover_bytes = extract_cover(source) if not is_pdf else None
     if cover_bytes is not None:
         try:
-            (bundle / COVER_REL).write_bytes(cover_bytes)
+            (staging / COVER_REL).write_bytes(cover_bytes)
         except OSError as exc:
             raise BundleWriteError(
                 f"{COVER_REL}: cannot write cover: {exc.strerror or exc}"
@@ -395,7 +401,7 @@ def write_bundle(
         audio_rel = f"audio/{stem}.mp3"
         text_rel = f"text/{stem}.json"
         try:
-            shutil.copyfile(mp3s[pos - 1], bundle / audio_rel)
+            shutil.copyfile(mp3s[pos - 1], staging / audio_rel)
         except OSError as exc:
             raise BundleWriteError(
                 f"{audio_rel}: cannot copy chapter audio: {exc.strerror or exc}"
@@ -412,7 +418,7 @@ def write_bundle(
             pages=pages_from_sentences(chapter),
             source_index=src_idx,
         )
-        _write_json(bundle / text_rel, out_chapter.to_dict())
+        _write_json(staging / text_rel, out_chapter.to_dict())
         entries.append(
             ChapterEntry(
                 index=pos,
@@ -467,19 +473,32 @@ def write_bundle(
         created_at=_utc_now_iso(),
         generator=f"scribe {_scribe_version()}",
     )
-    manifest_path = bundle / "manifest.json"
+    manifest_path = staging / "manifest.json"
     _write_json(manifest_path, manifest.to_dict())
 
-    result = validate_bundle(bundle)
+    result = validate_bundle(staging)
     if not result.ok:
         details = "\n".join(f"  - {error}" for error in result.errors)
         raise BundleWriteError(
             f"written bundle failed validation ({len(result.errors)} error(s)) "
             f"-- do not use {bundle}:\n{details}"
         )
+    # Publish: the old bundle (if any) moves aside first, so a kill here
+    # leaves either the old or the new bundle whole, never a mix.
+    try:
+        backup = bundle.parent / f"{bundle.name}.bak"
+        shutil.rmtree(backup, ignore_errors=True)
+        if bundle.exists() or bundle.is_symlink():
+            bundle.replace(backup)
+        staging.replace(bundle)
+        shutil.rmtree(backup, ignore_errors=True)
+    except OSError as exc:
+        raise BundleWriteError(
+            f"{bundle}: cannot publish finished bundle: {exc.strerror or exc}"
+        ) from exc
     return WriteResult(
         bundle_dir=bundle,
-        manifest_path=manifest_path,
+        manifest_path=bundle / "manifest.json",
         book_id=book_id,
         sha256=sha,
         chapters=len(chapters),
