@@ -53,7 +53,13 @@ class UnrenderedReaderViewModel(
     private val chapterCount: Int,
     private val progress: ProgressRepository,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
-    private val debounceMs: Long = READ_SETTLE_MS
+    private val debounceMs: Long = READ_SETTLE_MS,
+    /**
+     * ST5: live audio attachment (null = read-only, exactly as before).
+     * The voice position flows into [UnrenderedReaderState.liveSid];
+     * taps and chapter jumps drive the stream through it.
+     */
+    private val live: LiveStream? = null,
 ) {
 
     private val _state = MutableStateFlow(
@@ -66,6 +72,13 @@ class UnrenderedReaderViewModel(
     private var settleJob: Job? = null
 
     init {
+        live?.let { stream ->
+            scope.launch {
+                stream.sid.collect { sid ->
+                    _state.value = _state.value.copy(liveSid = sid)
+                }
+            }
+        }
         scope.launch {
             val saved = try {
                 progress.load(bookId).getOrNull()
@@ -91,12 +104,13 @@ class UnrenderedReaderViewModel(
     /**
      * Chapter list jump (chapter list screen). Validates via
      * [coerceChapterJump]; out-of-range is a no-op. Loads the chapter start
-     * and saves it on success.
+     * and saves it on success. ST5: a live stream moves to the chapter too.
      */
     fun jumpToChapter(index: Int) {
         val target = coerceChapterJump(index, chapterCount) ?: return
         if (target == _state.value.chapterIndex && _state.value.chapter != null) return
         settleJob?.cancel()
+        live?.seekToChapter(target)
         loadChapter(target, null)
     }
 
@@ -116,12 +130,16 @@ class UnrenderedReaderViewModel(
 
     /**
      * Tap moves the reading position (no confirm: there is no audio to
-     * lose). Unknown sids are ignored.
+     * lose). Unknown sids are ignored. ST5: a live stream restarts
+     * audibly from the tapped sentence.
      */
     fun onSentenceTap(sid: Int) {
         val chapter = _state.value.chapter ?: return
-        if (chapter.sentencesInOrder().none { it.sid == sid }) return
+        val sentences = chapter.sentencesInOrder()
+        val index = sentences.indexOfFirst { it.sid == sid }
+        if (index < 0) return
         _state.value = _state.value.copy(currentSid = sid)
+        live?.restartAt(index)
         saveReadingPosition(_state.value.chapterIndex, sid)
     }
 

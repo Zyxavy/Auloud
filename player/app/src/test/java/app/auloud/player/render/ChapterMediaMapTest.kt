@@ -94,6 +94,17 @@ class ChapterMediaMapTest {
     }
 
     @Test
+    fun listening_streamingEnablesEveryChapter() {
+        val map = buildChapterMediaMap(
+            manifest(listOf(unrendered(1), rendered(2)))
+        )
+
+        assertTrue(isChapterListeningEnabled(0, map, streamingAvailable = true))
+        assertTrue(isChapterListeningEnabled(1, map, streamingAvailable = true))
+        assertFalse(isChapterListeningEnabled(0, map, streamingAvailable = false))
+    }
+
+    @Test
     fun emptyManifest_mapsNothing() {
         val map = buildChapterMediaMap(manifest(emptyList(), renderState = "none"))
 

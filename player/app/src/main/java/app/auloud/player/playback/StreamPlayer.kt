@@ -13,6 +13,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.SimpleBasePlayer
+import androidx.media3.common.util.UnstableApi
 import app.auloud.player.tts.PauseUtterance
 import app.auloud.player.tts.SpeakUtterance
 import app.auloud.player.tts.StreamCore
@@ -48,28 +49,23 @@ import kotlinx.coroutines.flow.StateFlow
  * rides the existing `WAKE_LOCK` permission; audio focus uses the
  * pre-26 stream-type form; any focus loss pauses (user resumes).
  *
+ * The whole player is marked media3's `UnstableApi` (the base class
+ * carries it, and Kotlin's `@OptIn` propagation does not apply to its
+ * AndroidX Java meta-annotation); service functions touching stream
+ * members carry the same marker, following the file's
+ * `ExperimentalMaterial3Api` precedent in spirit.
+ *
  * Handler futures use media3's own Guava (`Futures.immediateFuture`,
  * D-135): the class ships with media3 at runtime, so this adds no
  * dependency and pins none.
  */
+@UnstableApi
 class StreamPlayer(
     appContext: Context,
     private val driver: StreamTtsDriver,
     private val navigator: StreamNavigator,
     private val callbacks: StreamPlayerCallbacks,
 ) : SimpleBasePlayer(Looper.getMainLooper()) {
-
-    /** One streamable chapter with everything the feed needs. */
-    data class ChapterInput(
-        val sentences: List<StreamSentence>,
-        val startSid: Int,
-        val voiceNames: Map<TtsRole, String>,
-        val speeds: Map<TtsRole, Float>,
-        val volumes: Map<TtsRole, Float>,
-        val pausesAfterSid: Map<Int, Long>,
-        val title: String,
-        val bookTitle: String,
-    )
 
     private val appContext = appContext.applicationContext
     private val audioManager = appContext.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -80,7 +76,7 @@ class StreamPlayer(
     }
 
     private var core: StreamCore? = null
-    private var input: ChapterInput? = null
+    private var input: StreamChapterInput? = null
     private var playing = false
     private var ended = false
     private var volume = 1.0f
@@ -114,6 +110,7 @@ class StreamPlayer(
                     _currentSid.value = it
                     positionIndex = (input?.sentences?.indexOfFirst { s -> s.sid == it }
                         ?: -1).coerceAtLeast(0).toLong()
+                    callbacks.onSidChanged(it)
                 }
             }
 
@@ -134,10 +131,10 @@ class StreamPlayer(
     // -- loading ----------------------------------------------------------
 
     /**
-     * Load a chapter paused at [ChapterInput.startSid] (unknown sids
+     * Load a chapter paused at [StreamChapterInput.startSid] (unknown sids
      * refuse: returns false and loads nothing).
      */
-    fun load(chapter: ChapterInput): Boolean {
+    fun load(chapter: StreamChapterInput): Boolean {
         if (released) return false
         driver.stop()
         val fresh = StreamCore(chapter.sentences, chapter.volumes, chapter.pausesAfterSid)
@@ -418,4 +415,54 @@ interface StreamNavigator {
 interface StreamPlayerCallbacks {
     fun onChapterDone()
     fun onStreamFailed()
+
+    /** Every started sentence (service publishes [StreamSidMonitor]). */
+    fun onSidChanged(sid: Int)
 }
+
+/**
+ * ST5: stable facade over [StreamPlayer] so the service never names the
+ * unstable subclass (or its members) and stays marker-free. Everything
+ * here forwards; the player owns the core, the driver and the feed.
+ */
+@UnstableApi
+class StreamVoice(
+    appContext: Context,
+    driver: StreamTtsDriver,
+    navigator: StreamNavigator,
+    callbacks: StreamPlayerCallbacks,
+) {
+    private val player = StreamPlayer(appContext, driver, navigator, callbacks)
+
+    /** The session-facing player (stable `Player`, never the subclass). */
+    fun asPlayer(): Player = player
+
+    fun load(chapter: StreamChapterInput): Boolean = player.load(chapter)
+
+    fun play() {
+        player.play()
+    }
+
+    val currentSid: StateFlow<Int?> get() = player.currentSid
+
+    val chapterSize: Int get() = player.chapterSize
+
+    fun release() {
+        player.release()
+    }
+}
+
+/**
+ * ST4: one streamable chapter with everything the feed needs.
+ * Top-level (stable) so callers never touch the player's unstable type.
+ */
+data class StreamChapterInput(
+    val sentences: List<StreamSentence>,
+    val startSid: Int,
+    val voiceNames: Map<TtsRole, String>,
+    val speeds: Map<TtsRole, Float>,
+    val volumes: Map<TtsRole, Float>,
+    val pausesAfterSid: Map<Int, Long>,
+    val title: String,
+    val bookTitle: String,
+)

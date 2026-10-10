@@ -321,14 +321,29 @@ fun partialChapterTarget(chapterPos: Int, map: ChapterMediaMap): ChapterOpenTarg
  *
  * The saved reading chapter wins when it is rendered; otherwise the
  * first rendered chapter, so Listen never lands on the text reader.
- * Gating stays single-sourced: callers still open through
- * [partialChapterTarget].
+ * ST5: with streaming available an unrendered book still gets an entry:
+ * the reading chapter (it streams via "Listen now"). The default keeps
+ * every current caller exactly as before. Gating stays single-sourced:
+ * callers still open through [partialChapterTarget].
  */
-fun listenChapterTarget(renderedPositions: List<Int>, readingChapter: Int): Int? {
-    if (renderedPositions.isEmpty()) return null
+fun listenChapterTarget(
+    renderedPositions: List<Int>,
+    readingChapter: Int,
+    streamingAvailable: Boolean = false
+): Int? {
+    if (renderedPositions.isEmpty()) {
+        return if (streamingAvailable) readingChapter else null
+    }
     return if (readingChapter in renderedPositions) readingChapter
     else renderedPositions.minOrNull()
 }
+
+/**
+ * ST5: hub Listen label: chapters without rendered audio stream live
+ * ("Listen now"), rendered chapters play as before ("Listen").
+ */
+fun listenEntryIsLive(target: Int?, renderedPositions: List<Int>): Boolean =
+    target != null && target !in renderedPositions
 
 /**
  * UX1: per-row Play button shows only on rendered rows (which listen);

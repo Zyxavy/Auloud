@@ -443,6 +443,27 @@ class RenderUiStateTest {
         assertEquals(2, listenChapterTarget(listOf(2, 3), 9))
     }
 
+    // ST5: streaming entry point.
+
+    @Test
+    fun listenChapterTarget_streaming_targetsReadingChapter() {
+        assertEquals(1, listenChapterTarget(emptyList(), 1, streamingAvailable = true))
+        assertEquals(0, listenChapterTarget(emptyList(), 0, streamingAvailable = true))
+    }
+
+    @Test
+    fun listenChapterTarget_streaming_keepsRenderedRule() {
+        assertEquals(2, listenChapterTarget(listOf(0, 2, 3), 2, streamingAvailable = true))
+        assertEquals(0, listenChapterTarget(listOf(0, 2, 3), 1, streamingAvailable = true))
+    }
+
+    @Test
+    fun listenEntryIsLive_onlyForUnrenderedTargets() {
+        assertTrue(listenEntryIsLive(1, listOf(0, 2)))
+        assertTrue(!listenEntryIsLive(0, listOf(0, 2)))
+        assertTrue(!listenEntryIsLive(null, emptyList()))
+    }
+
     @Test
     fun showRowPlayButton_onlyRenderedRows() {
         assertTrue(showRowPlayButton(ChapterRenderState.RENDERED))

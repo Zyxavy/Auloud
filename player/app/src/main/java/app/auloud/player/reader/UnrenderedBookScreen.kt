@@ -1,8 +1,14 @@
 package app.auloud.player.reader
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -10,16 +16,25 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.dp
 import app.auloud.player.bundle.BundleParser
 import app.auloud.player.data.ProgressRepository
 import app.auloud.player.library.BookUiModel
+import app.auloud.player.playback.PlaybackController
+import app.auloud.player.playback.PlaybackIntents
+import app.auloud.player.playback.StreamRoute
 import app.auloud.player.settings.PrefsReaderModeStore
 import app.auloud.player.storage.BundleStorage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.withContext
 
 /**
@@ -104,19 +119,54 @@ private fun UnrenderedContent(
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
     val modeStore = remember(appContext) { PrefsReaderModeStore.fromContext(appContext) }
+    // ST5: live audio attachment (dormant until the ST0 gate passes).
+    val streamingAvailable = StreamRoute.GATE_PASSED
+    val scope = rememberCoroutineScope()
+    val controller = remember(appContext, book.id) { PlaybackController(appContext, scope) }
+    LaunchedEffect(book.id, streamingAvailable) {
+        if (streamingAvailable) controller.connect()
+    }
+    val live = remember(book.id, streamingAvailable) {
+        if (!streamingAvailable) {
+            null
+        } else {
+            LiveStream(
+                sid = controller.state.map { it.streamSid }
+                    .stateIn(scope, SharingStarted.Eagerly, null),
+                restartAt = { index ->
+                    controller.seekToSentence(index)
+                    controller.play()
+                },
+                seekToChapter = { pos ->
+                    appContext.startService(
+                        PlaybackIntents.serviceIntent(appContext)
+                            .putExtra(PlaybackIntents.EXTRA_BOOK_ID, book.id)
+                            .putExtra(PlaybackIntents.EXTRA_STREAM_CHAPTER, pos)
+                    )
+                },
+                nextChapter = controller::streamNextChapter,
+                previousChapter = controller::streamPreviousChapter
+            )
+        }
+    }
     val viewModel = remember(book.id) {
         UnrenderedReaderViewModel(
             bookId = book.id,
             storage = storage,
             textPathForChapter = { index -> textPaths.getOrNull(index) },
             chapterCount = entries.size,
-            progress = progress
+            progress = progress,
+            live = live
         )
     }
     DisposableEffect(book.id) {
-        onDispose { viewModel.clear() }
+        onDispose {
+            viewModel.clear()
+            controller.release()
+        }
     }
     val unrendered by viewModel.state.collectAsState()
+    val playerState by controller.state.collectAsState()
     // Reading prefs read once per session (same rule as the timed reader:
     // the session remounts when returning from Settings).
     val fontSize = remember(book.id) { modeStore.fontSize() }
@@ -145,15 +195,37 @@ private fun UnrenderedContent(
         return
     }
     Column(modifier = modifier.fillMaxSize()) {
+        // ST5: live voice bar (streaming only; the mode row below is
+        // untouched, so gate-closed builds render exactly as before).
+        if (streamingAvailable) {
+            val sentences = unrendered.chapter?.sentencesInOrder().orEmpty()
+            LiveListenBar(
+                isPlaying = playerState.isPlaying,
+                fraction = liveFractionOf(unrendered.liveSid, sentences),
+                onPlay = {
+                    appContext.startService(
+                        PlaybackIntents.serviceIntent(appContext)
+                            .putExtra(PlaybackIntents.EXTRA_BOOK_ID, book.id)
+                            .putExtra(
+                                PlaybackIntents.EXTRA_STREAM_CHAPTER,
+                                unrendered.chapterIndex
+                            )
+                    )
+                    controller.play()
+                },
+                onPause = controller::pause
+            )
+        }
         ReaderScreen(
             state = ReaderState(
                 chapterIndex = unrendered.chapterIndex,
                 chapter = unrendered.chapter,
                 mode = ReaderMode.Read,
                 follow = unrendered.follow,
-                currentSid = unrendered.currentSid,
+                // ST5: the highlight follows the voice when live.
+                currentSid = unrendered.liveSid ?: unrendered.currentSid,
                 positionMs = 0L,
-                isPlaying = false,
+                isPlaying = streamingAvailable && playerState.isPlaying,
                 isTextLoading = unrendered.isTextLoading,
                 textError = unrendered.textError,
                 pendingTapSid = null,
@@ -185,4 +257,36 @@ private fun UnrenderedLoading(onBack: () -> Unit, modifier: Modifier = Modifier)
         onBack = onBack,
         modifier = modifier
     )
+}
+
+/**
+ * ST5: live voice bar for unrendered chapters: play/pause, the "not
+ * saved" label and the sentence fraction (the stream path has no time
+ * seek bar). Shown only while streaming is available.
+ */
+@Composable
+private fun LiveListenBar(
+    isPlaying: Boolean,
+    fraction: Float?,
+    onPlay: () -> Unit,
+    onPause: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Button(onClick = { if (isPlaying) onPause() else onPlay() }) {
+            Text(if (isPlaying) "Pause" else "Listen now")
+        }
+        Text(
+            text = if (fraction == null) {
+                "Live voice, not saved"
+            } else {
+                "Live voice, not saved - ${(fraction * 100).toInt()}%"
+            },
+            style = MaterialTheme.typography.bodyMedium
+        )
+    }
 }

@@ -10,6 +10,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -74,7 +75,7 @@ import kotlin.coroutines.EmptyCoroutineContext
  * (play/pause, previous, next) comes from Media3's default provider; there
  * is no custom notification code here.
  *
- * Start it with `startService()` carrying [EXTRA_BOOK_ID] (API 24 has no
+ * Start it with `startService()` carrying [PlaybackIntents.EXTRA_BOOK_ID] (API 24 has no
  * `startForegroundService`; the service enters the foreground via Media3's
  * notification once playing). An already-loaded book is a no-op; anything
  * unrecoverable (unknown book, bad manifest, unreadable storage) is logged
@@ -92,7 +93,14 @@ import kotlin.coroutines.EmptyCoroutineContext
  * Depends on WP2 (parser), WP3 ([BundleStorage]) and WP4 (repositories)
  * as-is. Player-screen controls and the `MediaController` wrapper arrive in
  * WP7; speed control and the sleep timer are Slice 3.
+ *
+ * ST4/ST5: the service hosts the live-stream path through the stable
+ * [StreamVoice] facade, whose implementation drives media3's unstable
+ * player surface — so the whole service carries media3's `UnstableApi`
+ * marker (one annotation; per-function markers would propagate to every
+ * caller anyway). Nothing else changes about the rendered path.
  */
+@UnstableApi
 class PlaybackService : MediaSessionService() {
 
     private var session: MediaSession? = null
@@ -146,7 +154,7 @@ class PlaybackService : MediaSessionService() {
      * attached). [streamChapterPos] is the manifest chapter position;
      * [streamPausedRender] records a D-134 pause for the render resume.
      */
-    private var streamPlayer: StreamPlayer? = null
+    private var streamPlayer: StreamVoice? = null
     private var streamChapterPos = -1
     private var streamChapterSize = 0
     private var streamPausedRender = false
@@ -277,10 +285,10 @@ class PlaybackService : MediaSessionService() {
         // below is unchanged.
         Log.i(
             TAG,
-            "onStartCommand action=${intent?.action} hasBookExtra=${intent?.hasExtra(EXTRA_BOOK_ID)} " +
+            "onStartCommand action=${intent?.action} hasBookExtra=${intent?.hasExtra(PlaybackIntents.EXTRA_BOOK_ID)} " +
                 "flags=$flags startId=$startId"
         )
-        val bookId = intent?.getStringExtra(EXTRA_BOOK_ID)?.takeIf { it.isNotBlank() }
+        val bookId = intent?.getStringExtra(PlaybackIntents.EXTRA_BOOK_ID)?.takeIf { it.isNotBlank() }
         if (bookId != null) {
             if (bookId != currentBookId) {
                 Log.i(TAG, "onStartCommand loading bookId=$bookId")
@@ -291,7 +299,14 @@ class PlaybackService : MediaSessionService() {
         }
         // RA8: sleep timer command (independent of the book extra, so the
         // timer can be set/cancelled without touching playback).
-        intent?.getStringExtra(EXTRA_SLEEP_OPTION)?.let { applySleepOption(it) }
+        intent?.getStringExtra(PlaybackIntents.EXTRA_SLEEP_OPTION)?.let { applySleepOption(it) }
+        // ST5: live chapter jump inside the loaded book (reader chapter
+        // list while streaming; ignored unless this book is loaded).
+        if (intent?.hasExtra(PlaybackIntents.EXTRA_STREAM_CHAPTER) == true &&
+            bookId != null && bookId == currentBookId
+        ) {
+            jumpStreamToChapter(intent.getIntExtra(PlaybackIntents.EXTRA_STREAM_CHAPTER, -1))
+        }
         return super.onStartCommand(intent, flags, startId)
     }
 
@@ -309,11 +324,10 @@ class PlaybackService : MediaSessionService() {
         // ST4: the stream path saves its sentence sid instead (position 0
         // plus the IN1 column); exactly one path is attached.
         val player = session?.player
-        val streamSave = StreamRoute.streamSaveOrNull(
-            currentBookId,
-            streamChapterPos.takeIf { streamPlayer != null && player === streamPlayer } ?: -1,
-            streamPlayer?.takeIf { player === it }?.currentSid?.value
-        )
+        val attachedStream = streamPlayer?.takeIf { it.asPlayer() === player }
+        val streamSave = attachedStream?.let {
+            StreamRoute.streamSaveOrNull(currentBookId, streamChapterPos, it.currentSid.value)
+        }
         val finalPoint = destroySavePointOrNull(
             currentBookId,
             player?.currentMediaItemIndex ?: C.INDEX_UNSET,
@@ -358,7 +372,7 @@ class PlaybackService : MediaSessionService() {
             Log.w(TAG, "exo release: ${e.message}")
         }
         try {
-            streamPlayer?.takeIf { it !== player }?.release()
+            streamPlayer?.takeIf { it.asPlayer() !== player }?.release()
         } catch (e: Exception) {
             Log.w(TAG, "stream release: ${e.message}")
         }
@@ -521,7 +535,7 @@ class PlaybackService : MediaSessionService() {
     private fun streamingAvailable(): Boolean = StreamRoute.GATE_PASSED
 
     private fun isStreamActive(): Boolean =
-        streamPlayer != null && session?.player === streamPlayer
+        streamPlayer?.let { session?.player === it.asPlayer() } ?: false
 
     private fun isRenderedAt(manifest: Manifest, chapterPos: Int): Boolean {
         val chapter = manifest.chapters.sortedBy { it.index }.getOrNull(chapterPos)
@@ -537,7 +551,7 @@ class PlaybackService : MediaSessionService() {
 
     private data class BuiltStream(
         val driver: StreamTtsDriver,
-        val input: StreamPlayer.ChapterInput,
+        val input: StreamChapterInput,
     )
 
     /**
@@ -579,7 +593,7 @@ class PlaybackService : MediaSessionService() {
             }
             pauseRenderForStream(bundlePath)
             exoPlayer?.pause()
-            val player = StreamPlayer(
+            val player = StreamVoice(
                 this@PlaybackService,
                 built.driver,
                 object : StreamNavigator {
@@ -599,13 +613,18 @@ class PlaybackService : MediaSessionService() {
                     override fun onStreamFailed() {
                         onStreamFailed()
                     }
+
+                    override fun onSidChanged(sid: Int) {
+                        val book = currentBookId ?: return
+                        StreamSidMonitor.publish(book, streamChapterPos, sid)
+                    }
                 }
             )
             streamPlayer = player
             streamChapterPos = chapterPos
             streamChapterSize = built.input.sentences.size
             streamBookId = bookId
-            setSessionPlayer(player)
+            setSessionPlayer(player.asPlayer())
             if (!player.load(built.input)) {
                 refuseStream("stream unavailable (chapter failed to load)")
                 stopStreamPath(resumeRender = false)
@@ -682,7 +701,7 @@ class PlaybackService : MediaSessionService() {
             ?: sentences.first().sid
         return BuiltStream(
             driver,
-            StreamPlayer.ChapterInput(
+            StreamChapterInput(
                 sentences = sentences,
                 startSid = firstSid,
                 voiceNames = mapOf(TtsRole.Narrator to narrator, TtsRole.Dialogue to dialogue),
@@ -747,6 +766,7 @@ class PlaybackService : MediaSessionService() {
         streamChapterPos = -1
         streamChapterSize = 0
         streamBookId = null
+        StreamSidMonitor.clear()
         val sid = try {
             player.currentSid.value
         } catch (_: Exception) {
@@ -802,12 +822,7 @@ class PlaybackService : MediaSessionService() {
         when (next.target) {
             StreamRoute.Target.Rendered -> {
                 stopStreamPath(resumeRender = true)
-                val media = currentMap?.mediaIndexOf(next.chapterPos) ?: return false
-                val exo = exoPlayer ?: return false
-                setSessionPlayer(exo)
-                exo.seekTo(media, 0L)
-                exo.prepare()
-                exo.play()
+                if (!playRenderedChapter(next.chapterPos)) return false
             }
             StreamRoute.Target.Streamed -> {
                 try {
@@ -823,6 +838,36 @@ class PlaybackService : MediaSessionService() {
             }
         }
         return true
+    }
+
+    /** Seek the rendered path at a manifest chapter (false when unmapped). */
+    private fun playRenderedChapter(chapterPos: Int): Boolean {
+        val media = currentMap?.mediaIndexOf(chapterPos) ?: return false
+        val exo = exoPlayer ?: return false
+        setSessionPlayer(exo)
+        exo.seekTo(media, 0L)
+        exo.prepare()
+        exo.play()
+        return true
+    }
+
+    /**
+     * ST5: reader chapter jump inside the loaded book. Unrendered chapters
+     * move the stream; rendered chapters move the rendered path; anything
+     * else (out of range, no manifest) is ignored.
+     */
+    private fun jumpStreamToChapter(chapterPos: Int) {
+        val manifest = currentManifest ?: return
+        if (chapterPos < 0 || chapterPos >= manifest.chapters.size) return
+        val bookId = currentBookId ?: return
+        if (isRenderedAt(manifest, chapterPos)) {
+            stopStreamPath(resumeRender = true)
+            playRenderedChapter(chapterPos)
+            return
+        }
+        if (!streamingAvailable()) return
+        stopStreamPath(resumeRender = false)
+        startStreamChapter(bookId, chapterPos, null, ++loadGeneration, stopOnRefusal = false)
     }
 
     /** A streamed chapter played to its last sentence: keep going. */
@@ -876,7 +921,7 @@ class PlaybackService : MediaSessionService() {
         val player = session?.player ?: return
         // ST4: the stream path saves its sentence sid (position 0 plus
         // the IN1 column), never milliseconds.
-        val stream = streamPlayer?.takeIf { player === it }
+        val stream = streamPlayer?.takeIf { it.asPlayer() === player }
         if (stream != null) {
             val save = StreamRoute.streamSaveOrNull(
                 currentBookId, streamChapterPos, stream.currentSid.value
@@ -944,7 +989,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     /**
-     * RA8: sleep timer command from the UI (`EXTRA_SLEEP_OPTION`, a
+     * RA8: sleep timer command from the UI ([PlaybackIntents.EXTRA_SLEEP_OPTION], a
      * [SleepOption] name). Runs a 1 s countdown job: fades the volume over
      * the last seconds, then pauses and saves. Cancelling restores full
      * volume. Survives UI closes (service-owned); the remaining time is
@@ -975,7 +1020,7 @@ class PlaybackService : MediaSessionService() {
                 val current = session?.player ?: break
                 // ST4: streamed chapters count sentences, not milliseconds;
                 // position is the sentence index by the same convention.
-                val stream = streamPlayer?.takeIf { current === it }
+                val stream = streamPlayer?.takeIf { it.asPlayer() === current }
                 val chapter = stream?.let { streamChapterPos }
                     ?: current.currentMediaItemIndex
                 val duration = stream?.let { streamChapterSize.toLong() }
@@ -1058,12 +1103,6 @@ class PlaybackService : MediaSessionService() {
     )
 
     companion object {
-        /** `startService()` extra: manifest `id` of the book to load. */
-        const val EXTRA_BOOK_ID = "app.auloud.player.extra.BOOK_ID"
-
-        /** RA8: `startService()` extra: a [SleepOption] name (timer command). */
-        const val EXTRA_SLEEP_OPTION = "app.auloud.player.extra.SLEEP_OPTION"
-
         private const val MANIFEST_FILE = "manifest.json"
 
         /** ST4: engine-failure notice (saves stand, rendered audio untouched). */

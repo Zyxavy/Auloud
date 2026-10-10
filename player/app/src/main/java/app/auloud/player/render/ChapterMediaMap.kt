@@ -96,12 +96,17 @@ fun buildChapterMediaMap(manifest: Manifest): ChapterMediaMap {
  * RN7: per-chapter listening gate (D-099).
  *
  * Listen and Read + listen are enabled per chapter from the mapping: a
- * chapter plays exactly when it is rendered. The book-level
- * `isListenAvailable` rule is unchanged (RN8/RN9 wire this per-chapter
- * gate into the service plus the chapter rows).
+ * chapter plays exactly when it is rendered. ST5: with streaming
+ * available every chapter is listenable (unrendered chapters stream);
+ * the default keeps every current caller exactly as before.
+ * The book-level `isListenAvailable` rule is unchanged (RN8/RN9 wire
+ * this per-chapter gate into the service plus the chapter rows).
  */
-fun isChapterListeningEnabled(chapterPos: Int, map: ChapterMediaMap): Boolean =
-    map.isRendered(chapterPos)
+fun isChapterListeningEnabled(
+    chapterPos: Int,
+    map: ChapterMediaMap,
+    streamingAvailable: Boolean = false
+): Boolean = map.isRendered(chapterPos) || streamingAvailable
 
 /**
  * RN7: end-of-rendered-portion rule (D-099).

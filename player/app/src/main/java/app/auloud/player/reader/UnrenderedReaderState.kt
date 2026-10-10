@@ -27,8 +27,27 @@ data class UnrenderedReaderState(
     val isTextLoading: Boolean = false,
     val textError: String? = null,
     val textKind: TextKind? = null,
-    val follow: FollowState = FollowState.Following
+    val follow: FollowState = FollowState.Following,
+    /**
+     * ST5: spoken sentence sid (null when no stream is speaking). The
+     * screen highlights this over [currentSid]; the reading position
+     * (saves, back-to-now anchor) stays in [currentSid]. Never saved
+     * from here (the service saves the stream spot on its own cadence).
+     */
+    val liveSid: Int? = null
 )
+
+/**
+ * ST5: chapter progress by sentence fraction for live mode (the stream
+ * path has no milliseconds). Null when the voice position is unknown or
+ * off-chapter; 1.0 at the last sentence. Pure.
+ */
+fun liveFractionOf(liveSid: Int?, sentences: List<Sentence>): Float? {
+    if (liveSid == null || sentences.isEmpty()) return null
+    val index = sentences.indexOfFirst { it.sid == liveSid }
+    if (index < 0) return null
+    return (index + 1).toFloat() / sentences.size.toFloat()
+}
 
 /**
  * IN9: restores the reading sid for a chapter.

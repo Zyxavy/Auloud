@@ -71,7 +71,11 @@ subclass). Confirmed 2026-10-10 against the real artifact:
 `SimpleBasePlayer` plus its `State`/`MediaItemData`/`PositionSupplier`
 classes are in the pinned media3-common 1.5.1 AAR (Gradle cache
 `transformed/media3-common-1.5.1-api.jar` class list), and the library
-minSdk is below our 24, so no version guard is needed. The fallback
+minSdk is below our 24, so no version guard is needed. Containment
+(D-136): the subclass plus a stable `StreamVoice` facade live in
+`playback/StreamPlayer.kt` (the only marked file); the service talks to
+the facade and carries one class-level marker; UI files use only the
+stable `PlaybackIntents` surface. The fallback
 below stays only if the subclass proves unworkable on the device. If it
 does not, the fallback is a plain state broadcaster driving the
 existing session UI instead of a second `Player`. Either way the

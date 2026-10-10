@@ -1,6 +1,5 @@
 package app.auloud.player.reader
 
-import android.content.Intent
 import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -35,7 +34,7 @@ import app.auloud.player.bundle.BundleParser
 import app.auloud.player.data.ProgressRepository
 import app.auloud.player.library.BookUiModel
 import app.auloud.player.playback.PlaybackController
-import app.auloud.player.playback.PlaybackService
+import app.auloud.player.playback.PlaybackIntents
 import app.auloud.player.playback.PlayerScreen
 import app.auloud.player.playback.ReaderDebugOverlay
 import app.auloud.player.playback.SleepOption
@@ -361,8 +360,8 @@ private fun ReaderSession(
     var sleepOption by remember(book.id) { mutableStateOf(SleepOption.Off) }
 
     LaunchedEffect(book.id) {
-        val intent = Intent(appContext, PlaybackService::class.java)
-            .putExtra(PlaybackService.EXTRA_BOOK_ID, book.id)
+        val intent = PlaybackIntents.serviceIntent(appContext)
+            .putExtra(PlaybackIntents.EXTRA_BOOK_ID, book.id)
         appContext.startService(intent)
         controller.connect()
     }

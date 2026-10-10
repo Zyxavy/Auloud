@@ -26,7 +26,8 @@ class PlayerStateLogicTest {
         durationMs: Long = 600_000L,
         chapterCount: Int = 2,
         isConnected: Boolean = true,
-        sleepRemainingMs: Long? = null
+        sleepRemainingMs: Long? = null,
+        streamSid: Int? = null
     ) = ControllerSnapshot(
         isPlaying = isPlaying,
         chapterIndex = chapterIndex,
@@ -36,7 +37,8 @@ class PlayerStateLogicTest {
         durationMs = durationMs,
         chapterCount = chapterCount,
         isConnected = isConnected,
-        sleepRemainingMs = sleepRemainingMs
+        sleepRemainingMs = sleepRemainingMs,
+        streamSid = streamSid
     )
 
     // Controller-state mapping.
@@ -297,6 +299,40 @@ class PlayerStateLogicTest {
             assertEquals(599_000L, awaitItem().sleepRemainingMs)
             holder.onSnapshot(snapshot(sleepRemainingMs = null))
             assertEquals(null, awaitItem().sleepRemainingMs)
+        }
+    }
+
+    // ST5: live voice sid (never clamped to duration).
+
+    @Test
+    fun mapping_carriesStreamSid() {
+        val state = snapshot(streamSid = 7).toPlaybackState()
+
+        assertEquals(7, state.streamSid)
+    }
+
+    @Test
+    fun mapping_nonPositiveStreamSid_dropped() {
+        assertEquals(null, snapshot(streamSid = 0).toPlaybackState().streamSid)
+        assertEquals(null, snapshot(streamSid = -3).toPlaybackState().streamSid)
+        assertEquals(null, snapshot().toPlaybackState().streamSid)
+    }
+
+    @Test
+    fun holder_emitsStreamSidChangesOnly() = runBlocking {
+        val holder = PlayerStateHolder()
+
+        holder.state.test {
+            assertEquals(PlaybackState(), awaitItem())
+            holder.onSnapshot(snapshot(streamSid = 4))
+            assertEquals(4, awaitItem().streamSid)
+            // Same sid, idle tick values: no new emission.
+            holder.onSnapshot(snapshot(streamSid = 4))
+            expectNoEvents()
+            holder.onSnapshot(snapshot(streamSid = 5))
+            assertEquals(5, awaitItem().streamSid)
+            holder.onSnapshot(snapshot(streamSid = null))
+            assertEquals(null, awaitItem().streamSid)
         }
     }
 }

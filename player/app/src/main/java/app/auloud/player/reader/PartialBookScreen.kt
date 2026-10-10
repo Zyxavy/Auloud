@@ -38,6 +38,7 @@ import app.auloud.player.BuildConfig
 import app.auloud.player.data.ProgressRepository
 import app.auloud.player.library.BookUiModel
 import app.auloud.player.playback.PlayerScreen
+import app.auloud.player.playback.StreamRoute
 import app.auloud.player.render.ChapterOpenTarget
 import app.auloud.player.render.ChapterRenderState
 import app.auloud.player.render.ChapterStaleState
@@ -52,6 +53,7 @@ import app.auloud.player.render.bannerFor
 import app.auloud.player.render.buildChapterMediaMap
 import app.auloud.player.render.isChapterListeningEnabled
 import app.auloud.player.render.listenChapterTarget
+import app.auloud.player.render.listenEntryIsLive
 import app.auloud.player.render.partialChapterTarget
 import app.auloud.player.render.rerenderModeName
 import app.auloud.player.settings.isRenderDebugAvailable
@@ -279,7 +281,10 @@ fun PartialBookScreen(
             renderStateOf = { pos ->
                 panelState.chapterStates[pos] ?: ChapterRenderState.UNRENDERED
             },
-            markerListeningOf = { pos -> map?.let { isChapterListeningEnabled(pos, it) } ?: (pos in panelState.renderedPositions) },
+            markerListeningOf = { pos ->
+                map?.let { isChapterListeningEnabled(pos, it, StreamRoute.GATE_PASSED) }
+                    ?: (pos in panelState.renderedPositions)
+            },
             onRenderChapter = panelVm::renderChapter,
             onDeleteChapterAudio = { pendingDelete = it },
             staleStateOf = if (staleSummary != null) {
@@ -339,10 +344,18 @@ fun PartialBookScreen(
                 onDismissError = panelVm::dismissError
             )
             // UX1: prominent Listen entry (saved-rendered chapter, else
-            // first rendered); hidden while nothing is rendered.
+            // first rendered); hidden while nothing is rendered. ST5: with
+            // streaming it targets the reading chapter ("Listen now").
             val listenTarget = remember(panelState.renderedPositions, panelState.readingChapter, map) {
-                map?.let { listenChapterTarget(panelState.renderedPositions, panelState.readingChapter) }
+                map?.let {
+                    listenChapterTarget(
+                        panelState.renderedPositions,
+                        panelState.readingChapter,
+                        StreamRoute.GATE_PASSED
+                    )
+                }
             }
+            val listenLive = listenEntryIsLive(listenTarget, panelState.renderedPositions)
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -351,7 +364,7 @@ fun PartialBookScreen(
                 Button(
                     onClick = { listenTarget?.let { openChapter(it) } },
                     enabled = listenTarget != null
-                ) { Text("Listen") }
+                ) { Text(if (listenLive) "Listen now" else "Listen") }
                 Button(onClick = { showChapters = true }) { Text("Chapters") }
                 OutlinedButton(onClick = { showBookVoices = true }) { Text("Voices") }
             }

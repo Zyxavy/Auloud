@@ -1,6 +1,5 @@
 package app.auloud.player.playback
 
-import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -48,7 +47,7 @@ import coil.compose.AsyncImage
  * WP7: player screen for one book.
  *
  * Owns its [PlaybackController]: on open it starts the WP6 [PlaybackService]
- * with [PlaybackService.EXTRA_BOOK_ID] (the service reads the WP4
+ * with [PlaybackIntents.EXTRA_BOOK_ID] (the service reads the WP4
  * `ProgressEntity` and prepares the book paused at the saved spot -- the
  * screen reuses that input exactly and never computes or writes progress),
  * then connects the controller. [DisposableEffect] releases the controller;
@@ -125,8 +124,8 @@ fun PlayerScreen(
     BackHandler { onBack() }
 
     LaunchedEffect(book.id) {
-        val intent = Intent(appContext, PlaybackService::class.java)
-            .putExtra(PlaybackService.EXTRA_BOOK_ID, book.id)
+        val intent = PlaybackIntents.serviceIntent(appContext)
+            .putExtra(PlaybackIntents.EXTRA_BOOK_ID, book.id)
         appContext.startService(intent)
         controller.connect()
     }

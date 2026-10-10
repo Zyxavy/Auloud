@@ -1150,3 +1150,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Adding Guava to the catalog needs owner approval per repo rules; the class cannot be absent at runtime while media3 is present. Smallest complete change.
 - Alternatives considered: asking to pin Guava (rejected: blocks ST4 on process for zero behavior difference); hand-rolling a future (rejected: more code around a stable API).
 - Consequences / revisit when: if media3 ever drops Guava, the import fails at compile time (loud, not silent) and Guava gets pinned then. Revisit only on that compile failure.
+
+### D-136: UnstableApi containment for the live path (facade, intents surface, one class marker)
+- Date: 2026-10-10
+- Status: Accepted (design, ST4/ST5)
+- Decision: media3's `UnstableApi` uses AndroidX's Java meta-annotation, which Kotlin's `@OptIn` propagation does not honor (proven: class- and function-level `@OptIn` left 40+ lint errors standing; the marker itself clears them). So the unstable surface is contained, not sprinkled: `StreamPlayer` plus a stable `StreamVoice` facade plus stable seams (`StreamChapterInput`, `StreamNavigator`, `StreamPlayerCallbacks`) carry the marker inside `StreamPlayer.kt`; service intent extras and builders live in stable `PlaybackIntents` (the service class no longer exposes constants or a class literal worth naming); `PlaybackService` carries one class-level marker with a KDoc reason. UI files touch only the stable surface and stay marker-free.
+- Why: Function-level markers propagate to every caller (listener, ticker, load paths), and the marker on any service member infects the whole service plus every file naming it. One class marker plus a stable intent surface is the smallest contained shape.
+- Alternatives considered: per-function markers (rejected: viral propagation across the service); a lint baseline to swallow the errors (rejected: hides the signal this check exists to give); pinning around it with abstraction layers (rejected: more code, same marker).
+- Consequences / revisit when: ST5 UI work already uses only the stable surface. If media3 freezes this API, remove the markers then. A future second unstable integration reuses `PlaybackIntents`, never new markers in UI files.
