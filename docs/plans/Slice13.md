@@ -9,8 +9,8 @@ Project: Auloud Player (main). Follows `09-V2Roadmap.md` (Slice 13, v2.1) with t
 
 ## 0. Before Slice 13 (loose ends from Slice 12 - status 2026-10-10)
 
-- [x] Tags `slice-12` and `v2.0.0` exist (tagged at VC8 commit `31119b1`); signing key at `D:\keys\auloud-release.keystore`, backup still owner duty
-- [x] Over-install procedure run on the tablet (owner verdict 2026-10-10, boxes ticked in `docs/ReleaseSigning.md`)
+- [x] Tags `slice-12` and `v2.0.0` exist (tagged at VC8 commit `31119b1`); signing key outside the repo, backup still maintainer duty
+- [x] Over-install procedure run on the tablet (device verdict 2026-10-10, boxes ticked in `docs/ReleaseSigning.md`)
 - [ ] Follow the README v2 walkthrough once from a fresh install (it is marked untested)
 - [ ] If you can, add rough numbers to the soak entry (hours rendered, kills, temperature); it was accepted on a one-line verdict, so the retuned constants have no data behind them
 

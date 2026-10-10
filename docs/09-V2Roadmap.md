@@ -7,7 +7,7 @@ Builds on v1.0.0 (PC renders the audiobook, the tablet plays it). Source for the
 ## 0. Before v2 starts: v1 loose ends
 
 - [ ] Rebuild the signed APK from `release/v1.0` (the merge added Player spec-1.2 handling after your last APK) and re-smoke it before calling the binary final
-- [ ] Back up the signing key from `D:\keys` to a second location
+- [ ] Back up the signing key to a second location (it lives outside the repo, see `docs/ReleaseSigning.md`)
 - [ ] Add the `slice-6` tag; run the 3-browser runbook for the web UI
 - [x] Decide the contribution policy (DCO or CLA), the one open box in `08-Licenses.md` (decided: DCO sign-off, D-127)
 - [ ] Fix the `07-TestPlan.md` filename case drift
@@ -86,7 +86,7 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 - Optional: import a Scribe script bundle (decision 6) as another source
 - **Done when:** an imported EPUB renders overnight on the Tab E and plays with correct highlight; killing the app mid-render resumes without redoing finished chapters
 
-**Slice 11: Voice settings and engine switching (M).** *Status: complete (tag `slice-11`; VS7 device-passed 2026-10-09, see #18; KEEP=persist per owner verdict c1e231a; estimate numbers unrecorded, constants stand).*
+**Slice 11: Voice settings and engine switching (M).** *Status: complete (tag `slice-11`; VS7 device-passed 2026-10-09, see #18; KEEP=persist per 2026-10-09 device verdict c1e231a; estimate numbers unrecorded, constants stand).*
 
 - Settings screen: narrator voice, dialogue voice, speed per role, audition
 - Engine switcher with a per-device recommendation from a built-in benchmark; automatic voice mapping when switching engines (by gender and palette); re-render affected chapters
@@ -94,8 +94,8 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 
 **Slice 12: v2.0 complete pass (M).** *Status: complete (tags `slice-12` + `v2.0.0`; release criteria section 6 all ticked 2026-10-10).*
 
-- Agent-complete: VC0 gates logged (D-126 option A, D-127 DCO) with SysLong hypothesis-recorded (D-131, bench waived, spike retained); VC1 two licensed flavors with passing `licenseScan`; VC2 version `2.0.0` with ARM-only signed-flavor builds and passing `releaseManifestCheck`; VC3 JVM compatibility matrix (device over-install still owner-open); VC4 constants doc (provisionals stand, offset gate closed by acceptance D-132); VC5 sentence agreement 34/34 runs plus the reader debounce flake fixed; VC6 README v2 plus `07-TestPlan.md` plus PRD addendum; UX1 hub Listen plus charger removal (D-130).
-- Owner-open: VC2 smoke checklist, VC3 over-install, VC8 release. Soak: owner reports multi-day soak good (one-line verdict, no per-box numbers). Tracked in `07-TestPlan.md` sections 2-3; procedures in `docs/ReleaseSigning.md` and `docs/plans/Slice12.md`.
+- Agent-complete: VC0 gates logged (D-126 option A, D-127 DCO) with SysLong hypothesis-recorded (D-131, bench waived, spike retained); VC1 two licensed flavors with passing `licenseScan`; VC2 version `2.0.0` with ARM-only signed-flavor builds and passing `releaseManifestCheck`; VC3 JVM compatibility matrix (device over-install verified 2026-10-10, see below); VC4 constants doc (provisionals stand, offset gate closed by acceptance D-132); VC5 sentence agreement 34/34 runs plus the reader debounce flake fixed; VC6 README v2 plus `07-TestPlan.md` plus PRD addendum; UX1 hub Listen plus charger removal (D-130).
+- Device-verified 2026-10-10: VC2 smoke checklist, VC3 over-install, VC8 release. Soak: multi-day soak reported good (one-line verdict, no per-box numbers). Tracked in `07-TestPlan.md` sections 2-3; procedures in `docs/ReleaseSigning.md` and `docs/plans/Slice12.md`.
 
 - On-device soak: a full novel imported, rendered on the tablet, and listened to over days; battery and thermal checks during rendering
 - License decision implemented (GPL Player, or the adapter/plugin approach) with `NOTICE`, in-app licenses and `08-Licenses.md` updated (sherpa-onnx, onnxruntime, models, espeak-ng); README and docs updated; tag `v2.0.0`

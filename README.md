@@ -2,7 +2,7 @@
 
 Turn your ebooks into multi-voice audiobooks, then read along or just listen
 
-> Status: v1.0.0 released (tagged) with the Scribe Web UI merged in. See `docs/04-Roadmap.md`, the frozen v1 records in `docs/archive/v1/`, and the v2 plan in `docs/09-V2Roadmap.md`. v2 (on-device rendering, Player `2.0.0`) is built on `dev/v2` and NOT released: the Slice 12 soak, sign-off and tag are still owner work.
+> Status: Player `2.1.0` (on-device rendering plus owner-accepted live streaming) tagged as `v2.1.0`; Scribe Web UI merged. See `docs/04-Roadmap.md`, the frozen v1 records in `docs/archive/v1/`, and the v2 plan in `docs/09-V2Roadmap.md`.
 
 ## What it does
 
@@ -200,9 +200,9 @@ On the tablet, open Settings, then Language and input, then Text-to-speech outpu
 
 ### Walkthrough: EPUB import to playing rendered book
 
-> OWNER-RUN, UNTESTED: no agent run has followed these steps end to end on hardware. Steps marked `[ ]` are unchecked until someone completes them on the Tab E.
+> DEVICE-RUN, UNTESTED: no agent run has followed these steps end to end on hardware. Steps marked `[ ]` are unchecked until someone completes them on a device.
 
-- [ ] Sideload the `2.0.0` APK (`core` unless you need Piper voices): build per Flavors and model packs above (release needs the signing key in `player\local.properties`, see `docs/ReleaseSigning.md`), allow unknown sources for the install.
+- [ ] Sideload the `2.1.0` APK (`core` unless you need Piper voices): build per Flavors and model packs above (release needs the signing key in `player\local.properties`, see `docs/ReleaseSigning.md`), allow unknown sources for the install.
 - [ ] Prepare offline voices per the previous section.
 - [ ] In the library, tap Import EPUB and pick the file with the system picker. The book opens with a chapter list and readable text, dialogue marked.
 - [ ] Open the book (it lands on the render hub while unrendered), then Choose voices: set the narrator voice and the dialogue voice, keeping or switching the engine (the recommended engine is marked; slow engines warn). Audition each role.
@@ -240,7 +240,7 @@ Start here, then follow the map:
 - `docs/DECISIONS.md` - D-001 through D-129 current (v2 engine, license and release decisions at the tail)
 - `docs/09-V2Roadmap.md` - v2 plan (on-device voices); v1 loose ends listed in its section 0. Slices 9-11 complete on device; Slice 12 (v2.0 complete pass) in progress.
 - `docs/07-TestPlan.md` - v2 test plan (suites, device rounds, release gate); the v1 plan is frozen at `docs/archive/v1/07-Testplan.md`
-- `docs/ReleaseSigning.md` - v2 signing, per-flavor builds, release smoke checklist plus the VC3 over-install procedure (both OWNER-RUN)
+- `docs/ReleaseSigning.md` - v2 signing, per-flavor builds, release smoke checklist plus the VC3 over-install procedure (both device-run)
 - `docs/constants.md` - on-device render tuning constants with sources (mostly provisional until device numbers land)
 - `docs/fingerprint.md` - render fingerprint rules; `docs/ingestion-rules.md` - on-device text oracle
 - `docs/test-log.md` - v2 automated and device evidence; `docs/plans/` - Slice 7-12 work plans
@@ -286,4 +286,4 @@ Scribe: AGPL-3.0-or-later. Voice models have their own licenses, see
 
 ## Contributing
 
-Issues and pull requests are welcome once the project is public. Please read the bundle spec before proposing format changes, since Scribe and Player both depend on it. Contributors sign off commits with `Signed-off-by` lines (DCO, see D-127 in `docs/DECISIONS.md`); no CLA paperwork.
+Issues and pull requests are welcome. Please read the bundle spec before proposing format changes, since Scribe and Player both depend on it. Contributors sign off commits with `Signed-off-by` lines (DCO, see D-127 in `docs/DECISIONS.md`); no CLA paperwork. Run the suites before opening a PR: `uv run pytest` in `scribe/`, `./gradlew :app:testCoreDebugUnitTest :app:testFullDebugUnitTest` plus lint in `player/`.

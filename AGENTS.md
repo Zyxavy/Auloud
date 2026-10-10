@@ -1,19 +1,19 @@
 # Auloud: agent instructions
 
-Auloud turns ebooks into multi-voice audiobooks on a PC (**Scribe**, Python) and plays them on an old Android tablet (**Player**, Kotlin) with read-along text. The tablet cannot run TTS, so all AI work happens on the PC.
+Auloud turns ebooks into multi-voice audiobooks on a PC (**Scribe**, Python) and plays them on an old Android tablet (**Player**, Kotlin) with read-along text. Scribe renders the best-quality multi-voice audio; since v2 the tablet also renders its own audio on-device (System TTS, plus Piper in the `full` flavor) and streams unrendered chapters live.
 
 Target device: Samsung Galaxy Tab E (SM-T560NU), Android 7.1.1, `minSdk 24`, about 1.5 GB RAM (unverified). Language: English only.
 
 ## Read first
 - `docs/03-BundleSpec.md` (or `spec/bundle.md`): the contract between Scribe and Player. Treat as law.
 - `docs/04-Roadmap.md`: the current slice and its checklist.
-- `docs/09-Slice1-Plan.md`: work packages (WP1-WP10) for the current slice.
+- `docs/plans/` holds the slice plans (`docs/archive/v1/plans/` for v1).
 - `docs/06-PlayerDesign.md`, `docs/05-ScribeDesign.md`: design for each side.
 - `docs/DECISIONS.md`: past decisions. Do not contradict them without asking.
 
 ## Repo layout
 ```
-player/   Android app (Kotlin, Compose, Media3, Room). License: Apache-2.0
+player/   Android app (Kotlin, Compose, Media3, Room). Core flavor: Apache-2.0; full flavor: GPL-3.0 (see player/NOTICE).
 scribe/   Python CLI + library. License: AGPL-3.0-or-later
 spec/     bundle spec and shared test fixtures
 docs/     PRD, architecture, designs, roadmap, test plan, decisions
@@ -22,8 +22,8 @@ docs/     PRD, architecture, designs, roadmap, test plan, decisions
 ## Hard constraints
 **Player**
 - `minSdk 24`. Never use APIs above 24 without a version guard. `java.time` is not available on API 24 without desugaring.
-- No `INTERNET` permission. No on-device TTS. No EPUB parsing. It only plays bundles.
-- Only Apache-2.0/MIT/BSD-compatible dependencies. No GPL code in the Player.
+- No `INTERNET` permission. No cloud TTS. The tablet renders and streams with on-device voices only (System TTS everywhere, Piper packs in `full`); Scribe on the PC stays the multi-voice path.
+- Only Apache-2.0/MIT/BSD-compatible dependencies in `core`. No GPL code in `core`; the `full` flavor is GPL-3.0 by decision (D-126 option A) and carries its notices.
 - Stream audio; load only one chapter's JSON at a time; assume 1.5 GB RAM.
 - Storage goes through the `BundleStorage` interface.
 
@@ -42,7 +42,7 @@ docs/     PRD, architecture, designs, roadmap, test plan, decisions
 | Build Player | `./gradlew :app:assembleDebug` (Windows: `gradlew.bat`) |
 | Player unit tests | `./gradlew :app:testDebugUnitTest` |
 | Lint | `./gradlew :app:lintDebug` |
-| Install on tablet | `adb install -r player/app/build/outputs/apk/debug/app-debug.apk` |
+| Install on tablet | `adb install -r player/app/build/outputs/apk/core/debug/app-core-debug.apk` |
 | Logs | `adb logcat -s Auloud:V` |
 | Scribe tests | `uv run pytest` (in `scribe/`) |
 | Validate a bundle | `uv run scribe validate <bundle-dir>` |

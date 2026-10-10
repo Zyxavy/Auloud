@@ -1,22 +1,22 @@
-# Auloud Player release signing (v2, VC2)
+# Auloud Player release signing (v2.1, VC2 pattern)
 
-Version `2.0.0`, `versionCode` 2. Two flavors (D-126 option A): `core`
+Version `2.1.0`, `versionCode` 3. Two flavors (D-126 option A): `core`
 (Apache-2.0, main release) and `full` (GPL-3.0 combined work, ships
 sherpa-onnx with static espeak-ng). Both share the applicationId and
-version, so either one upgrades a v1 install in place.
+version, so either one upgrades a v1/v2 install in place.
 
-## Key (owner, do once)
+## Key (maintainer, do once)
 
 1. Generate the key ONCE on your PC (NEVER in the repo):
-   `keytool -genkeypair -v -keystore D:\keys\auloud-release.keystore -alias auloud -keyalg RSA -keysize 2048 -validity 10000`
-2. Keep the `.keystore` file OUTSIDE the repo (for example `D:\keys\`).
-3. Back it up (for example a USB stick kept elsewhere) and note the
+   `keytool -genkeypair -v -keystore E:\auloud-keys\auloud-release.keystore -alias auloud -keyalg RSA -keysize 2048 -validity 10000` (example path, use your own)
+2. Keep the `.keystore` file OUTSIDE the repo (for example a USB stick or a second drive).
+3. Back it up somewhere safe and note the
    passwords somewhere safe. Losing it means the app must be REINSTALLED:
    updates signed with a new key will not install over the old app.
-   The v1-to-v2 upgrade (VC3) needs the SAME key as the v1 release.
+   Same-key upgrades (below) need the SAME key as the previous release.
 4. Point the build at it in `player\local.properties` (gitignored, never
-   commit), backslashes doubled:
-   `auloud.keystore.path=D:\\keys\\auloud-release.keystore`
+   commit), backslashes doubled (example path, use your own):
+   `auloud.keystore.path=E:\\auloud-keys\\auloud-release.keystore`
    `auloud.keystore.storePassword=<store password>`
    `auloud.keystore.keyAlias=auloud`
    `auloud.keystore.keyPassword=<key password, or omit if same as store>`
@@ -64,9 +64,9 @@ entry, render debug overlay, save-time snapshot) is gated on
 (`BeepDebugGateTest`, `ReleaseGuardsTest`, `RenderDebugGateTest`);
 release builds never reach those paths.
 
-## Release smoke checklist (OWNER-RUN, on the signed APK)
+## Release smoke checklist (DEVICE-RUN, on the signed APK)
 
-Owner verdict 2026-10-10: both checklists pass ("1 and 2 are good and
+Device verdict 2026-10-10: both checklists pass ("1 and 2 are good and
 complete", flavor not specified). Boxes ticked on that verdict, not
 from JVM results.
 
@@ -90,13 +90,13 @@ from JVM results.
 - [x] No debug-only features visible in release: no beep engine, debug
   overlays, or spike/preview entries anywhere in the UI
 
-## VC3 over-install procedure (OWNER-RUN, on the Tab E)
+## VC3 over-install procedure (DEVICE-RUN, needs the tablet)
 
 The Room v1-to-v2 migration cannot run on the JVM (the v1 schema was
 never exported and the unit harness has no Robolectric/room-testing),
 so data survival is proven here, on the tablet. Same signing key for
 both installs, no uninstall in between. Ticked 2026-10-10 on the
-owner verdict ("good and complete"), not from JVM results.
+device verdict ("good and complete"), not from JVM results.
 
 - [x] Install the signed `v1.0.0` APK (same release key as the `2.0.0`
   build); confirm the install succeeds and the app launches

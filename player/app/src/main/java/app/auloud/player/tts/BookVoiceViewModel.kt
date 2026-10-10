@@ -57,7 +57,7 @@ import kotlinx.coroutines.launch
  *   shows added minus removed chapters. [confirmApply] then persists the
  *   manifest and either starts the stale-only re-render reading-position
  *   forward first (NOW), or only persists with no start (LATER and KEEP,
- *   owner verdict 2026-10-09: KEEP saves without rendering).
+ *   device verdict 2026-10-09: KEEP saves without rendering).
  * - Scribe (PC) books: voices visible, every edit refused with the plain
  *   model message ([BookVoices.READ_ONLY_MESSAGE]); audition is disabled
  *   too, because the book voices are PC voice ids the device engines do
@@ -441,7 +441,7 @@ class BookVoiceViewModel(
      * with no start (the mixed-voice state stays legal per D-119, VS5 badges
      * show it; old audio keeps playing until a manual re-render).
      * KEEP and LATER are behavior-identical: no queue or schedule flag,
-     * no planned job (owner verdict 2026-10-09).
+     * no planned job (device verdict 2026-10-09).
      *
      * VS6: voices re-validate before any persist (an engine removed
      * between dialog and confirm refuses with the fix path, manifest
