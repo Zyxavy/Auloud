@@ -325,6 +325,34 @@ def _book_locked(workspace: Path, book_id: str) -> bool:
         return False
 
 
+def _checked_transfer_delete_target(job: dict[str, Any], src: Path) -> Path:
+    """Validated ``dest_bundle`` for a transfer job (raises ``bad-destination``).
+
+    Re-runs :func:`transfer.validate_destination` on the stored destination
+    (the drive may have moved since the job was queued) and requires the
+    stored ``dest_bundle`` to be exactly ``<destination>/<bundle-dirname>``.
+    Anything else — edited job, moved drive, renamed bundle — refuses with
+    ``ValueError`` shaped ``bad-destination`` so callers fail the job
+    instead of deleting an unchecked absolute path.
+    """
+    stored = Path(str(job.get("dest_bundle") or ""))
+    try:
+        from .transfer import validate_destination as _validate_dest
+    except ImportError as exc:
+        raise ValueError(f"{stored}: bad-destination: transfer helpers missing: {exc}")
+    try:
+        dest = _validate_dest(job.get("destination"))
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
+    expected = Path(str(dest)) / src.name
+    if os.path.normcase(str(expected)) != os.path.normcase(str(stored)):
+        raise ValueError(
+            f"{stored}: bad-destination: destination moved "
+            f"(expected {expected}; not deleting)"
+        )
+    return stored
+
+
 def _cleanup_partial_chapter(workspace: Path, book_id: str, chapter: int) -> list[str]:
     """Delete torn render files for ``chapter`` (best effort; returns removed).
 
@@ -993,8 +1021,25 @@ class JobManager:
             )
             self._pump_queue()
             return
-        # Explicit overwrite only: force deletes the one dest bundle dir.
+        # Explicit overwrite only: force deletes the one dest bundle dir,
+        # re-validated here (the drive may have moved between resume and
+        # this run). Any mismatch fails the job; nothing is deleted.
         if force and dest_bundle.exists():
+            try:
+                dest_bundle = _checked_transfer_delete_target(job, src)
+            except ValueError as exc:
+                self._finish_failed(
+                    {**job, "id": job_id},
+                    folder,
+                    exit_code=-1,
+                    error={
+                        "file": str(dest_bundle),
+                        "rule": "bad-destination",
+                        "message": str(exc),
+                    },
+                )
+                self._pump_queue()
+                return
             try:
                 if dest_bundle.is_file():
                     dest_bundle.unlink()
@@ -1467,6 +1512,13 @@ class JobManager:
         if job.get("kind") == TRANSFER_KIND:
             # Transfers take no book lock (read-only source, outside dest);
             # a retry overwrites the partial copy, so force the rerun.
+            # Re-validate first: a moved drive or edited job must refuse
+            # here, before anything is queued that could delete it.
+            try:
+                src = safe_join(self.workspace, str(job.get("bundle") or ""))
+            except ValueError as exc:
+                raise ValueError(str(exc)) from exc
+            _checked_transfer_delete_target(job, src)
             folder = job_dir(self.workspace, job_id)
             try:
                 (folder / STOP_FILENAME).unlink(missing_ok=True)

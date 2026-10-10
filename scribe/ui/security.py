@@ -57,6 +57,22 @@ _RESERVED_NAMES = frozenset(
 )
 
 
+def strip_extended_prefix(text: str | Path) -> str:
+    """Drop a Win32 extended-length prefix (comparison helper, no FS touch).
+
+    ``Path.resolve()`` may return the ``\\\\?\\`` form from one call and
+    the plain form from the next depending on what exists at call time
+    (concurrent first-time directory creation), so prefix-sensitive
+    comparisons must strip it first. ``\\\\?\\UNC\\`` maps back to ``\\\\``.
+    """
+    raw = str(text)
+    if raw.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + raw[len("\\\\?\\UNC\\"):]
+    if raw.startswith("\\\\?\\"):
+        return raw[len("\\\\?\\"):]
+    return raw
+
+
 def generate_token(nbytes: int = 32) -> str:
     """Return a fresh per-run URL-safe token (``secrets`` module)."""
     return secrets.token_urlsafe(nbytes)
@@ -164,8 +180,14 @@ def safe_join(root: Path | str, *parts: str | Path) -> Path:
         candidate = candidate / text
     base = root_path.resolve()
     resolved = candidate.resolve()
+    # Compare prefix-stripped forms: Windows resolve() can return the
+    # extended-length form for one call and the plain form for the next
+    # (concurrent first-time directory creation), which must never read
+    # as an escape.
     try:
-        inside = resolved == base or resolved.is_relative_to(base)
+        base_cmp = Path(strip_extended_prefix(base))
+        res_cmp = Path(strip_extended_prefix(resolved))
+        inside = res_cmp == base_cmp or res_cmp.is_relative_to(base_cmp)
     except (OSError, ValueError):
         inside = False
     if not inside:
