@@ -171,13 +171,13 @@ All user-verified on the Tab E 2026-10-05, logged in `docs/archive/v1/soak-log.m
 
 Embed the EPUB/PDF in the app so the device runs its own TTS (Kokoro or Piper).
 
-*Status: built on `dev/v2` (Player `2.0.0`, two voices, System TTS plus Piper in the `full` flavor); release pending the Slice 12 soak and sign-off. Detail lives in `docs/09-V2Roadmap.md`; Slices 9-11 are device-passed, Slice 12 is in progress. Boxes below stay as written until the Slice 12 gate ticks them.*
+*Status: shipped as Player `2.1.0` (Slices 9-13 device-passed and tagged). Detail lives in `docs/09-V2Roadmap.md`.*
 
-- [ ] Benchmark spike first: measure real-time factor of Piper and Kokoro on target devices
-- [ ] Engine interface so voices are pluggable
-- [ ] On-device tagging with rules
-- [ ] Background render (no charger requirement, D-130); streaming synthesis for immediate listening
-- [ ] Decide licensing impact of bundling espeak-ng
+- [x] Benchmark spike first: measure real-time factor of Piper and Kokoro on target devices
+- [x] Engine interface so voices are pluggable
+- [x] On-device tagging with rules
+- [x] Background render (no charger requirement, D-130); streaming synthesis for immediate listening
+- [x] Decide licensing impact of bundling espeak-ng
 
 ## v3
 

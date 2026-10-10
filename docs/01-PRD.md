@@ -16,7 +16,7 @@ Primary: for personal use. Secondary: webnovel and ebook listeners who want free
 
 ## 4. Key decision
 
-The Tab E cannot run neural TTS in real time, so **all synthesis happens on a PC or server**. The tablet only plays audio and shows text. See `02-ArchitectureV1.md` and `03-BundleSpec.md`.
+The Tab E cannot run neural TTS in real time, so **all synthesis happens on a PC or server** (v1; v2 supersedes this in section 14). The tablet only plays audio and shows text. See `02-ArchitectureV1.md` and `03-BundleSpec.md`.
 
 ## 5. Scope (v1)
 
@@ -99,8 +99,8 @@ A full novel (10+ hours) is converted on the PC, copied to the tablet, and read 
 - **v3:** Scribe ported to Rust with a Tauri v2 desktop app for Windows 11 and Linux (D-133).
 - **v4:** support later Android versions.
 
-## 14. v2 addendum (on-device rendering, Player 2.0.0, in development)
+## 14. v2 addendum (on-device rendering, shipped as Player 2.1.0)
 
-Supersedes section 4 for v2 only: the tablet now synthesizes as well as plays. Import an EPUB on the device, pick a narrator voice and a dialogue voice (two-voice mode; per-character Scribe voices collapse into the dialogue voice on re-render), render in the background (renders run unplugged, D-130), and listen with read-along from device timings. PC rendering stays the default multi-voice path and is unchanged.
+Supersedes section 4 for v2 and later: the tablet now synthesizes as well as plays. Import an EPUB on the device, pick a narrator voice and a dialogue voice (two-voice mode; per-character Scribe voices collapse into the dialogue voice on re-render), render in the background (renders run unplugged, D-130), and listen with read-along from device timings; unrendered chapters also stream live (accepted gate, D-138). PC rendering stays the default multi-voice path and is unchanged.
 
-Deltas against the v1 requirements above: two engine tiers (System TTS everywhere, Piper in the `full` flavor) with a per-device recommendation; sideloaded model packs instead of downloads (no `INTERNET` permission, unchanged); AAC-LC device audio alongside v1 MP3 playback; version `2.0.0` upgrades a v1 install in place. License: `core` Apache-2.0, `full` GPL-3.0 (D-126). Success is the Slice 12 release criteria in `09-V2Roadmap.md` section 6; the test plan is `07-TestPlan.md`.
+Deltas against the v1 requirements above: two engine tiers (System TTS everywhere, Piper in the `full` flavor) with a per-device recommendation; sideloaded model packs instead of downloads (no `INTERNET` permission, unchanged); AAC-LC device audio alongside v1 MP3 playback; version `2.1.0` upgrades a v1/v2 install in place. License: `core` Apache-2.0, `full` GPL-3.0 (D-126). Success is the Slice 12 release criteria in `09-V2Roadmap.md` section 6; the test plan is `07-TestPlan.md`.

@@ -1,10 +1,10 @@
 # Player Design (Android)
 
-Target: Samsung Galaxy Tab E, Android 7.1.1 (`minSdk 24`). Kotlin, Jetpack Compose, Media3. License: Apache-2.0 (or MIT).
+Target: Samsung Galaxy Tab E, Android 7.1.1 (`minSdk 24`). Kotlin, Jetpack Compose, Media3. Core flavor: Apache-2.0; full flavor: GPL-3.0 (D-126 option A, see `08-Licenses.md` section 5).
 
 ## 1. Principles
 
-- A player, not a converter: no models, no EPUB parsing. It reads bundles (`03-BundleSpec.md`).
+- A player first: v1 only read bundles (`03-BundleSpec.md`). Since v2 it also ingests EPUBs (Slice 9) and renders its own audio on-device (Slices 8/10); Scribe on the PC stays the multi-voice path.
 - Low memory: stream audio, load one chapter's JSON at a time.
 - Playback lives in a service; the UI is a client of it.
 - One source of truth for position: the player's `positionMs` plus the chapter index.
@@ -130,7 +130,7 @@ Check that the versions you pick still support `minSdk 24`.
 
 ## 9. Build and release
 
-- Build variants: `debug` (with logging overlay: position, current `sid`, chapter), `release` (minified with keep rules, `versionName 2.0.0`, `versionCode 2`, `core` and `full` flavors per D-126/D-128, ARM-only native libs per D-129). Preview/debug entries are gated behind `BuildConfig.DEBUG` and absent in release.
+- Build variants: `debug` (with logging overlay: position, current `sid`, chapter), `release` (minified with keep rules, `versionName 2.1.0`, `versionCode 3`, `core` and `full` flavors per D-126/D-128, ARM-only native libs per D-129). Preview/debug entries are gated behind `BuildConfig.DEBUG` and absent in release.
 - Sideload the APK first; publish to F-Droid or GitHub releases when open-sourcing (see licenses doc, later).
 - Permissions: `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE` (shared-internal `/Auloud` default), `FOREGROUND_SERVICE` (declared, harmless on API 24), `WAKE_LOCK`. No internet permission in v1+v2 (merged release manifest and `aapt dump badging` both confirm no `INTERNET`).
 

@@ -39,9 +39,9 @@ docs/     PRD, architecture, designs, roadmap, test plan, decisions
 ## Commands (adjust once the projects exist)
 | Task | Command |
 |---|---|
-| Build Player | `./gradlew :app:assembleDebug` (Windows: `gradlew.bat`) |
-| Player unit tests | `./gradlew :app:testDebugUnitTest` |
-| Lint | `./gradlew :app:lintDebug` |
+| Build Player | `gradlew.bat :app:assembleCoreRelease :app:assembleFullRelease` (Windows, in `player/`) |
+| Player unit tests | `gradlew.bat :app:testCoreDebugUnitTest :app:testFullDebugUnitTest --no-daemon` (in `player/`) |
+| Lint | `gradlew.bat :app:lintCoreDebug :app:lintFullDebug` (in `player/`) |
 | Install on tablet | `adb install -r player/app/build/outputs/apk/core/debug/app-core-debug.apk` |
 | Logs | `adb logcat -s Auloud:V` |
 | Scribe tests | `uv run pytest` (in `scribe/`) |

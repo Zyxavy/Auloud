@@ -2,7 +2,7 @@
 
 Turn your ebooks into multi-voice audiobooks, then read along or just listen
 
-> Status: Player `2.1.0` (on-device rendering plus owner-accepted live streaming) tagged as `v2.1.0`; Scribe Web UI merged. See `docs/04-Roadmap.md`, the frozen v1 records in `docs/archive/v1/`, and the v2 plan in `docs/09-V2Roadmap.md`.
+> Status: Player `2.1.0` (on-device rendering plus maintainer-accepted live streaming) tagged as `v2.1.0`; Scribe Web UI merged. See `docs/04-Roadmap.md`, the frozen v1 records in `docs/archive/v1/`, and the v2 plan in `docs/09-V2Roadmap.md`.
 
 ## What it does
 
@@ -55,7 +55,7 @@ PDFs use the same flow (`draft` then `build`); scanned PDFs with no text layer f
 
 ### B. Play it on the device
 
-1. Build the APK on the PC, in `player/`: `gradlew.bat :app:assembleCoreRelease` (release, main build) or `gradlew.bat :app:assembleCoreDebug` (debug). The `full` flavor with on-device Piper voices builds as `gradlew.bat :app:assembleFullRelease` (see License below). The release APK needs the signing key in gitignored `player\local.properties` (see `docs/archive/v1/ReleaseSigning.md`); without it the build signs with the debug key and prints a warning.
+1. Build the APK on the PC, in `player/`: `gradlew.bat :app:assembleCoreRelease` (release, main build) or `gradlew.bat :app:assembleCoreDebug` (debug). The `full` flavor with on-device Piper voices builds as `gradlew.bat :app:assembleFullRelease` (see License below). The release APK needs the signing key in gitignored `player\local.properties` (see `docs/ReleaseSigning.md`); without it the build signs with the debug key and prints a warning.
 2. Sideload the APK on the device (allow unknown sources for the install).
 3. Copy the finished bundle folder to the device: shared-internal `/Auloud/` (for example `/storage/emulated/0/Auloud`) or a microSD `Auloud/` folder.
 4. In the Player library: add a watch folder with the system folder picker (persistable permission, survives reboot), then import/rescan. The default watch folder is shared-internal `/Auloud`.
@@ -68,7 +68,7 @@ PDFs use the same flow (`draft` then `build`); scanned PDFs with no text layer f
 These are the literal CP9 clean-install steps with wall times from that run (your times will vary; model download was copied locally in 0.1 s, so it is NOT clean-tested):
 
 ```powershell
-git clone --branch dev/slice5 --single-branch <repo-url> auloud-clean  # about 1.2 s
+git clone <repo-url> auloud-clean  # about 1.2 s
 cd auloud-clean\scribe
 uv sync            # about 8.5 s wall with warm uv cache (73 packages resolved, 72 installed)
 copy <your-models>\kokoro-v1.0.onnx models\
@@ -178,7 +178,7 @@ What you get:
 
 All three modes share one saved position per book, plus speed (0.75x to 2.0x), sleep timer, chapter list with durations (tap to jump), and a first-run battery-optimization prompt (Samsung can still kill background apps; the prompt leads to the right settings screen).
 
-## v2: render books on the tablet (Player 2.0.0, in development)
+## v2: render books on the tablet (Player 2.1.0, shipped)
 
 PC rendering (above) still works and stays the best-quality multi-voice path. v2 adds the on-device path: import an EPUB on the tablet, pick two voices, render overnight, listen with read-along. No PC involved.
 
@@ -237,23 +237,23 @@ Start here, then follow the map:
 - `docs/05-ScribeDesign.md` - Scribe commands, pipeline, cast.yaml
 - `docs/06-PlayerDesign.md` - Player screens, service, reader, storage
 - `docs/08-Licenses.md` - licenses and per-voice table (Player deps verified; Scribe rows partly unverified; UI extra verified with versions)
-- `docs/DECISIONS.md` - D-001 through D-129 current (v2 engine, license and release decisions at the tail)
-- `docs/09-V2Roadmap.md` - v2 plan (on-device voices); v1 loose ends listed in its section 0. Slices 9-11 complete on device; Slice 12 (v2.0 complete pass) in progress.
+- `docs/DECISIONS.md` - D-001 through D-140 current (v2 engine, license, release, streaming and audit decisions at the tail)
+- `docs/09-V2Roadmap.md` - v2 plan (on-device voices); v1 loose ends listed in its section 0. Slices 9-13 complete on device; Player `2.1.0` tagged.
 - `docs/07-TestPlan.md` - v2 test plan (suites, device rounds, release gate); the v1 plan is frozen at `docs/archive/v1/07-Testplan.md`
 - `docs/ReleaseSigning.md` - v2 signing, per-flavor builds, release smoke checklist plus the VC3 over-install procedure (both device-run)
 - `docs/constants.md` - on-device render tuning constants with sources (mostly provisional until device numbers land)
 - `docs/fingerprint.md` - render fingerprint rules; `docs/ingestion-rules.md` - on-device text oracle
-- `docs/test-log.md` - v2 automated and device evidence; `docs/plans/` - Slice 7-12 work plans
+- `docs/test-log.md` - v2 automated and device evidence; `docs/plans/` - Slice 7-13 work plans
 - `docs/archive/v1/` - frozen v1 records: test plan (`07-Testplan.md`), device/test/soak logs, Slice 3 and browser runbooks, signing procedure, Web UI spec, all slice plans in `plans/`
 - `spec/fixtures/pdf-golden/README.md` - the v1.1 contract fixture and its pinned sentences
 - `scribe/dev/make_pdf_golden.py` - generator header for that fixture
 
 ## Roadmap
 
-- **v1 (this release):** PC-rendered MP3 audiobooks plus read-along player (EPUB and PDF clean text with page-level marks), English. Release APK `1.0.0` built; soak test pending.
+- **v1:** PC-rendered MP3 audiobooks plus read-along player (EPUB and PDF clean text with page-level marks), English. Release APK `1.0.0` built, tagged, and soak-passed 2026-10-05.
 - **v1.1 backlog:** PDF Page view (`PdfRenderer`, one page at a time) as a Text/Page reader option, LLM speaker attribution, real EPUB rendering, Wi-Fi transfer, bookmarks, themes, auto-drafted cast.
-- **v2 (in development on `dev/v2`, Player `2.0.0`):** text-to-speech on the device itself: System TTS plus Piper in the `full` flavor, two voices (narrator + dialogue), background rendering with read-along on device timings. PC rendering stays the multi-voice path. License decided and implemented (D-126 option A: `core` Apache-2.0, `full` GPL-3.0); release pending the Slice 12 soak.
-- **v3:** support later Android versions.
+- **v2 (`2.0.0`, then `2.1.0`):** text-to-speech on the device itself: System TTS plus Piper in the `full` flavor, two voices (narrator + dialogue), background rendering with read-along on device timings, plus live streaming of unrendered chapters (accepted gate, D-138). PC rendering stays the multi-voice path. License decided and implemented (D-126 option A: `core` Apache-2.0, `full` GPL-3.0). Both releases tagged and device-verified.
+- **v3:** Scribe desktop port (D-133): Rust with a Tauri v2 app for Windows 11 and Linux. The Python Scribe stays canonical until parity.
 
 ## Limitations
 

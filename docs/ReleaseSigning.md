@@ -116,3 +116,5 @@ device verdict ("good and complete"), not from JVM results.
 - [ ] Fallback if anything is lost: N/A (nothing lost per the verdict).
   If it ever applies: re-import (books are plain bundles
   on storage); report the failure with `adb logcat -s Auloud:V` output
+
+Repeat the same steps for `2.0.0`-to-`2.1.0` upgrades (same key, no uninstall); that round is still open.

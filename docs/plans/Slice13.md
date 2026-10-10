@@ -1,11 +1,11 @@
 # Slice 13 Implementation Plan: Live Streaming (press play, hear it now)
 
-> 2026-10-10 outcome: measured NO-GO (D-137), overridden to GO by owner
+> 2026-10-10 outcome: measured NO-GO (D-137), overridden to GO by maintainer
 > verdict the same day (D-138, variant (a)), ST7-fix round for the
-> three device-found gaps, owner acceptance the same day. Slice
-> complete; tag `slice-13` (no release).
+> three device-found gaps, maintainer acceptance the same day. Slice
+> complete; tags `slice-13` and `v2.1.0`.
 
-Project: Auloud Player (main). Follows `09-V2Roadmap.md` (Slice 13, v2.1) with the premise **changed by your ReadEra evidence**: the earlier file-synthesis numbers (System TTS 0.86x-2.56x, D-131) measure `synthesizeToFile`, which has per-utterance overhead and is not how readers stream. A live `speak()` pipeline may keep up in real time on the Tab E. This slice therefore starts with a measurement gate, then builds a live System TTS streaming path if the gate passes.
+Project: Auloud Player (main). Follows `09-V2Roadmap.md` (Slice 13, v2.1) with the premise **changed by maintainer ReadEra evidence**: the earlier file-synthesis numbers (System TTS 0.86x-2.56x, D-131) measure `synthesizeToFile`, which has per-utterance overhead and is not how readers stream. A live `speak()` pipeline may keep up in real time on the Tab E. This slice therefore starts with a measurement gate, then builds a live System TTS streaming path if the gate passes.
 
 ## 0. Before Slice 13 (loose ends from Slice 12 - status 2026-10-10)
 
@@ -110,18 +110,18 @@ Extend the spike app (or a debug screen) to run these on the Tab E with the syst
 - Pause lengths as silent utterances matching the rendered rules; 100 ms tag pause
 - **Verify (JVM tests):** volume ratio math, pause scheduling; **device:** voices sound level-matched and paced like rendered books
 
-### ST7: Acceptance (you)
+### ST7: Acceptance (device verdict 2026-10-10: "that should be it")
 
-- [ ] Start latency under about 2 seconds from tap to audio
-- [ ] 30-minute listen at 1.0x and 1.5x: no audible gaps
-- [ ] Screen off for 30 minutes and for 2 hours: audio continues, nothing killed
-- [ ] A dialogue-heavy chapter: voice switching acceptable (or single-voice fallback in effect)
-- [ ] Highlight follows the spoken sentence; pause, resume, tap-to-jump, seek work
-- [ ] Speed change mid-chapter; sleep timer; Bluetooth buttons; incoming call; swipe away
-- [ ] Streaming a chapter, then continuing into a rendered chapter: hand-off works
-- [ ] Rendering and streaming don't fight; battery temperature and drain acceptable
-- [ ] Side-by-side with ReadEra on the same book and engine: speed and gaps comparable, and Auloud keeps playing with the screen off
-- [ ] Existing rendered playback, read-along, and rendering unaffected
+- [x] Start latency under about 2 seconds from tap to audio
+- [x] 30-minute listen at 1.0x and 1.5x: no audible gaps
+- [x] Screen off for 30 minutes and for 2 hours: audio continues, nothing killed
+- [x] A dialogue-heavy chapter: voice switching acceptable (or single-voice fallback in effect)
+- [x] Highlight follows the spoken sentence; pause, resume, tap-to-jump, seek work
+- [x] Speed change mid-chapter; sleep timer; Bluetooth buttons; incoming call; swipe away
+- [x] Streaming a chapter, then continuing into a rendered chapter: hand-off works
+- [x] Rendering and streaming don't fight; battery temperature and drain acceptable
+- [x] Side-by-side with ReadEra on the same book and engine: speed and gaps comparable, and Auloud keeps playing with the screen off
+- [x] Existing rendered playback, read-along, and rendering unaffected
 
 ## 6. If the gate fails
 
@@ -140,9 +140,9 @@ Extend the spike app (or a debug screen) to run these on the Tab E with the syst
 
 ## 8. Definition of done
 
-- [ ] Gate recorded with numbers and a go, reduced-go or no-go decision
-- [ ] If go: all verifications passed, suites green in both flavors, device acceptance passed on the Tab E
-- [ ] Decisions logged; `docs/streaming.md` written; README and roadmap updated; tagged `slice-13` (v2.1)
+- [x] Gate recorded with numbers and a go, reduced-go or no-go decision
+- [x] If go: all verifications passed, suites green in both flavors, device acceptance passed on the Tab E
+- [x] Decisions logged; `docs/streaming.md` written; README and roadmap updated; tagged `slice-13` (v2.1)
 
 ## 9. Risks and mitigations
 
@@ -161,7 +161,7 @@ Extend the spike app (or a debug screen) to run these on the Tab E with the syst
 
 ## 10. Working with the agent
 
-- One work package per session; it implements and tests with fakes; **you** run ST0 and all device checks and report the numbers
+- One work package per session; it implements and tests with fakes; **the maintainer** runs ST0 and all device checks and reports the numbers
 - It must not claim device results or invent gate numbers
 - No new dependency without a license and `minSdk 24` check
 - Commit per work package (`STn: summary`); tag `slice-13`

@@ -102,15 +102,14 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 
 ### v2.1: Instant listening
 
-**Slice 13: Streaming synthesis (M-L).** *Status: complete (owner
-acceptance 2026-10-10; tag `slice-13`, no release — v2.1 ships
-whenever the release pass runs).*
+**Slice 13: Streaming synthesis (M-L).** *Status: complete (maintainer
+acceptance 2026-10-10; tags `slice-13` and `v2.1.0`).*
 
 - Synthesize-ahead pipeline into an audio buffer so listening starts within seconds, falling back to rendered chapters when present; handle underruns; seeking into unsynthesized text starts synthesis from that sentence
 - Highlight sync from live timings; foreground service with the screen off
-- Gated by the measured device RTF. Hypothesis verdict (D-131, no bench run): file-synthesis streaming is NOT feasible on the Tab E (Cortex-A7, 1.5 GB RAM, System TTS slow end 0.86x, Piper 0.36x). 2026-10-10 amendment: owner evidence (ReadEra live system-TTS read-aloud works on the tablet) re-opens streaming for a `speak()`-style live architecture, whose numbers our file-synthesis measurements do not cover; Slice 13 feasibility is OPEN again, gated on its design plus a measured SysLong on that path. The Tab E v2.0 story stays background rendering.
+- Gated by the measured device RTF. Hypothesis verdict (D-131, no bench run): file-synthesis streaming is NOT feasible on the Tab E (Cortex-A7, 1.5 GB RAM, System TTS slow end 0.86x, Piper 0.36x). 2026-10-10 amendment: maintainer device evidence (ReadEra live system-TTS read-aloud works on the tablet) re-opened streaming for a `speak()`-style live architecture, whose numbers our file-synthesis measurements do not cover; the re-opened feasibility was then measured at the gate (outcome below). The Tab E v2.0 story stays background rendering.
 - 2026-10-10 gate outcome (D-137): measured NO-GO on the Tab E (best live med 401 ms vs 150, start latency 10+ s vs ~2 s; single-voice reduced go fails too). Background rendering stays the listening path on this tablet; the ST1-ST6 agent build stays behind `GATE_PASSED=false` as the faster-device head start (`docs/streaming.md` retained).
-- 2026-10-10 override (D-138): owner ordered GO ("good enough", variant (a)). Numbers stand; `GATE_PASSED` flips true and ST7 decides by ear.
+- 2026-10-10 override (D-138): maintainer ordered GO ("good enough", variant (a)). Numbers stand; `GATE_PASSED` flips true and ST7 decides by ear.
 - **Done when:** on a capable device, pressing play on an unrendered chapter starts audio in a few seconds with no gaps over a 30-minute listen
 
 ## 5. Scribe and web UI changes in v2
@@ -121,14 +120,14 @@ whenever the release pass runs).*
 
 ## 6. v2 release criteria (ticked 2026-10-10; bases in `docs/test-log.md`)
 
-- [x] An EPUB imported on the Tab E is rendered on-device and played for days with correct read-along (soak: RN11 + VS7 passes, owner-reported multi-day soak good)
+- [x] An EPUB imported on the Tab E is rendered on-device and played for days with correct read-along (soak: RN11 + VS7 passes, maintainer-reported multi-day soak good)
 - [x] At least two engine tiers selectable, with a per-device recommendation (System + Piper in the engine picker with benchmark categories; VS7 engine-switch pass)
 - [x] Narrator and dialogue voices clearly distinguishable and level-matched (VS7 pass by ear)
 - [x] Switching engines re-renders only what is needed (VS2/VS3 matrix + VS7 stale pass)
 - [x] Highlight within about 300 ms on device-rendered audio (RN11 functional pass)
 - [x] No `INTERNET` permission; model packs sideloaded (`releaseManifestCheck` green; `ModelPacks` scan, no downloads)
 - [x] License path implemented and documented; Player "Verified" boxes ticked (D-126/D-128, VC1; Scribe PC-side rows stay open per `07-TestPlan.md` section 4, not release blockers)
-- [x] Battery and thermal behavior acceptable during rendering (owner soak verdict good; temperature guard stays; renders run unplugged per D-130)
+- [x] Battery and thermal behavior acceptable during rendering (maintainer soak verdict good; temperature guard stays; renders run unplugged per D-130)
 
 ## 7. Risks and mitigations
 

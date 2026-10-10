@@ -1,8 +1,8 @@
 # Live streaming design (Slice 13, ST1)
 
-> 2026-10-10 status: shipped behind owner-accepted GO (D-138);
+> 2026-10-10 status: shipped behind maintainer-accepted GO (D-138);
 > ST7-fix round landed (autoplay, default-voice fallback, preparing
-> state). Slice complete.
+> state). Slice complete, tagged `slice-13` and `v2.1.0`.
 
 Press play on an **unrendered** chapter and hear the system voice within a
 second or two, with the sentence highlight following, screen off, two
@@ -10,7 +10,8 @@ voices, speed and sleep timer, no rendering wait. Rendering stays the
 saved-audio path; streaming is the "listen now" path. Plan:
 `docs/plans/Slice13.md`. Premise (D-131 amendment): only a live `speak()`
 path can reopen streaming on the Tab E; file-synthesis numbers do not
-apply, so every claim below waits on the ST0 gate numbers.
+apply, so the claims below were verified against the ST0/ST7 device
+numbers in `docs/plans/Slice13.md`.
 
 ## 1. Layers
 
@@ -171,7 +172,7 @@ usable offline system voice present), else "Render first" as today.
   the missing voice, not a crash.
 - Single-voice fallback in effect: the book still streams; the voice
   screen says so (two voices stay available in rendered audio).
-- No-go gate outcome: no stream code ships; the slice ends after ST0
+- No-go gate outcome (superseded by the D-138 GO above): no stream code ships; the slice ends after ST0
   plus this note (plan section 6).
 
 ## 12. API 24 notes

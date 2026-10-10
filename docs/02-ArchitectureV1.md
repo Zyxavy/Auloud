@@ -1,10 +1,12 @@
 # Architecture v1 (SLC):
 
+> v1 record: the tablet here is a pure player. v2 adds on-device synthesis; see `06-PlayerDesign.md` and `09-V2Roadmap.md` for the current design.
+
 Target: Samsung Galaxy Tab E (SM-T560NU), Android 7.1.1, English only.
 
 ## 1. Constraint that shapes everything
 
-The Tab E is a low-end 2015 tablet (as far as I know: roughly 1.5 GB RAM, a \~1.3 GHz quad-core, 8 GB storage with a microSD slot; please verify on your unit). Neural TTS such as Kokoro will very likely not run in real time on it, and Android 7.1.1 limits which newer APIs and libraries we can use.
+The Tab E is a low-end 2015 tablet (unverified: roughly 1.5 GB RAM, a ~1.3 GHz quad-core, 8 GB storage with a microSD slot). Neural TTS such as Kokoro will very likely not run in real time on it, and Android 7.1.1 limits which newer APIs and libraries we can use.
 
 **Decision: v1 does all the AI work on a PC (or server) and the tablet is a light player.** The PC renders a multi-voice MP3 audiobook plus a sync map. The app stores the original EPUB/PDF next to the audiobook, so you can read, listen, or do both together.
 
