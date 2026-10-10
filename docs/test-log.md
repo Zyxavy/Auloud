@@ -625,3 +625,8 @@ retained design. Slice 13 ends here per plan section 6.
 enough", variant (a)). Numbers above stand unchanged; verdict and
 `GATE_PASSED` flip, `slice-13` re-tags, #19 reopens to ST7. ST7 by ear
 is the next verdict.
+
+Gate-flip verification (agent, 2026-10-10, commit 416b65e tree):
+core suite 1417 green + `lintCoreDebug` green; full suite 1425 green
++ `lintFullDebug` green. Both flavors build (`app-core-debug.apk`
+14.8 MB, gate-passed, for the ST7 round).
