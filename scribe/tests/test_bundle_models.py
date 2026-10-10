@@ -105,11 +105,26 @@ def test_manifest_unknown_keys_ignored() -> None:
 
 
 def test_manifest_missing_required_raises_naming_field() -> None:
-    for key in ("spec_version", "id", "title", "type", "audio", "chapters"):
+    # Spec v2.0 (IN1): `audio` is conditional, so the shape layer accepts
+    # it missing (the validator requires it for 1.x and rendered 2.0).
+    for key in ("spec_version", "id", "title", "type", "chapters"):
         data = _full_manifest_dict()
         del data[key]
         with pytest.raises(BundleError, match=key):
             Manifest.from_dict(data)
+
+
+def test_manifest_audio_and_render_state_optional_shape() -> None:
+    """Missing `audio`/`render_state` parse as None (validators decide)."""
+    data = _full_manifest_dict()
+    del data["audio"]
+    manifest = Manifest.from_dict(data)
+    assert manifest.audio is None
+    assert manifest.render_state is None
+    assert Manifest.from_dict(manifest.to_dict()) == manifest
+    data2 = _full_manifest_dict()
+    data2["render_state"] = "none"
+    assert Manifest.from_dict(data2).render_state == "none"
 
 
 def test_manifest_wrong_type_raises() -> None:
@@ -237,6 +252,32 @@ def test_sentence_page_absent_not_null_epub() -> None:
     assert Sentence.from_dict(pdf_sent.to_dict()) == pdf_sent
 
 
-def test_chapter_entry_requires_all_fields() -> None:
-    with pytest.raises(BundleError, match="duration_ms"):
-        ChapterEntry.from_dict({"index": 1, "title": "T", "audio": "a", "text": "t"})
+def test_chapter_entry_requires_text_title_index() -> None:
+    """`text` (plus index/title) is always required; audio/duration are
+    conditional in 2.0 (absent parses as None, the validator decides)."""
+    with pytest.raises(BundleError, match="text"):
+        ChapterEntry.from_dict({"index": 1, "title": "T", "audio": "a", "duration_ms": 5})
+    unrendered = ChapterEntry.from_dict({"index": 1, "title": "T", "text": "t"})
+    assert unrendered.audio is None and unrendered.duration_ms is None
+    assert "audio" not in unrendered.to_dict()
+    assert "duration_ms" not in unrendered.to_dict()
+    assert ChapterEntry.from_dict(unrendered.to_dict()) == unrendered
+
+
+def test_sentence_timings_optional_shape() -> None:
+    """Unrendered sentences omit start/end (None); rendered keep them."""
+    bare = Sentence.from_dict({"sid": 1, "speaker": "narrator", "text": "Hi."})
+    assert bare.start_ms is None and bare.end_ms is None
+    assert "start_ms" not in bare.to_dict()
+    assert Sentence.from_dict(bare.to_dict()) == bare
+    timed = Sentence.from_dict(
+        {"sid": 1, "speaker": "narrator", "start_ms": 0, "end_ms": 100, "text": "Hi."}
+    )
+    assert (timed.start_ms, timed.end_ms) == (0, 100)
+
+
+def test_chapter_duration_optional_shape() -> None:
+    """Unrendered chapters omit duration_ms (None); rendered keep it."""
+    base = {"spec_version": "2.0", "chapter": 1, "title": "T", "blocks": []}
+    assert ChapterFile.from_dict(dict(base)).duration_ms is None
+    assert "duration_ms" not in ChapterFile.from_dict(dict(base)).to_dict()

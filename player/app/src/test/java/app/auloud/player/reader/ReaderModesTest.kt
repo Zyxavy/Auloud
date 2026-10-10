@@ -46,4 +46,18 @@ class ReaderModesTest {
         assertFalse(isFinishedBook(base.copy(durationMs = 0L)))
         assertFalse(isFinishedBook(PlaybackState()))
     }
+
+    @Test
+    fun listenAvailable_onlyRenderedBooks() {
+        assertTrue(isListenAvailable(null))
+        assertTrue(isListenAvailable("complete"))
+        assertFalse(isListenAvailable("none"))
+        assertFalse(isListenAvailable("partial"))
+        assertFalse(isListenAvailable("half"))
+    }
+
+    @Test
+    fun listenHint_namesRenderAudio() {
+        assertEquals("render audio to listen", LISTEN_UNAVAILABLE_HINT)
+    }
 }

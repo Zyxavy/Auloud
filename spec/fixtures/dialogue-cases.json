@@ -1,0 +1,505 @@
+{
+  "cases": [
+    {
+      "expected": [
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "\"We should leave,\""
+        },
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": " she said."
+        }
+      ],
+      "id": "mixed-straight",
+      "input": [
+        "\"We should leave,\" she said."
+      ],
+      "notes": "Straight double quotes, mixed sentence: splits at the quote boundary into one dialogue run plus its narration tag.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "“I am tired. Let us rest.”"
+        },
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": " Then they slept."
+        }
+      ],
+      "id": "mixed-curly-multisentence",
+      "input": [
+        "“I am tired. Let us rest.” Then they slept."
+      ],
+      "notes": "Curly double quotes holding several sentences stay one dialogue run; the trailing narration is a second run.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "“I knew it,”"
+        },
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": " he muttered, "
+        },
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "“listen well!”"
+        }
+      ],
+      "id": "two-quotes-open-order",
+      "input": [
+        "“I knew it,” he muttered, “listen well!”"
+      ],
+      "notes": "Two quotes in one paragraph number in open order: dialogue, narration tag, dialogue.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "'Hello there.'"
+        },
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": " He left."
+        }
+      ],
+      "id": "singles-no-doubles",
+      "input": [
+        "'Hello there.' He left."
+      ],
+      "notes": "Single quotes form dialogue only when the paragraph has no double-quote characters at all.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": "He said "
+        },
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "\"hi 'there' loudly.\""
+        },
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": " He nodded."
+        }
+      ],
+      "id": "nested-singles-in-doubles",
+      "input": [
+        "He said \"hi 'there' loudly.\" He nodded."
+      ],
+      "notes": "In double-quote mode, single quotes are nested emphasis belonging to the outer quote: one dialogue region, narration on both sides.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": "He thought of Jack’s tale, "
+        },
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "“brave boy,”"
+        },
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": " and smiled."
+        }
+      ],
+      "id": "apostrophe-in-double-mode",
+      "input": [
+        "He thought of Jack’s tale, “brave boy,” and smiled."
+      ],
+      "notes": "A curly apostrophe inside a double-quote paragraph never opens a quote; only the curly double pair counts.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": "The man’s hat is here. She left."
+        }
+      ],
+      "id": "curly-apostrophes",
+      "input": [
+        "The man’s hat is here. She left."
+      ],
+      "notes": "Curly apostrophes with word characters on both sides are never quote boundaries: no quotes, one narration run.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": "The man's hat is here. She left."
+        }
+      ],
+      "id": "straight-apostrophes",
+      "input": [
+        "The man's hat is here. She left."
+      ],
+      "notes": "Straight apostrophes with word characters on both sides are never quote boundaries: no quotes, one narration run.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "'One. Two. Three. Four. Five.'"
+        },
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": " They all left."
+        }
+      ],
+      "id": "multisentence-singles-one-quote",
+      "input": [
+        "'One. Two. Three. Four. Five.' They all left."
+      ],
+      "notes": "A single-quoted region spanning many sentences stays one quote: several dialogue sentences merge into one run.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "“I thought so! That’s the worst of all! Why, a stupid thing like this might spoil the whole plan. Yes, my hat is too noticeable. It looks absurd.”"
+        },
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": " He sighed."
+        }
+      ],
+      "id": "multisentence-doubles-one-quote",
+      "input": [
+        "“I thought so! That’s the worst of all! Why, a stupid thing like this might spoil the whole plan. Yes, my hat is too noticeable. It looks absurd.” He sighed."
+      ],
+      "notes": "A curly double-quoted region spanning five sentences stays one quote (gold block 11 shape); every sentence shares the run.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "\"Hello.\""
+        },
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": "  Double  spaced.  She left."
+        }
+      ],
+      "id": "mixed-spacing-roundtrip",
+      "input": [
+        "\"Hello.\"  Double  spaced.  She left."
+      ],
+      "notes": "Mixed sentence with double spaces: runs keep stored spacing, so concatenation reproduces the paragraph byte-exactly.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": "  Leading space "
+        },
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "“quoted words.”"
+        },
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": "  Trailing.  "
+        }
+      ],
+      "id": "leading-trailing-space-roundtrip",
+      "input": [
+        "  Leading space “quoted words.”  Trailing.  "
+      ],
+      "notes": "Leading and trailing padding plus double inner gaps survive the split: whitespace-only edges attach, never lost.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": "Tabs\tinside quotes "
+        },
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "\"hi there.\""
+        },
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": " New\nlines. Mixed   spacing."
+        }
+      ],
+      "id": "spacing-tabs-newlines",
+      "input": [
+        "Tabs\tinside quotes \"hi there.\" New\nlines. Mixed   spacing."
+      ],
+      "notes": "Tabs and newlines are spacing like any other: the split keeps them stored, concatenation round-trips.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": "He bought a 5\" nail. It hurt."
+        }
+      ],
+      "id": "inch-mark-stray",
+      "input": [
+        "He bought a 5\" nail. It hurt."
+      ],
+      "notes": "Unbalanced: a straight quote after a digit is an inch mark, never a boundary. Logged and treated as narration.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "\"Hi. Bye.\""
+        },
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": " She waved. He bought a 5\" nail. It hurt."
+        }
+      ],
+      "id": "intact-pair-with-stray",
+      "input": [
+        "\"Hi. Bye.\" She waved. He bought a 5\" nail. It hurt."
+      ],
+      "notes": "Unbalanced with an intact pair: the real quote is still honored, only the stray inch mark is logged.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": "He had counted them once when he had been lost in dreams. He had come to regard this “hideous” dream as an exploit. He was going now for a “rehearsal” of his project, and at every step his excitement grew."
+        }
+      ],
+      "id": "scare-quotes-block12",
+      "input": [
+        "He had counted them once when he had been lost in dreams. He had come to regard this “hideous” dream as an exploit. He was going now for a “rehearsal” of his project, and at every step his excitement grew."
+      ],
+      "notes": "Scare-quote rule (gold block 12 shape): short closed fragments with no terminal punctuation and no trailing comma are emphasis, not dialogue. Zero quotes.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "“I want to attempt a thing like that,”"
+        },
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": " he thought. "
+        },
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "“Hm, yes, indeed.”"
+        }
+      ],
+      "id": "gold-block-8",
+      "input": [
+        "“I want to attempt a thing like that,” he thought. “Hm, yes, indeed.”"
+      ],
+      "notes": "Gold shape block 8: two dialogue quotes around one narration tag.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": "He shouted as he drove past: "
+        },
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "“Hey there, German hatter”"
+        },
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": " loudly."
+        }
+      ],
+      "id": "gold-block-10",
+      "input": [
+        "He shouted as he drove past: “Hey there, German hatter” loudly."
+      ],
+      "notes": "Gold shape block 10: a four-word quoted fragment is real dialogue (over the two-word scare limit), with narration on both sides.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "“I knew it,”"
+        },
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": " he muttered. "
+        },
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "“I thought so! Ruin!”"
+        }
+      ],
+      "id": "gold-block-11",
+      "input": [
+        "“I knew it,” he muttered. “I thought so! Ruin!”"
+      ],
+      "notes": "Gold shape block 11: short quote, tag sentence, then a multi-sentence quote as the second region.",
+      "scope": "paragraphs"
+    },
+    {
+      "expected": [
+        {
+          "kind": "dialogue",
+          "paragraph": 0,
+          "text": "“We march on through the night with heavy hearts."
+        },
+        {
+          "kind": "dialogue",
+          "paragraph": 1,
+          "text": "“and on until the morning comes.”"
+        },
+        {
+          "kind": "narration",
+          "paragraph": 1,
+          "text": " He sighed."
+        }
+      ],
+      "id": "multiparagraph-continuation",
+      "input": [
+        "“We march on through the night with heavy hearts.",
+        "“and on until the morning comes.” He sighed."
+      ],
+      "notes": "Multi-paragraph quote: the first paragraph ends open, the next starts with an opener consumed as a continuation marker (kept in the text). Both paragraphs read as dialogue, the second flagged continued in Scribe.",
+      "scope": "chapter"
+    },
+    {
+      "expected": [
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": "\"Unclosed quote here. It keeps going."
+        }
+      ],
+      "id": "unclosed-single-paragraph",
+      "input": [
+        "\"Unclosed quote here. It keeps going."
+      ],
+      "notes": "Unbalanced at chapter end: a single paragraph that opens but never closes flips to narration with a logged warning.",
+      "scope": "chapter"
+    },
+    {
+      "expected": [
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": "“We march on through the night."
+        },
+        {
+          "kind": "narration",
+          "paragraph": 1,
+          "text": "“and on, never stopping."
+        }
+      ],
+      "id": "unclosed-multiparagraph-chain",
+      "input": [
+        "“We march on through the night.",
+        "“and on, never stopping."
+      ],
+      "notes": "Unbalanced chain: two paragraphs linked by continuation with no closing quote anywhere flip wholly to narration at chapter end.",
+      "scope": "chapter"
+    },
+    {
+      "expected": [
+        {
+          "kind": "narration",
+          "paragraph": 0,
+          "text": "On a hot evening a young man came out of his garret. He hesitated."
+        },
+        {
+          "kind": "dialogue",
+          "paragraph": 1,
+          "text": "“I want to attempt a thing like that,”"
+        },
+        {
+          "kind": "narration",
+          "paragraph": 1,
+          "text": " he thought. "
+        },
+        {
+          "kind": "dialogue",
+          "paragraph": 1,
+          "text": "“Hm, yes.”"
+        },
+        {
+          "kind": "narration",
+          "paragraph": 2,
+          "text": "The heat in the street was terrible. He walked on."
+        }
+      ],
+      "id": "chapter-round-trip",
+      "input": [
+        "On a hot evening a young man came out of his garret. He hesitated.",
+        "“I want to attempt a thing like that,” he thought. “Hm, yes.”",
+        "The heat in the street was terrible. He walked on."
+      ],
+      "notes": "Plain narration around a mixed mid paragraph: every block concatenates back to its input exactly (Player spacing rule).",
+      "scope": "chapter"
+    }
+  ],
+  "conventions": "Feed input paragraphs in order with quote-state carry: a paragraph ending mid-quote continues into the next paragraph, and a leading opener on a continued paragraph is a continuation marker that stays in the text. Quote numbers restart at 1 per paragraph. Within one paragraph, merge adjacent same-kind sentences into runs by plain concatenation (spacing is stored, so concatenation is exact). The run texts of a paragraph concatenate to the input paragraph exactly. Scope 'paragraphs' stops there. Scope 'chapter' additionally applies the chapter-end rule: a trailing unclosed quote chain flips to narration (see docs/ingestion-rules.md sections 9.5 and 9.10).",
+  "version": 1
+}

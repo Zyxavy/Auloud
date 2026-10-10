@@ -86,6 +86,49 @@ class ProgressRepositoryTest {
         assertTrue(result.exceptionOrNull() is DataError.Local)
     }
 
+    @Test
+    fun save_withSid_load_roundTripsSid() = runBlocking {
+        repo.save("book-9", 1, 0L, sentenceSid = 3).getOrThrow()
+
+        val loaded = repo.load("book-9").getOrThrow()
+
+        assertEquals("book-9", loaded?.bookId)
+        assertEquals(1, loaded?.chapterIndex)
+        assertEquals(0L, loaded?.positionMs)
+        assertEquals(3, loaded?.sentenceSid)
+    }
+
+    @Test
+    fun save_withoutSid_clearsPreviousSid() = runBlocking {
+        repo.save("book-9", 1, 0L, sentenceSid = 3).getOrThrow()
+        repo.save("book-9", 1, 61_000L).getOrThrow()
+
+        val loaded = repo.load("book-9").getOrThrow()
+
+        assertEquals(61_000L, loaded?.positionMs)
+        assertNull(loaded?.sentenceSid)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun save_zeroSid_throws() {
+        runBlocking { repo.save("book-9", 0, 0L, sentenceSid = 0) }
+    }
+
+    @Test
+    fun delete_removesSavedPosition() = runBlocking {        repo.save("book-1", 2, 61_000L).getOrThrow()
+
+        repo.delete("book-1").getOrThrow()
+
+        assertNull(repo.load("book-1").getOrThrow())
+    }
+
+    @Test
+    fun delete_unknownBook_stillSucceeds() = runBlocking {
+        repo.delete("never-saved").getOrThrow()
+
+        assertNull(repo.load("never-saved").getOrThrow())
+    }
+
     /** In-memory [ProgressDao] with an injectable failure for the error-boundary test. */
     private class FakeProgressDao : ProgressDao {
         private val rows = mutableMapOf<String, ProgressEntity>()
@@ -99,6 +142,11 @@ class ProgressRepositoryTest {
         override suspend fun upsert(progress: ProgressEntity) {
             if (fail) throw IOException("fake db failure")
             rows[progress.bookId] = progress
+        }
+
+        override suspend fun deleteById(bookId: String) {
+            if (fail) throw IOException("fake db failure")
+            rows.remove(bookId)
         }
     }
 }

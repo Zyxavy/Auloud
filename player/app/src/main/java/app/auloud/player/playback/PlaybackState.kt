@@ -27,6 +27,8 @@ data class PlaybackState(
     val lastSaveWallMs: Long = 0L,
     /** RA8: sleep timer remaining ms (null = off). Copied from the service snapshot. */
     val sleepRemainingMs: Long? = null,
+    /** ST5: live voice sentence sid (null when no stream is speaking). */
+    val streamSid: Int? = null,
     /**
      * CP4: transient skip/storage notice ("Skipped ..." or
      * "Storage unavailable - playback paused"). Null when nothing is

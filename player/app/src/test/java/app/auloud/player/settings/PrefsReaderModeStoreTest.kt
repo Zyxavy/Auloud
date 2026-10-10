@@ -74,4 +74,14 @@ class PrefsReaderModeStoreTest {
         prefs.edit().putString(PrefsReaderModeStore.KEY_FONT_SIZE, "Huge").apply()
         assertEquals(ReaderFontSize.Medium, PrefsReaderModeStore(prefs).fontSize())
     }
+
+    @Test
+    fun dialogueMarking_defaultsOnAndRoundTrips() {
+        val store = PrefsReaderModeStore(FakeSharedPreferences())
+        assertTrue(store.dialogueMarking())
+        store.setDialogueMarking(false)
+        assertFalse(store.dialogueMarking())
+        store.setDialogueMarking(true)
+        assertTrue(store.dialogueMarking())
+    }
 }

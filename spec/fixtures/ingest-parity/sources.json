@@ -1,0 +1,61 @@
+{
+  "generator": "scribe export-ingest-fixtures",
+  "sources": [
+    {
+      "file": "source/book.epub",
+      "fixture": "epub2-minimal",
+      "parity": "epub2-minimal.json",
+      "sha256": "df060df13672b412fb6a024c4210e055d8f390176fb944c8ce7a1b8ec415e7ce",
+      "status": "covered"
+    },
+    {
+      "file": "source/book.epub",
+      "fixture": "multivoice-golden",
+      "parity": "multivoice-golden.json",
+      "sha256": "baf814774fc22513b51f0405e7bf45a55f0de06b2682b44fff5fb44b07f9890e",
+      "status": "covered"
+    },
+    {
+      "file": "source/book.epub",
+      "fixture": "partial-aac-golden",
+      "reason": "EpubException: 'Bad Zip file'",
+      "sha256": "2816e299766e09458adc0a9eaf275907aba8bb2736690d67dafa7cc7a533532a",
+      "status": "skipped"
+    },
+    {
+      "file": "source/book.epub",
+      "fixture": "partial-golden",
+      "parity": "partial-golden.json",
+      "sha256": "0fd32580acd2212933dd2889b3c11071b8792ecc03730180d8021be63729d7a9",
+      "status": "covered"
+    },
+    {
+      "file": "source/book.epub",
+      "fixture": "rendered-aac-golden",
+      "reason": "EpubException: 'Bad Zip file'",
+      "sha256": "db21167c0c3aef5ce629947c922b440940c819c9dc726eb2e251efba13885cc6",
+      "status": "skipped"
+    },
+    {
+      "file": "source/book.epub",
+      "fixture": "scribe-golden",
+      "parity": "scribe-golden.json",
+      "sha256": "a5963254577b9f582983a7c86bc1d8a9bc421389dcef841f4fc399260159d88b",
+      "status": "covered"
+    },
+    {
+      "file": "source/book.epub",
+      "fixture": "unrendered-golden",
+      "reason": "EpubException: 'Bad Zip file'",
+      "sha256": "9fdc3abf2e08eb43834276e67c2d304758acbd15f051e94b960b5d3ddfce13f1",
+      "status": "skipped"
+    },
+    {
+      "file": "source/book.pdf",
+      "fixture": "pdf-golden",
+      "reason": "Slice 9 ingestion is EPUB-only; PDF stays on Scribe",
+      "sha256": "ee1262f8418f44d79dcabc04e8842aa52822e3cbddfb94559943a2acf0a79c3a",
+      "status": "out-of-scope"
+    }
+  ]
+}

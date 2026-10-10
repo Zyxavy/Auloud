@@ -1,0 +1,33 @@
+Auloud Player (full flavor)
+===========================
+
+Copyright (c) 2026 Zyxavy.
+
+[Owner-confirmed 2026-10-10: the GPL-3.0 paragraphs below and the
+filled SOURCE_OFFER.txt may ship.]
+
+This full build is a GPL-3.0 combined work (D-126 option A): Apache-2.0
+app code (see player/LICENSE) plus the bundled sherpa-onnx 1.13.8
+speech runtime (Apache-2.0 POM) whose native libraries include
+statically linked espeak-ng (GPL-3.0-or-later), plus the bundled
+onnxruntime native library (MIT, inside the sherpa AAR).
+
+You may redistribute and modify this full build under the terms of the
+GNU General Public License version 3 (or, at your option, any later
+version). The license text ships inside this build
+(assets/gpl-3.0.txt) and lives in the repo at
+player/app/src/full/assets/gpl-3.0.txt.
+
+Corresponding Source: see the written offer inside this build
+(assets/SOURCE_OFFER.txt), valid for at least three years from the
+date you received the APK. Build instructions pin the exact
+sherpa-onnx 1.13.8 JitPack AAR (see the offer and
+docs/08-Licenses.md section 5).
+
+The core flavor (player/NOTICE) stays Apache-2.0 and ships no GPL code.
+The Scribe-side voice items (Kokoro-82M, PC espeak-ng 1.52.0,
+en_core_web_sm) run on the PC and are not bundled here, except the
+static espeak-ng inside this flavor's speech runtime. Piper voice packs
+are files you copy yourself; each pack has its own license.
+
+This is not legal advice.

@@ -28,6 +28,12 @@ data class ControllerSnapshot(
     /** RA8: sleep timer remaining ms (null = off). Copied, never computed, here. */
     val sleepRemainingMs: Long? = null,
     /**
+     * ST5: live voice sentence sid (null when no stream is speaking).
+     * Copied from [StreamSidMonitor], never computed, here. Positions
+     * stay millisecond-based; the holder never clamps this to duration.
+     */
+    val streamSid: Int? = null,
+    /**
      * CP4: fresh skip/storage notice from [SkipNoticeMonitor.consume].
      * Null means "no new notice" (the holder retains the displayed one
      * until the UI dismisses it); non-null replaces it.
@@ -58,6 +64,7 @@ fun ControllerSnapshot.toPlaybackState(): PlaybackState {
         isConnected = isConnected,
         lastSaveWallMs = lastSaveWallMs.coerceAtLeast(0L),
         sleepRemainingMs = sleepRemainingMs?.coerceAtLeast(0L),
+        streamSid = streamSid?.takeIf { it >= 1 },
         skipNotice = skipNotice
     )
 }
@@ -159,6 +166,7 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
         val bookTitle = snapshot.bookTitle?.takeIf { it.isNotBlank() } ?: ""
         val lastSave = snapshot.lastSaveWallMs.coerceAtLeast(0L)
         val sleepRemaining = snapshot.sleepRemainingMs?.coerceAtLeast(0L)
+        val streamSid = snapshot.streamSid?.takeIf { it >= 1 }
         // CP4: null in a snapshot means "no new notice", never "clear".
         // The displayed notice survives idle ticks until the UI dismisses
         // it via clearSkipNotice() (tap or ~6 s timeout).
@@ -173,6 +181,7 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
             snapshot.isConnected == cur.isConnected &&
             lastSave == cur.lastSaveWallMs &&
             sleepRemaining == cur.sleepRemainingMs &&
+            streamSid == cur.streamSid &&
             notice == cur.skipNotice
         ) {
             return
@@ -188,6 +197,7 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
             isConnected = snapshot.isConnected,
             lastSaveWallMs = lastSave,
             sleepRemainingMs = sleepRemaining,
+            streamSid = streamSid,
             skipNotice = notice
         )
     }

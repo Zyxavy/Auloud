@@ -68,4 +68,4 @@ scare quotes on narration, not spoken dialogue.
 
 Real-text accuracy on this set (`--predictor mv4-real`, strict): 99/107
 = 92.5%; all 8 gaps are unknown-speaker convention lines, zero
-wrong-person errors. Full table in `docs/test-log.md` (CP1 entry).
+wrong-person errors. Full table in `docs/archive/v1/test-log.md` (CP1 entry).

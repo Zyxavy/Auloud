@@ -1,4 +1,4 @@
-# Auloud Scribe — turns ebooks into multi-voice audiobooks (PC tool).
+# Auloud Scribe - turns ebooks into multi-voice audiobooks (PC tool).
 # Copyright (C) 2026 Zyxavy
 #
 # This program is free software: you can redistribute it and/or modify
@@ -85,6 +85,13 @@ MODELS_HELP = (
 PYMUPDF_HELP = (
     "PyMuPDF is a pinned dependency (PDF text extraction): run `uv sync` "
     "in scribe/, then re-run `scribe doctor`."
+)
+
+PIPER_HELP = (
+    "Piper is the optional second TTS engine (Slice 8 SW1): run `uv sync` "
+    "in scribe/, then place <voice>.onnx + <voice>.onnx.json pairs in "
+    "<models-dir>/piper/ (e.g. from https://huggingface.co/rhasspy/piper-voices). "
+    "`doctor` never downloads anything."
 )
 
 UI_EXTRA_HINT = (
@@ -251,6 +258,38 @@ def check_models(models_dir: Path) -> CheckResult:
     )
 
 
+def check_piper_models(models_dir: Path) -> CheckResult:
+    """Check Piper voices exist under ``models_dir/piper`` (SW1, optional).
+
+    Piper is the second engine, so absence is INFO (never FAIL): the Kokoro
+    path is unaffected. A present-but-unreadable runtime is FAIL with the
+    sync hint; a present runtime with no voices is INFO naming the dir.
+    """
+    if importlib.util.find_spec("piper") is None:
+        return CheckResult(
+            name="piper-models",
+            status=FAIL,
+            detail="piper-tts not importable (pinned dependency, SW1)",
+            hint=PIPER_HELP,
+        )
+    from tts.piper import PIPER_DIR_NAME, discover_voices
+
+    voices = discover_voices(models_dir)
+    piper_dir = models_dir / PIPER_DIR_NAME
+    if not voices:
+        return CheckResult(
+            name="piper-models",
+            status=INFO,
+            detail=f"no <voice>.onnx + <voice>.onnx.json pairs in {piper_dir} (optional)",
+            hint=PIPER_HELP,
+        )
+    return CheckResult(
+        name="piper-models",
+        status=PASS,
+        detail=f"{len(voices)} voice(s) in {piper_dir}: {', '.join(sorted(voices))}",
+    )
+
+
 def check_spacy() -> CheckResult:
     """Check spaCy plus the en_core_web_sm model (MV0; MV3 attributes with it).
 
@@ -389,7 +428,7 @@ def check_gpu() -> CheckResult:
             name="gpu",
             status=INFO,
             detail="no NVIDIA GPU detected (nvidia-smi not found); "
-            "CPU-only build works — SW0 measured RTF 1.38 on CPU",
+            "CPU-only build works - SW0 measured RTF 1.38 on CPU",
         )
     line = _run_version([nvidia_smi, "-L"])
     if not line:
@@ -411,6 +450,7 @@ def run_checks(models_dir: Path) -> list[CheckResult]:
         check_espeak_ng(),
         check_engine(),
         check_models(models_dir),
+        check_piper_models(models_dir),
         check_spacy(),
         check_pymupdf(),
         check_ui(),
@@ -651,7 +691,7 @@ def validate(
 
     try:
         result = validate_bundle(bundle)
-    except Exception as exc:  # noqa: BLE001 — validate must never traceback
+    except Exception as exc:  # noqa: BLE001 - validate must never traceback
         typer.echo(f"validate failed: {exc}", err=True)
         raise typer.Exit(code=1)
     if result.ok:
@@ -677,7 +717,7 @@ def voices(
     models_dir: Path = typer.Option(
         Path("models"),
         "--models-dir",
-        help="Directory holding kokoro-v1.0.onnx + voices-v1.0.bin.",
+        help="Kokoro pair dir (piper/ pairs inside it for --engine piper).",
     ),
     speed: float = typer.Option(
         1.0,
@@ -689,22 +729,39 @@ def voices(
         "--voice",
         help="Render only this voice (repeatable for a subset; default all).",
     ),
+    engine: str = typer.Option(
+        "kokoro",
+        "--engine",
+        help="TTS engine to list or sample (kokoro or piper).",
+    ),
 ) -> None:
-    """List Kokoro voices, or audition them all with --sample (MV0)."""
+    """List engine voices, or audition them all with --sample (MV0, SW3)."""
     from build import BuildError, create_engine
     from tts.voices import SAMPLE_TEXT, list_voices, sample_voices
 
     if speed <= 0:
         typer.echo(f"voices failed: --speed must be > 0 (got {speed})", err=True)
         raise typer.Exit(code=1)
+    normalized_engine = str(engine or "").strip().lower()
+    if normalized_engine not in ("kokoro", "piper"):
+        typer.echo(
+            f"voices failed: unknown engine {engine!r} (expected kokoro or piper)",
+            err=True,
+        )
+        raise typer.Exit(code=1)
     try:
-        engine = create_engine(models_dir)
-    except BuildError as exc:
+        if normalized_engine == "piper":
+            from tts.piper import PiperEngine
+
+            tts_engine = PiperEngine(models_dir)
+        else:
+            tts_engine = create_engine(models_dir)
+    except (BuildError, ImportError, FileNotFoundError, OSError, ValueError) as exc:
         typer.echo(f"voices failed: {exc}", err=True)
         raise typer.Exit(code=1)
     wanted = [str(v) for v in (voice or []) if str(v).strip()] or None
     if not sample:
-        names = list_voices(engine)
+        names = list_voices(tts_engine)
         if wanted is not None:
             unknown = [v for v in wanted if v not in names]
             if unknown:
@@ -715,13 +772,90 @@ def voices(
             typer.echo(name)
         return
     try:
-        result = sample_voices(engine, out_dir, text=SAMPLE_TEXT, speed=speed, voices=wanted)
+        result = sample_voices(tts_engine, out_dir, text=SAMPLE_TEXT, speed=speed, voices=wanted)
     except ValueError as exc:
         typer.echo(f"voices failed: {exc}", err=True)
         raise typer.Exit(code=1)
     for name in result.voices:
         typer.echo(name)
     typer.echo(f"wrote {len(result.files)} WAVs to {result.out_dir}")
+
+
+@app.command()
+def export_ingest_fixtures(
+    fixtures_dir: Path | None = typer.Option(
+        None,
+        "--fixtures-dir",
+        help="spec/fixtures dir (default: <repo-root>/spec/fixtures).",
+    ),
+) -> None:
+    """Export shared Slice 9 ingestion test data (dev only, IN2).
+
+    Writes ``spec/fixtures/dialogue-cases.json`` plus
+    ``spec/fixtures/ingest-parity/`` from the real pipeline. Deterministic:
+    re-runs are byte-identical. Library logic lives in ``export_ingest``.
+    """
+    from export_ingest import ExportError, export_all
+
+    try:
+        written = export_all(fixtures_dir)
+    except ExportError as exc:
+        typer.echo(f"export-ingest-fixtures failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    for path in written:
+        typer.echo(f"wrote {path}")
+
+
+@app.command()
+def export_render_fixtures(
+    fixtures_dir: Path | None = typer.Option(
+        None,
+        "--fixtures-dir",
+        help="spec/fixtures dir (default: <repo-root>/spec/fixtures).",
+    ),
+) -> None:
+    """Generate the Slice 10 AAC/partial fixtures (dev only, RN1).
+
+    Writes ``spec/fixtures/rendered-aac-golden/`` plus
+    ``spec/fixtures/partial-aac-golden/`` with ffmpeg sine-tone M4A audio.
+    Deterministic: re-runs are byte-identical (the export encodes twice
+    and refuses on any difference). Library logic lives in
+    ``export_render``.
+    """
+    from export_render import ExportRenderError, export_all
+
+    try:
+        written = export_all(fixtures_dir)
+    except ExportRenderError as exc:
+        typer.echo(f"export-render-fixtures failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    for path in written:
+        typer.echo(f"wrote {path}")
+
+
+@app.command()
+def export_timing_vectors(
+    fixtures_dir: Path | None = typer.Option(
+        None,
+        "--fixtures-dir",
+        help="spec/fixtures dir (default: <repo-root>/spec/fixtures).",
+    ),
+) -> None:
+    """Export shared Slice 10 assembly-timing vectors (dev only, RN2).
+
+    Writes ``spec/fixtures/timing-vectors/`` from the real assembly
+    plus resample code. Deterministic: re-runs are byte-identical.
+    Library logic lives in ``export_timing``.
+    """
+    from export_timing import ExportTimingError, export_all
+
+    try:
+        written = export_all(fixtures_dir)
+    except ExportTimingError as exc:
+        typer.echo(f"export-timing-vectors failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    for path in written:
+        typer.echo(f"wrote {path}")
 
 
 @app.command()

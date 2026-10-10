@@ -24,6 +24,12 @@ app/
     PlaybackService.kt   (MediaSessionService)
     PlaybackController.kt (client wrapper for the UI)
     SleepTimer.kt
+  tts/          (v2 Slice 8, PW5)
+    TtsEngine.kt         (interface + TtsVoice/SynthesizedAudio/TtsRole)
+    TtsCapabilities.kt   (multi-speaker, load cost, sample rate)
+    EngineRegistry.kt    (namespace routing, hand-built, no DI)
+    TtsVoiceStore.kt     (narrator/dialogue voice + speed interface)
+    PrefsTtsStore.kt     (SharedPreferences impl, own keys)
   ui/
     library/    LibraryScreen, LibraryViewModel
     reader/     ReaderScreen, ReaderViewModel, ReaderState, SentenceIndex
@@ -124,6 +130,10 @@ Check that the versions you pick still support `minSdk 24`.
 
 ## 9. Build and release
 
-- Build variants: `debug` (with logging overlay: position, current `sid`, chapter), `release` (minified with keep rules, `versionName 1.0.0`, `versionCode 1`). Preview/debug entries are gated behind `BuildConfig.DEBUG` and absent in release.
+- Build variants: `debug` (with logging overlay: position, current `sid`, chapter), `release` (minified with keep rules, `versionName 2.0.0`, `versionCode 2`, `core` and `full` flavors per D-126/D-128, ARM-only native libs per D-129). Preview/debug entries are gated behind `BuildConfig.DEBUG` and absent in release.
 - Sideload the APK first; publish to F-Droid or GitHub releases when open-sourcing (see licenses doc, later).
-- Permissions: `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE` (shared-internal `/Auloud` default), `FOREGROUND_SERVICE` (declared, harmless on API 24), `WAKE_LOCK`. No internet permission in v1 (merged release manifest and `aapt dump badging` both confirm no `INTERNET`).
+- Permissions: `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE` (shared-internal `/Auloud` default), `FOREGROUND_SERVICE` (declared, harmless on API 24), `WAKE_LOCK`. No internet permission in v1+v2 (merged release manifest and `aapt dump badging` both confirm no `INTERNET`).
+
+## 10. On-device TTS (v2 Slice 8)
+
+Pluggable engines behind `tts/TtsEngine.kt` (D-065): voice list, `TtsCapabilities` (multi-speaker, load cost MB, sample rate), `synthesize(text, voice, speed)` returning PCM. Voice ids are namespaced per engine (`kokoro:af_heart`, `piper:<model>`, `system:<voice>`); `EngineRegistry` routes on the prefix (first colon wins, so Android system names with colons survive). Two-voice roles only (`TtsRole.Narrator/Dialogue`, D-071); the engine is implied by the voice id, so there is no separate engine setting (`TtsVoiceStore`, `PrefsTtsStore` on the shared `auloud_settings` file, speeds clamped 0.5x-2x). No DI framework (P3): the registry is constructed where needed, fakes in JVM tests. PW6 adds the System TTS tier: `SystemTtsDriver` seam (all framework calls isolated; production `AndroidSystemTtsDriver` on async init + utterance-listener latch, network voices excluded) with `SystemTtsAdapter` mapping `system:<name>` ids, clamping speeds, rendering to temp WAVs and decoding to PCM (exact engine rate per call). PW8 adds voice settings + audition: `VoiceMapper` (keep-offered, same-local-id, else first-sorted role default; recommendation is a static table until Slice 7), `AudioPlayer` seam (`AudioTrackAudioPlayer`, static 16-bit writes, never the book session), `VoiceAuditionViewModel` (plain class, store is truth, preview/stop/clear) + `VoiceAuditionScreen` (engine row, role cards, speed steppers) pushed from a settings entry. Engine re-render waits for Slice 10. PW7a adds sideloaded model-pack discovery (`ModelPacks`: conventional `/Auloud/models/` + SD `Auloud/models/` scan, filename listing, no picker/store/deletion — files are the user's); engine binding waits for the Slice 7 gate. PW7b binds sherpa Piper (`SherpaPiperEngine`: complete-pack detection, lazy per-voice native instances, PCM direct, `PiperHandle` seam; JNI untested on JVM by construction) and wires it into the audition host when packs exist (released on dispose). PW7's SHIP decision is decided (D-126: option A - full ships GPL-3.0; SHIP path owned by VC1). No new dependency beyond the approved sherpa AAR, no permission, no manifest change in PW5-8.

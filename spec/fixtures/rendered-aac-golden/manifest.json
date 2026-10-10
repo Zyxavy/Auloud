@@ -1,0 +1,84 @@
+{
+  "audio": {
+    "bitrate_kbps": 64,
+    "cbr": true,
+    "channels": 1,
+    "format": "m4a",
+    "sample_rate": 24000
+  },
+  "author": "Auloud Test",
+  "chapters": [
+    {
+      "audio": "audio/ch001.m4a",
+      "duration_ms": 4000,
+      "index": 1,
+      "render_fingerprint": {
+        "engine": "system",
+        "engine_versions": {
+          "system": "placeholder (RN10 records the real Tab E strings)"
+        },
+        "speeds": {
+          "dialogue": 1.05,
+          "narrator": 1.0
+        },
+        "voices": {
+          "dialogue": "default",
+          "narrator": "default"
+        }
+      },
+      "text": "text/ch001.json",
+      "title": "The Harbor Steps"
+    },
+    {
+      "audio": "audio/ch002.m4a",
+      "duration_ms": 3000,
+      "index": 2,
+      "render_fingerprint": {
+        "engine": "system",
+        "engine_versions": {
+          "system": "placeholder (RN10 records the real Tab E strings)"
+        },
+        "speeds": {
+          "dialogue": 1.05,
+          "narrator": 1.0
+        },
+        "voices": {
+          "dialogue": "default",
+          "narrator": "default"
+        }
+      },
+      "text": "text/ch002.json",
+      "title": "The Quiet Masts"
+    }
+  ],
+  "created_at": "2026-10-06T12:00:00Z",
+  "encoder_offset_ms": 0,
+  "gain_db": {
+    "dialogue": 0.5,
+    "narrator": -1.5
+  },
+  "generator": "auloud-player 2.0",
+  "id": "430b9250-527c-5c54-bbdf-848956013b63",
+  "render_state": "complete",
+  "source": {
+    "file": "source/book.epub",
+    "sha256": "db21167c0c3aef5ce629947c922b440940c819c9dc726eb2e251efba13885cc6"
+  },
+  "spec_version": "2.0",
+  "title": "Rendered AAC Golden",
+  "type": "epub",
+  "voices": {
+    "dialogue": {
+      "engine": "system",
+      "pitch": 1.0,
+      "speed": 1.0,
+      "voice": "default"
+    },
+    "narrator": {
+      "engine": "system",
+      "pitch": 1.0,
+      "speed": 1.0,
+      "voice": "default"
+    }
+  }
+}

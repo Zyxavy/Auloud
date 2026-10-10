@@ -14,10 +14,18 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -27,9 +35,27 @@ import app.auloud.player.BuildConfig
 import app.auloud.player.battery.BatteryPromptDialog
 import app.auloud.player.battery.BatterySettingsIntents
 import app.auloud.player.battery.PrefsBatteryPromptStore
+import app.auloud.player.bundle.BundleParser
+import app.auloud.player.bundle.BundleValidator
+import app.auloud.player.bundle.Manifest
 import app.auloud.player.reader.ReaderFontSize
+import app.auloud.player.render.AndroidAudioEncoder
+import app.auloud.player.render.BeepSelfCheck
+import app.auloud.player.render.DebugRenderEngines
 import app.auloud.player.storage.WatchFolder
 import app.auloud.player.storage.WatchFolders
+import app.auloud.player.storage.BooksRootResolver
+import app.auloud.player.tts.AndroidSystemTtsDriver
+import app.auloud.player.tts.AudioTrackAudioPlayer
+import app.auloud.player.tts.EngineRegistry
+import app.auloud.player.tts.ModelPack
+import app.auloud.player.tts.ModelPacks
+import app.auloud.player.tts.PrefsTtsStore
+import app.auloud.player.tts.SherpaPiperEngine
+import app.auloud.player.tts.SystemTtsAdapter
+import app.auloud.player.tts.VoiceAuditionScreen
+import app.auloud.player.tts.VoiceAuditionViewModel
+import java.io.File
 
 /**
  * WP8 minimal settings UI plus the WP3/WP5 refinement watch-folder list.
@@ -61,6 +87,7 @@ fun SettingsScreen(
     }
     var showBatteryDialog by remember { mutableStateOf(false) }
     var showLicenses by remember { mutableStateOf(false) }
+    var showVoices by remember { mutableStateOf(false) }
     // RA10: reader settings live in the shared prefs store (read once per
     // Settings visit; the reader re-reads on open, so changes apply then).
     val readerStore = remember(appContext) {
@@ -68,9 +95,14 @@ fun SettingsScreen(
     }
     var fontSize by remember { mutableStateOf(readerStore.fontSize()) }
     var keepScreenOn by remember { mutableStateOf(readerStore.keepScreenOn()) }
+    var dialogueMarking by remember { mutableStateOf(readerStore.dialogueMarking()) }
 
     if (showLicenses) {
         LicensesScreen(onBack = { showLicenses = false })
+        return
+    }
+    if (showVoices) {
+        VoiceAuditionHost(onBack = { showVoices = false })
         return
     }
     Column(modifier = modifier.fillMaxSize()) {
@@ -103,6 +135,19 @@ fun SettingsScreen(
                 readerStore.setKeepScreenOn(it)
                 keepScreenOn = it
             },
+            dialogueMarking = dialogueMarking,
+            onDialogueMarking = {
+                readerStore.setDialogueMarking(it)
+                dialogueMarking = it
+            },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        )
+        VoiceSettingsEntry(
+            onClick = { showVoices = true },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        )
+        ModelPacksSection(
+            packs = remember(appContext) { scanModelPacks(appContext) },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         )
         // RA0 throwaway: debug builds only, deleted with the spike screen.
@@ -237,6 +282,8 @@ private fun ReaderSettingsSection(
     onFontSize: (ReaderFontSize) -> Unit,
     keepScreenOn: Boolean,
     onKeepScreenOn: (Boolean) -> Unit,
+    dialogueMarking: Boolean,
+    onDialogueMarking: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier.padding(vertical = 8.dp)) {
@@ -276,6 +323,24 @@ private fun ReaderSettingsSection(
                 )
             }
             Switch(checked = keepScreenOn, onCheckedChange = onKeepScreenOn)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f).padding(end = 8.dp)) {
+                Text(
+                    text = "Mark dialogue in color",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = "Dialogue sentences draw in the accent color.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Switch(checked = dialogueMarking, onCheckedChange = onDialogueMarking)
         }
     }
 }
@@ -331,5 +396,243 @@ private fun BatteryOptimizationEntry(
         )
         Spacer(Modifier.height(8.dp))
         Button(onClick = onClick) { Text("Battery settings help") }
+    }
+}
+
+/** PW7a: sideloaded model packs (files only; engine binding is PW7b). */
+@Composable
+private fun ModelPacksSection(
+    packs: List<ModelPack>,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.padding(vertical = 8.dp)) {
+        Text(
+            text = "Model packs",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(Modifier.height(4.dp))
+        if (packs.isEmpty()) {
+            Text(
+                text = "No voice models found. Copy a pack folder " +
+                    "(.onnx files) into /Auloud/models/ here or " +
+                    "Auloud/models/ on the SD card with a file manager.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+        } else {
+            packs.forEach { pack ->
+                Text(
+                    text = pack.label,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Text(
+                    text = "${pack.voices.size} voice(s), " +
+                        "%.1f MB".format(pack.bytesTotal / 1048576.0),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    text = pack.voices.joinToString(", "),
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+    }
+}
+
+private fun scanModelPacks(appContext: android.content.Context): List<ModelPack> {
+    return try {
+        val internal = java.io.File(BooksRootResolver.defaultBooksRoot(appContext))
+        val removable = try {
+            BooksRootResolver.findRemovableRoot(appContext)
+        } catch (_: Exception) {
+            null
+        }
+        ModelPacks.scan(ModelPacks.roots(internal, removable))
+    } catch (_: Exception) {
+        emptyList()
+    }
+}
+/** PW8: narrator/dialogue voices entry (pushes the audition screen). */
+@Composable
+private fun VoiceSettingsEntry(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.padding(vertical = 8.dp)) {
+        Text(
+            text = "Voices",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Narrator and dialogue voices for on-device reading.",
+            style = MaterialTheme.typography.bodyMedium
+        )
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = onClick) { Text("Choose voices") }
+    }
+}
+
+/**
+ * PW8: audition host — builds the TTS graph by hand (P3) and tears it
+ * down on dispose. The driver starts the system TTS service async;
+ * [VoiceAuditionViewModel.refresh] picks up voices when it reports
+ * ready (the screen shows the empty state until then).
+ */
+@Composable
+private fun VoiceAuditionHost(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val appContext = remember(context) { context.applicationContext }
+    val sherpaHolder = remember(appContext) { arrayOfNulls<SherpaPiperEngine>(1) }
+    val viewModel = remember(appContext) {
+        val scratch = File(appContext.cacheDir, "tts-audition")
+        val driver = AndroidSystemTtsDriver(appContext)
+        val adapter = SystemTtsAdapter(driver, scratch)
+        // PW7b: sherpa Piper joins the registry when complete packs are
+        // present (constructor never loads models; voices stay lazy).
+        // No packs, no engine — System tier alone, exactly as before.
+        val packs = scanModelPacks(appContext)
+        val sherpa = SherpaPiperEngine(packs).takeIf { it.voices().isNotEmpty() }
+        sherpaHolder[0] = sherpa
+        // RN10: the beep engine joins the registry in debug builds only
+        // (null in release, so the release list is exactly what it was
+        // before RN10). The voice-lab beep card renders through it.
+        val registry = EngineRegistry(
+            listOfNotNull(
+                adapter,
+                sherpa,
+                DebugRenderEngines.beepEngineIfDebug(BuildConfig.DEBUG)
+            )
+        )
+        val store = PrefsTtsStore.fromContext(appContext)
+        VoiceAuditionViewModel(registry, store, AudioTrackAudioPlayer())
+    }
+    DisposableEffect(viewModel) {
+        onDispose {
+            viewModel.clear()
+            sherpaHolder[0]?.release()
+            sherpaHolder[0] = null
+        }
+    }
+    val state by viewModel.state.collectAsState()
+    // RN10: minimal beep self-check trigger (debug only; the card hides
+    // in release). Runs the real RN4+RN5+RN6 chain on IO and reports the
+    // bundle path plus validation, for the RN11 offset measurement.
+    var beepStatus by remember { mutableStateOf<String?>(null) }
+    var beepRunning by remember { mutableStateOf(false) }
+    val beepScope = rememberCoroutineScope()
+    // Re-poll once the async TTS init lands (cheap: registry + prefs read).
+    LaunchedEffect(Unit) {
+        delay(2000)
+        viewModel.refresh()
+    }
+    VoiceAuditionScreen(
+        state = state,
+        onBack = onBack,
+        onSelectEngine = viewModel::selectEngine,
+        onSelectVoice = viewModel::selectVoice,
+        onSetSpeed = viewModel::setSpeed,
+        onPreview = viewModel::preview,
+        onStop = viewModel::stop,
+        onCalibrateLevels = viewModel::calibrateLevels,
+        modifier = modifier,
+        beepCheckAvailable = isBeepSelfCheckAvailable(BuildConfig.DEBUG),
+        beepStatus = beepStatus,
+        onRunBeepCheck = {
+            if (!beepRunning) {
+                beepRunning = true
+                beepStatus = "Rendering beep chapter..."
+                beepScope.launch {
+                    beepStatus = withContext(Dispatchers.IO) {
+                        runBeepCheck(appContext)
+                    }
+                    beepRunning = false
+                }
+            }
+        }
+    )
+}
+
+/**
+ * RN10: debug beep render behind the voice-lab card (IO thread only).
+ *
+ * Renders the 4-tone test chapter through the real RN4 spool plus RN5
+ * assembly plus the platform RN6 encoder into a bundle dir under cache,
+ * writes the manifest plus chapter JSON next to the audio, and
+ * re-validates the files on disk. Returns one status line for the card.
+ * Only reachable from the debug-gated card; the [BeepSelfCheck] gate
+ * refuses release builds as well.
+ */
+private suspend fun runBeepCheck(appContext: android.content.Context): String {
+    try {
+        val outDir = File(appContext.cacheDir, "beep-check")
+        val spoolDir = File(appContext.cacheDir, "beep-spool")
+        try {
+            outDir.deleteRecursively()
+        } catch (_: Exception) {
+        }
+        try {
+            spoolDir.deleteRecursively()
+        } catch (_: Exception) {
+        }
+        val audioPath = File(outDir, BeepSelfCheck.CHAPTER_AUDIO_PATH).absolutePath
+        val encoder = try {
+            AndroidAudioEncoder(
+                chapterNumber = BeepSelfCheck.CHAPTER_NUMBER,
+                finalPath = audioPath
+            )
+        } catch (e: Exception) {
+            return "Beep check failed: ${e.message}"
+        }
+        val outcome = try {
+            BeepSelfCheck.run(
+                spoolDir = spoolDir.absolutePath,
+                spoolIo = app.auloud.player.render.JavaFileSpoolIo(),
+                readSpoolBytes = { fileName -> File(spoolDir, fileName).readBytes() },
+                encoder = encoder,
+                isDebugBuild = BuildConfig.DEBUG
+            )
+        } catch (e: Exception) {
+            try {
+                encoder.abort()
+            } catch (_: Exception) {
+            }
+            return "Beep check failed: ${e.message}"
+        }
+        if (outcome !is BeepSelfCheck.Outcome.Success) {
+            return "Beep check failed: ${(outcome as BeepSelfCheck.Outcome.Failure).reason}"
+        }
+        val bundle = outcome.bundle
+        try {
+            val textFile = File(outDir, BeepSelfCheck.CHAPTER_TEXT_PATH)
+            textFile.parentFile?.mkdirs()
+            textFile.writeText(bundle.chapterJson, Charsets.UTF_8)
+            val manifestFile = File(outDir, "manifest.json")
+            manifestFile.writeText(
+                BundleParser.json.encodeToString(Manifest.serializer(), bundle.manifest),
+                Charsets.UTF_8
+            )
+        } catch (e: Exception) {
+            return "Beep check failed: cannot write bundle (${e.message})"
+        }
+        val diskErrors = try {
+            BundleValidator.validateBundle(outDir)
+        } catch (e: Exception) {
+            return "Beep check failed: disk validation crashed (${e.message})"
+        }
+        if (bundle.validationErrors.isNotEmpty() || diskErrors.isNotEmpty()) {
+            val first = (bundle.validationErrors + diskErrors).first()
+            return "Beep chapter rendered but invalid: $first"
+        }
+        val starts = bundle.timings.joinToString(", ") { it.startMs.toString() }
+        return "Beep chapter ok: ${bundle.timings.size} tones at $starts ms, " +
+            "duration ${bundle.durationMs} ms, audio $audioPath"
+    } catch (e: Exception) {
+        return "Beep check failed: ${e.message}"
     }
 }

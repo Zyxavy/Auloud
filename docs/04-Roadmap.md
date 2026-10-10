@@ -130,7 +130,7 @@ Automated evidence (no device claimed): CP3 chapter list + jump (JVM suite green
 
 ## Slice 6: Scribe Web UI (merged into the v1.0.0 release line)
 
-Goal: `scribe ui` covers ingest, cast review, render, validate and tablet hand-off in a localhost web app; the CLI stays the headless interface. Plan: `docs/plans/Slice6.md`.
+Goal: `scribe ui` covers ingest, cast review, render, validate and tablet hand-off in a localhost web app; the CLI stays the headless interface. Plan: `docs/archive/v1/plans/Slice6.md`.
 
 - [x] UI1 library: events, chapter/page ranges, `plan_build`, cooperative stop, per-book lock, `--device`, spec 1.2 range bundles (482 baseline untouched, 498 green)
 - [x] UI2 server skeleton: `scribe[ui]` extra, 127.0.0.1-only + Host check + per-run token + traversal guards, doctor row (531 green)
@@ -142,7 +142,7 @@ Goal: `scribe ui` covers ingest, cast review, render, validate and tablet hand-o
 - [x] UI8 validate and transfer (API verified: 12 new transfer tests + route list green, full suite 627 green; validate-now/drive-picker/copy-progress/verified-tick/record/chip plus the tablet Player import left for the user in Edge)
 - [x] UI9 design system and polish (tokens/contrast/component/offline: 8 new design tests green, full suite 635 green + ruff clean; 3-browser runbook + zoom/keyboard/dark left for the user in Edge/Chrome/Firefox)
 - [x] UI10 tests and hardening (API/security/SSE/state-machine: 22 new hardening tests green, full suite 657 green + ruff clean; no model load, no slowdown to existing suites; browser runbook untouched, no UI bugs found)
-- [x] UI11 docs and acceptance (agent docs half done 2026-10-05: spec saved as `docs/14-ScribeWebUI-Spec.md`, README Web UI + walkthrough, UI dep licenses re-verified, D-061 with the D1-D8 map, test-log UI1-UI10 block; user acceptance 2026-10-05: "mostly complete and good enough", acceptance fixes landed as D-062/D-063 + collapsible UI commits)
+- [x] UI11 docs and acceptance (agent docs half done 2026-10-05: spec saved as `docs/archive/v1/14-ScribeWebUI-Spec.md`, README Web UI + walkthrough, UI dep licenses re-verified, D-061 with the D1-D8 map, test-log UI1-UI10 block; user acceptance 2026-10-05: "mostly complete and good enough", acceptance fixes landed as D-062/D-063 + collapsible UI commits)
 
 **Done when (v1 release criteria):** the soak test passes.
 
@@ -155,7 +155,7 @@ Goal: `scribe ui` covers ingest, cast review, render, validate and tablet hand-o
 - [x] Sync spot-checks pass in early, middle and late chapters
 - [x] Battery drain during screen-off playback is acceptable
 
-All user-verified on the Tab E 2026-10-05, logged in `docs/soak-log.md` (verdict: pass).
+All user-verified on the Tab E 2026-10-05, logged in `docs/archive/v1/soak-log.md` (verdict: pass).
 
 ## Backlog (v1.1)
 
@@ -171,19 +171,27 @@ All user-verified on the Tab E 2026-10-05, logged in `docs/soak-log.md` (verdict
 
 Embed the EPUB/PDF in the app so the device runs its own TTS (Kokoro or Piper).
 
+*Status: built on `dev/v2` (Player `2.0.0`, two voices, System TTS plus Piper in the `full` flavor); release pending the Slice 12 soak and sign-off. Detail lives in `docs/09-V2Roadmap.md`; Slices 9-11 are device-passed, Slice 12 is in progress. Boxes below stay as written until the Slice 12 gate ticks them.*
+
 - [ ] Benchmark spike first: measure real-time factor of Piper and Kokoro on target devices
 - [ ] Engine interface so voices are pluggable
 - [ ] On-device tagging with rules
-- [ ] Background render while charging; streaming synthesis for immediate listening
+- [ ] Background render (no charger requirement, D-130); streaming synthesis for immediate listening
 - [ ] Decide licensing impact of bundling espeak-ng
 
 ## v3
 
-Support later Android versions.
+Scribe desktop port (D-133): port Scribe to Rust with a Tauri v2 app for Windows 11 and Linux. The Python Scribe stays canonical until parity; the port honors `spec/` unchanged.
+
+## v4
+
+Android platform work (D-133), placeholder until v3 ships:
 
 - [ ] Update `targetSdk` and handle newer background-service and notification permission rules
 - [ ] Test on current Android versions and a range of devices
 - [ ] Revisit `minSdk` and the tablet-only assumptions
+- [ ] Word-level highlight callbacks (needs API 26+)
+- [ ] Scribe on Android (Tauri mobile targets)
 
 ## Risks to watch per slice
 

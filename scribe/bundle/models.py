@@ -21,6 +21,14 @@ snake_case exactly as in the spec. Unknown JSON keys are ignored on parse
 (Player parity: ``ignoreUnknownKeys``), while missing required fields and
 wrong JSON types raise :class:`BundleError`.
 
+Spec v2.0 (IN1, D-082): ``audio``, per-chapter ``audio``/``duration_ms``
+and per-sentence ``start_ms``/``end_ms`` are conditional on
+``render_state`` (``none``/``partial``/``complete``), so the models below
+parse them as optional (absent or null reads as ``None``; the writer omits
+them, never null). Whether they must be present is a validator rule
+(``bundle/validate.py``), not a shape rule: 1.x bundles still require them
+and 2.0 bundles require them exactly for rendered chapters.
+
 Semantic rules (speakers, sids, timings, audio, hashes) live in
 ``bundle/validate.py``; this module only checks shape.
 """
@@ -29,6 +37,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+
+#: Spec 2.0 book render states (manifest ``render_state``; IN1, D-082).
+RENDER_STATES = ("none", "partial", "complete")
+#: Spec 2.0 reserved on-device speakers (every 2.0 sentence uses one).
+RESERVED_SPEAKERS = ("narrator", "dialogue")
 
 
 class BundleError(ValueError):
@@ -100,7 +113,13 @@ def _require_list(data: dict[str, Any], key: str) -> list[Any]:
 
 @dataclass
 class AudioSpec:
-    """``manifest.audio``: fixed MP3 description (spec section 2)."""
+    """``manifest.audio``: book-level audio params (spec section 2).
+
+    ``format`` is ``mp3`` or ``m4a`` (2.0 part 2, RN1 D-102); 1.x books
+    always use ``mp3``. In a mixed book the manifest ``format`` matches
+    at least one rendered chapter; per-chapter extension plus probe are
+    authoritative. Allowed values are a validator rule, not a shape rule.
+    """
 
     format: str = "mp3"
     channels: int = 1
@@ -187,60 +206,158 @@ class SourceInfo:
 
 
 @dataclass
+class RenderFingerprint:
+    """Per-chapter render provenance (spec 2.0 part 2, RN1 D-102).
+
+    ``engine`` is the namespaced engine id (for example ``system``);
+    ``voices`` maps each role to the voice id used; ``speeds`` maps
+    each role to its speed multiplier; ``engine_versions`` maps each
+    engine used to its version string (the same strings the synth
+    cache keys on). Optional, 2.0 only, rendered chapters only;
+    absent (``None``) means fingerprint unknown. Shape only here
+    (non-blank, both roles, positive speeds); the validator enforces it.
+    """
+
+    engine: str = ""
+    voices: dict[str, str] = field(default_factory=dict)
+    speeds: dict[str, float] = field(default_factory=dict)
+    engine_versions: dict[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: Any) -> RenderFingerprint:
+        if not isinstance(data, dict):
+            raise BundleError("invalid field 'render_fingerprint' (need object)")
+        voices_raw = data.get("voices", {})
+        if not isinstance(voices_raw, dict):
+            raise BundleError("invalid field 'render_fingerprint.voices' (need object)")
+        voices: dict[str, str] = {}
+        for key, value in voices_raw.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                raise BundleError("invalid field 'render_fingerprint.voices' (need string map)")
+            voices[key] = value
+        speeds_raw = data.get("speeds", {})
+        if not isinstance(speeds_raw, dict):
+            raise BundleError("invalid field 'render_fingerprint.speeds' (need object)")
+        speeds: dict[str, float] = {}
+        for key, value in speeds_raw.items():
+            if not isinstance(key, str) or isinstance(value, bool):
+                raise BundleError("invalid field 'render_fingerprint.speeds' (need number map)")
+            if not isinstance(value, (int, float)):
+                raise BundleError("invalid field 'render_fingerprint.speeds' (need number map)")
+            speeds[key] = float(value)
+        versions_raw = data.get("engine_versions", {})
+        if not isinstance(versions_raw, dict):
+            raise BundleError("invalid field 'render_fingerprint.engine_versions' (need object)")
+        versions: dict[str, str] = {}
+        for key, value in versions_raw.items():
+            if not isinstance(key, str) or not isinstance(value, str):
+                raise BundleError(
+                    "invalid field 'render_fingerprint.engine_versions' (need string map)"
+                )
+            versions[key] = value
+        return cls(
+            engine=_optional_str(data, "engine") or "",
+            voices=voices,
+            speeds=speeds,
+            engine_versions=versions,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "engine": self.engine,
+            "voices": dict(self.voices),
+            "speeds": dict(self.speeds),
+            "engine_versions": dict(self.engine_versions),
+        }
+
+
+@dataclass
 class ChapterEntry:
-    """One entry of ``manifest.chapters`` (all fields required).
+    """One entry of ``manifest.chapters``.
 
     Spec v1.2 (D7, range bundles): ``source_index`` is the 1-based chapter
     number in the source book. Absent (``None``) for full builds; present
     for range builds where the bundle ``index`` is renumbered consecutively
     1..K. Never null on the wire (omitted when absent); parsing accepts
     missing (or null) as ``None``.
+
+    Spec v2.0 (IN1, D-082): ``audio`` and ``duration_ms`` are conditional.
+    Rendered chapters carry both (as in 1.x); unrendered chapters omit
+    both (``None``). ``text`` is always required. The validator (not this
+    shape layer) enforces which combination each bundle needs.
+
+    Spec 2.0 part 2 (RN1, D-102): ``render_fingerprint`` is optional,
+    2.0 only, rendered chapters only (absent means unknown).
     """
 
     index: int
     title: str
-    audio: str
     text: str
-    duration_ms: int
+    audio: str | None = None
+    duration_ms: int | None = None
     source_index: int | None = None
+    render_fingerprint: RenderFingerprint | None = None
 
     @classmethod
     def from_dict(cls, data: Any) -> ChapterEntry:
         if not isinstance(data, dict):
             raise BundleError("invalid chapter entry (need object)")
+        fingerprint_raw = data.get("render_fingerprint")
+        fingerprint: RenderFingerprint | None = None
+        if fingerprint_raw is not None:
+            fingerprint = RenderFingerprint.from_dict(fingerprint_raw)
         return cls(
             index=_require_int(data, "index"),
             title=_require_str(data, "title"),
-            audio=_require_str(data, "audio"),
             text=_require_str(data, "text"),
-            duration_ms=_require_int(data, "duration_ms"),
+            audio=_optional_str(data, "audio"),
+            duration_ms=_optional_int(data, "duration_ms"),
             source_index=_optional_int(data, "source_index"),
+            render_fingerprint=fingerprint,
         )
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
             "index": self.index,
             "title": self.title,
-            "audio": self.audio,
             "text": self.text,
-            "duration_ms": self.duration_ms,
         }
+        if self.audio is not None:
+            out["audio"] = self.audio
+        if self.duration_ms is not None:
+            out["duration_ms"] = self.duration_ms
         if self.source_index is not None:
             out["source_index"] = self.source_index
+        if self.render_fingerprint is not None:
+            out["render_fingerprint"] = self.render_fingerprint.to_dict()
         return out
 
 
 @dataclass
 class Manifest:
-    """``manifest.json``. Required: spec_version, id, title, type, audio,
-    chapters. Everything else is optional (spec section 3)."""
+    """``manifest.json``. Required: spec_version, id, title, type,
+    chapters. Everything else is optional (spec section 3).
+
+    Spec v2.0 (IN1, D-082): ``audio`` is conditional (absent for
+    ``render_state`` ``none``, present otherwise) and ``render_state``
+    itself is required in 2.0 manifests, absent in 1.x. Both parse as
+    ``None`` when missing; the validator enforces the combinations.
+
+    Spec 2.0 part 2 (RN1, D-102): ``gain_db`` (role to decibels) and
+    ``encoder_offset_ms`` (integer) are optional, 2.0 only, absent
+    means unrecorded. Values are shape-checked here (dict of numbers,
+    integer); roles, finiteness and 2.0-only are validator rules.
+    """
 
     spec_version: str
     id: str
     title: str
     type: str
-    audio: AudioSpec
     chapters: list[ChapterEntry] = field(default_factory=list)
+    audio: AudioSpec | None = None
+    render_state: str | None = None
+    gain_db: dict[str, float] | None = None
+    encoder_offset_ms: int | None = None
     author: str | None = None
     language: str | None = None
     source: SourceInfo | None = None
@@ -254,8 +371,12 @@ class Manifest:
         if not isinstance(data, dict):
             raise BundleError("manifest must be a JSON object")
         audio_raw = data.get("audio")
-        if not isinstance(audio_raw, dict):
+        if audio_raw is None:
+            audio: AudioSpec | None = None
+        elif not isinstance(audio_raw, dict):
             raise BundleError("missing or invalid required field 'audio' (need object)")
+        else:
+            audio = AudioSpec.from_dict(audio_raw)
         chapters_raw = _require_list(data, "chapters")
         voices_raw = data.get("voices", {})
         if not isinstance(voices_raw, dict):
@@ -264,12 +385,27 @@ class Manifest:
         for name, voice_raw in voices_raw.items():
             voices[name] = Voice.from_dict(voice_raw)
         source_raw = data.get("source")
+        gain_raw = data.get("gain_db")
+        gain_db: dict[str, float] | None = None
+        if gain_raw is not None:
+            if not isinstance(gain_raw, dict):
+                raise BundleError("invalid field 'gain_db' (need object)")
+            gain_db = {}
+            for key, value in gain_raw.items():
+                if not isinstance(key, str) or isinstance(value, bool):
+                    raise BundleError("invalid field 'gain_db' (need string to number map)")
+                if not isinstance(value, (int, float)):
+                    raise BundleError("invalid field 'gain_db' (need string to number map)")
+                gain_db[key] = float(value)
         return cls(
             spec_version=_require_str(data, "spec_version"),
             id=_require_str(data, "id"),
             title=_require_str(data, "title"),
             type=_require_str(data, "type"),
-            audio=AudioSpec.from_dict(audio_raw),
+            audio=audio,
+            render_state=_optional_str(data, "render_state"),
+            gain_db=gain_db,
+            encoder_offset_ms=_optional_int(data, "encoder_offset_ms"),
             chapters=[ChapterEntry.from_dict(c) for c in chapters_raw],
             author=_optional_str(data, "author"),
             language=_optional_str(data, "language"),
@@ -286,9 +422,16 @@ class Manifest:
             "id": self.id,
             "title": self.title,
             "type": self.type,
-            "audio": self.audio.to_dict(),
             "chapters": [c.to_dict() for c in self.chapters],
         }
+        if self.audio is not None:
+            out["audio"] = self.audio.to_dict()
+        if self.render_state is not None:
+            out["render_state"] = self.render_state
+        if self.gain_db is not None:
+            out["gain_db"] = dict(self.gain_db)
+        if self.encoder_offset_ms is not None:
+            out["encoder_offset_ms"] = self.encoder_offset_ms
         if self.author is not None:
             out["author"] = self.author
         if self.language is not None:
@@ -353,13 +496,18 @@ class Sentence:
     only). EPUB sentences carry no ``page``: the bundle omits the key
     entirely (absent, never null); parsing accepts missing (or null) as
     ``None`` and validation enforces ``>= 1`` when present.
+
+    Spec v2.0 (IN1, D-082): ``start_ms``/``end_ms`` are conditional.
+    Rendered sentences carry both integers (as in 1.x); unrendered
+    sentences omit both (``None``). The validator enforces all-or-none
+    per chapter file.
     """
 
     sid: int
     speaker: str
-    start_ms: int
-    end_ms: int
     text: str
+    start_ms: int | None = None
+    end_ms: int | None = None
     spans: list[Span] = field(default_factory=list)
     kind: str = "narration"
     confidence: str = "high"
@@ -405,9 +553,9 @@ class Sentence:
         return cls(
             sid=_require_int(data, "sid"),
             speaker=_require_str(data, "speaker"),
-            start_ms=_require_int(data, "start_ms"),
-            end_ms=_require_int(data, "end_ms"),
             text=_require_str(data, "text"),
+            start_ms=_optional_int(data, "start_ms"),
+            end_ms=_optional_int(data, "end_ms"),
             spans=[Span.from_dict(s) for s in spans_raw],
             kind=kind,
             confidence=confidence,
@@ -430,10 +578,12 @@ class Sentence:
         out: dict[str, Any] = {
             "sid": self.sid,
             "speaker": self.speaker,
-            "start_ms": self.start_ms,
-            "end_ms": self.end_ms,
             "text": self.text,
         }
+        if self.start_ms is not None:
+            out["start_ms"] = self.start_ms
+        if self.end_ms is not None:
+            out["end_ms"] = self.end_ms
         if self.spans:
             out["spans"] = [s.to_dict() for s in self.spans]
         if self.page is not None:
@@ -519,12 +669,17 @@ class ChapterFile:
     the consecutive bundle index 1..K; ``source_index`` is absent (``None``)
     for full builds and present for range builds. Omitted on the wire when
     absent, never null.
+
+    v2.0 (IN1, D-082): ``duration_ms`` is conditional. Rendered chapters
+    carry a positive integer (as in 1.x); unrendered chapters omit it
+    (``None``). The validator matches its presence against the manifest
+    entry and requires sentence timings exactly when it is present.
     """
 
     spec_version: str
     chapter: int
     title: str
-    duration_ms: int
+    duration_ms: int | None = None
     blocks: list[Block] | None = None
     pages: list[PageEntry] | None = None
     source_index: int | None = None
@@ -552,7 +707,7 @@ class ChapterFile:
             spec_version=_require_str(data, "spec_version"),
             chapter=_require_int(data, "chapter"),
             title=_require_str(data, "title"),
-            duration_ms=_require_int(data, "duration_ms"),
+            duration_ms=_optional_int(data, "duration_ms"),
             blocks=blocks,
             pages=pages,
             source_index=_optional_int(data, "source_index"),
@@ -563,8 +718,9 @@ class ChapterFile:
             "spec_version": self.spec_version,
             "chapter": self.chapter,
             "title": self.title,
-            "duration_ms": self.duration_ms,
         }
+        if self.duration_ms is not None:
+            out["duration_ms"] = self.duration_ms
         if self.source_index is not None:
             out["source_index"] = self.source_index
         if self.blocks is not None:

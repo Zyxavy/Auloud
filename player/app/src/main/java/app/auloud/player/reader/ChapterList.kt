@@ -118,7 +118,9 @@ fun coerceChapterJump(index: Int, count: Int): Int? {
  */
 fun toChapterEntries(chapters: List<ChapterInfo>): List<ChapterEntry> {
     return chapters.sortedBy { it.index }.mapIndexed { position, chapter ->
-        ChapterEntry(index = position, title = chapter.title, durationMs = chapter.durationMs)
+        // IN1: unrendered 2.0 chapters carry no duration (null); the row
+        // shows 0:00 until Slice 10 renders audio.
+        ChapterEntry(index = position, title = chapter.title, durationMs = chapter.durationMs ?: 0L)
     }
 }
 
@@ -130,4 +132,18 @@ fun toChapterEntries(chapters: List<ChapterInfo>): List<ChapterEntry> {
  */
 fun isCurrentChapter(index: Int, currentIndex: Int): Boolean {
     return index == currentIndex
+}
+
+/**
+ * RN7 (#14 cosmetic): marker text for the current chapter row.
+ *
+ * Null when the row is not current (no marker). The current row of a
+ * listening session reads "Now playing"; the current row of a read-only
+ * (unrendered) session reads "Reading", since no audio plays there. Pure
+ * so the wording is JVM-testable; RN9 wires it into the chapter rows
+ * through ChapterListScreen marker params.
+ */
+fun rowMarkerText(isCurrent: Boolean, isListening: Boolean): String? {
+    if (!isCurrent) return null
+    return if (isListening) "Now playing" else "Reading"
 }

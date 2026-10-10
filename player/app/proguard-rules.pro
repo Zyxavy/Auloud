@@ -35,3 +35,10 @@
 
 # Coil image loading (conservative; 2.6.0 ships no consumer rules).
 -keep class coil.** { *; }
+
+# VC2 (D-129): sherpa-onnx JNI bridge (full flavor only). The native
+# methods in libsherpa-onnx-jni.so are looked up by Java name at
+# runtime, so the com.k2fsa classes and their members must survive
+# minify untouched. Proof is the full-flavor release assemble plus
+# the testFull suites; the JVM never loads the native lib.
+-keep class com.k2fsa.sherpa.onnx.** { *; }

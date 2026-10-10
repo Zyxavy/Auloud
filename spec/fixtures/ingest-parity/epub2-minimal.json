@@ -1,0 +1,121 @@
+{
+  "chapters": [
+    {
+      "blocks": [
+        {
+          "id": 1,
+          "text": "The Amber Lamp",
+          "type": "heading"
+        },
+        {
+          "id": 2,
+          "runs": [
+            {
+              "kind": "narration",
+              "text": "The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven. A kettle sang on the iron stove as evening mist curled over the lane. The baker stacked warm loaves while sparrows argued in the thatch. A sleepy dog thumped his tail beside the crackling hearth."
+            }
+          ],
+          "text": "The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven. A kettle sang on the iron stove as evening mist curled over the lane. The baker stacked warm loaves while sparrows argued in the thatch. A sleepy dog thumped his tail beside the crackling hearth.",
+          "type": "para"
+        },
+        {
+          "id": 3,
+          "runs": [
+            {
+              "kind": "narration",
+              "text": "The mill wheel turned slowly under the green blanket of duckweed. A heron stood like a grey statue where the reeds met the pond. The postman whistled down the hollow lane with letters tied in string. Warm bread cooled on the sill while the garden gate creaked shut. The clockmaker polished brass wheels that glinted in the lamplight. A hedgehog rustled through dry leaves beneath the old oak bench."
+            }
+          ],
+          "text": "The mill wheel turned slowly under the green blanket of duckweed. A heron stood like a grey statue where the reeds met the pond. The postman whistled down the hollow lane with letters tied in string. Warm bread cooled on the sill while the garden gate creaked shut. The clockmaker polished brass wheels that glinted in the lamplight. A hedgehog rustled through dry leaves beneath the old oak bench.",
+          "type": "para"
+        },
+        {
+          "id": 4,
+          "runs": [
+            {
+              "kind": "narration",
+              "text": "The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven. A kettle sang on the iron stove as evening mist curled over the lane. The baker stacked warm loaves while sparrows argued in the thatch. A sleepy dog thumped his tail beside the crackling hearth."
+            }
+          ],
+          "text": "The amber lamp glowed softly above the mossy stones by the quiet river bend. A brindled cat dozed on the warm windowsill while rain drummed the shutters. The old ferry crossed the grey water before the church bell rang seven. A kettle sang on the iron stove as evening mist curled over the lane. The baker stacked warm loaves while sparrows argued in the thatch. A sleepy dog thumped his tail beside the crackling hearth.",
+          "type": "para"
+        },
+        {
+          "id": 5,
+          "runs": [
+            {
+              "kind": "narration",
+              "text": "The mill wheel turned slowly under the green blanket of duckweed. A heron stood like a grey statue where the reeds met the pond. The postman whistled down the hollow lane with letters tied in string. Warm bread cooled on the sill while the garden gate creaked shut. The clockmaker polished brass wheels that glinted in the lamplight. A hedgehog rustled through dry leaves beneath the old oak bench."
+            }
+          ],
+          "text": "The mill wheel turned slowly under the green blanket of duckweed. A heron stood like a grey statue where the reeds met the pond. The postman whistled down the hollow lane with letters tied in string. Warm bread cooled on the sill while the garden gate creaked shut. The clockmaker polished brass wheels that glinted in the lamplight. A hedgehog rustled through dry leaves beneath the old oak bench.",
+          "type": "para"
+        }
+      ],
+      "index": 1,
+      "title": "The Amber Lamp",
+      "words": 291
+    },
+    {
+      "blocks": [
+        {
+          "id": 1,
+          "text": "The Quiet River",
+          "type": "heading"
+        },
+        {
+          "id": 2,
+          "runs": [
+            {
+              "kind": "narration",
+              "text": "The quiet river carried fallen apples past the stone bridge. A kingfisher flashed blue and orange above the still pool. The ferryman coiled his rope and hung the lantern on its hook. Ducks trailed silver wakes across the pale morning water. The washerwoman sang as she wrung the linen over the tub. Mist rose off the meadow while sheep bells chimed far away."
+            }
+          ],
+          "text": "The quiet river carried fallen apples past the stone bridge. A kingfisher flashed blue and orange above the still pool. The ferryman coiled his rope and hung the lantern on its hook. Ducks trailed silver wakes across the pale morning water. The washerwoman sang as she wrung the linen over the tub. Mist rose off the meadow while sheep bells chimed far away.",
+          "type": "para"
+        },
+        {
+          "id": 3,
+          "runs": [
+            {
+              "kind": "narration",
+              "text": "Dawn gilded the church spire as swallows stitched the pink sky. The blacksmith pumped the bellows till the coals bloomed red. A cart rattled over cobbles with churns of fresh milk. The school bell rang and children raced across the green. Rooks wheeled above the elms, calling through the cold air. The tailor chalked a fine line down a length of grey wool."
+            }
+          ],
+          "text": "Dawn gilded the church spire as swallows stitched the pink sky. The blacksmith pumped the bellows till the coals bloomed red. A cart rattled over cobbles with churns of fresh milk. The school bell rang and children raced across the green. Rooks wheeled above the elms, calling through the cold air. The tailor chalked a fine line down a length of grey wool.",
+          "type": "para"
+        },
+        {
+          "id": 4,
+          "runs": [
+            {
+              "kind": "narration",
+              "text": "The quiet river carried fallen apples past the stone bridge. A kingfisher flashed blue and orange above the still pool. The ferryman coiled his rope and hung the lantern on its hook. Ducks trailed silver wakes across the pale morning water. The washerwoman sang as she wrung the linen over the tub. Mist rose off the meadow while sheep bells chimed far away."
+            }
+          ],
+          "text": "The quiet river carried fallen apples past the stone bridge. A kingfisher flashed blue and orange above the still pool. The ferryman coiled his rope and hung the lantern on its hook. Ducks trailed silver wakes across the pale morning water. The washerwoman sang as she wrung the linen over the tub. Mist rose off the meadow while sheep bells chimed far away.",
+          "type": "para"
+        },
+        {
+          "id": 5,
+          "runs": [
+            {
+              "kind": "narration",
+              "text": "Dawn gilded the church spire as swallows stitched the pink sky. The blacksmith pumped the bellows till the coals bloomed red. A cart rattled over cobbles with churns of fresh milk. The school bell rang and children raced across the green. Rooks wheeled above the elms, calling through the cold air. The tailor chalked a fine line down a length of grey wool."
+            }
+          ],
+          "text": "Dawn gilded the church spire as swallows stitched the pink sky. The blacksmith pumped the bellows till the coals bloomed red. A cart rattled over cobbles with churns of fresh milk. The school bell rang and children raced across the green. Rooks wheeled above the elms, calling through the cold air. The tailor chalked a fine line down a length of grey wool.",
+          "type": "para"
+        }
+      ],
+      "index": 2,
+      "title": "The Quiet River",
+      "words": 255
+    }
+  ],
+  "source": {
+    "file": "source/book.epub",
+    "fixture": "epub2-minimal",
+    "sha256": "df060df13672b412fb6a024c4210e055d8f390176fb944c8ce7a1b8ec415e7ce"
+  }
+}

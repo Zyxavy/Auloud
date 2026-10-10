@@ -71,7 +71,14 @@ class ChapterTextLoaderTest {
         val sentences = chapter.sentencesInOrder()
         assertEquals((1..sentences.size).toList(), sentences.map { it.sid })
         assertEquals(0L, sentences.first().startMs)
-        sentences.forEach { assertTrue("sid ${it.sid}: bad range", it.startMs < it.endMs) }
+        // IN1: sentence timings are nullable (absent for unrendered
+        // chapters); this rendered golden always carries them.
+        sentences.forEach {
+            assertTrue(
+                "sid ${it.sid}: bad range",
+                it.startMs != null && it.endMs != null && it.startMs < it.endMs
+            )
+        }
     }
 
     // Error paths.
@@ -146,13 +153,36 @@ class ChapterTextLoaderTest {
 
     @Test
     fun unknownSpecVersion_failsInvalid() = runBlocking {
+        val payload = """{"spec_version": "3.0", "chapter": 1, "title": "Ch",
+            "duration_ms": 1000, "blocks": [{"id": 1, "type": "para",
+            "sentences": [{"sid": 1, "speaker": "narrator", "start_ms": 0,
+            "end_ms": 1000, "text": "Hi. "}]}]}"""
+        val result = ChapterTextLoader.load(FakeStorage(mapOf("t" to payload)), "t")
+        assertTrue("spec 3.0 must fail", result.isFailure)
+        assertTrue(result.exceptionOrNull() is ChapterTextInvalid)
+        assertTrue((result.exceptionOrNull()?.message ?: "").contains("3.0"))
+    }
+
+    @Test
+    fun spec20TimedChapter_loads() = runBlocking {
+        // IN1: a rendered 2.0 chapter carries timings exactly as in 1.x.
         val payload = """{"spec_version": "2.0", "chapter": 1, "title": "Ch",
             "duration_ms": 1000, "blocks": [{"id": 1, "type": "para",
             "sentences": [{"sid": 1, "speaker": "narrator", "start_ms": 0,
             "end_ms": 1000, "text": "Hi. "}]}]}"""
         val result = ChapterTextLoader.load(FakeStorage(mapOf("t" to payload)), "t")
-        assertTrue("spec 2.0 must fail", result.isFailure)
-        assertTrue(result.exceptionOrNull() is ChapterTextInvalid)
-        assertTrue((result.exceptionOrNull()?.message ?: "").contains("2.0"))
+        assertTrue("expected success but got: ${result.exceptionOrNull()?.message}", result.isSuccess)
+        assertEquals(1000L, result.getOrThrow().durationMs)
+    }
+
+    @Test
+    fun spec20UntimedChapter_loadsWithoutTimings() = runBlocking {
+        // IN1: an unrendered 2.0 chapter omits duration and sentence timings.
+        val payload = """{"spec_version": "2.0", "chapter": 1, "title": "Ch",
+            "blocks": [{"id": 1, "type": "para",
+            "sentences": [{"sid": 1, "speaker": "narrator", "text": "Hi. "}]}]}"""
+        val result = ChapterTextLoader.load(FakeStorage(mapOf("t" to payload)), "t")
+        assertTrue("expected success but got: ${result.exceptionOrNull()?.message}", result.isSuccess)
+        assertEquals(null, result.getOrThrow().durationMs)
     }
 }

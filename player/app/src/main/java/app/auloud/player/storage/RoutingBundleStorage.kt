@@ -70,4 +70,57 @@ class RoutingBundleStorage(
                 null
             }
         }
+
+    /**
+     * IN7: import writes route file paths to the file branch; SAF tokens
+     * throw (import targets are always file folders under the books root,
+     * never inside a picked tree).
+     */
+    override fun writeBytes(path: String, bytes: ByteArray) {
+        if (SafPaths.isSafPath(path)) {
+            throw java.io.IOException("$path: import cannot write inside a picked folder")
+        }
+        fileStorage.writeBytes(path, bytes)
+    }
+
+    override fun copySourceFile(srcPath: String, dstPath: String) {
+        if (SafPaths.isSafPath(dstPath)) {
+            throw java.io.IOException("$dstPath: import cannot write inside a picked folder")
+        }
+        fileStorage.copySourceFile(srcPath, dstPath)
+    }
+
+    override fun movePath(fromPath: String, toPath: String) {
+        if (SafPaths.isSafPath(fromPath) || SafPaths.isSafPath(toPath)) {
+            throw java.io.IOException("$toPath: import cannot write inside a picked folder")
+        }
+        fileStorage.movePath(fromPath, toPath)
+    }
+
+    override fun deleteRecursively(path: String) {
+        if (SafPaths.isSafPath(path)) {
+            try {
+                safForTree(SafPaths.treeOf(path)).deleteRecursively(path)
+            } catch (_: Exception) {
+            }
+            return
+        }
+        fileStorage.deleteRecursively(path)
+    }
+
+    /**
+     * IN8: stray import temps route file roots to the file branch; SAF
+     * roots yield an empty list (imports never target picked trees, so no
+     * temp can exist there).
+     */
+    override fun listStrayTempDirs(root: String): List<String> =
+        if (SafPaths.isSafPath(root)) {
+            emptyList()
+        } else {
+            try {
+                fileStorage.listStrayTempDirs(root)
+            } catch (_: Exception) {
+                emptyList()
+            }
+        }
 }

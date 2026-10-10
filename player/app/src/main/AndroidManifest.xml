@@ -35,5 +35,15 @@
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
+        <!-- RN8: foreground render service. API 24: started with plain
+             startService (no startForegroundService, API 26+), no
+             foregroundServiceType (API 29+), no notification channels
+             (API 26+; the service builds the platform notification
+             directly). The WAKE_LOCK permission above (normal,
+             install-time) covers the partial wake lock held only while
+             actively rendering. -->
+        <service
+            android:name=".render.RenderService"
+            android:exported="false" />
     </application>
 </manifest>

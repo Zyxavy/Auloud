@@ -12,6 +12,7 @@ dependencies = [
     "pysbd",
     "pyyaml>=6.0.3",
     "kokoro-onnx>=0.6.1",
+    "piper-tts>=1.8.0",
     "onnxruntime>=1.30.0",
     "numpy>=2.4.6",
     "soundfile>=0.14.0",
@@ -65,6 +66,9 @@ packages = []
 "progress.py" = "scribe/progress.py"
 "selection.py" = "scribe/selection.py"
 "device.py" = "scribe/device.py"
+"export_ingest.py" = "scribe/export_ingest.py"
+"export_render.py" = "scribe/export_render.py"
+"export_timing.py" = "scribe/export_timing.py"
 "extract" = "scribe/extract"
 "text" = "scribe/text"
 "tts" = "scribe/tts"

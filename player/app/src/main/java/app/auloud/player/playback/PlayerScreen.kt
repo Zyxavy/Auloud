@@ -1,6 +1,5 @@
 package app.auloud.player.playback
 
-import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +39,7 @@ import app.auloud.player.battery.PrefsBatteryPromptStore
 import app.auloud.player.library.BookUiModel
 import app.auloud.player.reader.ChapterEntry
 import app.auloud.player.reader.ChapterListScreen
+import app.auloud.player.render.ChapterStaleState
 import app.auloud.player.settings.PrefsReaderModeStore
 import coil.compose.AsyncImage
 
@@ -47,7 +47,7 @@ import coil.compose.AsyncImage
  * WP7: player screen for one book.
  *
  * Owns its [PlaybackController]: on open it starts the WP6 [PlaybackService]
- * with [PlaybackService.EXTRA_BOOK_ID] (the service reads the WP4
+ * with [PlaybackIntents.EXTRA_BOOK_ID] (the service reads the WP4
  * `ProgressEntity` and prepares the book paused at the saved spot -- the
  * screen reuses that input exactly and never computes or writes progress),
  * then connects the controller. [DisposableEffect] releases the controller;
@@ -84,7 +84,18 @@ fun PlayerScreen(
     chapters: List<ChapterEntry>? = null,
     showChapters: Boolean = false,
     onOpenChapters: () -> Unit = {},
-    onDismissChapters: () -> Unit = {}
+    onDismissChapters: () -> Unit = {},
+    /**
+     * VS5: stale chapter-list inputs for complete books (all default to
+     * hidden; BookScreen supplies them from its `StaleBookScan`). Delete
+     * stays hub-only, so there is no delete callback here.
+     */
+    staleStateOf: ((Int) -> ChapterStaleState)? = null,
+    staleBannerText: String? = null,
+    staleCount: Int = 0,
+    onRerenderStale: ((Int) -> Unit)? = null,
+    onRerenderChapter: ((Int) -> Unit)? = null,
+    onOpenVoices: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -113,8 +124,8 @@ fun PlayerScreen(
     BackHandler { onBack() }
 
     LaunchedEffect(book.id) {
-        val intent = Intent(appContext, PlaybackService::class.java)
-            .putExtra(PlaybackService.EXTRA_BOOK_ID, book.id)
+        val intent = PlaybackIntents.serviceIntent(appContext)
+            .putExtra(PlaybackIntents.EXTRA_BOOK_ID, book.id)
         appContext.startService(intent)
         controller.connect()
     }
@@ -162,6 +173,12 @@ fun PlayerScreen(
         },
         onDismissChapters = onDismissChapters,
         onDismissNotice = controller::clearSkipNotice,
+        staleStateOf = staleStateOf,
+        staleBannerText = staleBannerText,
+        staleCount = staleCount,
+        onRerenderStale = onRerenderStale,
+        onRerenderChapter = onRerenderChapter,
+        onOpenVoices = onOpenVoices,
         modifier = modifier
     )
 
@@ -201,7 +218,13 @@ private fun PlayerContent(
     chapterIndex: Int = 0,
     onChapterJump: (Int) -> Unit = {},
     onDismissChapters: () -> Unit = {},
-    onDismissNotice: () -> Unit = {}
+    onDismissNotice: () -> Unit = {},
+    staleStateOf: ((Int) -> ChapterStaleState)? = null,
+    staleBannerText: String? = null,
+    staleCount: Int = 0,
+    onRerenderStale: ((Int) -> Unit)? = null,
+    onRerenderChapter: ((Int) -> Unit)? = null,
+    onOpenVoices: (() -> Unit)? = null
 ) {
     // CP3: chapter list overlays the player; the controller stays owned by
     // PlayerScreen above, so jumps keep working after dismiss.
@@ -211,7 +234,14 @@ private fun PlayerContent(
             currentIndex = chapterIndex,
             onJump = onChapterJump,
             onBack = onDismissChapters,
-            modifier = modifier
+            modifier = modifier,
+            staleStateOf = staleStateOf,
+            staleBannerText = staleBannerText,
+            staleCount = staleCount,
+            onRerenderStale = onRerenderStale,
+            onRerenderChapter = onRerenderChapter,
+            onDeleteStaleAudio = null,
+            onOpenVoices = onOpenVoices
         )
         return
     }

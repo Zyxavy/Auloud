@@ -59,6 +59,10 @@ import app.auloud.player.bundle.Block
  * (quotes indented), breaks (divider). Scroll position, tap-to-jump and
  * mode chrome arrive in RA5-RA7; this screen only renders [state].
  *
+ * IN9: `para` and `quote` sentences with the reserved `dialogue` speaker
+ * draw in `MaterialTheme.colorScheme.tertiary` when [dialogueMarking] is on
+ * (headings keep the headline style); 1.x books have no dialogue speakers.
+ *
  * [fontSize] defaults to medium; RA10 wires it to the settings screen.
  */
 enum class ReaderFontSize {
@@ -80,7 +84,13 @@ fun ReaderScreen(
     onTopVisibleSentence: (Int) -> Unit = {},
     onOpenChapters: () -> Unit = {},
     onConfirmTapJump: () -> Unit = {},
-    onDismissTapJump: () -> Unit = {}
+    onDismissTapJump: () -> Unit = {},
+    /**
+     * IN9: dialogue marking (dialogue sentences in the tertiary accent).
+     * Defaults to on; 1.x books carry no `dialogue` speakers so they render
+     * exactly as before either way.
+     */
+    dialogueMarking: Boolean = true
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         Row(
@@ -123,6 +133,7 @@ fun ReaderScreen(
                         onBackToNow = onBackToNow,
                         onSentenceTap = onSentenceTap,
                         onTopVisibleSentence = onTopVisibleSentence,
+                        dialogueMarking = dialogueMarking,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -159,6 +170,7 @@ private fun ChapterContent(
     onBackToNow: () -> Unit,
     onSentenceTap: (Int) -> Unit,
     onTopVisibleSentence: (Int) -> Unit,
+    dialogueMarking: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val chapter = state.chapter ?: return
@@ -171,6 +183,10 @@ private fun ChapterContent(
     // highlight change recomposes just the flipped blocks (RA0 pattern).
     val highlightSid: State<Int?> = rememberUpdatedState(state.currentSid)
     val highlightColor = MaterialTheme.colorScheme.primaryContainer
+    // IN9: dialogue sentences in the tertiary accent (off via the reading
+    // setting). 1.x chapters carry no dialogue speakers, so they render
+    // exactly as before.
+    val dialogueColor = MaterialTheme.colorScheme.tertiary
     // Latest text-layout result per block id. Written from onTextLayout
     // (layout phase, never composition), read by the auto-scroll only.
     val layoutResults = remember(chapter) { mutableMapOf<Int, TextLayoutResult>() }
@@ -263,6 +279,8 @@ private fun ChapterContent(
                         layout = layouts[itemIndex],
                         highlightSid = highlightSid,
                         highlightColor = highlightColor,
+                        dialogueColor = dialogueColor,
+                        dialogueMarking = dialogueMarking,
                         indented = block.type == "quote",
                         fontSize = fontSize,
                         onTextLayout = { layoutResults[block.id] = it },
@@ -305,6 +323,8 @@ private fun ParagraphBlock(
     layout: ParagraphLayout,
     highlightSid: State<Int?>,
     highlightColor: androidx.compose.ui.graphics.Color,
+    dialogueColor: androidx.compose.ui.graphics.Color,
+    dialogueMarking: Boolean,
     indented: Boolean,
     fontSize: ReaderFontSize,
     onTextLayout: (TextLayoutResult) -> Unit,
@@ -321,7 +341,12 @@ private fun ParagraphBlock(
             layout.sentences.firstOrNull { it.sid == sid }
         }
     }
-    val annotated = remember(layout, highlightRange, highlightColor) {
+    // IN9: dialogue ranges (empty when the setting is off or the block has
+    // no dialogue sentences; 1.x blocks always yield empty).
+    val dialogueSpans = remember(block, layout, dialogueMarking) {
+        dialogueRanges(block, layout, dialogueMarking)
+    }
+    val annotated = remember(layout, highlightRange, highlightColor, dialogueSpans, dialogueColor) {
         buildAnnotatedString {
             append(layout.text)
             layout.italics.forEach { range ->
@@ -329,6 +354,9 @@ private fun ParagraphBlock(
             }
             layout.bolds.forEach { range ->
                 addStyle(SpanStyle(fontWeight = FontWeight.Bold), range.first, range.last + 1)
+            }
+            dialogueSpans.forEach { range ->
+                addStyle(SpanStyle(color = dialogueColor), range.first, range.last + 1)
             }
             highlightRange?.let { range ->
                 addStyle(SpanStyle(background = highlightColor), range.start, range.end)

@@ -1,0 +1,36 @@
+{
+  "blocks": [
+    {
+      "id": 1,
+      "level": 1,
+      "sentences": [
+        {
+          "sid": 1,
+          "speaker": "narrator",
+          "text": "The Far Bank"
+        }
+      ],
+      "text": "The Far Bank",
+      "type": "heading"
+    },
+    {
+      "id": 2,
+      "sentences": [
+        {
+          "sid": 2,
+          "speaker": "dialogue",
+          "text": "\"Follow me.\" "
+        },
+        {
+          "sid": 3,
+          "speaker": "narrator",
+          "text": "Tomas led the way down the path."
+        }
+      ],
+      "type": "para"
+    }
+  ],
+  "chapter": 2,
+  "spec_version": "2.0",
+  "title": "The Far Bank"
+}

@@ -155,4 +155,5 @@ Player under **Apache-2.0** (or MIT). Scribe under **AGPL-3.0-or-later**, becaus
 ## 12. Notes for later versions
 
 - **v2:** embed the EPUB/PDF in the app so the device runs its own TTS (Kokoro or Piper), generating audio on the device instead of needing a PC-rendered MP3.
-- **v3:** support later Android versions.
+- **v3:** Scribe ported to Rust with a Tauri v2 desktop app for Windows 11 and Linux (D-133).
+- **v4:** support later Android versions.

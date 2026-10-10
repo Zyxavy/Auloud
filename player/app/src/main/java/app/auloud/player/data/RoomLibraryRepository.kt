@@ -64,7 +64,9 @@ class RoomLibraryRepository(
                 author = manifest.author,
                 bundlePath = bundleDir,
                 coverPath = coverPath,
-                durationMs = manifest.chapters.sumOf { it.durationMs },
+                // IN1: unrendered 2.0 chapters carry no duration_ms (null);
+                // the book totals 0 ms until Slice 10 renders audio.
+                durationMs = manifest.chapters.sumOf { it.durationMs ?: 0L },
                 addedAt = existing?.addedAt ?: now(),
                 isMissing = false
             )
@@ -72,6 +74,20 @@ class RoomLibraryRepository(
             book
         }
     }
+
+    /**
+     * IN8: deletes the book folder first (best-effort, never throws by
+     * contract) and then the row, so a row never points at a folder the
+     * delete meant to remove. An unknown id fails naming the file and
+     * the rule and deletes nothing.
+     */
+    override suspend fun deleteBook(bookId: String): Result<Unit> =
+        runBoundary {
+            val existing = bookDao.getById(bookId)
+                ?: throw DataError.InvalidBundle("$bookId: book not in library (nothing to delete)")
+            storage.deleteRecursively(existing.bundlePath)
+            bookDao.deleteById(bookId)
+        }
 
     override suspend fun refreshMissing(presentBundleDirs: Collection<String>): Result<Unit> =
         runBoundary {

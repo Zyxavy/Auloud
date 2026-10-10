@@ -56,13 +56,26 @@ VOICES_LIST_FILENAME = "voices.txt"
 VOICES_ARCHIVE_FILENAME = "voices-v1.0.bin"
 
 
-def engine_voice_names(models_dir: Path | str) -> list[str] | None:
-    """Voice ids from the ``voices-v1.0.bin`` archive keys (no model load).
+def engine_voice_names(models_dir: Path | str, engine: str = "kokoro") -> list[str] | None:
+    """Voice ids for ``engine`` without a model load (SW3).
 
-    Only the npz directory is read (array data stays on disk), so this is
-    milliseconds and never touches onnxruntime. Returns ``None`` when the
-    archive is absent or unreadable — callers fall back to a curated list.
+    Kokoro reads the ``voices-v1.0.bin`` archive keys (only the npz
+    directory, never onnxruntime); Piper scans ``<models-dir>/piper/``
+    for ``<voice>.onnx`` + ``<voice>.onnx.json`` pairs (filenames only,
+    never a model load). Returns ``None`` when the source is absent or
+    unreadable — callers fall back to a curated list.
     """
+    if engine == "piper":
+        try:
+            from tts.piper import discover_voices
+        except ImportError:
+            return None
+        try:
+            found = discover_voices(models_dir)
+        except Exception:
+            return None
+        names = sorted(found)
+        return names or None
     archive = Path(models_dir) / VOICES_ARCHIVE_FILENAME
     try:
         import numpy as np

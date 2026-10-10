@@ -35,6 +35,7 @@ from typer.testing import CliRunner
 
 import cli
 from build import (
+    CAST_FILENAME,
     BuildError,
     BuildResult,
     compare_bundles,
@@ -47,6 +48,7 @@ from bundle.inspect import InspectError, format_inspect, inspect_bundle
 from bundle.models import ChapterFile
 from bundle.validate import validate_bundle
 from draft import SCRIPT_FILENAME, book_id_for_file, run_draft
+from text.cast import read_cast, write_cast
 from tts.base import TTSEngine
 
 FIXTURES = Path(__file__).resolve().parents[2] / "spec" / "fixtures"
@@ -642,6 +644,93 @@ def test_pause_constant_change_rerenders_all(
 
 
 # ---------------------------------------------------------------------------
+# (SW2) per-engine routing: a piper narrator renders through piper
+# ---------------------------------------------------------------------------
+
+
+class PiperFakeEngine(FakeEngine):
+    """Piper stand-in: its own voice list and version (cache separation)."""
+
+    @property
+    def voices(self) -> tuple[str, ...]:
+        return ("pv-one",)
+
+    @property
+    def engine_version(self) -> str:
+        return "piper-fake-1"
+
+
+def test_piper_narrator_build_routes_and_records_engine(tmp_path: Path) -> None:
+    """SW2 end to end: switching the narrator entry to piper re-renders
+    through the injected piper engine, and the manifest records it."""
+    _needs_ffmpeg()
+    epub_path = _make_epub(tmp_path / "book.epub", ["Chapter One"])
+    work_root = tmp_path / "work"
+    out = tmp_path / "out"
+    run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    book_id, _ = book_id_for_file(epub_path)
+    cast_path = work_root / book_id / CAST_FILENAME
+    cast = read_cast(cast_path)
+    cast["narrator"]["engine"] = "piper"
+    cast["narrator"]["voice"] = "pv-one"
+    write_cast(cast_path, cast)
+
+    kokoro = FakeEngine()
+    piper = PiperFakeEngine()
+    second = run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=kokoro,
+        extra_engines={"piper": piper},
+        show_progress=False,
+    )
+    assert (second.rendered, second.skipped) == (1, 0)  # engine switch re-renders
+    assert piper.calls  # sentences actually synthesized through piper
+    assert not kokoro.calls  # narration no longer touches kokoro
+    assert validate_bundle(out).ok
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["voices"]["narrator"]["engine"] == "piper"
+    assert manifest["voices"]["narrator"]["voice"] == "pv-one"
+
+
+def test_missing_piper_engine_is_build_error(tmp_path: Path) -> None:
+    """A piper cast with no piper engine and no models fails cleanly."""
+    _needs_ffmpeg()
+    epub_path = _make_epub(tmp_path / "book.epub", ["Chapter One"])
+    work_root = tmp_path / "work"
+    out = tmp_path / "out"
+    run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        show_progress=False,
+    )
+    book_id, _ = book_id_for_file(epub_path)
+    cast_path = work_root / book_id / CAST_FILENAME
+    cast = read_cast(cast_path)
+    cast["narrator"]["engine"] = "piper"
+    cast["narrator"]["voice"] = "pv-one"
+    write_cast(cast_path, cast)
+    with pytest.raises(BuildError, match="Piper"):
+        run_build(
+            epub_path,
+            work_root=work_root,
+            out_dir=out,
+            engine=FakeEngine(),
+            models_dir=tmp_path / "no-models",
+            show_progress=False,
+        )
+
+
+# ---------------------------------------------------------------------------
 # (g) torn-file resume: truncated MP3, missing JSON, corrupt JSON, half bundle
 # ---------------------------------------------------------------------------
 
@@ -816,7 +905,7 @@ def test_missing_cbr_attribute_rerenders(
     )
     cast = {"narrator": {"voice": "v", "speed": 1.0}}
     engine = FakeEngine()
-    fingerprint = build_module._fingerprint(cast, engine, script_chapter)
+    fingerprint = build_module._fingerprint(cast, {"kokoro": engine}, script_chapter)
 
     json_path = tmp_path / "ch001.json"
     mp3_path = tmp_path / "ch001.mp3"

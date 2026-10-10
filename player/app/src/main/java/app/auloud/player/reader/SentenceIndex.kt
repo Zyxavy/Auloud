@@ -14,6 +14,12 @@ import app.auloud.player.bundle.Block
  * sentence is the last one whose `start_ms <= pos`, so a position inside a
  * gap keeps the previous highlight. Before the first start the answer is
  * the first sentence; an empty chapter answers `null` everywhere.
+ *
+ * IN1 (spec 2.0): unrendered sentences carry no `start_ms` (null) and are
+ * skipped by the time tables, so `size` counts timed sentences only and
+ * `startMsOf` answers `null` for untimed sids (same as unknown sids).
+ * Rendered chapters behave exactly as before. The sid-based reader for
+ * unrendered books arrives in IN9.
  */
 class SentenceIndex(blocks: List<Block>) {
 
@@ -31,8 +37,9 @@ class SentenceIndex(blocks: List<Block>) {
 
     init {
         val flat = blocks.flatMapIndexed { blockIndex, block ->
-            block.sentences.mapIndexed { indexInBlock, sentence ->
-                Triple(sentence.startMs, sentence.sid, SentenceLocation(blockIndex, indexInBlock))
+            block.sentences.mapIndexedNotNull { indexInBlock, sentence ->
+                val start = sentence.startMs ?: return@mapIndexedNotNull null
+                Triple(start, sentence.sid, SentenceLocation(blockIndex, indexInBlock))
             }
         }.sortedWith(compareBy({ it.first }, { it.second }))
         starts = LongArray(flat.size) { flat[it].first }

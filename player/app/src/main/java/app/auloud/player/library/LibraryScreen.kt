@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
@@ -21,11 +23,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import app.auloud.player.R
+import app.auloud.player.render.renderChipText
+import app.auloud.player.render.staleChipText
 import coil.compose.AsyncImage
 
 /**
@@ -41,12 +49,17 @@ fun LibraryScreen(
     onRetryPermission: () -> Unit,
     onBookSelected: (String) -> Unit,
     onOpenSettings: () -> Unit = {},
+    onImportEpub: () -> Unit = {},
+    onDeleteBook: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (!state.hasPermission) {
         NoPermissionState(onRetryPermission, modifier)
         return
     }
+    // IN8: delete confirmation target (dialog state lives here; the
+    // ViewModel only sees the confirmed id).
+    var pendingDelete by remember { mutableStateOf<BookUiModel?>(null) }
     Column(modifier = modifier.fillMaxSize()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -59,6 +72,10 @@ fun LibraryScreen(
                 // only; a full settings screen is out of scope).
                 TextButton(onClick = onOpenSettings) {
                     Text("Settings")
+                }
+                // IN8: on-device EPUB import (system picker, no permission).
+                TextButton(onClick = onImportEpub) {
+                    Text("Import EPUB")
                 }
                 Button(onClick = onRescan, enabled = !state.isScanning) {
                     Text(if (state.isScanning) "Scanning…" else "Rescan")
@@ -89,7 +106,22 @@ fun LibraryScreen(
             }
             return
         }
-        LibraryList(state, onBookSelected, Modifier.weight(1f))
+        LibraryList(
+            state,
+            onBookSelected,
+            onDeleteRequest = { pendingDelete = it },
+            Modifier.weight(1f)
+        )
+        pendingDelete?.let { book ->
+            DeleteConfirmDialog(
+                title = book.title,
+                onConfirm = {
+                    onDeleteBook(book.id)
+                    pendingDelete = null
+                },
+                onDismiss = { pendingDelete = null }
+            )
+        }
     }
 }
 
@@ -97,11 +129,12 @@ fun LibraryScreen(
 private fun LibraryList(
     state: LibraryUiState,
     onBookSelected: (String) -> Unit,
+    onDeleteRequest: (BookUiModel) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(modifier = modifier.fillMaxSize()) {
         items(state.books, key = { it.id }) { book ->
-            BookRow(book, onBookSelected)
+            BookRow(book, onBookSelected, onDeleteRequest)
         }
         if (state.errors.isNotEmpty()) {
             item(key = "skipped-header") {
@@ -124,6 +157,7 @@ private fun LibraryList(
 private fun BookRow(
     book: BookUiModel,
     onBookSelected: (String) -> Unit,
+    onDeleteRequest: (BookUiModel) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
@@ -141,6 +175,27 @@ private fun BookRow(
                 text = book.author ?: "Unknown author",
                 style = MaterialTheme.typography.bodyMedium
             )
+            // RN9: render chip ("Rendering 42%", "Paused at 42%",
+            // "Render failed", "Partially rendered", "Not rendered";
+            // rendered books show nothing).
+            renderChipText(book.renderState, book.renderJob)?.let { chip ->
+                Spacer(Modifier.height(4.dp))
+                AssistChip(
+                    onClick = { onBookSelected(book.id) },
+                    label = { Text(chip) }
+                )
+            }
+            // VS5: stale chip ("N chapter(s) need re-render"; nothing
+            // when no chapter is stale). A second chip next to the RN9
+            // one: both may show, and the tap opens the book like the
+            // render chip.
+            staleChipText(book.staleChapters)?.let { chip ->
+                Spacer(Modifier.height(4.dp))
+                AssistChip(
+                    onClick = { onBookSelected(book.id) },
+                    label = { Text(chip) }
+                )
+            }
             if (book.isMissing) {
                 Text(
                     text = "Unavailable — folder not found",
@@ -152,7 +207,31 @@ private fun BookRow(
                 LinearProgressIndicator(progress = { book.progressFraction })
             }
         }
+        TextButton(onClick = { onDeleteRequest(book) }) {
+            Text("Delete")
+        }
     }
+}
+
+@Composable
+private fun DeleteConfirmDialog(
+    title: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("Delete") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Keep") }
+        },
+        title = { Text("Delete this book?") },
+        text = { Text("“$title” and its folder will be removed from this device.") },
+        modifier = modifier
+    )
 }
 
 @Composable

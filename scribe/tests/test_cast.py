@@ -327,6 +327,92 @@ def test_unknown_voice_rejected_everywhere() -> None:
         assert err.startswith("cast.yaml: ")  # file + key + rule
 
 
+# ---------------------------------------------------------------------------
+# SW2: per-entry engines (kokoro default, piper opt-in)
+# ---------------------------------------------------------------------------
+
+
+def _piper_errors(cast: dict) -> list[str]:
+    return validate_cast(
+        cast,
+        known_voices=KNOWN,
+        known_voices_per_engine={"kokoro": KNOWN, "piper": {"en_US-lessac-low"}},
+    )
+
+
+def test_piper_entries_validate_against_piper_list() -> None:
+    cast = _cast()
+    cast["narrator"]["engine"] = "piper"
+    cast["narrator"]["voice"] = "en_US-lessac-low"
+    cast["characters"]["Alice"]["engine"] = "piper"
+    cast["characters"]["Alice"]["voice"] = "en_US-lessac-low"
+    cast["default_female"]["engine"] = "piper"
+    cast["default_female"]["voice"] = "en_US-lessac-low"
+    assert _piper_errors(cast) == []
+
+
+def test_piper_entry_with_kokoro_voice_rejected() -> None:
+    cast = _cast()
+    cast["characters"]["Alice"]["engine"] = "piper"  # voice stays bf_isabella
+    errors = _piper_errors(cast)
+    assert any("characters.Alice.voice" in e and "piper" in e for e in errors)
+
+
+def test_kokoro_entry_with_piper_voice_rejected() -> None:
+    cast = _cast()  # all engines default kokoro
+    cast["characters"]["Alice"]["voice"] = "en_US-lessac-low"
+    errors = _piper_errors(cast)
+    assert any("characters.Alice.voice" in e and "kokoro" in e for e in errors)
+
+
+def test_character_engine_bad_string_rejected() -> None:
+    cast = _cast()
+    cast["characters"]["Alice"]["engine"] = "espeak"
+    assert any("characters.Alice.engine" in e for e in _errors(cast))
+
+
+def test_missing_character_engine_means_kokoro() -> None:
+    cast = _cast()  # no engine keys anywhere except the narrator
+    assert _errors(cast) == []
+    hit = resolve_speaker(cast, raw_speaker="Bob", chapter=1, block=1, quote=1)
+    assert hit.engine == "kokoro"
+
+
+def test_cast_engines_lists_needed_in_order() -> None:
+    from text.cast import cast_engines
+
+    assert cast_engines(_cast()) == ["kokoro"]
+    assert cast_engines({}) == ["kokoro"]
+    assert cast_engines("nope") == ["kokoro"]  # type: ignore[arg-type]
+    cast = _cast()
+    cast["characters"]["Alice"]["engine"] = "piper"
+    cast["default_male"]["engine"] = "piper"
+    assert cast_engines(cast) == ["kokoro", "piper"]
+    cast = _cast()
+    cast["narrator"]["engine"] = "piper"
+    for entry in cast["characters"].values():
+        entry["engine"] = "piper"
+    cast["default_female"]["engine"] = "piper"
+    cast["default_male"]["engine"] = "piper"
+    assert cast_engines(cast) == ["piper"]
+
+
+def test_resolution_carries_entry_engine() -> None:
+    cast = _cast()
+    cast["narrator"]["engine"] = "piper"
+    cast["narrator"]["voice"] = "en_US-lessac-low"
+    cast["characters"]["Alice"]["engine"] = "piper"
+    cast["characters"]["Alice"]["voice"] = "en_US-lessac-low"
+    hit = resolve_speaker(cast, raw_speaker="Alice", chapter=1, block=1, quote=1)
+    assert (hit.character, hit.engine, hit.voice) == ("Alice", "piper", "en_US-lessac-low")
+    hit = resolve_speaker(cast, raw_speaker="Bob", chapter=1, block=1, quote=1)
+    assert (hit.character, hit.engine) == ("Bob", "kokoro")
+    hit = resolve_speaker(cast, raw_speaker="narrator")
+    assert (hit.character, hit.engine) == ("narrator", "piper")
+    hit = resolve_speaker(cast, raw_speaker="Nobody", gender="male")
+    assert (hit.character, hit.engine) == ("default_male", "kokoro")
+
+
 def test_voice_shape_only_without_known_voices() -> None:
     cast = _cast()
     assert validate_cast(cast, known_voices=None) == []
@@ -403,6 +489,11 @@ def test_malformed_structure_errors() -> None:
     assert any("narrator" in e and "missing" in e for e in _errors(cast))
     cast = _cast()
     cast["narrator"]["engine"] = "piper"
+    # SW2: piper is a supported narrator engine (voice checks shape-only
+    # without a per-engine map, so the Kokoro name passes here).
+    assert _errors(cast) == []
+    cast = _cast()
+    cast["narrator"]["engine"] = "espeak"
     assert any("narrator.engine" in e for e in _errors(cast))
     cast = _cast()
     cast["narrator"]["speed"] = -1.0

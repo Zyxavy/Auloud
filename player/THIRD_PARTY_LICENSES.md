@@ -1,10 +1,14 @@
-# Auloud Player: third-party licenses (CP8)
+# Auloud Player: third-party licenses, core flavor (CP8, VC1)
+
+VC1 (D-126 option A): this is the `core` list. The `core` build ships
+no GPL code. The `full` list (bundled sherpa-onnx/onnxruntime/espeak
+plus sideloaded-pack notes) is THIRD_PARTY_LICENSES.full.md.
 
 Versions below match `gradle/libs.versions.toml` exactly. License names were
 read from each artifact's own POM `<licenses>` block in the local Gradle
 cache on 2026-10-04. Test-only and build-only items never ship in the APK.
 
-## Shipped in the app
+## Shipped in the core app
 
 | Library | Version | License |
 | --- | --- | --- |
@@ -16,6 +20,7 @@ cache on 2026-10-04. Test-only and build-only items never ship in the APK.
 | Room (runtime, ktx) | 2.6.1 | Apache-2.0 |
 | kotlinx-serialization-json | 1.7.3 | Apache-2.0 |
 | Coil (coil-compose) | 2.6.0 | Apache-2.0 |
+| jsoup | 1.23.2 | MIT |
 
 ## Test only (never shipped)
 
@@ -35,7 +40,7 @@ cache on 2026-10-04. Test-only and build-only items never ship in the APK.
 | Kotlin Gradle plugins | 2.0.21 | Apache-2.0 |
 | KSP | 2.0.21-1.0.28 | Apache-2.0 |
 
-## Scribe-side voice items (PC only, never bundled in the APK)
+## Scribe-side voice items (PC only, never bundled in the core APK)
 
 | Item | Version | License |
 | --- | --- | --- |
@@ -44,4 +49,4 @@ cache on 2026-10-04. Test-only and build-only items never ship in the APK.
 | spaCy en_core_web_sm (language model) | 3.8.0 | MIT |
 
 The same list (minus the build-only tools) is shown in the app under
-Settings > Licenses.
+Settings > Licenses (per flavor: the core screen matches this file).

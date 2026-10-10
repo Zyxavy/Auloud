@@ -1,6 +1,6 @@
 package app.auloud.player.reader
 
-import android.content.Intent
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,8 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -31,9 +31,10 @@ import app.auloud.player.battery.BatteryPromptLogic
 import app.auloud.player.battery.BatterySettingsIntents
 import app.auloud.player.battery.PrefsBatteryPromptStore
 import app.auloud.player.bundle.BundleParser
+import app.auloud.player.data.ProgressRepository
 import app.auloud.player.library.BookUiModel
 import app.auloud.player.playback.PlaybackController
-import app.auloud.player.playback.PlaybackService
+import app.auloud.player.playback.PlaybackIntents
 import app.auloud.player.playback.PlayerScreen
 import app.auloud.player.playback.ReaderDebugOverlay
 import app.auloud.player.playback.SleepOption
@@ -44,9 +45,18 @@ import app.auloud.player.playback.cycleSleepOption
 import app.auloud.player.playback.nextSpeed
 import app.auloud.player.playback.readTotalPssMb
 import app.auloud.player.playback.sendSleepOption
+import app.auloud.player.render.ChapterStaleState
+import app.auloud.player.render.RenderService
+import app.auloud.player.render.RerenderMode
+import app.auloud.player.render.StaleBookData
+import app.auloud.player.render.StaleBookScan
+import app.auloud.player.render.bannerFor
+import app.auloud.player.render.rerenderModeName
 import app.auloud.player.settings.PrefsReaderModeStore
 import app.auloud.player.settings.ReaderModeStore
 import app.auloud.player.storage.BundleStorage
+import app.auloud.player.tts.PrefsTtsStore
+import app.auloud.player.tts.bookVoiceVersionOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -59,13 +69,34 @@ import kotlinx.coroutines.withContext
  * (never stored per mode), so switching modes only changes what plays and
  * what shows. Listen reuses the Slice 1 [PlayerScreen]; Read and
  * Read + listen share [ReaderSession] below.
+ *
+ * IN9: unrendered books (2.0 `none`/`partial`, detected from the manifest
+ * `render_state` with the library chip map as the pre-load hint) open the
+ * RN9 render hub ([PartialBookScreen]): the panel plus per-chapter Read
+ * (read-only [UnrenderedBookScreen]) and Listen routing. No service, no
+ * controller and no audio controls play before a chapter is chosen, and
+ * the Listen modes stay disabled at book level with the render hint. The
+ * stored global mode is left untouched, so returning to a rendered book
+ * keeps its mode. [UnrenderedBookScreen] stays as the hub's Read
+ * destination.
+ *
+ * VS5: fully rendered (2.0 `complete`) books gain the stale-voice surface
+ * (D-115, D-119): the manifest load also classifies every chapter through
+ * [StaleBookScan] (sequential chapter reads off the composition path),
+ * and the chapter-list overlays in Listen and Read branches show badges,
+ * the mixed-voice banner and re-render actions plus the [BookVoiceHost]
+ * entry point (VS4 noted complete books had none). Read-only and legacy
+ * books scan as null and show no stale UI; the Voices entry still opens
+ * (the voice screen renders its read-only face).
  */
 @Composable
 fun BookScreen(
     book: BookUiModel,
     storage: BundleStorage,
     onBack: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    progress: ProgressRepository,
+    onBookChanged: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -75,24 +106,142 @@ fun BookScreen(
     // emptyList = manifest unreadable). Loaded once per book here; the
     // reader branch keeps its own textPaths load unchanged below.
     var chapters by remember(book.id) { mutableStateOf<List<ChapterEntry>?>(null) }
+    // IN9: manifest render_state (null = not loaded yet). The library chip
+    // map ([BookUiModel.renderState]) is the pre-load hint; the manifest is
+    // truth once read (a stale map after a Slice 10 render must not keep a
+    // now-complete book read-only).
+    var manifestRenderState by remember(book.id) { mutableStateOf<String?>(null) }
+    var manifestLoaded by remember(book.id) { mutableStateOf(false) }
     var showChapters by remember(book.id) { mutableStateOf(false) }
+    // VS5: staleness for complete books (null = not loaded yet, or no
+    // stale UI: read-only, legacy, or nothing rendered). Reloaded with
+    // [staleTick] after the voice screen closes (voices may have changed).
+    var staleData by remember(book.id) { mutableStateOf<StaleBookData?>(null) }
+    var staleTick by remember(book.id) { mutableIntStateOf(0) }
+    var showBookVoices by remember(book.id) { mutableStateOf(false) }
+    val voiceGlobals = remember(book.id) { PrefsTtsStore.fromContext(appContext) }
+    val staleVersionOf = remember(book.id) { bookVoiceVersionOf(appContext) }
     // Hoisted persist + state: both branches route mode changes through
     // here, so the setting and the UI can never disagree.
     val changeMode: (ReaderMode) -> Unit = {
         modeStore.setMode(it)
         mode = it
     }
-    LaunchedEffect(book.id) {
-        chapters = withContext(Dispatchers.IO) {
+    // VS5: re-render start for complete books (STALE_ONLY; the chapter
+    // list passes the tapped or current chapter, so it renders first).
+    fun startBookRerender(readingChapter: Int) {
+        try {
+            appContext.startService(
+                RenderService.startRerenderIntent(
+                    appContext,
+                    book.id,
+                    readingChapter,
+                    rerenderModeName(RerenderMode.STALE_ONLY)
+                )
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "re-render start failed: ${e.message}")
+        }
+    }
+    LaunchedEffect(book.id, staleTick) {
+        val parsed = withContext(Dispatchers.IO) {
             try {
                 val root = book.bundleDir.trimEnd('/')
                 val raw = storage.readText("$root/manifest.json")
-                BundleParser.parseText(raw).getOrThrow().chapters.let(::toChapterEntries)
+                BundleParser.parseText(raw).getOrThrow()
             } catch (_: Exception) {
-                emptyList()
+                null
             }
         }
+        chapters = parsed?.chapters?.let(::toChapterEntries) ?: emptyList()
+        manifestRenderState = parsed?.renderState
+        manifestLoaded = true
+        // VS5: stale scan for complete books only (the same effect keeps
+        // one manifest read; hub books own their scan in the panel VM).
+        staleData = if (parsed?.renderState == "complete") {
+            withContext(Dispatchers.IO) {
+                try {
+                    val root = book.bundleDir.trimEnd('/')
+                    StaleBookScan.scan(
+                        manifest = parsed,
+                        readChapterText = { rel ->
+                            try {
+                                storage.readText("$root/$rel")
+                            } catch (_: Exception) {
+                                null
+                            }
+                        },
+                        globals = voiceGlobals,
+                        versionOf = staleVersionOf
+                    )
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        } else {
+            null
+        }
     }
+    // IN9: read-only routing. The manifest wins once loaded; before that the
+    // library map decides (a just-imported book shows read-only immediately
+    // instead of flashing the player and starting a service the gate stops).
+    val effectiveRenderState = if (manifestLoaded) manifestRenderState else book.renderState
+    // RN9 fix: `none` (fresh imports) and `partial` books open the hub
+    // (render panel plus per-chapter reader/player routing). Rendered
+    // books (1.x null, 2.0 `complete`) fall through to the player/reader
+    // below; unknown values fall through to the read-only screen.
+    if (shouldOpenRenderHub(effectiveRenderState)) {
+        PartialBookScreen(
+            book = book,
+            storage = storage,
+            progress = progress,
+            onBack = onBack,
+            modifier = modifier,
+            chapters = chapters,
+            onBookChanged = onBookChanged
+        )
+        return
+    }
+    if (!isListenAvailable(effectiveRenderState)) {
+        UnrenderedBookScreen(
+            book = book,
+            storage = storage,
+            progress = progress,
+            onBack = onBack,
+            modifier = modifier,
+            chapters = chapters,
+            showChapters = showChapters,
+            onOpenChapters = { showChapters = true },
+            onDismissChapters = { showChapters = false }
+        )
+        return
+    }
+    // VS5: book voice screen for complete books (the entry point VS4
+    // noted was missing). Back returns here; closing refreshes the stale
+    // states (voices may have changed) and rescans the library chips.
+    if (showBookVoices) {
+        BookVoiceHost(
+            book = book,
+            storage = storage,
+            progress = progress,
+            onBack = {
+                showBookVoices = false
+                staleTick++
+            },
+            onBookChanged = {
+                staleTick++
+                onBookChanged()
+            },
+            modifier = modifier
+        )
+        return
+    }
+    // VS5: stale chapter-list inputs for complete books (null map hides
+    // every stale piece; the Voices entry shows whenever the manifest
+    // loaded, so read-only books still reach the read-only face).
+    val staleStates = staleData?.states
+    val staleBanner = staleData?.summary?.let(::bannerFor)?.text
+    val staleCount = staleData?.summary?.stale ?: 0
     if (mode == ReaderMode.Listen) {
         PlayerScreen(
             book = book,
@@ -102,7 +251,19 @@ fun BookScreen(
             chapters = chapters,
             showChapters = showChapters,
             onOpenChapters = { showChapters = true },
-            onDismissChapters = { showChapters = false }
+            onDismissChapters = { showChapters = false },
+            staleStateOf = staleStates?.let { states ->
+                { pos: Int -> states[pos] ?: ChapterStaleState.NOT_RENDERED }
+            },
+            staleBannerText = staleBanner,
+            staleCount = staleCount,
+            onRerenderStale = staleStates?.let { { pos: Int -> startBookRerender(pos) } },
+            onRerenderChapter = staleStates?.let { { pos: Int -> startBookRerender(pos) } },
+            onOpenVoices = if (manifestLoaded) {
+                { showBookVoices = true }
+            } else {
+                null
+            }
         )
     } else {
         ReaderSession(
@@ -116,7 +277,19 @@ fun BookScreen(
             chapters = chapters,
             showChapters = showChapters,
             onOpenChapters = { showChapters = true },
-            onDismissChapters = { showChapters = false }
+            onDismissChapters = { showChapters = false },
+            staleStateOf = staleStates?.let { states ->
+                { pos: Int -> states[pos] ?: ChapterStaleState.NOT_RENDERED }
+            },
+            staleBannerText = staleBanner,
+            staleCount = staleCount,
+            onRerenderStale = staleStates?.let { { pos: Int -> startBookRerender(pos) } },
+            onRerenderChapter = staleStates?.let { { pos: Int -> startBookRerender(pos) } },
+            onOpenVoices = if (manifestLoaded) {
+                { showBookVoices = true }
+            } else {
+                null
+            }
         )
     }
 }
@@ -144,7 +317,18 @@ private fun ReaderSession(
     chapters: List<ChapterEntry>? = null,
     showChapters: Boolean = false,
     onOpenChapters: () -> Unit = {},
-    onDismissChapters: () -> Unit = {}
+    onDismissChapters: () -> Unit = {},
+    /**
+     * VS5: stale chapter-list inputs for complete books (all default to
+     * hidden; BookScreen supplies them from its [StaleBookScan]). Delete
+     * stays hub-only, so there is no delete callback here.
+     */
+    staleStateOf: ((Int) -> ChapterStaleState)? = null,
+    staleBannerText: String? = null,
+    staleCount: Int = 0,
+    onRerenderStale: ((Int) -> Unit)? = null,
+    onRerenderChapter: ((Int) -> Unit)? = null,
+    onOpenVoices: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -165,6 +349,9 @@ private fun ReaderSession(
     // RA10: font size is a persisted setting, read once per session (the
     // session remounts when returning from Settings, so changes apply).
     val fontSize = remember(book.id) { modeStore.fontSize() }
+    // IN9: dialogue marking follows the same rule (1.x books have no
+    // dialogue speakers, so the default-on setting changes nothing there).
+    val dialogueMarking = remember(book.id) { modeStore.dialogueMarking() }
     val batteryStore = remember(appContext) { PrefsBatteryPromptStore.fromContext(appContext) }
     var showBatteryDialog by remember(book.id) { mutableStateOf(false) }
     // RA8: speed + sleep timer (same controls as the Listen player).
@@ -173,8 +360,8 @@ private fun ReaderSession(
     var sleepOption by remember(book.id) { mutableStateOf(SleepOption.Off) }
 
     LaunchedEffect(book.id) {
-        val intent = Intent(appContext, PlaybackService::class.java)
-            .putExtra(PlaybackService.EXTRA_BOOK_ID, book.id)
+        val intent = PlaybackIntents.serviceIntent(appContext)
+            .putExtra(PlaybackIntents.EXTRA_BOOK_ID, book.id)
         appContext.startService(intent)
         controller.connect()
     }
@@ -249,7 +436,14 @@ private fun ReaderSession(
                 onDismissChapters()
             },
             onBack = onDismissChapters,
-            modifier = modifier
+            modifier = modifier,
+            staleStateOf = staleStateOf,
+            staleBannerText = staleBannerText,
+            staleCount = staleCount,
+            onRerenderStale = onRerenderStale,
+            onRerenderChapter = onRerenderChapter,
+            onDeleteStaleAudio = null,
+            onOpenVoices = onOpenVoices
         )
     } else {
         Column(modifier = modifier.fillMaxSize()) {
@@ -271,6 +465,7 @@ private fun ReaderSession(
             onConfirmTapJump = viewModel::confirmTapJump,
             onDismissTapJump = viewModel::dismissTapJump,
                 onOpenChapters = onOpenChapters,
+                dialogueMarking = dialogueMarking,
                 modifier = Modifier.weight(1f)
             )
         // RA9: debug-build-only sync section (sid, highlight lag, PSS).
@@ -348,6 +543,8 @@ private fun resumePlayback(
     play()
 }
 
+private const val TAG = "AuloudBook"
+
 /** Mode switcher + Play/Pause + speed + sleep (compact; text stays maximal). */
 @Composable
 private fun ModeBar(
@@ -375,29 +572,60 @@ private fun ModeBar(
     }
 }
 
-/** Shared Read/Listen/Read+listen row (reader mode bar and Listen player). */
+/** Shared Read/Listen/Read+listen row (reader mode bar and Listen player).
+ *
+ * IN9: [listenEnabled] false disables the Listen and Read + listen buttons
+ * and shows [listenHint] below (unrendered books); the defaults render
+ * exactly as before.
+ */
 @Composable
-private fun ModeSwitcherRow(
+internal fun ModeSwitcherRow(
     mode: ReaderMode,
     onMode: (ReaderMode) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    listenEnabled: Boolean = true,
+    listenHint: String? = null
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        ModeButton(label = "Read", selected = mode == ReaderMode.Read, onClick = { onMode(ReaderMode.Read) })
-        ModeButton(label = "Listen", selected = mode == ReaderMode.Listen, onClick = { onMode(ReaderMode.Listen) })
-        ModeButton(label = "Read + listen", selected = mode == ReaderMode.ReadListen, onClick = { onMode(ReaderMode.ReadListen) })
+    Column(modifier = modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ModeButton(label = "Read", selected = mode == ReaderMode.Read, onClick = { onMode(ReaderMode.Read) })
+            ModeButton(
+                label = "Listen",
+                selected = mode == ReaderMode.Listen,
+                onClick = { onMode(ReaderMode.Listen) },
+                enabled = listenEnabled
+            )
+            ModeButton(
+                label = "Read + listen",
+                selected = mode == ReaderMode.ReadListen,
+                onClick = { onMode(ReaderMode.ReadListen) },
+                enabled = listenEnabled
+            )
+        }
+        if (!listenEnabled && listenHint != null) {
+            Text(
+                text = listenHint,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+            )
+        }
     }
 }
 
 @Composable
-private fun ModeButton(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun ModeButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    enabled: Boolean = true
+) {
     if (selected) {
-        Button(onClick = onClick) { Text(label) }
+        Button(onClick = onClick, enabled = enabled) { Text(label) }
     } else {
-        TextButton(onClick = onClick) { Text(label) }
+        OutlinedButton(onClick = onClick, enabled = enabled) { Text(label) }
     }
 }

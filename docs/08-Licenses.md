@@ -1,0 +1,177 @@
+# Licenses and Legal Notes
+
+## 1. own code
+
+| Component | Proposed license | Why |
+| --- | --- | --- |
+| Player (Android app) | Apache-2.0 (or MIT) | Permissive, patent grant, compatible with the AndroidX/Media3 libraries it uses |
+| Scribe (PC tool) | AGPL-3.0-or-later | ebooklib is AGPL-3.0 (METADATA: GNU Affero General Public License, AGPLv3+), so Scribe which imports it is AGPL-3.0-or-later; also covers hosted-service use via the network clause (see D-024) |
+| Bundle spec (`03-BundleSpec.md`) | CC0 or Apache-2.0 | So anyone can write compatible tools |
+
+The Player `core` flavor only plays audio and shows text, so no GPL code
+ships in it. The `full` flavor bundles on-device TTS with
+Piper/espeak-ng and is distributed as a GPL-3.0 combined work (decided
+D-126 option A, see section 5).
+
+If you host Scribe as a network service for other people, check the AGPL points in section 3.
+
+## 2. Player dependencies (Android)
+
+| Library | License | Verified |
+| --- | --- | --- |
+| Kotlin, coroutines | Apache-2.0 | [x] |
+| Jetpack Compose, AndroidX (Room, DataStore, Navigation), Media3 | Apache-2.0 | [x] |
+| kotlinx.serialization | Apache-2.0 | [x] |
+| Coil | Apache-2.0 | [x] |
+| JUnit (test only) | EPL-1.0 | [x] |
+| MockK, Turbine (test only) | Apache-2.0 | [x] |
+| jsoup 1.23.2 | MIT | [x] |
+
+In-app: add a "Licenses" screen listing these (a Gradle license plugin can generate it), and ship a `NOTICE` file.
+
+jsoup note (Slice 9 IN4, pinned): HTML parser for sloppy EPUB XHTML.
+MIT per https://jsoup.org/license (confirmed 2026-10-06; the published
+POM for 1.23.2 carries a MIT License block). Floor 1.23.2 is the current
+release per https://jsoup.org/download (confirmed 2026-10-06), pinned in
+`player/gradle/libs.versions.toml` (see D-079). minSdk 24 evidence: jsoup
+runs on Java 8 and up including Android with core library desugaring (NIO
+spec) per the download page; the 1.23.2 POM builds a Java 8 base
+(multi-release jar with a Java 11 overlay) and validates the Java 8 and
+Android API 21 surfaces (animal-sniffer `check-java8-api` /
+`check-android21-api`), so API 24 is above the validated baseline.
+Self-contained with no required runtime dependencies (re2j is optional,
+not transitive). Core library desugaring with the NIO spec is enabled in
+`player/app/build.gradle.kts` via
+`com.android.tools:desugar_jdk_libs_nio:2.1.5` (latest 2.1.x per Google
+Maven metadata, 2026-10-06; build-time only through the
+`coreLibraryDesugaring` configuration, never referenced from source).
+That artifact is GPL-2.0 with the Classpath Exception per its POM; the
+exception permits bundling the desugared classes into the Apache-2.0
+Player (the same basis as every desugared app), so the Player license is
+unchanged (see D-085). No other new dependency in IN4.
+
+### 2b. v2 bundled engine (full flavor only, D-126 option A)
+
+| Library | License | Verified |
+| --- | --- | --- |
+| sherpa-onnx 1.13.8 (JitPack AAR, `fullImplementation`) | Apache-2.0 (POM) with static GPL espeak-ng inside | [x] |
+| onnxruntime native (libonnxruntime.so inside the sherpa AAR) | MIT | [x] |
+| espeak-ng (static inside the sherpa native libs) | GPL-3.0-or-later | [x] |
+
+sherpa note (VC1, pinned): on-device Piper runtime, `full` flavor only
+(`fullImplementation` in `player/app/build.gradle.kts`, so `core`
+builds with zero sherpa files). POM license block read from the local
+Gradle cache on 2026-10-09: Apache License 2.0
+(`com.github.k2-fsa.sherpa-onnx:sherpa-onnx:1.13.8`, JitPack AAR,
+minSdk 21). The cached AAR lists per ABI (arm64-v8a, armeabi-v7a, x86,
+x86_64) exactly one libonnxruntime.so plus three sherpa libs and no
+separate libespeak; the Slice 7 spike found espeak strings inside
+libsherpa-onnx-jni.so with BUILD_SHARED_LIBS forced OFF around the
+espeak build, which reads as statically linked espeak-ng. That static
+copy is what makes the distributed `full` APK a GPL-3.0 combined work.
+
+onnxruntime note (VC1): MIT per the upstream LICENSE file (Microsoft
+Corporation, confirmed 2026-10-09). No separate version: the .so
+carries none, so the row pins it as built into sherpa-onnx 1.13.8.
+
+espeak-ng bundled note (VC1): GPL-3.0-or-later per its repo (the
+Scribe-side row below was already verified); linkage evidence is the
+sherpa note above. Phonemizer voice data (espeak-ng-data) is not in the
+APK; it comes from the sideloaded packs in section 4.
+
+## 3. Scribe dependencies (Python)
+
+| Library | License (as I understand it) | Notes | Verified |
+| --- | --- | --- | --- |
+| EbookLib | AGPL-3.0 | Strong copyleft. Fine inside an open-source GPL/AGPL tool; if you offer Scribe as a hosted service, AGPL's network clause means users must be able to get the source. Consider licensing Scribe as AGPL-3.0 in that case. | \[x\] |
+| PyMuPDF | AGPL-3.0 (commercial license available) | AGPL is compatible inside AGPL-3.0-or-later Scribe (never ships in the Apache-2.0 Player); pymupdf 1.28.2 pinned in `scribe/pyproject.toml` + `uv.lock`, proven by `scribe doctor` (new `pymupdf` row: import + in-memory open). | \[x\] |
+| FastAPI UI stack (`scribe[ui]` extra) | fastapi MIT, uvicorn BSD-3-Clause, starlette BSD-3-Clause, python-multipart Apache-2.0, pydantic MIT | All permissive, AGPL-compatible inside Scribe (never ships in the Player); checked 2026-10-04 via the PyPI JSON API (`license_expression`: fastapi 0.142.2 MIT, uvicorn 0.54.0 BSD-3-Clause, starlette 1.7.0 BSD-3-Clause, python-multipart 0.0.32 Apache-2.0, pydantic 2.13.5 MIT) and re-verified 2026-10-05 from installed dist metadata (same versions, same expressions). Floors pinned in `scribe/pyproject.toml` (`fastapi>=0.115.0`, `uvicorn>=0.30.0`, `starlette>=0.46.0`, `python-multipart>=0.0.18`, `pydantic>=2.9.0`, satisfying fastapi's own requirements) + `uv.lock`, proven by `scribe doctor` (new `ui` row: fastapi + uvicorn import + versions). Base CLI never imports them (lazy import with a `uv sync --extra ui` hint). Gap: full license texts not read line by line (SPDX expressions only); no vendoring, standard for permissive deps. | \[x\] |
+| beautifulsoup4, lxml | MIT, BSD-3 |  | \[ \] |
+| pysbd | MIT |  | \[ \] |
+| spaCy, `en_core_web_sm` | MIT | spacy 3.8.16 + en-core-web-sm 3.8.0 (installed METADATA says MIT for both; transitives MIT/BSD/Apache-2.0, tqdm dual MPL-2.0 AND MIT, nothing GPL). Model pinned by wheel URL in `scribe/pyproject.toml` + `uv.lock` (not on PyPI); `scribe doctor` checks present + version and proves a parse. | \[x\] |
+| PyYAML, numpy, typer, rich, pytest | MIT/BSD |  | \[ \] |
+| soundfile | BSD-3 | Uses libsndfile (LGPL) | \[ \] |
+| pyrubberband (optional) | ISC | Uses Rubber Band (GPL, commercial option) | \[ \] |
+| ffmpeg / ffprobe | LGPL or GPL depending on the build | Run as a separate program, do not link it. Uses LAME (LGPL) for MP3. | \[ \] |
+
+## 4. TTS engines and voices
+
+| Item | License (as I understand it) | Notes | Verified |
+| --- | --- | --- | --- |
+| Kokoro (Python package) | Apache-2.0 | Needs espeak-ng for phonemes | \[ \] |
+| Kokoro model weights | Apache-2.0 | Model card `license: apache-2.0` (https://huggingface.co/hexgrad/Kokoro-82M), checked 2026-10-04 | [x] |
+| Piper (current GPL fork) | GPL-3.0 | Older `rhasspy/piper` was MIT; check which you use | \[ \] |
+| piper-tts 1.8.0 (Scribe PC engine, SW1) | GPL-3.0-or-later | Reference Piper runtime (OHF); PyPI `license` field 2026-10-05. GPL-3.0 combines into AGPL-3.0-or-later Scribe (GPLv3 section 13, combined work stays AGPL); pinned `piper-tts>=1.8.0` in `scribe/pyproject.toml` + `uv.lock`, proven by `scribe doctor` (`piper-models` row). Phonemization bundled in the wheel (internal espeak-ng data, no external install); never ships in the Player, so D-066 is untouched. | [x] |
+| Piper voice models | **Each voice has its own license** | Some permissive, some restricted (for example non-commercial). Record it per voice. | \[ \] |
+| Piper proof voice `en_US-lessac-low` (SW1 manual proof + SW4 mixed-engine proof) | Blizzard 2013 Lessac license (research/non-commercial, University of Edinburgh CSTR) | Per its MODEL_CARD (dataset: cstr.ed.ac.uk Blizzard 2013 Lessac, license page linked there). Local proof audio only under `models/piper/` (gitignored, never committed, never distributed); the link would not deliver permissive voices in session time (all Piper voices are 45-65 MB), so the second Piper voice is deferred breadth, not a new code path. | [x] |
+| Piper SW4 proof voice `en_US-ljspeech-medium` | Public domain | Per its MODEL_CARD (dataset keithito.com LJ-Speech, license public domain). Under `models/piper/` (gitignored, never committed). | [x] |
+| Piper SW4 proof voice `en_US-kathleen-low` | CC0 | Per its MODEL_CARD (dataset github.com/rhasspy/dataset-voice-kathleen, license CC0). Under `models/piper/` (gitignored, never committed). | [x] |
+| Sideloaded Piper packs (user-copied into /Auloud/models/, full flavor only) | Per-pack MODEL_CARD (check before use) | Never bundled in any APK; the three proof voices above are the verified examples. | \[ \] |
+| espeak-ng | GPL-3.0-or-later | Used for phonemization by both engines; repo states GPL-3.0-or-later, installed 1.52.0 matches the latest release, checked 2026-10-04 | [x] |
+
+**v1 voice palette (CP8): every voice below is a configuration inside the
+Kokoro-82M weights, so the model-card Apache-2.0 license covers all of them.
+Source for all rows: https://huggingface.co/hexgrad/Kokoro-82M. Models are
+downloaded at runtime, never committed or bundled in the APK. Unattributable
+lines fall back to the generic female/male voices.**
+
+| Voice | Role | License | Verified |
+| --- | --- | --- | --- |
+| am_onyx | Narrator | Apache-2.0 (Kokoro-82M) | [x] |
+| bf_isabella | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| bm_lewis | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| im_nicola | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| jf_alpha | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| zf_xiaoxiao | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| am_eric | Character | Apache-2.0 (Kokoro-82M) | [x] |
+| af_bella | Generic female | Apache-2.0 (Kokoro-82M) | [x] |
+| am_adam | Generic male | Apache-2.0 (Kokoro-82M) | [x] |
+
+**Rules for voices:**
+
+- Keep a table of every voice you ship or recommend, with its license and source URL.
+- Download models at runtime rather than committing them to the repo, and do not bundle them in the APK.
+- Generated audio: check each model's terms about using the output, especially if you ever share audiobooks.
+- No voice cloning of real people without their permission (not in v1 scope).
+
+## 5. v2 on-device TTS: decided as two flavors (D-126 option A)
+
+`core` stays Apache-2.0 and is the main release; it ships no GPL code.
+`full` bundles sherpa-onnx 1.13.8 (with static espeak-ng) plus
+user-sideloaded Piper packs, and is distributed as a GPL-3.0 combined
+work with its license text and written source offer inside the APK.
+This is not legal advice.
+
+Layout (VC1): `player/LICENSE` (Apache-2.0, covers the source and
+`core`); `player/LICENSE.full` (the GPL combined-work note for the
+sherpa-carrying config); `player/NOTICE` plus
+`player/THIRD_PARTY_LICENSES.md` (`core`); `player/NOTICE.full` plus
+`player/THIRD_PARTY_LICENSES.full.md` (`full`); per-flavor in-app
+license lists (jsoup ships in both; sherpa-onnx, onnxruntime, bundled
+espeak-ng and Piper packs are `full` only); `full`-only APK assets
+(`gpl-3.0.txt`, `SOURCE_OFFER.txt`, `NOTICE.txt`) with build
+instructions pinning the exact sherpa-onnx 1.13.8 JitPack AAR. The
+`licenseScan` Gradle task fails when `core` carries
+sherpa/onnxruntime/espeak files or library markers, or when `full`
+lacks its notices; the per-flavor license-data unit tests prove each
+screen lists what its build ships.
+
+## 6. Books and content
+
+- **Test content:** use public-domain texts (for example Project Gutenberg; check that a title is public domain in your country) for the repo, demos and test bundles.
+- **Never commit copyrighted books or audio** made from them to the repo, releases, or issues.
+- Converting books you legally own for your own listening is a personal use; **distributing** generated audiobooks of copyrighted works is not something the project should enable or encourage. Say this plainly in the README.
+- Cover art: only use covers you have the rights to, or generate neutral ones.
+
+## 7. Release checklist for licensing
+
+- [x] `LICENSE` file in each component (Player: `player/LICENSE` Apache-2.0; Scribe: `scribe/LICENSE` AGPL-3.0-or-later; root `LICENSE` MIT is the repo default) - decided D-015/D-050 on release/v1.0
+- [x] `NOTICE` and `THIRD_PARTY_LICENSES.md` generated (`player/NOTICE` + `player/THIRD_PARTY_LICENSES.md`, CP8)
+- [ ] All "Verified" boxes above ticked (Player section 2 + 2b v2 engine rows + voices done; Scribe section 3 rows for bs4/lxml, pysbd, yaml/numpy/typer/rich/pytest, soundfile, pyrubberband, ffmpeg and section 4 Kokoro package/Piper still open; section 4 sideloaded-packs row open by design, it is per-pack; VC6 docs pass 2026-10-09 is prose only and changes no box; owner review of the NOTICE.full paragraphs plus the SOURCE_OFFER placeholders before any `full` distribution still open per D-128)
+- [x] Voice table complete, with per-voice licenses (section 4 palette: 9 Kokoro-82M voices, all Apache-2.0, CP8; 3 Piper proof voices with own licenses, SW1/SW4; sideload rule recorded)
+- [x] In-app licenses screen (Settings entry rendering the static list; legibility on the Tab E left for the user)
+- [x] Per-flavor license layout (VC1, D-126 option A): player/LICENSE (Apache-2.0 core) + player/LICENSE.full (GPL note); per-flavor NOTICE + THIRD_PARTY_LICENSES; full-only GPL text + source offer assets in the APK
+- [x] In-app licenses per flavor match the notices (VC1): jsoup in both; sherpa-onnx/onnxruntime/bundled espeak-ng/Piper packs in full only; headers true per flavor (flavor license-data unit tests green)
+- [x] Automated license scan (VC1): `:app:licenseScan` passes for both flavors (core carries no sherpa/onnxruntime/espeak files or markers; full carries the sherpa files plus its notices)
+- [x] README states the copyright/personal-use position (verbatim paragraph, CP10)
+- [x] Contribution policy decided: DCO sign-off (see D-127)

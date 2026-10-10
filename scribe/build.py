@@ -108,7 +108,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -136,6 +136,8 @@ from text.cast import (
     NARRATOR,
     NARRATOR_ENGINE,
     ResolvedVoice,
+    _entry_engine,
+    cast_engines,
     read_cast,
     resolve_speaker,
     validate_cast,
@@ -517,8 +519,8 @@ def ensure_script(source: Path | str, *, work_root: Path | str = Path(".scribe")
     )
 
 
-def _narrator_voice(cast_path: Path) -> tuple[str, float]:
-    """``(voice, speed)`` for the narrator entry of ``cast.yaml``."""
+def _narrator_entry(cast_path: Path) -> tuple[str, float, str]:
+    """``(voice, speed, engine)`` for the narrator entry of ``cast.yaml``."""
     if not cast_path.is_file():
         raise BuildError(f"cast file missing: {cast_path} (re-run `scribe draft`)")
     try:
@@ -535,6 +537,12 @@ def _narrator_voice(cast_path: Path) -> tuple[str, float]:
         speed = float(entry.get("speed", 1.0))
     except (TypeError, ValueError) as exc:
         raise BuildError(f"{cast_path.name}: narrator 'speed' is not a number") from exc
+    return voice, speed, _entry_engine(entry)
+
+
+def _narrator_voice(cast_path: Path) -> tuple[str, float]:
+    """``(voice, speed)`` for the narrator entry of ``cast.yaml``."""
+    voice, speed, _engine = _narrator_entry(cast_path)
     return voice, speed
 
 
@@ -545,6 +553,7 @@ def resolve_sentence_voice(
     chapter_index: int,
     narrator_voice: str,
     narrator_speed: float,
+    narrator_engine: str = NARRATOR_ENGINE,
 ) -> ResolvedVoice:
     """Resolve one script sentence to its final ``(character, voice, speed)``.
 
@@ -560,7 +569,12 @@ def resolve_sentence_voice(
     a generic, never raise.
     """
     if sentence.kind != "dialogue":
-        return ResolvedVoice(character=NARRATOR, voice=narrator_voice, speed=narrator_speed)
+        return ResolvedVoice(
+            character=NARRATOR,
+            voice=narrator_voice,
+            speed=narrator_speed,
+            engine=narrator_engine,
+        )
     quote = sentence.quote if isinstance(sentence.quote, dict) else {}
     chapter = quote.get("chapter", chapter_index)
     block = quote.get("block")
@@ -589,13 +603,14 @@ def resolve_chapter(
     *,
     narrator_voice: str,
     narrator_speed: float,
+    narrator_engine: str = NARRATOR_ENGINE,
 ) -> dict[int, ResolvedVoice]:
     """``sid -> ResolvedVoice`` for a chapter, in document order.
 
-    The single source of truth for synthesis (which voice/speed to render),
-    assembly leveling (which voice group a sentence belongs to), and the
-    render fingerprint (which sentences a cast edit affects), so the three
-    can never disagree.
+    The single source of truth for synthesis (which engine/voice/speed to
+    render), assembly leveling (which voice group a sentence belongs to),
+    and the render fingerprint (which sentences a cast edit affects), so
+    the three can never disagree.
     """
     plan: dict[int, ResolvedVoice] = {}
     for sentence in chapter.sentences_in_order():
@@ -605,18 +620,80 @@ def resolve_chapter(
             chapter_index=chapter.chapter,
             narrator_voice=narrator_voice,
             narrator_speed=narrator_speed,
+            narrator_engine=narrator_engine,
         )
     return plan
 
 
-def _cast_engine(cast: dict[str, Any]) -> str:
-    """Engine id for the manifest voices map (narrator entry, else Kokoro)."""
-    narrator = cast.get(NARRATOR) if isinstance(cast, dict) else None
-    if isinstance(narrator, dict):
-        engine = narrator.get("engine")
-        if isinstance(engine, str) and engine.strip():
-            return engine
-    return NARRATOR_ENGINE
+def _resolve_engines(
+    cast: dict[str, Any],
+    primary: TTSEngine | None,
+    extra: dict[str, TTSEngine] | None,
+    models_dir: Path | str,
+    device: str,
+    *,
+    strict: bool,
+) -> dict[str, TTSEngine | None]:
+    """Engine objects for every engine id the cast needs (SW2).
+
+    Kokoro comes from the injected ``primary`` (tests) or
+    :func:`create_engine` (same device/back-compat behavior as before);
+    Piper from ``extra`` or a fresh :class:`tts.piper.PiperEngine` over
+    ``models_dir``. Strict (real builds) raises :class:`BuildError` naming
+    the missing piece; best-effort (preflight) records ``None`` so the
+    caller degrades to estimates instead of failing.
+    """
+    needed = cast_engines(cast if isinstance(cast, dict) else {})
+    engines: dict[str, TTSEngine | None] = {}
+    extra = extra or {}
+    if NARRATOR_ENGINE in needed:
+        if primary is not None:
+            engines[NARRATOR_ENGINE] = primary
+        else:
+            try:
+                try:
+                    engines[NARRATOR_ENGINE] = create_engine(models_dir, device=device)
+                except TypeError:
+                    # Back-compat for test monkeypatches replacing
+                    # create_engine with a single-arg lambda (pre-UI1).
+                    engines[NARRATOR_ENGINE] = create_engine(models_dir)
+            except BuildError:
+                if strict:
+                    raise
+                engines[NARRATOR_ENGINE] = None
+    for name in needed:
+        if name == NARRATOR_ENGINE or name in engines:
+            continue
+        if name in extra:
+            engines[name] = extra[name]
+            continue
+        if name == "piper":
+            try:
+                from tts.piper import PiperEngine
+
+                engines[name] = PiperEngine(models_dir)
+            except (ImportError, FileNotFoundError, OSError, ValueError) as exc:
+                if strict:
+                    raise BuildError(f"cannot init Piper engine: {exc}") from exc
+                engines[name] = None
+        elif strict:
+            raise BuildError(f"cast needs unsupported engine {name!r}")
+        else:
+            engines[name] = None
+    return engines
+
+
+def _voice_lists(
+    engines: dict[str, TTSEngine | None],
+) -> tuple[Collection[str] | None, dict[str, Collection[str] | None]]:
+    """``(kokoro_list, per_engine_map)`` for :func:`text.cast.validate_cast`."""
+    kokoro = engines.get(NARRATOR_ENGINE)
+    kokoro_list: Collection[str] | None = kokoro.voices if kokoro is not None else None
+    per_engine = {
+        name: (engine.voices if engine is not None else None)
+        for name, engine in engines.items()
+    }
+    return kokoro_list, per_engine
 
 
 def build_voices_map(
@@ -632,22 +709,23 @@ def build_voices_map(
     surfaces), one entry per character actually used across ``plans``
     (plus ``narrator`` always, so narration-only books keep the legacy
     single entry). ``(engine, voice, speed)`` come from the resolution
-    itself (engine is the cast narrator engine for every entry; voice and
-    speed are the resolved values), ``pitch`` is the writer constant.
-    Narrator first, then sorted others, for deterministic manifests.
+    itself (SW2: each entry carries its own cast engine), ``pitch`` is the
+    writer constant. Narrator first, then sorted others, for deterministic
+    manifests.
     """
-    engine = _cast_engine(cast if isinstance(cast, dict) else {})
     by_character: dict[str, ResolvedVoice] = {}
     for plan in plans:
         for resolved in plan.values():
             by_character.setdefault(resolved.character, resolved)
     if NARRATOR not in by_character:
-        voice, speed = _narrator_voice_fallback(cast)
-        by_character[NARRATOR] = ResolvedVoice(character=NARRATOR, voice=voice, speed=speed)
+        voice, speed, engine = _narrator_entry_fallback(cast)
+        by_character[NARRATOR] = ResolvedVoice(
+            character=NARRATOR, voice=voice, speed=speed, engine=engine
+        )
     ordered = [NARRATOR, *[k for k in sorted(by_character) if k != NARRATOR]]
     return {
         name: Voice(
-            engine=engine,
+            engine=by_character[name].engine,
             voice=by_character[name].voice,
             speed=by_character[name].speed,
             pitch=pitch,
@@ -657,22 +735,24 @@ def build_voices_map(
     }
 
 
-def _narrator_voice_fallback(cast: dict[str, Any]) -> tuple[str, float]:
-    """Narrator ``(voice, speed)`` for the voices map when unused (never raises)."""
+def _narrator_entry_fallback(cast: dict[str, Any]) -> tuple[str, float, str]:
+    """Narrator ``(voice, speed, engine)`` for the voices map when unused."""
     from text.cast import NARRATOR_SPEED, NARRATOR_VOICE
 
     narrator = cast.get(NARRATOR) if isinstance(cast, dict) else None
-    voice = NARRATOR_VOICE
-    speed = NARRATOR_SPEED
-    if isinstance(narrator, dict):
-        raw_voice = narrator.get("voice")
-        if isinstance(raw_voice, str) and raw_voice.strip():
-            voice = raw_voice
-        try:
-            speed = float(narrator.get("speed", speed))
-        except (TypeError, ValueError):
-            speed = NARRATOR_SPEED
-    return voice, speed
+    if not isinstance(narrator, dict):
+        return NARRATOR_VOICE, NARRATOR_SPEED, NARRATOR_ENGINE
+    voice = narrator.get("voice")
+    speed = narrator.get("speed", NARRATOR_SPEED)
+    try:
+        speed_f = float(speed)
+    except (TypeError, ValueError):
+        speed_f = NARRATOR_SPEED
+    return (
+        voice if isinstance(voice, str) and voice.strip() else NARRATOR_VOICE,
+        speed_f,
+        _entry_engine(narrator),
+    )
 
 
 def remap_chapter_speakers(chapter: ChapterFile, plan: dict[int, ResolvedVoice]) -> ChapterFile:
@@ -757,19 +837,25 @@ def remap_pdf_chapter_speakers(
     )
 
 
-def _fingerprint(cast: dict[str, Any], engine: TTSEngine, chapter: ChapterFile) -> dict[str, Any]:
+def _fingerprint(
+    cast: dict[str, Any],
+    engines: Mapping[str, TTSEngine | None],
+    chapter: ChapterFile,
+) -> dict[str, Any]:
     """Render fingerprint for one chapter: everything (besides sentence
     text) that can change its audio or its shipped JSON. The cast half is
-    the per-sentence resolution (``[sid, character, voice, speed, kind,
-    split_pair]`` in document order via :func:`resolve_chapter` plus the
-    script ``kind``/``split_pair``), so a cast edit re-renders
+    the per-sentence resolution (``[sid, character, engine, voice, speed,
+    kind, split_pair]`` in document order via :func:`resolve_chapter` plus
+    the script ``kind``/``split_pair``), so a cast edit re-renders
     exactly the chapters holding affected sentences — and within them the
     sentence cache re-synthesizes only the changed lines. ``kind`` selects
     the narrator versus character voice and ``split_pair`` selects the
     short tag pause in assembly: carrying them here (rather than in
     :func:`_sentence_key`) is the cleaner seam because render JSON is
     written without draft fields, so a sentence-identity key could never
-    see them on the stored side. A chapter-title
+    see them on the stored side. SW2 adds the engine per row (an engine
+    switch re-renders once) and versions every used engine (a runtime
+    upgrade re-renders once). A chapter-title
     or block-structure edit (breaks carry pauses but no sentences)
     re-renders that chapter; any pause/loudness/encode constant edit or
     :data:`BUFFER_VERSION` bump (see :func:`_assembly_fingerprint`)
@@ -786,12 +872,16 @@ def _fingerprint(cast: dict[str, Any], engine: TTSEngine, chapter: ChapterFile) 
         chapter,
         narrator_voice=voice if isinstance(voice, str) and voice.strip() else "narrator",
         narrator_speed=narrator_speed,
+        narrator_engine=(
+            _entry_engine(narrator) if isinstance(narrator, dict) else NARRATOR_ENGINE
+        ),
     )
     by_sid = {s.sid: s for s in chapter.sentences_in_order()}
     voices = [
         [
             sid,
             resolved.character,
+            resolved.engine,
             resolved.voice,
             resolved.speed,
             by_sid.get(sid).kind if by_sid.get(sid) is not None else "narration",
@@ -803,7 +893,10 @@ def _fingerprint(cast: dict[str, Any], engine: TTSEngine, chapter: ChapterFile) 
     return {
         "voices": voices,
         "pitch": VOICE_PITCH,
-        "engine_version": engine.engine_version,
+        "engine_versions": {
+            name: (engine.engine_version if engine is not None else "unknown")
+            for name, engine in engines.items()
+        },
         "assembly": _assembly_fingerprint(),
         "title": chapter.title,
         "blocks": blocks,
@@ -858,7 +951,12 @@ def chapter_up_to_date(
         chapter = ChapterFile.from_dict(raw)
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return None
-    if chapter.chapter != script_chapter.chapter or chapter.duration_ms <= 0:
+    if (
+        chapter.chapter != script_chapter.chapter
+        or not isinstance(chapter.duration_ms, int)
+        or isinstance(chapter.duration_ms, bool)
+        or chapter.duration_ms <= 0
+    ):
         return None
     if chapter.blocks is None or script_chapter.blocks is None:
         return None
@@ -1076,6 +1174,7 @@ def plan_build(
     chapters: str | None = None,
     pages: str | None = None,
     engine: TTSEngine | None = None,
+    extra_engines: dict[str, TTSEngine] | None = None,
     models_dir: Path | str = Path("models"),
     device: str = "auto",
 ) -> PlanResult:
@@ -1114,15 +1213,19 @@ def plan_build(
         cast = _read_cast(work_dir / CAST_FILENAME)
     except (OSError, ValueError) as exc:
         raise BuildError(f"{CAST_FILENAME}: cannot read cast: {exc}") from exc
-    tts = engine
-    if tts is None:
-        # Plan needs only the engine version for fingerprints; a missing
-        # model dir must not fail preflight, so fall back to a stable
-        # placeholder version (counts still correct, estimate may be None).
-        try:
-            tts = create_engine(models_dir, device=normalized_device)
-        except (BuildError, TypeError):
-            tts = None
+    engines = _resolve_engines(
+        cast,
+        engine,
+        extra_engines,
+        models_dir,
+        normalized_device,
+        strict=False,
+    )
+    if not any(engines.values()):
+        # Plan needs only engine versions for fingerprints; no usable
+        # engine at all means every chapter counts as to-render (counts
+        # still correct, estimate may be None).
+        engines = {}
 
     width = 4 if len(script.chapters) > 999 else 3
     cached_ch = to_render_ch = 0
@@ -1135,9 +1238,9 @@ def plan_build(
         mp3_path = work_dir / RENDER_DIRNAME / "audio" / f"{stem}.mp3"
         json_path = work_dir / RENDER_DIRNAME / "text" / f"{stem}.json"
         fingerprint: dict[str, Any] | None = None
-        if tts is not None:
+        if engines:
             try:
-                fingerprint = _fingerprint(cast, tts, chapter)
+                fingerprint = _fingerprint(cast, engines, chapter)
             except Exception:
                 fingerprint = None
         hit = None
@@ -1183,6 +1286,7 @@ def run_build(
     work_root: Path | str = Path(".scribe"),
     out_dir: Path | str | None = None,
     engine: TTSEngine | None = None,
+    extra_engines: dict[str, TTSEngine] | None = None,
     models_dir: Path | str = Path("models"),
     strict: bool = False,
     fail_after: int | None = None,
@@ -1216,6 +1320,9 @@ def run_build(
         or ``bundles/<range-id>`` (range).
     :param engine: TTS engine; ``None`` builds the Kokoro engine from
         ``models_dir`` (honoring ``device``). Tests inject a fake.
+    :param extra_engines: additional engines by id (``{"piper": ...}``);
+        ``None`` constructs a needed Piper engine from ``models_dir``.
+        Tests inject fakes here for mixed-engine casts.
     :param strict: abort the whole build on the first chapter error.
         Non-strict renders every remaining chapter first, then raises
         :class:`BuildError` listing all failures (no bundle either way —
@@ -1293,6 +1400,7 @@ def run_build(
             work_root=work_root,
             out_dir=out_dir,
             engine=engine,
+            extra_engines=extra_engines,
             models_dir=models_dir,
             strict=strict,
             fail_after=fail_after,
@@ -1319,6 +1427,7 @@ def _run_build_locked(
     work_root: Path | str,
     out_dir: Path | str | None,
     engine: TTSEngine | None,
+    extra_engines: dict[str, TTSEngine] | None,
     models_dir: Path | str,
     strict: bool,
     fail_after: int | None,
@@ -1358,24 +1467,31 @@ def _run_build_locked(
     except (OSError, ValueError) as exc:
         raise BuildError(f"{cast_path.name}: cannot read cast: {exc}") from exc
 
-    if engine is not None:
-        tts = engine
-    else:
-        try:
-            tts = create_engine(models_dir, device=normalized_device)
-        except TypeError:
-            # Back-compat for test monkeypatches replacing create_engine
-            # with a single-arg lambda (pre-UI1 signature).
-            tts = create_engine(models_dir)
+    engines = _resolve_engines(
+        cast,
+        engine,
+        extra_engines,
+        models_dir,
+        normalized_device,
+        strict=True,
+    )
+    # Synthesis routes per sentence through ``engines`` (a piper-only cast
+    # needs no Kokoro); the log line below lists every used engine version.
 
-    # Validate against the engine's real voice list, not a synthetic set.
-    # Unknown voices fail the build here with file plus key plus rule
-    # errors. When the engine exposes no voice list (``voices is None``),
-    # validation checks shape only (non-empty voice strings).
-    cast_errors = validate_cast(cast, source=CAST_FILENAME, known_voices=tts.voices)
+    # Validate each entry against its own engine's real voice list, not a
+    # synthetic set. Unknown voices fail the build here with file plus key
+    # plus rule errors. When an engine exposes no voice list (``voices is
+    # None``), validation checks shape only (non-empty voice strings).
+    kokoro_list, per_engine_lists = _voice_lists(engines)
+    cast_errors = validate_cast(
+        cast,
+        source=CAST_FILENAME,
+        known_voices=kokoro_list,
+        known_voices_per_engine=per_engine_lists,
+    )
     if cast_errors:
         raise BuildError("; ".join(cast_errors))
-    voice, speed = _narrator_voice(cast_path)
+    voice, speed, narrator_engine = _narrator_entry(cast_path)
 
     cache_dir = work_dir / CACHE_DIRNAME
     render_audio = work_dir / RENDER_DIRNAME / "audio"
@@ -1434,8 +1550,14 @@ def _run_build_locked(
                     f"sentence {sentence.sid} (partial chapter cleaned; resume re-renders)"
                 )
             resolved = plan[sentence.sid]
+            synth_engine = engines.get(resolved.engine)
+            if synth_engine is None:
+                raise BuildError(
+                    f"build: no {resolved.engine} engine for "
+                    f"{resolved.character} (sentence {sentence.sid})"
+                )
             audio = get_or_synth(
-                tts,
+                synth_engine,
                 sentence.text,
                 resolved.voice,
                 resolved.speed,
@@ -1447,13 +1569,17 @@ def _run_build_locked(
 
         return _synth
 
+    versions = ", ".join(
+        f"{name}={engine.engine_version if engine is not None else 'unknown'}"
+        for name, engine in engines.items()
+    )
     log_lines = [
         f"build start: book {script.book_id} source {Path(source).name} "
         f"strict={strict} chapters={len(all_chapters)} "
         f"selected={(format_range_compact(selected) if is_range else 'all')} "
         f"bundle_id={bundle_id} device={device}",
         f"script: {'redrafted' if script.redrafted else 'fresh'} ({len(all_chapters)} chapters)",
-        f"cast: narrator voice={voice} speed={speed} engine_version={tts.engine_version}",
+        f"cast: narrator voice={voice} speed={speed} engine={narrator_engine} ({versions})",
     ]
     if page_resolution:
         log_lines.append(page_resolution)
@@ -1488,8 +1614,14 @@ def _run_build_locked(
             stem = f"ch{index:0{width}d}"
             mp3_path = render_audio / f"{stem}.mp3"
             json_path = render_text / f"{stem}.json"
-            plan = resolve_chapter(cast, chapter, narrator_voice=voice, narrator_speed=speed)
-            fingerprint = _fingerprint(cast, tts, chapter)
+            plan = resolve_chapter(
+                cast,
+                chapter,
+                narrator_voice=voice,
+                narrator_speed=speed,
+                narrator_engine=narrator_engine,
+            )
+            fingerprint = _fingerprint(cast, engines, chapter)
             hit = chapter_up_to_date(chapter, json_path, mp3_path, fingerprint)
             if hit is not None:
                 timed[index] = hit

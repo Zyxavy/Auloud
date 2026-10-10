@@ -436,6 +436,219 @@ class LibraryViewModelTest {
         }
     }
 
+    @Test
+    fun rescan_sweepsStrayTempsBeforeListing() = runBlocking {
+        storage.dirs = listOf(novelDir)
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting()
+        storage.strayDirs = listOf("$root/.tmp-deadbeef")
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertEquals(1, state.books.size)
+            assertTrue(state.errors.isEmpty())
+        }
+        assertEquals(
+            "stray temp must be swept",
+            listOf("$root/.tmp-deadbeef"),
+            storage.deletedPaths
+        )
+    }
+
+    @Test
+    fun rescan_sweepFailure_doesNotFailRescan() = runBlocking {
+        storage.dirs = listOf(novelDir)
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting()
+        storage.failStrayRoots = setOf(root)
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertEquals(1, state.books.size)
+            assertTrue(state.errors.isEmpty())
+        }
+        assertTrue(storage.deletedPaths.isEmpty())
+    }
+
+    @Test
+    fun rescan_skipsStrayDirsFromListing() = runBlocking {
+        val stray = "$root/.tmp-abc123"
+        storage.dirs = listOf(novelDir, stray)
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting()
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertEquals(1, state.books.size)
+            assertTrue("stray temp must never surface as an error", state.errors.isEmpty())
+        }
+    }
+
+    @Test
+    fun chip_unrenderedBook_showsNotRendered() = runBlocking {
+        val v2dir = "$root/unrendered"
+        storage.dirs = listOf(v2dir)
+        storage.texts = mapOf(
+            "$v2dir/manifest.json" to manifestV2("none"),
+            "$v2dir/text/ch001.json" to chapterTextJsonV2(),
+            "$v2dir/text/ch002.json" to chapterTextJsonV2()
+        )
+        storage.existing = setOf(
+            "$v2dir/manifest.json",
+            "$v2dir/text/ch001.json",
+            "$v2dir/text/ch002.json"
+        )
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertTrue(state.errors.isEmpty())
+            val book = state.books.single()
+            assertEquals("none", book.renderState)
+            assertTrue(book.showNotRendered)
+        }
+    }
+
+    @Test
+    fun chip_partialBook_showsNotRendered() = runBlocking {
+        val v2dir = "$root/partial"
+        storage.dirs = listOf(v2dir)
+        storage.texts = mapOf(
+            "$v2dir/manifest.json" to manifestPartial(),
+            "$v2dir/text/ch001.json" to chapterTextJsonV2Timed(),
+            "$v2dir/text/ch002.json" to chapterTextJsonV2()
+        )
+        storage.existing = setOf(
+            "$v2dir/manifest.json",
+            "$v2dir/audio/ch001.mp3",
+            "$v2dir/text/ch001.json",
+            "$v2dir/text/ch002.json"
+        )
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertTrue("partial must import, got: ${state.errors}", state.errors.isEmpty())
+            val book = state.books.single()
+            assertEquals("partial", book.renderState)
+            assertTrue(book.showNotRendered)
+        }
+    }
+
+    @Test
+    fun chip_renderedBooks_showNoChip() = runBlocking {
+        val v2dir = "$root/complete"
+        storage.dirs = listOf(novelDir, v2dir)
+        val texts = validTexts(manifestJson()).toMutableMap()
+        texts["$v2dir/manifest.json"] = manifestV2Complete()
+        texts["$v2dir/text/ch001.json"] = chapterTextJsonV2Timed()
+        texts["$v2dir/text/ch002.json"] = chapterTextJsonV2Timed()
+        storage.texts = texts
+        storage.existing = validExisting() + setOf(
+            "$v2dir/manifest.json",
+            "$v2dir/audio/ch001.mp3",
+            "$v2dir/audio/ch002.mp3",
+            "$v2dir/text/ch001.json",
+            "$v2dir/text/ch002.json"
+        )
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertTrue("both books must import, got: ${state.errors}", state.errors.isEmpty())
+            assertEquals(2, state.books.size)
+            for (book in state.books) {
+                assertFalse("no chip for ${book.id} (${book.renderState})", book.showNotRendered)
+            }
+        }
+    }
+
+    @Test
+    fun chip_rescanRefreshesMapAfterRenderRewrite() = runBlocking {
+        // RN7 (#14 item 5): Slice 10 rewrites render_state under the
+        // rescan; the in-memory chip map is replaced wholesale by every
+        // rescan, so the chip must follow without any extra invalidation.
+        val v2dir = "$root/rerender"
+        storage.dirs = listOf(v2dir)
+        storage.texts = mapOf(
+            "$v2dir/manifest.json" to manifestV2("none", id = "book-r"),
+            "$v2dir/text/ch001.json" to chapterTextJsonV2(),
+            "$v2dir/text/ch002.json" to chapterTextJsonV2()
+        )
+        storage.existing = setOf(
+            "$v2dir/manifest.json",
+            "$v2dir/text/ch001.json",
+            "$v2dir/text/ch002.json"
+        )
+
+        val vm = viewModel()
+        assertEquals("none", vm.uiState.value.books.single().renderState)
+
+        // A render finishes chapter 1: manifest rewritten plus audio and
+        // timings land, exactly as the RN7 finalize writes them.
+        storage.texts = mapOf(
+            "$v2dir/manifest.json" to manifestV2FirstRendered("book-r"),
+            "$v2dir/text/ch001.json" to chapterTextJsonV2Timed(),
+            "$v2dir/text/ch002.json" to chapterTextJsonV2()
+        )
+        storage.existing = storage.existing + "$v2dir/audio/ch001.mp3"
+        vm.rescan()
+
+        val book = vm.uiState.value.books.single()
+        assertTrue("rendered book must still import, got: ${vm.uiState.value.errors}", vm.uiState.value.errors.isEmpty())
+        assertEquals("partial", book.renderState)
+        assertTrue(book.showNotRendered)
+    }
+
+    @Test
+    fun deleteBook_removesRowFolderAndProgress() = runBlocking {
+        storage.dirs = listOf(novelDir)
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting()
+        progressRepo.positions["book-1"] = ProgressEntity("book-1", 0, 250L, 0L)
+
+        val vm = viewModel()
+        vm.deleteBook("book-1")
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertTrue(state.books.isEmpty())
+            assertTrue(state.errors.isEmpty())
+        }
+        assertEquals(listOf(novelDir), libraryRepo.deletedFolders)
+        assertTrue(progressRepo.positions.isEmpty())
+    }
+
+    @Test
+    fun deleteBook_unknownId_surfacesNotice() = runBlocking {
+        storage.dirs = listOf(novelDir)
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting()
+
+        val vm = viewModel()
+        vm.deleteBook("no-such-book")
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertEquals(1, state.books.size)
+            assertEquals(1, state.errors.size)
+            assertTrue(
+                "notice names the rule, was: ${state.errors[0].reason}",
+                state.errors[0].reason.contains("nothing to delete")
+            )
+        }
+        assertTrue(libraryRepo.deletedFolders.isEmpty())
+    }
+
     private fun viewModel(
         storage: BundleStorage = this.storage
     ) = LibraryViewModel(
@@ -476,6 +689,89 @@ class LibraryViewModelTest {
     private fun chapterTextJson(): String =
         """{"spec_version":"1.0","chapter":1,"title":"Ch","duration_ms":1000,"blocks":[{"id":1,"type":"para","sentences":[{"sid":1,"speaker":"narrator","start_ms":0,"end_ms":1000,"text":"Hi. "}]}]}"""
 
+    /** Minimal valid 2.0 unrendered chapter text (untimed reserved-speaker sentence). */
+    private fun chapterTextJsonV2(): String =
+        """{"spec_version":"2.0","chapter":1,"title":"Ch","blocks":[{"id":1,"type":"para","sentences":[{"sid":1,"speaker":"narrator","text":"Hi. "}]}]}"""
+
+    /** Minimal valid 2.0 rendered chapter text (timed sentence plus chapter duration). */
+    private fun chapterTextJsonV2Timed(): String =
+        """{"spec_version":"2.0","chapter":1,"title":"Ch","duration_ms":1000,"blocks":[{"id":1,"type":"para","sentences":[{"sid":1,"speaker":"narrator","start_ms":0,"end_ms":1000,"text":"Hi. "}]}]}"""
+
+    private fun voicesV2(): String =
+        """"voices": {"dialogue": {"engine": "system", "pitch": 1.0, "speed": 1.0, "voice": "default"}, "narrator": {"engine": "system", "pitch": 1.0, "speed": 1.0, "voice": "default"}}"""
+
+    private fun manifestV2(renderState: String, id: String = "book-2"): String = """
+        {
+          "spec_version": "2.0",
+          "id": "$id",
+          "title": "Unrendered Book",
+          "author": "A. Author",
+          "type": "epub",
+          "render_state": "$renderState",
+          ${voicesV2()},
+          "chapters": [
+            {"index": 1, "title": "Ch 1", "text": "text/ch001.json"},
+            {"index": 2, "title": "Ch 2", "text": "text/ch002.json"}
+          ]
+        }
+        """.trimIndent()
+
+    private fun manifestPartial(): String = """
+        {
+          "spec_version": "2.0",
+          "id": "book-p",
+          "title": "Partial Book",
+          "author": "A. Author",
+          "type": "epub",
+          "render_state": "partial",
+          "audio": {"format": "mp3"},
+          ${voicesV2()},
+          "chapters": [
+            {"index": 1, "title": "Ch 1", "audio": "audio/ch001.mp3",
+             "text": "text/ch001.json", "duration_ms": 1000},
+            {"index": 2, "title": "Ch 2", "text": "text/ch002.json"}
+          ]
+        }
+        """.trimIndent()
+
+    private fun manifestV2Complete(): String = """
+        {
+          "spec_version": "2.0",
+          "id": "book-c",
+          "title": "Complete Book",
+          "author": "A. Author",
+          "type": "epub",
+          "render_state": "complete",
+          "audio": {"format": "mp3"},
+          ${voicesV2()},
+          "chapters": [
+            {"index": 1, "title": "Ch 1", "audio": "audio/ch001.mp3",
+             "text": "text/ch001.json", "duration_ms": 1000},
+            {"index": 2, "title": "Ch 2", "audio": "audio/ch002.mp3",
+             "text": "text/ch002.json", "duration_ms": 1000}
+          ]
+        }
+        """.trimIndent()
+
+    /** RN7: same book as [manifestV2] after chapter 1 renders (partial). */
+    private fun manifestV2FirstRendered(id: String): String = """
+        {
+          "spec_version": "2.0",
+          "id": "$id",
+          "title": "Unrendered Book",
+          "author": "A. Author",
+          "type": "epub",
+          "render_state": "partial",
+          "audio": {"format": "mp3"},
+          ${voicesV2()},
+          "chapters": [
+            {"index": 1, "title": "Ch 1", "audio": "audio/ch001.mp3",
+             "text": "text/ch001.json", "duration_ms": 1000},
+            {"index": 2, "title": "Ch 2", "text": "text/ch002.json"}
+          ]
+        }
+        """.trimIndent()
+
     private fun validTexts(manifest: String): Map<String, String> = mapOf(
         manifestPath to manifest,
         "$novelDir/text/ch001.json" to chapterTextJson(),
@@ -496,10 +792,21 @@ class LibraryViewModelTest {
         var failRoots: Set<String> = emptySet()
         var texts: Map<String, String> = emptyMap()
         var existing: Set<String> = emptySet()
+        var strayDirs: List<String> = emptyList()
+        var strayDirsByRoot: Map<String, List<String>> = emptyMap()
+        var failStrayRoots: Set<String> = emptySet()
+        val deletedPaths = mutableListOf<String>()
 
         override fun listBundleDirs(root: String): List<String> {
             if (root in failRoots) throw IOException("$root: cannot list books folder: denied")
             return dirsByRoot[root] ?: dirs
+        }
+        override fun listStrayTempDirs(root: String): List<String> {
+            if (root in failStrayRoots) throw IOException("$root: cannot list temp folders")
+            return strayDirsByRoot[root] ?: strayDirs
+        }
+        override fun deleteRecursively(path: String) {
+            deletedPaths.add(path)
         }
         override fun readText(path: String): String =
             texts[path] ?: throw IOException("$path: file not found or not readable")
@@ -607,7 +914,9 @@ class LibraryViewModelTest {
     }
 
     /** In-memory [LibraryRepository] mirroring the upsert-by-id + missing-flag semantics. */
-    private class FakeLibraryRepository : LibraryRepository {
+    private class FakeLibraryRepository(
+        val deletedFolders: MutableList<String> = mutableListOf()
+    ) : LibraryRepository {
         private val rows = MutableStateFlow<List<BookEntity>>(emptyList())
 
         override fun books(): Flow<List<BookEntity>> = rows
@@ -627,7 +936,9 @@ class LibraryViewModelTest {
                 author = manifest.author,
                 bundlePath = bundleDir,
                 coverPath = null,
-                durationMs = manifest.chapters.sumOf { it.durationMs },
+                // IN1: chapter durations are nullable (absent for unrendered
+                // 2.0 chapters); this fake mirrors RoomLibraryRepository.
+                durationMs = manifest.chapters.sumOf { it.durationMs ?: 0L },
                 addedAt = 1_000L,
                 isMissing = false
             )
@@ -642,6 +953,16 @@ class LibraryViewModelTest {
             }
             return Result.success(Unit)
         }
+
+        override suspend fun deleteBook(bookId: String): Result<Unit> {
+            val existing = rows.value.firstOrNull { it.id == bookId }
+                ?: return Result.failure(
+                    DataError.InvalidBundle("$bookId: book not in library (nothing to delete)")
+                )
+            deletedFolders.add(existing.bundlePath)
+            rows.value = rows.value.filterNot { it.id == bookId }
+            return Result.success(Unit)
+        }
     }
 
     private class FakeProgressRepository : ProgressRepository {
@@ -650,13 +971,19 @@ class LibraryViewModelTest {
         override suspend fun save(
             bookId: String,
             chapterIndex: Int,
-            positionMs: Long
+            positionMs: Long,
+            sentenceSid: Int?
         ): Result<Unit> {
-            positions[bookId] = ProgressEntity(bookId, chapterIndex, positionMs, 0L)
+            positions[bookId] = ProgressEntity(bookId, chapterIndex, positionMs, 0L, sentenceSid)
             return Result.success(Unit)
         }
 
         override suspend fun load(bookId: String): Result<ProgressEntity?> =
             Result.success(positions[bookId])
+
+        override suspend fun delete(bookId: String): Result<Unit> {
+            positions.remove(bookId)
+            return Result.success(Unit)
+        }
     }
 }

@@ -31,4 +31,13 @@ interface LibraryRepository {
      * variance between stored and listed paths is ignored.
      */
     suspend fun refreshMissing(presentBundleDirs: Collection<String>): Result<Unit>
+
+    /**
+     * IN8: library delete (the "Not rendered" row action and its
+     * rendered-book twin): removes the book folder through `BundleStorage`
+     * and then the library row. An unknown [bookId] fails with a
+     * file-and-rule message instead of deleting anything. Saved progress
+     * is removed separately via `ProgressRepository.delete`.
+     */
+    suspend fun deleteBook(bookId: String): Result<Unit>
 }

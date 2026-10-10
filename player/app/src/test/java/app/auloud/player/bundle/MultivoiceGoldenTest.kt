@@ -90,11 +90,19 @@ class MultivoiceGoldenTest {
         // Sids run 1..3 consecutive, timings ordered, first start 0.
         assertEquals(listOf(1, 2, 3), sentences.map { it.sid })
         assertEquals(0L, sentences.first().startMs)
-        sentences.forEach { assertTrue("sid ${it.sid}: bad range", it.startMs < it.endMs) }
+        // IN1: sentence timings are nullable (absent for unrendered
+        // chapters); this rendered golden always carries them.
+        sentences.forEach {
+            assertTrue(
+                "sid ${it.sid}: bad range",
+                it.startMs != null && it.endMs != null && it.startMs < it.endMs
+            )
+        }
         for (i in 1 until sentences.size) {
             assertTrue(
                 "sid ${sentences[i].sid} overlaps sid ${sentences[i - 1].sid}",
-                sentences[i].startMs >= sentences[i - 1].endMs
+                sentences[i].startMs != null && sentences[i - 1].endMs != null &&
+                    sentences[i].startMs!! >= sentences[i - 1].endMs!!
             )
         }
         // Multi-voice shape: narrator opens, Alice speaks, narrator tags.

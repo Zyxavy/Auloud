@@ -1,6 +1,5 @@
 package app.auloud.player.playback
 
-import android.content.ComponentName
 import android.content.Context
 import android.util.Log
 import androidx.media3.common.C
@@ -32,7 +31,7 @@ import kotlinx.coroutines.launch
  * Scope ownership: the caller owns [scope] (e.g. `rememberCoroutineScope`);
  * the controller only holds the ticker [Job], cancelled in [release]. Call
  * [connect] once the service has been started with
- * [PlaybackService.EXTRA_BOOK_ID] (the Player screen does that; the service
+ * [PlaybackIntents.EXTRA_BOOK_ID] (the Player screen does that; the service
  * then loads the book paused at its saved spot), and [release] when the
  * screen is disposed (`DisposableEffect`) or cleared. Leaving the screen
  * releases the controller but the service session (playlist + position)
@@ -86,7 +85,7 @@ class PlaybackController(
     fun connect() {
         if (controllerFuture != null) return
         val token = connectGuard.beginConnect()
-        val appToken = SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java))
+        val appToken = SessionToken(appContext, PlaybackIntents.serviceComponent(appContext))
         val future = MediaController.Builder(appContext, appToken).buildAsync()
         controllerFuture = future
         future.addListener(
@@ -167,6 +166,39 @@ class PlaybackController(
         val c = controller ?: return
         c.seekTo(clampSeekRequest(positionMs, chapterDurationOf(c)))
         refresh("seek")
+    }
+
+    /**
+     * ST5: sentence-index seek for live streams. Stream positions are
+     * sentence indexes with an unset duration (which [clampSeekRequest]
+     * would clamp to 0), so an unset duration seeks raw; a known duration
+     * takes the normal clamped path (same call, same refresh).
+     */
+    fun seekToSentence(index: Int) {
+        val c = controller ?: return
+        if (c.duration == C.TIME_UNSET) {
+            c.seekTo(index.coerceAtLeast(0).toLong())
+        } else {
+            c.seekTo(clampSeekRequest(index.toLong(), chapterDurationOf(c)))
+        }
+        refresh("seekSentence")
+    }
+
+    /**
+     * ST5: chapter step for single-item timelines. The stream player
+     * routes these through its navigator (chapter switch); on rendered
+     * multi-item playlists they behave exactly like the guarded versions
+     * (ends are no-ops either way).
+     */
+    fun streamNextChapter() {
+        controller?.seekToNextMediaItem()
+        refresh("streamNext")
+    }
+
+    /** ST5: previous-chapter twin of [streamNextChapter]. */
+    fun streamPreviousChapter() {
+        controller?.seekToPreviousMediaItem()
+        refresh("streamPrev")
     }
 
     fun nextChapter() {
@@ -279,6 +311,8 @@ class PlaybackController(
                 isConnected = true,
                 // RA8: sleep countdown copied from the service snapshot.
                 sleepRemainingMs = SleepTimerMonitor.remainingMs,
+                // ST5: live voice sid copied from the service snapshot.
+                streamSid = StreamSidMonitor.sid,
                 // WP9: the overlay's save time comes from the service's
                 // saver, never the UI clock. Gated so release behavior is
                 // unchanged (stays 0, overlay absent); a volatile read,

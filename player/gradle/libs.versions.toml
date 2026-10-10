@@ -4,6 +4,29 @@
 # Coil 2.6.0: minSdk 21, Apache-2.0/MIT.
 # Compose BOM 2024.09.00, coroutines 1.9.0, serialization 1.7.3: Apache-2.0.
 # androidx.test runner + junit-ext (WP4, user-approved): Apache-2.0, test-only.
+# kotlinx-coroutines-test (VC5, test-only): same Apache-2.0 license and
+# 1.9.0 pin as the coroutines stack; never ships in either APK, so no
+# minSdk or license-scan impact. Gives UnrenderedReaderViewModelTest
+# virtual time (StandardTestDispatcher plus runTest) for the debounce.
+# sherpa-onnx 1.13.8 via JitPack (VC1: full flavor only via
+# fullImplementation, so core builds with zero sherpa/onnxruntime/espeak
+# files; core is the main Apache-2.0 release, full ships GPL-3.0 per D-126):
+# AAR minSdk 21, POM Apache-2.0; native libs bundle static espeak-ng
+# (see Slice7.md research) (D-126: option A - full ships GPL-3.0).
+# jsoup 1.23.2 (Slice 9 IN4, user-approved per D-079): MIT (POM license
+# block + https://jsoup.org/license). Java 8 base with a Java 11 overlay
+# (multi-release jar); its POM validates the Java 8 and Android API 21
+# surfaces (animal-sniffer check-java8-api + check-android21-api), so
+# minSdk 24 is above the validated baseline. Self-contained, no required
+# runtime deps (re2j is optional, not transitive). Android projects must
+# enable core library desugaring with the NIO spec
+# (https://jsoup.org/download); the desugar artifact below provides it.
+# desugar_jdk_libs_nio 2.1.5 (Slice 9 IN4, build-time only for the jsoup
+# pin): GPL-2.0 with the Classpath Exception (its POM license block); the
+# exception permits bundling the desugared classes into the Apache-2.0
+# Player (same basis as every desugared app). Not a runtime dependency:
+# used via coreLibraryDesugaring only. Latest 2.1.x on 2026-10-06 per
+# Google Maven metadata; needs device test for import (IN10).
 [versions]
 agp = "8.7.3"
 kotlin = "2.0.21"
@@ -23,6 +46,9 @@ turbine = "1.2.1"
 mockk = "1.13.12"
 test-runner = "1.6.2"
 test-junit-ext = "1.2.1"
+sherpa-onnx = "1.13.8"
+jsoup = "1.23.2"
+desugar-nio = "2.1.5"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -38,11 +64,15 @@ room-compiler = { group = "androidx.room", name = "room-compiler", version.ref =
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
+coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
 mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
 test-runner = { group = "androidx.test", name = "runner", version.ref = "test-runner" }
 test-junit-ext = { group = "androidx.test.ext", name = "junit", version.ref = "test-junit-ext" }
+sherpa-onnx = { group = "com.github.k2-fsa.sherpa-onnx", name = "sherpa-onnx", version.ref = "sherpa-onnx" }
+jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
+desugar-nio = { group = "com.android.tools", name = "desugar_jdk_libs_nio", version.ref = "desugar-nio" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

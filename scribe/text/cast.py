@@ -36,10 +36,12 @@ overrides:
 Format notes (per ``05-ScribeDesign.md`` as refined by Slice 4 decisions 1-3):
 
 - ``narrator`` carries ``engine``/``voice``/``speed``. ``characters`` maps a
-  canonical character key to ``voice``/``speed`` (an optional ``pitch`` is
-  accepted but ignored in v1: decision 4 is speed offsets only, no pitch
-  shifting). ``default_female``/``default_male`` carry ``voice`` and an
-  optional ``speed`` (default 1.0).
+canonical character key to ``voice``/``speed`` with an optional ``engine``
+(a missing or garbled engine means Kokoro, so v1 files validate unchanged;
+an optional ``pitch`` is accepted but ignored in v1: decision 4 is speed
+offsets only, no pitch shifting). ``default_female``/``default_male``
+carry ``voice`` and an optional ``speed`` (default 1.0) plus the same
+optional ``engine``.
 - ``aliases`` maps a character key to its alias surfaces (the reverse of a
   flat alias-to-character map, so a surface claimed by two characters is a
   detectable duplicate). Matching is exact on :func:`text.speakers
@@ -152,6 +154,10 @@ from text.speakers import (
 
 NARRATOR = "narrator"
 NARRATOR_ENGINE = "kokoro"  # D-023: kokoro-onnx runtime.
+#: Slice 8 SW2: every voice-carrying entry names one of these. A missing or
+#: garbled ``engine`` resolves and validates as Kokoro (v1 files predate the
+#: key), so existing casts and goldens validate byte-identically.
+SUPPORTED_ENGINES = ("kokoro", "piper")
 NARRATOR_VOICE = "af_heart"  # D-023 narrator voice (Slice 2 single-voice default).
 NARRATOR_SPEED = 1.0
 
@@ -248,11 +254,12 @@ def read_cast(path: Path | str) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class ResolvedVoice:
-    """Final voice for one dialogue quote: character key, voice id, speed."""
+    """Final voice for one dialogue quote: engine, character key, voice id, speed."""
 
     character: str
     voice: str
     speed: float
+    engine: str = NARRATOR_ENGINE
 
 
 def canonicalize_speaker(
@@ -284,6 +291,43 @@ def canonicalize_speaker(
     return None
 
 
+def _entry_engine(entry: Any) -> str:
+    """Engine id for a voice-carrying entry (SW2, never raises).
+
+    Missing or garbled ``engine`` means Kokoro: v1 casts predate the key
+    (only the narrator carried it), and resolution stays total. Validation
+    is the layer that reports a bad engine string.
+    """
+    if isinstance(entry, dict):
+        engine = entry.get("engine")
+        if isinstance(engine, str) and engine.strip() in SUPPORTED_ENGINES:
+            return engine.strip()
+    return NARRATOR_ENGINE
+
+
+def cast_engines(cast: dict[str, Any]) -> list[str]:
+    """Engine ids the cast needs, in :data:`SUPPORTED_ENGINES` order.
+
+    Reads the narrator, every character, and both generics (missing
+    engines count as Kokoro, same as resolution). Pure; :mod:`build` uses
+    it to construct exactly the engines a render needs. Never raises.
+    """
+    if not isinstance(cast, dict):
+        return [NARRATOR_ENGINE]
+    needed: set[str] = set()
+    narrator = cast.get(NARRATOR)
+    needed.add(_entry_engine(narrator) if isinstance(narrator, dict) else NARRATOR_ENGINE)
+    characters = cast.get(CHARACTERS_KEY)
+    if isinstance(characters, dict):
+        for entry in characters.values():
+            needed.add(_entry_engine(entry))
+    for key in (DEFAULT_FEMALE_KEY, DEFAULT_MALE_KEY):
+        entry = cast.get(key)
+        if isinstance(entry, dict):
+            needed.add(_entry_engine(entry))
+    return [engine for engine in SUPPORTED_ENGINES if engine in needed]
+
+
 def _entry_voice(entry: Any, *, fallback_voice: str) -> tuple[str, float]:
     """``(voice, speed)`` from a cast entry, defensively (never raises).
 
@@ -306,11 +350,6 @@ def _entry_voice(entry: Any, *, fallback_voice: str) -> tuple[str, float]:
     return voice, speed
 
 
-def _narrator_voice(cast: dict[str, Any]) -> tuple[str, float]:
-    """Narrator ``(voice, speed)`` with legacy-constant fallbacks."""
-    return _entry_voice(cast.get(NARRATOR), fallback_voice=NARRATOR_VOICE)
-
-
 def _generic_voice(cast: dict[str, Any], *, male: bool) -> ResolvedVoice:
     """Generic fallback: ``default_male`` for male hints, else default female.
 
@@ -318,10 +357,16 @@ def _generic_voice(cast: dict[str, Any], *, male: bool) -> ResolvedVoice:
     generic; see the module docstring for the rationale.
     """
     if male:
-        voice, speed = _entry_voice(cast.get(DEFAULT_MALE_KEY), fallback_voice=DEFAULT_MALE_VOICE)
-        return ResolvedVoice(character=GENERIC_MALE, voice=voice, speed=speed)
-    voice, speed = _entry_voice(cast.get(DEFAULT_FEMALE_KEY), fallback_voice=DEFAULT_FEMALE_VOICE)
-    return ResolvedVoice(character=GENERIC_FEMALE, voice=voice, speed=speed)
+        entry = cast.get(DEFAULT_MALE_KEY)
+        voice, speed = _entry_voice(entry, fallback_voice=DEFAULT_MALE_VOICE)
+        return ResolvedVoice(
+            character=GENERIC_MALE, voice=voice, speed=speed, engine=_entry_engine(entry)
+        )
+    entry = cast.get(DEFAULT_FEMALE_KEY)
+    voice, speed = _entry_voice(entry, fallback_voice=DEFAULT_FEMALE_VOICE)
+    return ResolvedVoice(
+        character=GENERIC_FEMALE, voice=voice, speed=speed, engine=_entry_engine(entry)
+    )
 
 
 def _match_quote_override(
@@ -375,15 +420,24 @@ def _voice_for_canonical(cast: dict[str, Any], canonical: str) -> ResolvedVoice 
     if not isinstance(aliases, dict):
         aliases = {}
     if canonical == NARRATOR:
-        voice, speed = _narrator_voice(cast)
-        return ResolvedVoice(character=NARRATOR, voice=voice, speed=speed)
+        entry = cast.get(NARRATOR)
+        voice, speed = _entry_voice(entry, fallback_voice=NARRATOR_VOICE)
+        return ResolvedVoice(
+            character=NARRATOR, voice=voice, speed=speed, engine=_entry_engine(entry)
+        )
     if isinstance(canonical, str) and canonical in characters:
-        voice, speed = _entry_voice(characters[canonical], fallback_voice=DEFAULT_FEMALE_VOICE)
-        return ResolvedVoice(character=canonical, voice=voice, speed=speed)
+        entry = characters[canonical]
+        voice, speed = _entry_voice(entry, fallback_voice=DEFAULT_FEMALE_VOICE)
+        return ResolvedVoice(
+            character=canonical, voice=voice, speed=speed, engine=_entry_engine(entry)
+        )
     target = canonicalize_speaker(canonical, characters, aliases)
     if target is not None:
-        voice, speed = _entry_voice(characters[target], fallback_voice=DEFAULT_FEMALE_VOICE)
-        return ResolvedVoice(character=target, voice=voice, speed=speed)
+        entry = characters[target]
+        voice, speed = _entry_voice(entry, fallback_voice=DEFAULT_FEMALE_VOICE)
+        return ResolvedVoice(
+            character=target, voice=voice, speed=speed, engine=_entry_engine(entry)
+        )
     return None
 
 
@@ -439,17 +493,26 @@ def resolve_speaker(
         resolved = _voice_for_canonical(cast, target)
         if resolved is not None:
             return resolved
-        voice, speed = _narrator_voice(cast)
-        return ResolvedVoice(character=NARRATOR, voice=voice, speed=speed)
+        entry = cast.get(NARRATOR)
+        voice, speed = _entry_voice(entry, fallback_voice=NARRATOR_VOICE)
+        return ResolvedVoice(
+            character=NARRATOR, voice=voice, speed=speed, engine=_entry_engine(entry)
+        )
 
     if normalize_name(effective) == NARRATOR:
-        voice, speed = _narrator_voice(cast)
-        return ResolvedVoice(character=NARRATOR, voice=voice, speed=speed)
+        entry = cast.get(NARRATOR)
+        voice, speed = _entry_voice(entry, fallback_voice=NARRATOR_VOICE)
+        return ResolvedVoice(
+            character=NARRATOR, voice=voice, speed=speed, engine=_entry_engine(entry)
+        )
 
     canonical = canonicalize_speaker(effective, characters, aliases)
     if canonical is not None:
-        voice, speed = _entry_voice(characters.get(canonical), fallback_voice=DEFAULT_FEMALE_VOICE)
-        return ResolvedVoice(character=canonical, voice=voice, speed=speed)
+        entry = characters.get(canonical)
+        voice, speed = _entry_voice(entry, fallback_voice=DEFAULT_FEMALE_VOICE)
+        return ResolvedVoice(
+            character=canonical, voice=voice, speed=speed, engine=_entry_engine(entry)
+        )
     return _generic_voice(cast, male=(gender == GENDER_MALE))
 
 
@@ -611,12 +674,62 @@ def _check_voice(
     source: str,
     errors: list[str],
     known_voices: Collection[str] | None,
+    engine: str = NARRATOR_ENGINE,
 ) -> None:
-    """Validate one voice field (non-empty; real Kokoro voice when known)."""
+    """Validate one voice field (non-empty; real engine voice when known)."""
     if not isinstance(voice, str) or not voice.strip():
         errors.append(f"{source}: {key}: voice must be a non-empty string (got {voice!r})")
     elif known_voices is not None and voice not in known_voices:
-        errors.append(f"{source}: {key}: unknown voice {voice!r} (must be a real Kokoro voice)")
+        errors.append(
+            f"{source}: {key}: unknown voice {voice!r} (must be a real {engine} voice)"
+        )
+
+
+def _check_engine(
+    engine: Any,
+    *,
+    key: str,
+    source: str,
+    errors: list[str],
+    required: bool,
+) -> str:
+    """Validate one engine field; return the effective engine (never raises).
+
+    Voice-carrying entries name a :data:`SUPPORTED_ENGINES` member. The
+    narrator entry requires it (v1 files all carry it); characters and
+    generics leave it optional, missing meaning Kokoro. A bad value is an
+    error and resolves as Kokoro downstream.
+    """
+    if engine is None:
+        if required:
+            errors.append(
+                f"{source}: {key}: missing (must be one of {list(SUPPORTED_ENGINES)})"
+            )
+        return NARRATOR_ENGINE
+    if not isinstance(engine, str) or engine.strip() not in SUPPORTED_ENGINES:
+        errors.append(
+            f"{source}: {key}: must be one of {list(SUPPORTED_ENGINES)} (got {engine!r})"
+        )
+        return NARRATOR_ENGINE
+    return engine.strip()
+
+
+def _voices_for_engine(
+    engine: str,
+    known_voices: Collection[str] | None,
+    known_voices_per_engine: dict[str, Collection[str] | None] | None,
+) -> Collection[str] | None:
+    """Voice allow-list for ``engine`` (None means shape-only).
+
+    An explicit per-engine map wins (even a None value: shape-only for
+    that engine); otherwise Kokoro falls back to ``known_voices`` and any
+    other engine validates shape only (its list is unknown here).
+    """
+    if known_voices_per_engine is not None and engine in known_voices_per_engine:
+        return known_voices_per_engine[engine]
+    if engine == NARRATOR_ENGINE:
+        return known_voices
+    return None
 
 
 def _check_speed(speed: Any, *, key: str, source: str, errors: list[str]) -> None:
@@ -635,21 +748,24 @@ def validate_cast(
     *,
     source: str = "cast.yaml",
     known_voices: Collection[str] | None = None,
+    known_voices_per_engine: dict[str, Collection[str] | None] | None = None,
 ) -> list[str]:
     """Validate a parsed cast; returns error strings (empty when valid).
 
     Every error names the file (``source``), the dotted key, and the rule,
     e.g. ``cast.yaml: characters.Ana.voice: unknown voice 'xx' (must be a
-    real Kokoro voice)``. Checks: mapping shape and known top-level keys;
+    real kokoro voice)``. Checks: mapping shape and known top-level keys;
     narrator engine/voice/speed; character names (non-empty, unreserved,
-    unique once normalized) with voice/speed (``pitch`` allowed but
+    unique once normalized) with engine/voice/speed (``pitch`` allowed but
     ignored in v1); aliases pointing at real characters with no duplicate
-    or character-colliding surfaces; generics voice/speed; ``first_person``
-    naming ``narrator`` or a character/alias; overrides in exactly one of
-    the two forms (quote-key or text-match, never ``sid``, compilable
-    regex, known speaker); ``thought`` hook shape only. Voice names are
-    checked against ``known_voices`` when given (``build`` passes the
-    engine's voice list); ``None`` checks shape only.
+    or character-colliding surfaces; generics engine/voice/speed;
+    ``first_person`` naming ``narrator`` or a character/alias; overrides in
+    exactly one of the two forms (quote-key or text-match, never ``sid``,
+    compilable regex, known speaker); ``thought`` hook shape only. Voice
+    names are checked per entry engine: an explicit
+    ``known_voices_per_engine`` map wins per engine, else Kokoro falls back
+    to ``known_voices`` and other engines check shape only; ``None``
+    everywhere checks shape only.
     """
     errors: list[str] = []
     if not isinstance(cast, dict):
@@ -682,22 +798,28 @@ def validate_cast(
                 errors.append(
                     f"{source}: narrator.{key}: unknown key (expected engine, voice, speed)"
                 )
-        if "engine" not in narrator:
-            errors.append(f"{source}: narrator.engine: missing (must be {NARRATOR_ENGINE!r})")
-        elif narrator["engine"] != NARRATOR_ENGINE:
-            errors.append(
-                f"{source}: narrator.engine: must be {NARRATOR_ENGINE!r} "
-                f"(v1 supports Kokoro only, got {narrator['engine']!r})"
-            )
+        narrator_engine = _check_engine(
+            narrator.get("engine"),
+            key="narrator.engine",
+            source=source,
+            errors=errors,
+            required=True,
+        )
+        narrator_voices = _voices_for_engine(
+            narrator_engine, known_voices, known_voices_per_engine
+        )
         if "voice" not in narrator:
-            errors.append(f"{source}: narrator.voice: missing (must name a Kokoro voice)")
+            errors.append(
+                f"{source}: narrator.voice: missing (must name a {narrator_engine} voice)"
+            )
         else:
             _check_voice(
                 narrator["voice"],
                 key="narrator.voice",
                 source=source,
                 errors=errors,
-                known_voices=known_voices,
+                known_voices=narrator_voices,
+                engine=narrator_engine,
             )
         if "speed" not in narrator:
             errors.append(f"{source}: narrator.speed: missing (must be a number above 0)")
@@ -732,19 +854,34 @@ def validate_cast(
             )
             continue
         for key in entry:
-            if key not in ("voice", "speed", "pitch", THOUGHT_KEY):
+            if key not in ("engine", "voice", "speed", "pitch", THOUGHT_KEY):
                 errors.append(
-                    f"{source}: characters.{name}.{key}: unknown key (expected voice, speed)"
+                    f"{source}: characters.{name}.{key}: "
+                    "unknown key (expected engine, voice, speed)"
                 )
+        entry_engine = _check_engine(
+            entry.get("engine"),
+            key=f"characters.{name}.engine",
+            source=source,
+            errors=errors,
+            required=False,
+        )
+        entry_voices = _voices_for_engine(
+            entry_engine, known_voices, known_voices_per_engine
+        )
         if "voice" not in entry:
-            errors.append(f"{source}: characters.{name}.voice: missing (must name a Kokoro voice)")
+            errors.append(
+                f"{source}: characters.{name}.voice: missing "
+                f"(must name a {entry_engine} voice)"
+            )
         else:
             _check_voice(
                 entry["voice"],
                 key=f"characters.{name}.voice",
                 source=source,
                 errors=errors,
-                known_voices=known_voices,
+                known_voices=entry_voices,
+                engine=entry_engine,
             )
         if "speed" not in entry:
             errors.append(f"{source}: characters.{name}.speed: missing (must be a number above 0)")
@@ -810,17 +947,30 @@ def validate_cast(
             errors.append(f"{source}: {key}: must be a mapping (got {type(entry).__name__})")
             continue
         for sub in entry:
-            if sub not in ("voice", "speed"):
-                errors.append(f"{source}: {key}.{sub}: unknown key (expected voice, speed)")
+            if sub not in ("engine", "voice", "speed"):
+                errors.append(f"{source}: {key}.{sub}: unknown key (expected engine, voice, speed)")
+        generic_engine = _check_engine(
+            entry.get("engine"),
+            key=f"{key}.engine",
+            source=source,
+            errors=errors,
+            required=False,
+        )
+        generic_voices = _voices_for_engine(
+            generic_engine, known_voices, known_voices_per_engine
+        )
         if "voice" not in entry:
-            errors.append(f"{source}: {key}.voice: missing (must name a Kokoro voice)")
+            errors.append(
+                f"{source}: {key}.voice: missing (must name a {generic_engine} voice)"
+            )
         else:
             _check_voice(
                 entry["voice"],
                 key=f"{key}.voice",
                 source=source,
                 errors=errors,
-                known_voices=known_voices,
+                known_voices=generic_voices,
+                engine=generic_engine,
             )
         if "speed" in entry:
             _check_speed(entry["speed"], key=f"{key}.speed", source=source, errors=errors)

@@ -1,0 +1,42 @@
+{
+  "chapters": [
+    {
+      "blocks": [
+        {
+          "id": 1,
+          "runs": [
+            {
+              "kind": "narration",
+              "text": "The amber lamp glowed softly above the quiet river bend."
+            }
+          ],
+          "text": "The amber lamp glowed softly above the quiet river bend.",
+          "type": "para"
+        },
+        {
+          "id": 2,
+          "runs": [
+            {
+              "kind": "dialogue",
+              "text": "\"We should leave,\""
+            },
+            {
+              "kind": "narration",
+              "text": " Alice said."
+            }
+          ],
+          "text": "\"We should leave,\" Alice said.",
+          "type": "para"
+        }
+      ],
+      "index": 1,
+      "title": "Chapter One",
+      "words": 15
+    }
+  ],
+  "source": {
+    "file": "source/book.epub",
+    "fixture": "multivoice-golden",
+    "sha256": "baf814774fc22513b51f0405e7bf45a55f0de06b2682b44fff5fb44b07f9890e"
+  }
+}
