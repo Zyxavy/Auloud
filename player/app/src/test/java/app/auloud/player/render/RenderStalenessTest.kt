@@ -73,6 +73,61 @@ class RenderStalenessTest {
 
     private val v1 = versions("system" to "v1", "piper" to "pack-3")
 
+    private val vKitten = versions("kitten" to "sherpa-1.13.8")
+
+    private fun kittenFingerprint(
+        narratorVoice: String = "kitten:1",
+        dialogueVoice: String = "kitten:0",
+        version: String = "sherpa-1.13.8"
+    ) = RenderFingerprint(
+        engine = "kitten",
+        voices = mapOf("narrator" to narratorVoice, "dialogue" to dialogueVoice),
+        speeds = mapOf("narrator" to 1.0f, "dialogue" to 1.0f),
+        engineVersions = mapOf("kitten" to version)
+    )
+
+    @Test
+    fun kittenDialogueSidChange_dialogueChapter_isStale() {
+        val stored = kittenFingerprint()
+        val voices = bookVoices(narratorId = "kitten:1", dialogueId = "kitten:5")
+        val state = RenderStaleness.classifyChapter(
+            durationMs = 60_000L,
+            storedJson = stored.toJsonObject(),
+            bookVoices = voices,
+            versionOf = vKitten,
+            chapter = dialogueChapter()
+        )
+        assertEquals(ChapterStaleState.STALE, state)
+    }
+
+    @Test
+    fun kittenSameVoices_dialogueChapter_staysCurrent() {
+        val stored = kittenFingerprint()
+        val voices = bookVoices(narratorId = "kitten:1", dialogueId = "kitten:0")
+        val state = RenderStaleness.classifyChapter(
+            durationMs = 60_000L,
+            storedJson = stored.toJsonObject(),
+            bookVoices = voices,
+            versionOf = vKitten,
+            chapter = dialogueChapter()
+        )
+        assertEquals(ChapterStaleState.CURRENT, state)
+    }
+
+    @Test
+    fun kittenVersionBump_isOutdatedNotStale() {
+        val stored = kittenFingerprint(version = "sherpa-1.13.8")
+        val voices = bookVoices(narratorId = "kitten:1", dialogueId = "kitten:0")
+        val state = RenderStaleness.classifyChapter(
+            durationMs = 60_000L,
+            storedJson = stored.toJsonObject(),
+            bookVoices = voices,
+            versionOf = versions("kitten" to "sherpa-1.13.9"),
+            chapter = dialogueChapter()
+        )
+        assertEquals(ChapterStaleState.OUTDATED, state)
+    }
+
     @Test
     fun narratorChange_isStale() {
         val stored = bothFingerprint()
