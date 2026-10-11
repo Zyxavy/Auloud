@@ -155,7 +155,8 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
     except (TypeError, ValueError) as exc:
         raise BundleWriteError(f"{path.name}: cannot serialize JSON: {exc}") from exc
     try:
-        path.write_text(text, encoding="utf-8")
+        # newline="\n": the bundle spec mandates \n line endings in text files.
+        path.write_text(text, encoding="utf-8", newline="\n")
     except OSError as exc:
         raise BundleWriteError(
             f"{path.name}: cannot write bundle file: {exc.strerror or exc}"

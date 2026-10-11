@@ -192,7 +192,7 @@ def _rewrite_chapter(root: Path, name: str, mutate: Any) -> dict[str, Any]:
 def test_shared_valid_bundle_passes(tmp_path: Path) -> None:
     root = tmp_path / "valid-bundle"
     shutil.copytree(FIXTURES / "valid-bundle", root)
-    (root / "source").mkdir()
+    (root / "source").mkdir(exist_ok=True)
     # The fixture manifest pins the sha256 of an empty file.
     (root / "source" / "book.epub").write_bytes(b"")
     probe = make_probe({"ch001.mp3": 1832400, "ch002.mp3": 1640100})

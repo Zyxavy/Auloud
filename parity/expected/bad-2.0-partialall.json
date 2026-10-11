@@ -1,0 +1,30 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "ENTRY-AUDIO-EXT-2X",
+      "message": "manifest.json: chapter 3 audio file 'audio/ch003.ogg' must end in .mp3 or .m4a (per-chapter format comes from the extension)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "RS-PARTIAL-MISMATCH",
+      "message": "manifest.json: render_state 'partial' needs at least one rendered and one unrendered chapter (got 3 rendered, 0 unrendered)"
+    },
+    {
+      "file": "text/ch001.json",
+      "rule": "CHAPTER-VERSION-MISMATCH-2X",
+      "message": "text/ch001.json: spec_version '1.1' does not match manifest spec_version '2.0' (2.0 chapters belong to 2.0 books)"
+    },
+    {
+      "file": "text/ch002.json",
+      "rule": "CHAPTER-SRC-VALUE-MISMATCH",
+      "message": "text/ch002.json: source_index 9 does not match manifest entry source_index 2"
+    },
+    {
+      "file": "text/ch003.json",
+      "rule": "PAGES-WITHOUT-BLOCKS-2X",
+      "message": "text/ch003.json: pages without blocks is a 1.x-only shape (2.0 chapters always carry blocks)"
+    }
+  ]
+}

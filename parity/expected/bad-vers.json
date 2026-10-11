@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "VERS-GATE-MANIFEST",
+      "message": "manifest.json: spec_version '9.9' must be one of ['1.0', '1.1', '1.2', '2.0']"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-REQ-STR",
+      "message": "manifest.json: missing or invalid required field 'title' (need string)"
+    }
+  ]
+}

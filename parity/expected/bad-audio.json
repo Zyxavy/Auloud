@@ -1,0 +1,106 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "audio/ch001.mp3",
+      "rule": "AUDIO-CODEC-MP3",
+      "message": "audio/ch001.mp3: codec is 'opus', expected 'mp3'"
+    },
+    {
+      "file": "audio/ch002.mp3",
+      "rule": "AUDIO-CHANNELS-MISMATCH",
+      "message": "audio/ch002.mp3: channels 2 do not match manifest audio channels 1"
+    },
+    {
+      "file": "audio/ch003.mp3",
+      "rule": "AUDIO-RATE-MISMATCH",
+      "message": "audio/ch003.mp3: sample_rate 44100 does not match manifest audio sample_rate 24000"
+    },
+    {
+      "file": "audio/ch004.mp3",
+      "rule": "AUDIO-BITRATE-MP3",
+      "message": "audio/ch004.mp3: average bitrate 72001 bps differs from expected 64000 bps (64 kbps CBR required)"
+    },
+    {
+      "file": "audio/ch005.mp3",
+      "rule": "AUDIO-BITRATE-UNKNOWN",
+      "message": "audio/ch005.mp3: could not determine audio bitrate"
+    },
+    {
+      "file": "audio/ch006.mp3",
+      "rule": "AUDIO-CBR",
+      "message": "audio/ch006.mp3: MP3 frames vary in size; constant bitrate (CBR) required"
+    },
+    {
+      "file": "audio/ch007.mp3",
+      "rule": "AUDIO-DURATION-MP3",
+      "message": "audio/ch007.mp3: MP3 duration 5000 ms differs from manifest duration_ms 3000 by 2000 ms (tolerance 50 ms)"
+    },
+    {
+      "file": "audio/ch008.mp3",
+      "rule": "AUDIO-DURATION-UNKNOWN-MP3",
+      "message": "audio/ch008.mp3: could not determine MP3 duration"
+    },
+    {
+      "file": "audio/ch009.m4a",
+      "rule": "AUDIO-CODEC-AAC",
+      "message": "audio/ch009.m4a: codec is 'mp3', expected 'aac' for .m4a chapters"
+    },
+    {
+      "file": "audio/ch010.m4a",
+      "rule": "AUDIO-CONTAINER",
+      "message": "audio/ch010.m4a: container 'mp3' is not mp4/m4a (M4A chapters need AAC in an M4A container)"
+    },
+    {
+      "file": "audio/ch011.m4a",
+      "rule": "AUDIO-BITRATE-AAC",
+      "message": "audio/ch011.m4a: average bitrate 80001 bps differs from expected 64000 bps by more than 16000 bps (64 kbps constrained average required)"
+    },
+    {
+      "file": "audio/ch012.m4a",
+      "rule": "AUDIO-DURATION-AAC",
+      "message": "audio/ch012.m4a: audio duration 9000 ms differs from manifest duration_ms 3000 by 6000 ms (tolerance 50 ms)"
+    },
+    {
+      "file": "audio/ch013.mp3",
+      "rule": "PROBE-ERROR",
+      "message": "audio/ch013.mp3: ffprobe failed: boom (parity probe override)",
+      "prefix": "audio/ch013.mp3: ffprobe"
+    },
+    {
+      "file": "audio/ch014.mp3",
+      "rule": "PROBE-CRASHED",
+      "message": "audio/ch014.mp3: audio probe failed: boom (parity probe override)"
+    },
+    {
+      "file": "audio/ch015.m4a",
+      "rule": "AUDIO-DURATION-UNKNOWN-AAC",
+      "message": "audio/ch015.m4a: could not determine audio duration"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "ENTRY-AUDIO-EXT-1X",
+      "message": "manifest.json: chapter 10 audio file 'audio/ch010.m4a' must end in .mp3 (m4a audio needs spec 2.0)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "ENTRY-AUDIO-EXT-1X",
+      "message": "manifest.json: chapter 11 audio file 'audio/ch011.m4a' must end in .mp3 (m4a audio needs spec 2.0)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "ENTRY-AUDIO-EXT-1X",
+      "message": "manifest.json: chapter 12 audio file 'audio/ch012.m4a' must end in .mp3 (m4a audio needs spec 2.0)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "ENTRY-AUDIO-EXT-1X",
+      "message": "manifest.json: chapter 15 audio file 'audio/ch015.m4a' must end in .mp3 (m4a audio needs spec 2.0)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "ENTRY-AUDIO-EXT-1X",
+      "message": "manifest.json: chapter 9 audio file 'audio/ch009.m4a' must end in .mp3 (m4a audio needs spec 2.0)"
+    }
+  ]
+}

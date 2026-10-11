@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-OPT-STR",
+      "message": "manifest.json: invalid field 'render_state' (need string)"
+    }
+  ]
+}

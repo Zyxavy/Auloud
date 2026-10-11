@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-FP-SPEEDS-MAP",
+      "message": "manifest.json: invalid field 'render_fingerprint.speeds' (need number map)"
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "JSON-SYNTAX-MANIFEST",
+      "message": "manifest.json: invalid JSON: Invalid control character at: line 1 column 61 (char 60)",
+      "prefix": "manifest.json: invalid JSON"
+    }
+  ]
+}

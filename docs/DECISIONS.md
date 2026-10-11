@@ -1222,3 +1222,19 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Smallest policy that passes `cargo deny check` without hiding anything: the MPL rationale is recorded, unused entries are gone, and third-party neglect stays reviewable at upgrade time.
 - Alternatives considered: forbidding MPL-2.0 (rejected: would ban Tauri itself; the copyleft is file-scoped and compatible); failing on transitive unmaintained crates (rejected: gates our slice on upstream neglect we cannot fix).
 - Consequences / revisit when: re-check the MPL set and the unmaintained transitive list on every Tauri version bump.
+
+### D-145: RS1 line-ending fallout (generators write LF, valid-bundle gains its source)
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: (1) The RS0 `.gitattributes` (LF text) exposed that committed JSON fixtures were CRLF in working copies while fresh exports write LF on Linux and CRLF on Windows: `export_ingest.py`, `export_timing.py`, `export_render.py` and the new `export_expected.py` now pass `newline="\n"` on every committed-file write, and the working tree was reset through the new attributes. Only byte-compared generator outputs were touched; runtime/temp writes are unchanged. (2) `valid-bundle` gains the empty `source/book.epub` its manifest sha already pins (the sha is the empty-string hash), so the bundle named valid finally validates; the three tests that materialize that file use `mkdir(exist_ok=True)` now. (3) The two fake `source/book.epub` files in the new bad fixtures are recorded as skipped with deterministic reasons by the ingest export's own design; `sources.json` was regenerated through the sanctioned command.
+- Why: Byte-compared parity fixtures must be identical on Windows and Linux checkouts; the valid-bundle name was a lie that three tests had already worked around by writing the same empty file.
+- Alternatives considered: reverting `.gitattributes` (rejected: plan-mandated, and CRLF-committed JSON breaks the Linux pass); rewriting all 100+ `write_text` calls (rejected: only byte-compared generator outputs need determinism).
+- Consequences / revisit when: any new byte-compared committed file must come from a `newline="\n"` generator; revisit if a test ever compares bytes of runtime (non-committed) files across platforms.
+
+### D-146: Bundle writers emit spec-mandated LF on Windows (RS1 fallout)
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: `bundle/writer.py` and the chapter-JSON helper in `build.py` pass `newline="\n"`: the bundle spec already mandates `\n` line endings in text files, so Windows-built bundles were non-compliant until now. Work-folder stats ride along; draft/cast/report writes stay platform-native (never byte-compared, and CRLF is native there).
+- Why: The golden-rebuild test compares rebuilt bytes against committed LF goldens; more importantly the written bundles now match the spec on every platform.
+- Alternatives considered: leaving writers platform-native and normalizing only in tests (rejected: hides genuine spec non-compliance in shipped bundles).
+- Consequences / revisit when: bundles built on Windows before this change carry CRLF text; they still validate (the validator reads text mode) and need no migration.

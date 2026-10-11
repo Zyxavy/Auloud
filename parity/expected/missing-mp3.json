@@ -1,0 +1,20 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "AUDIO-FILE-MISSING",
+      "message": "manifest.json: chapter 2 audio file missing audio/ch002.mp3"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "TEXT-FILE-MISSING",
+      "message": "manifest.json: chapter 1 text file missing text/ch001.json"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "TEXT-FILE-MISSING",
+      "message": "manifest.json: chapter 2 text file missing text/ch002.json"
+    }
+  ]
+}

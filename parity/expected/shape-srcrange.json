@@ -1,0 +1,25 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SRC-IDX-DUP",
+      "message": "manifest.json: duplicate source_index values [1, 2, 2] (need unique 1-based source chapters)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "SRC-IDX-MISSING",
+      "message": "manifest.json: chapter 2 missing source_index (range bundles need source_index on every chapter)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "SRC-IDX-ORDER",
+      "message": "manifest.json: source_index 1 out of order (previous 2; need strictly increasing in bundle order)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "SRC-IDX-ORDER",
+      "message": "manifest.json: source_index 2 out of order (previous 2; need strictly increasing in bundle order)"
+    }
+  ]
+}

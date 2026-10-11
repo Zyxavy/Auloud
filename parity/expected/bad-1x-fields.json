@@ -1,0 +1,30 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "ENCODER-1X",
+      "message": "manifest.json: encoder_offset_ms is 2.0-only (absent in 1.x bundles)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "FP-1X",
+      "message": "manifest.json: chapter 1 render_fingerprint is 2.0-only (absent in 1.x bundles)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "GAIN-1X",
+      "message": "manifest.json: gain_db is 2.0-only (absent in 1.x bundles)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "RS-IN-1X",
+      "message": "manifest.json: render_state 'complete' must be absent in 1.x bundles (2.0 only)"
+    },
+    {
+      "file": "text/ch001.json",
+      "rule": "CHAPTER-VERSION-MISMATCH-1X",
+      "message": "text/ch001.json: spec_version '2.0' does not match manifest spec_version '1.0' (1.x books hold 1.x chapters)"
+    }
+  ]
+}

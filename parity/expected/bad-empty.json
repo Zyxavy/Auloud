@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "NO-CHAPTERS",
+      "message": "manifest.json: no chapters listed"
+    }
+  ]
+}

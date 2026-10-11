@@ -1,0 +1,15 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "ENTRY-DURATION-NONPOS",
+      "message": "manifest.json: chapter 1 has non-positive duration_ms 0"
+    },
+    {
+      "file": "text/ch001.json",
+      "rule": "CHAPTER-DURATION-NONPOS",
+      "message": "text/ch001.json: non-positive duration_ms 0"
+    }
+  ]
+}

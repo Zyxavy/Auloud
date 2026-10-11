@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-CHAPTER-ENTRY",
+      "message": "manifest.json: invalid chapter entry (need object)"
+    }
+  ]
+}

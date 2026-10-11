@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-SOURCE-OBJECT",
+      "message": "manifest.json: invalid field 'source' (need object)"
+    }
+  ]
+}

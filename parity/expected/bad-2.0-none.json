@@ -1,0 +1,20 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "AUDIO-NONE-FORBIDDEN",
+      "message": "manifest.json: audio must be absent when render_state is 'none' (unrendered books carry no audio)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "ENTRY-DURATION-WITHOUT-AUDIO",
+      "message": "manifest.json: chapter 1 has duration_ms without audio (rendered chapters need both; unrendered chapters omit both)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "RS-NONE-MISMATCH",
+      "message": "manifest.json: render_state 'none' but 1 chapter(s) carry duration_ms (unrendered books omit audio and duration_ms everywhere)"
+    }
+  ]
+}

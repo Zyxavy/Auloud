@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-OPT-FLOAT",
+      "message": "manifest.json: invalid field 'speed' (need number)"
+    }
+  ]
+}

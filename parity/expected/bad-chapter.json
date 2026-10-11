@@ -1,0 +1,317 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "ENTRY-DURATION-ABSENT-1X",
+      "message": "manifest.json: chapter 20 missing required field 'duration_ms' (absent)"
+    },
+    {
+      "file": "text/ch001.json",
+      "rule": "IO-NFC-FILE",
+      "message": "text/ch001.json: text is not NFC-normalized (normalize to NFC before writing)"
+    },
+    {
+      "file": "text/ch002.json",
+      "rule": "SHAPE-CHAPTER-NEEDS-BLOCKS",
+      "message": "text/ch002.json: chapter file needs 'blocks' (EPUB) or 'pages' (PDF sync)"
+    },
+    {
+      "file": "text/ch003.json",
+      "rule": "SHAPE-BLOCKS-LIST",
+      "message": "text/ch003.json: invalid field 'blocks' (need list)"
+    },
+    {
+      "file": "text/ch004.json",
+      "rule": "SHAPE-BLOCK-ENTRY",
+      "message": "text/ch004.json: invalid block entry (need object)"
+    },
+    {
+      "file": "text/ch005.json",
+      "rule": "SHAPE-BLOCK-TYPE",
+      "message": "text/ch005.json: invalid block type 'verse' (need one of ('heading', 'para', 'quote', 'break'))"
+    },
+    {
+      "file": "text/ch006.json",
+      "rule": "SHAPE-SENTENCES-LIST",
+      "message": "text/ch006.json: invalid field 'sentences' (need list)"
+    },
+    {
+      "file": "text/ch007.json",
+      "rule": "SHAPE-SENTENCE-ENTRY",
+      "message": "text/ch007.json: invalid sentence entry (need object)"
+    },
+    {
+      "file": "text/ch008.json",
+      "rule": "SHAPE-SPANS-LIST",
+      "message": "text/ch008.json: invalid field 'spans' (need list)"
+    },
+    {
+      "file": "text/ch009.json",
+      "rule": "SHAPE-SPAN-ENTRY",
+      "message": "text/ch009.json: invalid span entry (need object)"
+    },
+    {
+      "file": "text/ch010.json",
+      "rule": "SHAPE-PAGES-LIST",
+      "message": "text/ch010.json: invalid field 'pages' (need list)"
+    },
+    {
+      "file": "text/ch011.json",
+      "rule": "SHAPE-PAGE-ENTRY",
+      "message": "text/ch011.json: invalid page entry (need object)"
+    },
+    {
+      "file": "text/ch012.json",
+      "rule": "SHAPE-CHAPTER-OBJECT",
+      "message": "text/ch012.json: chapter file must be a JSON object"
+    },
+    {
+      "file": "text/ch013.json",
+      "rule": "JSON-SYNTAX-CHAPTER",
+      "message": "text/ch013.json: invalid JSON: Expecting property name enclosed in double quotes: line 1 column 40 (char 39)",
+      "prefix": "text/ch013.json: invalid JSON"
+    },
+    {
+      "file": "text/ch014.json",
+      "rule": "IO-UTF8",
+      "message": "text/ch014.json: not valid UTF-8: 'utf-8' codec can't decode byte 0xff in position 1: invalid start byte",
+      "prefix": "text/ch014.json: not valid UTF-8"
+    },
+    {
+      "file": "text/ch015.json",
+      "rule": "IO-NFC-FILE",
+      "message": "text/ch015.json: text is not NFC-normalized (normalize to NFC before writing)"
+    },
+    {
+      "file": "text/ch016.json",
+      "rule": "CHAPTER-FILE-OMITS-DURATION",
+      "message": "text/ch016.json: chapter file omits duration_ms but the manifest entry has 3000 (both present or both absent)"
+    },
+    {
+      "file": "text/ch017.json",
+      "rule": "PAGES-FIRST-START",
+      "message": "text/ch017.json: first page start_ms is 500, expected 0"
+    },
+    {
+      "file": "text/ch017.json",
+      "rule": "PAGES-OUTSIDE",
+      "message": "text/ch017.json: page entry 2 start_ms 5000 outside duration_ms 3000"
+    },
+    {
+      "file": "text/ch017.json",
+      "rule": "PAGES-PAGE-NONPOS",
+      "message": "text/ch017.json: page entry 0 has non-positive page 0"
+    },
+    {
+      "file": "text/ch017.json",
+      "rule": "PAGES-START-ORDER",
+      "message": "text/ch017.json: page entry 1 start_ms 100 out of order (previous 500)"
+    },
+    {
+      "file": "text/ch018.json",
+      "rule": "CHAPTER-DURATION-DRIFT",
+      "message": "text/ch018.json: duration_ms 1000 differs from manifest duration_ms 3000 by 2000 ms (tolerance 50 ms)"
+    },
+    {
+      "file": "text/ch018.json",
+      "rule": "PAGES-FIRST-START",
+      "message": "text/ch018.json: first page start_ms is 100, expected 0"
+    },
+    {
+      "file": "text/ch018.json",
+      "rule": "PAGES-PAGE-ORDER",
+      "message": "text/ch018.json: page entry 1 page 1 out of order (previous 1)"
+    },
+    {
+      "file": "text/ch018.json",
+      "rule": "PAGESBLK-DUP",
+      "message": "text/ch018.json: page entry 1 duplicates page 1"
+    },
+    {
+      "file": "text/ch018.json",
+      "rule": "PAGESBLK-MISMATCH-FIRST",
+      "message": "text/ch018.json: page entry 0 start_ms 100 does not match first sentence on page 1 (0)"
+    },
+    {
+      "file": "text/ch018.json",
+      "rule": "PAGESBLK-MISMATCH-FIRST",
+      "message": "text/ch018.json: page entry 1 start_ms 500 does not match first sentence on page 1 (0)"
+    },
+    {
+      "file": "text/ch018.json",
+      "rule": "PAGESBLK-MISSING-MARK",
+      "message": "text/ch018.json: sentence 2 page 2 missing from pages marks"
+    },
+    {
+      "file": "text/ch018.json",
+      "rule": "PAGESBLK-NO-SENTENCES",
+      "message": "text/ch018.json: page entry 2 page 3 has no sentences"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "CHAPTER-DURATION-DRIFT",
+      "message": "text/ch019.json: duration_ms 3500 differs from manifest duration_ms 3000 by 500 ms (tolerance 50 ms)"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "CHAPTER-IDX-MISMATCH",
+      "message": "text/ch019.json: chapter is 7, manifest lists index 19"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "END-EXCEEDS",
+      "message": "text/ch019.json: sentence 4 end_ms 4000 exceeds duration_ms 3500"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "FIRST-START",
+      "message": "text/ch019.json: first sentence start_ms is 500, expected 0"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "HEADING-LEVEL",
+      "message": "text/ch019.json: heading block 1 has level 9, need 1-3"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "NFC-BLOCK",
+      "message": "text/ch019.json: block 2 text is not NFC-normalized"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "NFC-SENTENCE",
+      "message": "text/ch019.json: sentence 9 text is not NFC-normalized"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "NFC-TITLE",
+      "message": "text/ch019.json: title is not NFC-normalized"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "OVERLAP",
+      "message": "text/ch019.json: sentence 3 overlaps sentence 1"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "OVERLAP",
+      "message": "text/ch019.json: sentence 4 overlaps sentence 3"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "OVERLAP",
+      "message": "text/ch019.json: sentence 6 overlaps sentence 5"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "OVERLAP",
+      "message": "text/ch019.json: sentence 7 overlaps sentence 6"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "OVERLAP",
+      "message": "text/ch019.json: sentence 8 overlaps sentence 7"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "OVERLAP",
+      "message": "text/ch019.json: sentence 9 overlaps sentence 8"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "PAGE-INVALID",
+      "message": "text/ch019.json: sentence 7 has invalid page 0 (need 1-based source page)"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "SID-ORDER",
+      "message": "text/ch019.json: sentence sid out of order: expected 2, got 3"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "SID-ORDER",
+      "message": "text/ch019.json: sentence sid out of order: expected 3, got 4"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "SID-ORDER",
+      "message": "text/ch019.json: sentence sid out of order: expected 4, got 5"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "SID-ORDER",
+      "message": "text/ch019.json: sentence sid out of order: expected 5, got 6"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "SID-ORDER",
+      "message": "text/ch019.json: sentence sid out of order: expected 6, got 7"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "SID-ORDER",
+      "message": "text/ch019.json: sentence sid out of order: expected 7, got 8"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "SID-ORDER",
+      "message": "text/ch019.json: sentence sid out of order: expected 8, got 9"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "SPAN-NEGATIVE",
+      "message": "text/ch019.json: sentence 8 span 1 has negative offset [-1, 2]"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "SPAN-ORDER",
+      "message": "text/ch019.json: sentence 8 span 2 has start 5 > end 3"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "SPAN-RANGE",
+      "message": "text/ch019.json: sentence 8 span 0 range [0, 99] exceeds text length 6"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "SPAN-RANGE",
+      "message": "text/ch019.json: sentence 8 span 3 range [0, 50] exceeds text length 6"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "SPAN-STYLE",
+      "message": "text/ch019.json: sentence 8 span 0 has unknown style 'strike'"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "SPEAKER-UNKNOWN",
+      "message": "text/ch019.json: sentence 5 has unknown speaker 'Ana'"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "START-GE-END",
+      "message": "text/ch019.json: sentence 3 has start_ms 900 >= end_ms 800"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "START-NEGATIVE",
+      "message": "text/ch019.json: sentence 6 has negative start_ms -100"
+    },
+    {
+      "file": "text/ch019.json",
+      "rule": "TIMINGS-OMITTED",
+      "message": "text/ch019.json: sentence 5 omits timings but the chapter has duration_ms 3500 (rendered chapters time every sentence)"
+    },
+    {
+      "file": "text/ch020.json",
+      "rule": "CHAPTER-DURATION-ABSENT-1X",
+      "message": "text/ch020.json: missing required field 'duration_ms' (absent)"
+    },
+    {
+      "file": "text/ch021.json",
+      "rule": "PAGESBLK-EMPTY",
+      "message": "text/ch021.json: pages present but empty (need one entry per page)"
+    }
+  ]
+}

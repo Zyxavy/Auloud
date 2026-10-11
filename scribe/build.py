@@ -437,7 +437,11 @@ def _record_build_stats(
     try:
         existing = _load_build_stats(path.parent)
         merged = (existing + entries)[-keep:]
-        path.write_text(json.dumps(merged, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        path.write_text(
+            json.dumps(merged, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
     except OSError:
         pass
 
@@ -1021,9 +1025,11 @@ def _with_timings(chapter: ChapterFile, timings: list[Any], duration_ms: int) ->
 def _write_json(path: Path, data: dict[str, Any]) -> None:
     """Write UTF-8 JSON deterministically (sorted keys, trailing newline)."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    # newline="\n": chapter JSON joins the bundle, whose spec mandates \n.
     path.write_text(
         json.dumps(data, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
 
 

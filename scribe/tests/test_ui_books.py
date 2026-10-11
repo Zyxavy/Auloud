@@ -239,7 +239,7 @@ def test_scan_valid_bundle_maps_by_source_sha(tmp_path: Path) -> None:
     (tmp_path / "empty.epub").write_bytes(b"")
     target = tmp_path / "bundles" / "b1"
     shutil.copytree(FIXTURES / "valid-bundle", target)
-    (target / "source").mkdir()
+    (target / "source").mkdir(exist_ok=True)
     (target / "source" / "book.epub").write_bytes(b"")
     probe = _stub_probe({"ch001.mp3": 1832400, "ch002.mp3": 1640100})
     books = scan_books(tmp_path, probe=probe)
