@@ -10,9 +10,11 @@ Status: desk research done 2026-10-10; device findings TBD (staging, spike bench
 
 | Variant | Source URL | Archive size | Extracted size | Date staged |
 | --- | --- | --- | --- | --- |
-| nano int8 | TBD (`kitten-nano-en-v0_8-int8.tar.bz2` on the sherpa-onnx `tts-models` release page) | TBD | TBD | TBD |
-| micro | TBD (`kitten-micro-en-v0_8.tar.bz2`, same page) | TBD | TBD | TBD |
-| nano fp32 (comparison) | TBD (`kitten-nano-en-v0_8-fp32.tar.bz2`, same page) | TBD | TBD | TBD |
+| nano int8 | `kitten-nano-en-v0_8-int8.tar.bz2` on the sherpa-onnx `tts-models` release page | 29.8 MB | 43.5 MB | 2026-10-11 |
+| micro | `kitten-micro-en-v0_8.tar.bz2`, same page | 42.4 MB | 59.8 MB | 2026-10-11 |
+| nano fp32 (comparison) | `kitten-nano-en-v0_8-fp32.tar.bz2`, same page | 60.9 MB | 74.4 MB | 2026-10-11 |
+
+Model filenames vary per variant as expected: `model.int8.onnx` (int8), `model.onnx` (micro), `model.fp32.onnx` (fp32); each pack also carries `voices.bin` (3.1 MB), `tokens.txt`, `espeak-ng-data/`, plus `LICENSE` and `README.md` (kept for the license check). Send-ready folders (flattened, espeak data included) are staged under `logs/kitten-packs/` (gitignored, never committed).
 
 ## 32-bit gate (spike bench, device TBD)
 
