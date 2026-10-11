@@ -36,9 +36,9 @@ How the Python Scribe ships inside the v3 app, and the measured numbers behind t
 
 ## HP3 frozen comparison (dev-machine builds 2026-10-11)
 
-- Recipe: PyInstaller 6.22.3 (GPLv2 with the bundle exception; build-only tool in a scratch venv, never a project dependency) in onedir mode with `cli.py` as the entry (its `__main__` guard runs the app; flat imports resolve at analysis). Collects beyond auto-detection: `--collect-all espeakng_loader`, `--collect-data en_core_web_sm`, `--hidden-import en_core_web_sm`, `--copy-metadata en_core_web_sm`, `--collect-data piper`, `--collect-data _soundfile_data`.
-- Findings: (1) the spaCy model needs module plus data plus dist-info — data alone leaves `doctor` FAIL (`--copy-metadata` fixed it); (2) detached-job re-entry needs no flag: `ui/jobs.py` builds child argv as `[exe, ...]` under `sys.frozen` (pinned by `test_child_argv_frozen_reenters_exe`), and a real upload plus draft job completed inside the frozen helper; (3) frozen `doctor` is all PASS.
-- Measured: 1,273 files, 347 MB; cold and warm start to ready 0.8 s; idle memory 77 MB (embedded for comparison: 11,246 files, 761 MB, idle 63 MB).
+- Recipe: PyInstaller 6.22.3 (GPLv2 with the bundle exception; build-only tool in a scratch venv, never a project dependency) in onedir mode with `cli.py` as the entry (its `__main__` guard runs the app; flat imports resolve at analysis). Collects beyond auto-detection: `--collect-all espeakng_loader`, `--collect-data en_core_web_sm`, `--hidden-import en_core_web_sm`, `--copy-metadata en_core_web_sm`, `--collect-data piper`, `--collect-data _soundfile_data`, `--collect-data kokoro_onnx`.
+- Findings: (1) the spaCy model needs module plus data plus dist-info — data alone leaves `doctor` FAIL (`--copy-metadata` fixed it); (2) detached-job re-entry needs no flag: `ui/jobs.py` builds child argv as `[exe, ...]` under `sys.frozen` (pinned by `test_child_argv_frozen_reenters_exe`), and a real upload plus draft job completed inside the frozen helper; (3) frozen `doctor` is all PASS; (4) frozen needs Kokoro's data files too: the first audio build died at TTS init on missing `_internal/kokoro_onnx/config.json` (only dist-info was collected; `--collect-data kokoro_onnx` fixed it, no further missing files); (5) frozen does NOT bundle ffmpeg: it resolves `ffmpeg`/`ffprobe` from PATH (WinGet 9.0.1 on the dev machine) while embedded bundles pinned ffmpeg 9.0.2 — Slice 22 source-offer and HP4 offline notes apply.
+- Measured: 1,273 files, 347 MB; cold and warm start to ready 0.8 s; idle memory 77 MB (embedded for comparison: 11,246 files, 761 MB, idle 63 MB). Audio proof on `epub2-minimal` ch.1: 45.7 s wall, RTF 2.45x, 110 s MP3 (mono/24 kHz/64k CBR, ffprobe-verified), frozen `validate` PASS, `voices --sample` ok (266 KB WAV). RTF is not comparable to the 4.38x dev reference (different book); the HP8 sheet compares like-for-like.
 
 ## Decision log (slice decisions land in `docs/DECISIONS.md`; summary here at HP9)
 
@@ -49,6 +49,6 @@ How the Python Scribe ships inside the v3 app, and the measured numbers behind t
 
 - Pins: CPython 3.14.8 (`...-install_only.tar.gz`, sha256 `6c03535b…b4bb4`), ffmpeg 9.0.2 essentials (`...-essentials_build.zip`, sha256 `60f46726…b3fa20`, **GPLv3** — Slice 22 owns the source-offer decision).
 - Deps from `uv.lock` hashes (`uv export` plus `ui` extra, no dev group); Scribe wheel built locally; tests stripped; hash-based byte-compile.
-- Result: 13,238 files, 783 MB unzipped; `helper-manifest.json` carries every file hash.
+- Result: 11,246 files, 761 MB unzipped; `helper-manifest.json` carries every file hash. (An earlier build measured 13,238 files, 783 MB; the current manifest is the 11,246-file one.)
 - Smoke on the dev machine: `doctor` all PASS from the bundle, bundled ffmpeg/ffprobe run, and a real Kokoro synth (22,528 samples) works with no system espeak-ng — the HP0 phonemizer finding holds end to end.
 - Reproducibility: `--verify-reproducible` passes (identical file hashes across two builds, installer metadata excluded).
