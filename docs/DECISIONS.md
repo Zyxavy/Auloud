@@ -1254,3 +1254,27 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: The slice must match the revised roadmap; repo convention keeps dev scripts in one place and history in the archive.
 - Alternatives considered: none (user-directed revision, verified against the repo first).
 - Consequences / revisit when: none; the next plan written is the new Slice 16.
+
+### D-149: Helper packaging direction, pin and phonemizer finding (HP0)
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: Embedded standalone-Python runtime is the default candidate, PyInstaller onedir is the timed comparison (plan decisions 1-3); exact versions and hashes from `uv.lock`, Python distribution plus ffmpeg build pinned by URL and hash with a `helper-manifest.json` per build. Pinned now: CPython 3.14.8 via python-build-standalone release 20261009 (3.15 exists upstream but no pinned wheel needs it). Key inventory finding: no system espeak-ng is needed at runtime — `espeakng_loader` ships its own DLL plus `espeak-ng-data`, `phonemizer` rides on it, and Piper bundles its espeak data; only the `doctor` row checks for the exe, so that row goes advisory for the helper. Models stay outside the bundle (Kokoro 337 MB, Piper about 99 MB, sideloaded).
+- Why: Native wheels stay unmodified in an embedded runtime (antivirus-quiet, detached jobs trivial); the pin keeps HP2 reproducible; the espeak finding removes a whole prerequisite.
+- Alternatives considered: 3.15 runtime (rejected: nothing needs it, wheel risk for free); freezing first (rejected: timeboxed comparison only).
+- Consequences / revisit when: HP2 fetches the pinned distribution; revisit the pin only for a security update or a wheel gap.
+
+### D-150: Helper layout, startup protocol and lock semantics (HP0)
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: Read-only helper folder at a short path; per-user workspace, models, job history, logs and settings passed as arguments or environment (plan decision 4). Startup: parent passes port 0 plus token in the environment; helper prints one ready JSON line (ready, port, Scribe/spec/API versions) and serves 127.0.0.1 only; helper exits when the parent disappears while detached jobs deliberately survive. Two helpers on one workspace are refused by the existing lock pattern (plan decisions 5 plus HP6 coverage).
+- Why: Short read-only layout dodges MAX_PATH and update races; the ready line plus token reuse the proven server plumbing (`server.py`, `security.py`, `jobs.py`) instead of inventing a transport.
+- Alternatives considered: a new transport (rejected: no blocker found; plan decision 3 stands).
+- Consequences / revisit when: HP1 implements exactly this; revisit only if the sandbox runs show a hole.
+
+### D-151: Gate thresholds approved; Sandbox unavailable, fallback route TBD (HP0)
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: Gate thresholds approved as proposed (cold ready 10 s, warm 5 s, idle memory 300 MB, build speed within 10% of dev, zero Defender detections, offline OK). Windows Sandbox is unavailable on this machine, so the HP4 clean-machine route falls back to VirtualBox, Hyper-V, or a spare machine; the route is chosen at HP4 at the latest and recorded in `docs/packaging.md`.
+- Why: Owner calls on both (plan decisions 9 and HP0 verify).
+- Alternatives considered: none.
+- Consequences / revisit when: HP9 judges against these numbers; revisit only if HP4 runs show a threshold is unmeasurable.
