@@ -18,6 +18,7 @@ struct Spike {
     jobs: Vec<TrayJob>,
     steps: Vec<ReplayStep>,
     tick: usize,
+    last_tick: std::time::Instant,
     auditioned: String,
     job_note: String,
 }
@@ -29,6 +30,7 @@ impl Spike {
             jobs: TrayJob::tray(),
             steps: replay_steps(),
             tick: 0,
+            last_tick: std::time::Instant::now(),
             auditioned: "none yet".to_owned(),
             job_note: "running".to_owned(),
         }
@@ -45,7 +47,12 @@ impl Spike {
 impl eframe::App for Spike {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         ui.ctx().request_repaint_after(Duration::from_millis(500));
-        self.tick += 1;
+        // Timer-gated like the iced/Slint spikes: interaction repaints must
+        // not fast-forward the replay.
+        if self.last_tick.elapsed() >= Duration::from_millis(500) {
+            self.tick += 1;
+            self.last_tick = std::time::Instant::now();
+        }
 
         ui.visuals_mut().extreme_bg_color = rgb(theme::PAPER);
         ui.heading(egui::RichText::new("Cast").color(rgb(theme::OXBLOOD)));

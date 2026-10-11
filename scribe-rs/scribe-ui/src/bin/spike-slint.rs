@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Slint spike (Slice 16 UI1): same two screens — cast rows with per-row
+//! Slint spike (Slice 16 UI1): same two screens: cast rows with per-row
 //! voice dropdowns plus audition buttons, and a jobs tray with progress
 //! replayed from the recorded SSE sample. Markup is inline (no build.rs);
 //! UI2 moves it to files if Slint wins.
@@ -54,9 +54,9 @@ slint::slint! {
             }
             Text { text: "auditioned: " + auditioned; }
             Text { text: "Jobs"; font-size: 24px; color: #7B2D26; }
-            Text { text: "build ch001 (kokoro) — running"; }
-            Text { text: "draft book.epub — queued"; }
-            Text { text: "sample af_bella — done"; }
+            Text { text: "build ch001 (kokoro) - running"; }
+            Text { text: "draft book.epub - queued"; }
+            Text { text: "sample af_bella - done"; }
             ProgressIndicator { progress: job-fraction; }
             Text { text: job-step; }
             HorizontalLayout {
@@ -91,10 +91,6 @@ fn main() {
     ui.set_auditioned("none yet".into());
 
     let steps = scribe_ui::replay_steps();
-    let names: Vec<(String, String)> = scribe_ui::cast_rows()
-        .iter()
-        .map(|row| (row.character.clone(), row.voice.clone()))
-        .collect();
     ui.on_set_voice({
         let model = model.clone();
         move |idx, voice| {
@@ -107,10 +103,12 @@ fn main() {
     });
     ui.on_audition({
         let ui_weak = ui.as_weak();
+        let model = model.clone();
         move |idx| {
-            let label = names
-                .get(idx as usize)
-                .map(|(character, voice)| format!("{character} as {voice}"))
+            // Live row, not a snapshot: the voice may have changed above.
+            let label = model
+                .row_data(idx as usize)
+                .map(|entry| format!("{} as {}", entry.character, entry.voice))
                 .unwrap_or_else(|| "unknown row".to_owned());
             if let Some(ui) = ui_weak.upgrade() {
                 ui.set_auditioned(label.as_str().into());

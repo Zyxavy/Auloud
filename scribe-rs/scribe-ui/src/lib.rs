@@ -42,8 +42,6 @@ pub struct CastRow {
     pub speed: f32,
     /// Line count.
     pub lines: u32,
-    /// Spoken minutes.
-    pub minutes: f32,
 }
 
 /// Sixty deterministic rows: narrator, two generics, 57 characters cycling
@@ -55,21 +53,18 @@ pub fn cast_rows() -> Vec<CastRow> {
             voice: "am_onyx".to_owned(),
             speed: 1.0,
             lines: 412,
-            minutes: 38.5,
         },
         CastRow {
             character: "default_female".to_owned(),
             voice: "af_bella".to_owned(),
             speed: 1.0,
             lines: 37,
-            minutes: 3.1,
         },
         CastRow {
             character: "default_male".to_owned(),
             voice: "am_adam".to_owned(),
             speed: 1.0,
             lines: 29,
-            minutes: 2.4,
         },
     ];
     for (i, voice) in PALETTE.iter().cycle().take(57).enumerate() {
@@ -78,7 +73,6 @@ pub fn cast_rows() -> Vec<CastRow> {
             voice: (*voice).to_owned(),
             speed: 1.0,
             lines: (i as u32 * 7 % 120) + 1,
-            minutes: (i as f32 * 1.7 % 22.0 * 10.0).round() / 10.0,
         });
     }
     rows

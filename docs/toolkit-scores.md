@@ -4,8 +4,8 @@ Same two screens in each toolkit (60-row cast table with in-cell voice
 dropdowns + audition buttons; jobs tray with SSE-replayed progress), same
 canned data (`scribe-ui` harness: deterministic rows + the real recorded
 `events-sample.txt` via `scribe-client` types). Bins:
-`spike-egui` (117 lines), `spike-iced` (130), `spike-slint` (145),
-harness `lib.rs` (149). Resolved versions: egui/eframe 0.36.2, iced 0.14.0
+`spike-egui` (134 lines), `spike-iced` (143), `spike-slint` (153),
+harness `lib.rs` (153). Resolved versions: egui/eframe 0.36.2, iced 0.14.0
 (+`smol` executor), slint 1.18.1 (inline macro, no build script).
 
 Run with `cargo run -p scribe-ui --bin spike-<egui|iced|slint>` (no helper,
