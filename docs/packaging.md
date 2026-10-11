@@ -38,3 +38,11 @@ How the Python Scribe ships inside the v3 app, and the measured numbers behind t
 
 - Sandbox is unavailable on this machine (owner-confirm 2026-10-11); the HP4 clean-machine route falls back to VirtualBox, Hyper-V, or a spare machine (route chosen at HP4 at the latest).
 - Gate thresholds approved as proposed (cold ready 10 s, warm 5 s, idle 300 MB, speed within 10%, zero Defender hits, offline OK).
+
+## HP2 embedded bundle (dev-machine build 2026-10-11)
+
+- Pins: CPython 3.14.8 (`...-install_only.tar.gz`, sha256 `6c03535b…b4bb4`), ffmpeg 9.0.2 essentials (`...-essentials_build.zip`, sha256 `60f46726…b3fa20`, **GPLv3** — Slice 22 owns the source-offer decision).
+- Deps from `uv.lock` hashes (`uv export` plus `ui` extra, no dev group); Scribe wheel built locally; tests stripped; hash-based byte-compile.
+- Result: 13,238 files, 783 MB unzipped; `helper-manifest.json` carries every file hash.
+- Smoke on the dev machine: `doctor` all PASS from the bundle, bundled ffmpeg/ffprobe run, and a real Kokoro synth (22,528 samples) works with no system espeak-ng — the HP0 phonemizer finding holds end to end.
+- Reproducibility: `--verify-reproducible` passes (identical file hashes across two builds, installer metadata excluded).

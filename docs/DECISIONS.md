@@ -1278,3 +1278,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Owner calls on both (plan decisions 9 and HP0 verify).
 - Alternatives considered: none.
 - Consequences / revisit when: HP9 judges against these numbers; revisit only if HP4 runs show a threshold is unmeasurable.
+
+### D-152: HP2 bundle pins and reproducibility rules
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: Embedded bundle pins CPython 3.14.8 plus ffmpeg 9.0.2 essentials (GPLv3, source offer owned by Slice 22); deps install hash-checked from `uv.lock`, Scribe wheel built locally; `Scripts/*.exe` launchers are stripped (they embed the build machine path; the helper runs as `python.exe -m scribe`); reproducibility compares every file hash except regenerated installer metadata (`RECORD`, `direct_url.json`, `uv_cache.json`); bytecode is hash-based with paths relative to the bundle (tarball-shipped `.pyc` carries foreign absolute paths). Result: 13,238 files, 783 MB, two builds identical.
+- Why: Each exclusion was forced by a measured diff, not assumed; the bundle stays runnable only through paths that move with it.
+- Alternatives considered: shipping the launchers (rejected: stale absolute shebangs break on move); timestamp `.pyc` (rejected: extraction mtimes vary).
+- Consequences / revisit when: HP4 runs this bundle on a clean machine; revisit pins only for security updates.
