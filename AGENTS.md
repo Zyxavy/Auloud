@@ -32,7 +32,7 @@ docs/     PRD, architecture, designs, roadmap, test plan, decisions
 
 **Scribe**
 - Python 3.11+, Windows 11 first. Library holds the logic; the CLI is a thin wrapper.
-- Rust port in `scribe-rs/` (v3): toolchain pinned in `scribe-rs/rust-toolchain.toml` (RUSTUP_HOME/CARGO_HOME live on D: on this machine); `scribe-spec` stays pure (no fs/process); Python is canonical until parity, so never change Python validator behavior to match Rust.
+- Rust port in `scribe-rs/` (v3): toolchain pinned in `scribe-rs/rust-toolchain.toml` (set RUSTUP_HOME/CARGO_HOME before installing if you want it off C:); `scribe-spec` stays pure (no fs/process); Python is canonical until parity, so never change Python validator behavior to match Rust.
 - ffmpeg is run as a separate process, never linked.
 
 **Both**
@@ -51,7 +51,7 @@ docs/     PRD, architecture, designs, roadmap, test plan, decisions
 | Scribe tests | `uv run pytest` (in `scribe/`) |
 | Validate a bundle | `uv run scribe validate <bundle-dir>` |
 | Rust build/test | `cargo build`, `cargo test` (in `scribe-rs/`) |
-| Rust lints/licenses | `cargo clippy --all-targets -D warnings`, `cargo deny check` (in `scribe-rs/`) |
+| Rust lints/licenses | `cargo clippy --workspace --all-targets -D warnings`, `cargo deny check` (in `scribe-rs/`) |
 
 ## How to work
 1. Work on **one work package at a time**, from the current slice plan. Say which one.
