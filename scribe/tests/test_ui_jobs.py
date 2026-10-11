@@ -849,3 +849,19 @@ def test_spawn_voices_sample_passes_engine(tmp_path: Path, monkeypatch: pytest.M
         tmp_path / "jobs" / "job-2",
     )
     assert seen[1][seen[1].index("--engine") + 1] == "kokoro"
+
+
+def test_child_argv_frozen_reenters_exe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """HP3: frozen children re-enter the exe (no script path, no Python)."""
+    from ui.jobs import _child_argv
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    argv = _child_argv("draft", "book.epub")
+    assert argv[0] == sys.executable
+    assert argv[1:] == ["draft", "book.epub"]
+    assert not any(part.endswith(".py") for part in argv)
+    monkeypatch.delattr(sys, "frozen", raising=False)
+    argv = _child_argv("draft", "book.epub")
+    assert argv[0] == sys.executable
+    assert argv[1].endswith("cli.py")
+    assert argv[2:] == ["draft", "book.epub"]

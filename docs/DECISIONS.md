@@ -1286,3 +1286,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Each exclusion was forced by a measured diff, not assumed; the bundle stays runnable only through paths that move with it.
 - Alternatives considered: shipping the launchers (rejected: stale absolute shebangs break on move); timestamp `.pyc` (rejected: extraction mtimes vary).
 - Consequences / revisit when: HP4 runs this bundle on a clean machine; revisit pins only for security updates.
+
+### D-153: HP3 frozen-build findings (comparison input for HP9)
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: PyInstaller 6.22.3 onedir works for the helper with six extra collects (espeak data/DLL, spaCy module plus data plus dist-info, Piper data, libsndfile data); detached jobs re-enter the frozen exe with no flag via the `sys.frozen` branch in `_child_argv`. Frozen measures 1,273 files, 347 MB, 0.8 s cold/warm start, 77 MB idle against embedded's 11,246 files, 761 MB, 63 MB idle. No frozen blocker found in the timebox; the HP9 choice stays open until the clean-machine runs.
+- Why: Measured on the dev machine (ready line, token gate, real draft job, all-PASS doctor); PyInstaller license (GPLv2 plus bundle exception, build-only) fits.
+- Alternatives considered: freezing `__main__` instead of `cli.py` (rejected: identical graph, extra file); onefile mode (rejected by the plan: antivirus and startup cost).
+- Consequences / revisit when: HP4 repeats the gate matrix on the frozen variant; revisit only on clean-machine evidence.

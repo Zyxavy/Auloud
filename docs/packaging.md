@@ -34,6 +34,12 @@ How the Python Scribe ships inside the v3 app, and the measured numbers behind t
 | Detached job survives helper kill |  |  |  |
 | Build reliability and reproducibility |  |  | |
 
+## HP3 frozen comparison (dev-machine builds 2026-10-11)
+
+- Recipe: PyInstaller 6.22.3 (GPLv2 with the bundle exception; build-only tool in a scratch venv, never a project dependency) in onedir mode with `cli.py` as the entry (its `__main__` guard runs the app; flat imports resolve at analysis). Collects beyond auto-detection: `--collect-all espeakng_loader`, `--collect-data en_core_web_sm`, `--hidden-import en_core_web_sm`, `--copy-metadata en_core_web_sm`, `--collect-data piper`, `--collect-data _soundfile_data`.
+- Findings: (1) the spaCy model needs module plus data plus dist-info — data alone leaves `doctor` FAIL (`--copy-metadata` fixed it); (2) detached-job re-entry needs no flag: `ui/jobs.py` builds child argv as `[exe, ...]` under `sys.frozen` (pinned by `test_child_argv_frozen_reenters_exe`), and a real upload plus draft job completed inside the frozen helper; (3) frozen `doctor` is all PASS.
+- Measured: 1,273 files, 347 MB; cold and warm start to ready 0.8 s; idle memory 77 MB (embedded for comparison: 11,246 files, 761 MB, idle 63 MB).
+
 ## Decision log (slice decisions land in `docs/DECISIONS.md`; summary here at HP9)
 
 - Sandbox is unavailable on this machine (owner-confirm 2026-10-11); the HP4 clean-machine route falls back to VirtualBox, Hyper-V, or a spare machine (route chosen at HP4 at the latest).

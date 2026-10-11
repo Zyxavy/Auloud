@@ -258,6 +258,18 @@ def _cli_path() -> Path:
     return candidate
 
 
+def _child_argv(*args: str) -> list[str]:
+    """Detached-child argv (HP3 frozen support).
+
+    Normally ``[interpreter, cli.py, ...]``; inside a PyInstaller bundle
+    (``sys.frozen``) the entry point already is the CLI, so the executable
+    re-enters itself without a script path (no Python exists on the target).
+    """
+    if getattr(sys, "frozen", False):
+        return [sys.executable, *args]
+    return [sys.executable, str(_cli_path()), *args]
+
+
 def _detached_popen(cmd: list[str], log_path: Path) -> "subprocess.Popen[str]":
     """Spawn ``cmd`` detached (Windows flags; ``start_new_session`` on POSIX).
 
@@ -921,13 +933,12 @@ class JobManager:
         """Production spawner: detached ``scribe build``/``draft``/``voices``."""
         from .books import BUNDLES_DIRNAME, WORK_DIRNAME
 
-        cli = _cli_path()
         work_root = self.workspace / WORK_DIRNAME
         log_path = folder / LOG_FILENAME
         if job.get("kind") == "draft":
             source_rel = str(job.get("source_file") or "")
             source_abs = safe_join(self.workspace, source_rel) if source_rel else Path(source_rel)
-            cmd = [sys.executable, str(cli), "draft", str(source_abs), "--work-dir", str(work_root)]
+            cmd = _child_argv("draft", str(source_abs), "--work-dir", str(work_root))
             return _detached_popen(cmd, log_path)
         if job.get("kind") == VOICES_KIND:
             from .cast import versioned_samples_dir
@@ -937,16 +948,14 @@ class JobManager:
                 str(job.get("engine_version") or ""),
                 str(job.get("text_hash") or ""),
             )
-            cmd = [
-                sys.executable,
-                str(cli),
+            cmd = _child_argv(
                 "voices",
                 "--sample",
                 "--engine",
                 str(job.get("engine") or "kokoro"),
                 "--out-dir",
                 str(out_dir),
-            ]
+            )
             for voice in (job.get("voices") or []):
                 cmd += ["--voice", str(voice)]
             return _detached_popen(cmd, log_path)
@@ -957,9 +966,7 @@ class JobManager:
         # the server's cwd, not the workspace — pass it explicitly so the
         # bundle lands where the Books scan looks (found in acceptance: the
         # Validate step saw "nothing valid" for a finished job).
-        cmd = [
-            sys.executable,
-            str(cli),
+        cmd = _child_argv(
             "build",
             str(source_abs),
             "--work-dir",
@@ -971,7 +978,7 @@ class JobManager:
             "--stop-file",
             str(folder / STOP_FILENAME),
             "--no-progress",
-        ]
+        )
         if job.get("chapters"):
             cmd += ["--chapters", str(job["chapters"])]
         if job.get("pages"):
