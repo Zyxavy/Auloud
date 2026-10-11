@@ -968,8 +968,9 @@ class JobManager:
         # Validate step saw "nothing valid" for a finished job). The id part
         # matters too: the scan only reads bundles/<child>/manifest.json, so
         # a flat bundles/ root stays invisible (found recording API2
-        # fixtures: API build done, validate showed zero bundles).
-        book_id = str(job.get("book_id") or "")
+        # fixtures: API build done, validate showed zero bundles). Every
+        # build job carries book_id (create_build requires it), so index it
+        # directly: a missing id must fail loudly here, never hide a bundle.
         out_root = self.workspace / BUNDLES_DIRNAME
         cmd = _child_argv(
             "build",
@@ -977,7 +978,7 @@ class JobManager:
             "--work-dir",
             str(work_root),
             "--out-dir",
-            str(out_root / book_id) if book_id else str(out_root),
+            str(out_root / str(job["book_id"])),
             "--events-jsonl",
             str(events_path),
             "--stop-file",

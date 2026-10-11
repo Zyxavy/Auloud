@@ -125,26 +125,20 @@ impl Client {
             .map(serde_json::to_string)
             .transpose()
             .map_err(|err| Error::Json(err.to_string()))?;
-        let response = if verb == "GET" {
-            self.agent
-                .get(&url)
-                .header(TOKEN_HEADER, &self.token)
-                .call()?
-        } else {
-            let request = match verb {
-                "PUT" => self.agent.put(&url),
-                "PATCH" => self.agent.patch(&url),
-                "POST" => self.agent.post(&url),
-                // `send_json` callers pass literals; anything else is a bug here.
-                _ => unreachable!("scribe-client bug: unknown verb {verb:?}"),
-            }
-            .header(TOKEN_HEADER, &self.token);
-            match text {
-                Some(text) => request
-                    .header("Content-Type", "application/json")
-                    .send(text.as_str())?,
-                None => request.send_empty()?,
-            }
+        // Only POST/PUT/PATCH travel here (GETs use `get_json`); anything
+        // else is a bug at the call site.
+        let request = match verb {
+            "PUT" => self.agent.put(&url),
+            "PATCH" => self.agent.patch(&url),
+            "POST" => self.agent.post(&url),
+            _ => unreachable!("scribe-client bug: unknown verb {verb:?}"),
+        }
+        .header(TOKEN_HEADER, &self.token);
+        let response = match text {
+            Some(text) => request
+                .header("Content-Type", "application/json")
+                .send(text.as_str())?,
+            None => request.send_empty()?,
         };
         self.read_json(response)
     }

@@ -30,6 +30,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -244,6 +245,10 @@ def main() -> None:
     finally:
         proc.terminate()
         proc.wait(timeout=60)
+    # Success: drop the work tree (bundles + render output add up fast).
+    # On any failure above, the finally still kills the helper but the tree
+    # stays for diagnosis.
+    shutil.rmtree(work, ignore_errors=True)
 
 
 if __name__ == "__main__":
