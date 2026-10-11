@@ -1,6 +1,6 @@
 # KittenTTS findings (Slice 14, KT0)
 
-Status: desk research done 2026-10-10; device findings TBD (staging, spike bench, listening confirmation).
+Status: desk research done 2026-10-10; device findings TBD (staging, spike bench, listening confirmation). KT4 listening materials: `docs/kitten-ab.md` (protocol + score sheet), `docs/kitten-ab-passage-clean.txt` (604-word Alice passage), `docs/kitten-ab-passage.txt` (same with speaker labels).
 
 ## Pinned runtime (verified locally)
 
@@ -50,7 +50,6 @@ All 7 legacy weight repos report `license: apache-2.0` via the HuggingFace API (
 | nano fp32 (0.8) | Apache-2.0 (HF API) | allowed with attribution | GPL-3.0, `full`-only | 2026-10-10 (desk; confirm on download) |
 
 ## Pack detection rules (decision 2 input)
-
 Per-variant tarball contents (sherpa-onnx `tts-models` release page, asset list checked 2026-10-10; inner paths per sherpa-onnx docs `run.sh` examples):
 
 | Tarball | Model file | Sidecars in the same dir |
