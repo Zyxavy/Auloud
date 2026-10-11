@@ -85,9 +85,12 @@ one of the two is wrong (contract-first rule, Slice16 decision 1).
   `202 {job_id, book_id, state}`. `409 work-lock-held` when the book is busy;
   `404 book-not-found`.
 - `POST /api/books/{book_id}/plan` (token required; same selection fields;
-  pure, no lock, no writes) -> `200` preflight `{selected_chapters,
-  cached/to_render chapters/sentences, estimated_seconds, rtf_used,
-  page_resolution, is_range, message}`. `500 plan-failed` on engine failure.
+  pure, no lock, no writes) -> `200` preflight `{book_id (range-aware id when
+  chapters/pages select a range, else the book id), title,
+  source_chapters_total: int, selected_chapters: [int], cached_chapters: int,
+  to_render_chapters: int, cached_sentences: int, to_render_sentences: int,
+  estimated_seconds: float|null, rtf_used: float|null, page_resolution: str,
+  is_range: bool, message}`. `500 plan-failed` on engine failure.
 
 ## 4. Jobs
 

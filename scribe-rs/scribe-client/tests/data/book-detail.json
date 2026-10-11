@@ -1,0 +1,41 @@
+{
+  "id": "95186387-0c79-5296-8e3f-0c17a6bb1c7f",
+  "title": "EPUB2 Minimal",
+  "author": "Auloud Test",
+  "source_file": "book.epub",
+  "source_sha256": "df060df13672b412fb6a024c4210e055d8f390176fb944c8ce7a1b8ec415e7ce",
+  "drafted": true,
+  "draft_status": "done",
+  "draft_error": null,
+  "cast_edited": false,
+  "rendering": false,
+  "rendering_percent": null,
+  "chapters": [
+    {
+      "index": 1,
+      "title": "The Amber Lamp",
+      "sentences": 25,
+      "est_seconds": 108.8
+    },
+    {
+      "index": 2,
+      "title": "The Quiet River",
+      "sentences": 25,
+      "est_seconds": 95.0
+    }
+  ],
+  "total_sentences": 50,
+  "cast": {
+    "characters": 0,
+    "aliases": 0,
+    "overrides": 0,
+    "character_names": [],
+    "has_narrator": true
+  },
+  "bundles": [],
+  "bundles_dir": "C:\\Users\\kenta\\AppData\\Local\\Temp\\client-fixtures-t0e0x26v\\bundles",
+  "valid": false,
+  "validation": [],
+  "on_tablet": false,
+  "transfer": null
+}

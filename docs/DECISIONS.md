@@ -1326,3 +1326,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Owner decision; the dev-machine evidence (HP2/HP3) is kept, the missing evidence is named, not faked.
 - Alternatives considered: claiming the gate passes unrun (rejected outright: unverified boxes stay unticked); VirtualBox VM (rejected on effort).
 - Consequences / revisit when: Slice 22 owns the one-time-setup UX; if a clean machine ever appears, `run_gate.ps1` + D-151 mappings are ready and HP9 can be made on evidence then.
+
+### D-158: API-build out-dir fix and client pool tuning (found proving API2)
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: (1) Detached API builds now write to `bundles/<book-id>`: the HP-era `--out-dir workspace/bundles` landed the bundle flat where the Books scan (which only reads `bundles/<child>/manifest.json`) never sees it, so API builds validated as "zero bundles". Every build job carries `book_id`; the spawner appends it. (2) `scribe-client` caps pooled idle connections at 2 s, below the helper's 5 s keep-alive close: the UI polls jobs every few seconds, and reusing a server-closed connection fails with a reset. ureq defaults (15 s pool) flaked the live test 4-in-6 before the cap, 3-in-3 green after.
+- Why: Both found by evidence while recording/running API2 proofs (fixture validate, live test), fixed at the root (shared spawner, client config), not worked around.
+- Alternatives considered: CLI-side bundle placement (rejected: the spawner owns the argv); `Connection: close` per request (rejected: the idle cap keeps pooling for rapid sequences with one central line); retrying resets in the test (rejected: masks real breakage, and the UI would hit the same resets).
+- Consequences / revisit when: old flat `bundles/` outputs from earlier runs stay invisible (fresh builds land correctly); revisit the idle cap only if the helper's keep-alive timeout changes.

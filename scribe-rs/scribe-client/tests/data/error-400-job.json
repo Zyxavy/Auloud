@@ -1,0 +1,8 @@
+{
+  "status": 400,
+  "body": {
+    "file": "!!!",
+    "rule": "bad-job-id",
+    "message": "bad job id"
+  }
+}

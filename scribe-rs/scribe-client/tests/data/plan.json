@@ -1,0 +1,17 @@
+{
+  "book_id": "f00c9fbd-e180-54a1-a62d-b1bec8cad170",
+  "title": "EPUB2 Minimal",
+  "source_chapters_total": 2,
+  "selected_chapters": [
+    1
+  ],
+  "cached_chapters": 0,
+  "to_render_chapters": 1,
+  "cached_sentences": 0,
+  "to_render_sentences": 25,
+  "estimated_seconds": null,
+  "rtf_used": null,
+  "page_resolution": "",
+  "is_range": true,
+  "message": "book id: f00c9fbd-e180-54a1-a62d-b1bec8cad170\ntitle: EPUB2 Minimal\nchapters: 2 total, 1 selected (1)\nchapters cached: 0, to render: 1\nsentences cached: 0, to render: 25\nestimate: unknown (no recent RTF data; render once to calibrate)\nrange bundle: chapters renumbered 1..1 with source_index, range-aware id (full rebuilds keep the existing id)"
+}

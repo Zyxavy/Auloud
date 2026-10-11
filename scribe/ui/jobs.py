@@ -965,14 +965,19 @@ class JobManager:
         # The CLI default out dir is cwd-relative ("bundles/<id>"), which is
         # the server's cwd, not the workspace — pass it explicitly so the
         # bundle lands where the Books scan looks (found in acceptance: the
-        # Validate step saw "nothing valid" for a finished job).
+        # Validate step saw "nothing valid" for a finished job). The id part
+        # matters too: the scan only reads bundles/<child>/manifest.json, so
+        # a flat bundles/ root stays invisible (found recording API2
+        # fixtures: API build done, validate showed zero bundles).
+        book_id = str(job.get("book_id") or "")
+        out_root = self.workspace / BUNDLES_DIRNAME
         cmd = _child_argv(
             "build",
             str(source_abs),
             "--work-dir",
             str(work_root),
             "--out-dir",
-            str(self.workspace / BUNDLES_DIRNAME),
+            str(out_root / book_id) if book_id else str(out_root),
             "--events-jsonl",
             str(events_path),
             "--stop-file",

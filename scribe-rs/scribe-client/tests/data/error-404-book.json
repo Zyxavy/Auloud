@@ -1,0 +1,8 @@
+{
+  "status": 404,
+  "body": {
+    "file": "no-such-book",
+    "rule": "book-not-found",
+    "message": "no-such-book: book-not-found: no source, work folder or bundle matches"
+  }
+}

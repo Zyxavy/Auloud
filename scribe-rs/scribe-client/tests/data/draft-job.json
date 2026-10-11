@@ -1,0 +1,32 @@
+{
+  "id": "job-491131910be1",
+  "book_id": "95186387-0c79-5296-8e3f-0c17a6bb1c7f",
+  "kind": "draft",
+  "state": "done",
+  "created": "2026-10-11T13:45:15.611922Z",
+  "updated": "2026-10-11T13:45:16.648383Z",
+  "pid": null,
+  "exit": 0,
+  "summary": {
+    "audio_ms": 0,
+    "cached": 0,
+    "rendered": 0,
+    "wall_s": 0.0
+  },
+  "error": null,
+  "chapters": null,
+  "pages": null,
+  "device": null,
+  "source_file": "book.epub",
+  "voices": null,
+  "engine": null,
+  "engine_version": null,
+  "text_hash": null,
+  "bundle": null,
+  "destination": null,
+  "dest_bundle": null,
+  "bundle_id": null,
+  "bytes_total": null,
+  "bytes_copied": null,
+  "verification": null
+}

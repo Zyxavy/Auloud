@@ -1,6 +1,6 @@
 [workspace]
-members = ["scribe-spec", "scribe-core", "scribe-cli", "scribe-ui"]
-default-members = ["scribe-spec", "scribe-core", "scribe-cli"]
+members = ["scribe-spec", "scribe-core", "scribe-cli", "scribe-client", "scribe-ui"]
+default-members = ["scribe-spec", "scribe-core", "scribe-cli", "scribe-client"]
 resolver = "2"
 
 [workspace.package]

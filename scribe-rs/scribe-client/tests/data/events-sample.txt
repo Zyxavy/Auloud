@@ -1,0 +1,83 @@
+: ping
+
+id: 1
+data: {"audio_ms": 0, "cached": 0, "chapter": 1, "event": "sentence", "rendered": 1, "sid": 1, "wall_s": 2.3369590000074822}
+
+id: 2
+data: {"audio_ms": 0, "cached": 0, "chapter": 1, "event": "sentence", "rendered": 2, "sid": 2, "wall_s": 3.7011838000034913}
+
+id: 3
+data: {"audio_ms": 0, "cached": 0, "chapter": 1, "event": "sentence", "rendered": 3, "sid": 3, "wall_s": 4.894643999985419}
+
+id: 4
+data: {"audio_ms": 0, "cached": 0, "chapter": 1, "event": "sentence", "rendered": 4, "sid": 4, "wall_s": 6.056057099980535}
+
+id: 5
+data: {"audio_ms": 0, "cached": 0, "chapter": 1, "event": "sentence", "rendered": 5, "sid": 5, "wall_s": 7.194604999996955}
+
+id: 6
+data: {"audio_ms": 0, "cached": 0, "chapter": 1, "event": "sentence", "rendered": 6, "sid": 6, "wall_s": 8.275565399992047}
+
+id: 7
+data: {"audio_ms": 0, "cached": 0, "chapter": 1, "event": "sentence", "rendered": 7, "sid": 7, "wall_s": 9.305768499994883}
+
+id: 8
+data: {"audio_ms": 0, "cached": 0, "chapter": 1, "event": "sentence", "rendered": 8, "sid": 8, "wall_s": 10.42406829999527}
+
+id: 9
+data: {"audio_ms": 0, "cached": 0, "chapter": 1, "event": "sentence", "rendered": 9, "sid": 9, "wall_s": 11.634003499988467}
+
+id: 10
+data: {"audio_ms": 0, "cached": 0, "chapter": 1, "event": "sentence", "rendered": 10, "sid": 10, "wall_s": 12.727786899980856}
+
+id: 11
+data: {"audio_ms": 0, "cached": 0, "chapter": 1, "event": "sentence", "rendered": 11, "sid": 11, "wall_s": 13.769512400001986}
+
+id: 12
+data: {"audio_ms": 0, "cached": 0, "chapter": 1, "event": "sentence", "rendered": 12, "sid": 12, "wall_s": 18.892786399985198}
+
+id: 13
+data: {"audio_ms": 0, "cached": 0, "chapter": 1, "event": "sentence", "rendered": 13, "sid": 13, "wall_s": 27.034382199984975}
+
+id: 14
+data: {"audio_ms": 0, "cached": 1, "chapter": 1, "event": "sentence", "rendered": 13, "sid": 14, "wall_s": 27.102756499982206}
+
+id: 15
+data: {"audio_ms": 0, "cached": 2, "chapter": 1, "event": "sentence", "rendered": 13, "sid": 15, "wall_s": 27.147566400002688}
+
+id: 16
+data: {"audio_ms": 0, "cached": 3, "chapter": 1, "event": "sentence", "rendered": 13, "sid": 16, "wall_s": 27.213210399990203}
+
+id: 17
+data: {"audio_ms": 0, "cached": 4, "chapter": 1, "event": "sentence", "rendered": 13, "sid": 17, "wall_s": 27.2558453999809}
+
+id: 18
+data: {"audio_ms": 0, "cached": 5, "chapter": 1, "event": "sentence", "rendered": 13, "sid": 18, "wall_s": 27.28182820000802}
+
+id: 19
+data: {"audio_ms": 0, "cached": 6, "chapter": 1, "event": "sentence", "rendered": 13, "sid": 19, "wall_s": 27.360631799994735}
+
+id: 20
+data: {"audio_ms": 0, "cached": 7, "chapter": 1, "event": "sentence", "rendered": 13, "sid": 20, "wall_s": 27.464483899995685}
+
+id: 21
+data: {"audio_ms": 0, "cached": 8, "chapter": 1, "event": "sentence", "rendered": 13, "sid": 21, "wall_s": 27.51158699998632}
+
+id: 22
+data: {"audio_ms": 0, "cached": 9, "chapter": 1, "event": "sentence", "rendered": 13, "sid": 22, "wall_s": 27.569844699988607}
+
+id: 23
+data: {"audio_ms": 0, "cached": 10, "chapter": 1, "event": "sentence", "rendered": 13, "sid": 23, "wall_s": 27.68619169999147}
+
+id: 24
+data: {"audio_ms": 0, "cached": 11, "chapter": 1, "event": "sentence", "rendered": 13, "sid": 24, "wall_s": 27.748182199982693}
+
+id: 25
+data: {"audio_ms": 0, "cached": 12, "chapter": 1, "event": "sentence", "rendered": 13, "sid": 25, "wall_s": 27.788359500002116}
+
+id: 26
+data: {"audio_ms": 110285, "cached": 12, "chapter": 1, "event": "chapter_done", "rendered": 13, "sid": null, "wall_s": 28.58666549998452}
+
+id: 27
+data: {"audio_ms": 110285, "cached": 12, "chapter": 0, "event": "build_done", "rendered": 13, "sid": null, "wall_s": 28.872816199989757}
+

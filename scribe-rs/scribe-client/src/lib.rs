@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+//! Typed client for the Auloud helper API (docs/api.md, contract v1).
+//!
+//! Blocking calls over plain HTTP: the helper only serves loopback, so no
+//! TLS and no async runtime. Unknown helper versions fail loudly via
+//! [`Client::ensure_compatible`]; the UI never talks to a contract it does
+//! not know. No Scribe logic lives here: the crate shapes requests and
+//! parses responses, nothing more.
+
+mod client;
+mod error;
+mod sse;
+mod types;
+
+pub use client::{
+    check_compatible, Client, SampleRequest, Selection, SUPPORTED_API_VERSION, TOKEN_HEADER,
+};
+pub use error::{ApiError, Error};
+pub use sse::{Event, EventStream};
+pub use types::{
+    AffectedQuotes, BookDetail, BookSummary, BuildResult, BundleEntry, CastPayload, ChapterEntry,
+    Health, Job, JobSummary, PlanResult, SampleResult, Settings, UploadResult, ValidateResult,
+    Versions, VoiceDetail, VoicesResponse,
+};

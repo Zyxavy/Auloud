@@ -1,0 +1,9 @@
+{
+  "cached": true,
+  "voices": [
+    "am_onyx"
+  ],
+  "engine": "kokoro",
+  "engine_version": "kokoro-onnx 0.6.1",
+  "text_hash": "c3719d3ac927"
+}
