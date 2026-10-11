@@ -1299,6 +1299,6 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Date: 2026-10-11
 - Status: Accepted
 - Decision: HP3 Verify closes with frozen audio proven: real Kokoro build (epub2-minimal ch.1, 45.7 s wall, RTF 2.45x, 110 s MP3), frozen `validate` PASS, `voices --sample` ok. The build needed a seventh collect (`--collect-data kokoro_onnx`; missing `config.json` killed TTS init, no further missing files after). Frozen resolves ffmpeg/ffprobe from PATH (dev machine: WinGet 9.0.1) and bundles none; embedded bundles pinned ffmpeg 9.0.2. D-153's "no blocker" is superseded for the audio path: one blocker found and fixed within the timebox; the HP9 choice still stays open until HP4 clean-machine runs.
-- Why: Subagent-run frozen builds with logs under temp `frozen-audio2/` (first attempt failed unambiguously, rebuild passed); recipe updated in `docs/packaging.md`.
+- Why: Subagent-run frozen builds (first attempt failed unambiguously, rebuild passed); recipe updated in `docs/packaging.md`; proof summary saved at `logs/packaging-gate/frozen-audio2-SUMMARY.txt` (raw logs stay under temp `frozen-audio2/`).
 - Alternatives considered: bundling ffmpeg into the frozen variant now (deferred: HP4 decides with offline evidence); vendoring `config.json` by hand (rejected: the collect flag is the reproducible form).
 - Consequences / revisit when: HP4 runs both variants clean and offline (frozen ffmpeg-from-PATH is the known risk); HP8 compares RTF like-for-like on the C&P fragment.
