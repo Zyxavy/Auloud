@@ -277,6 +277,7 @@ def test_skeleton_routes_are_minimal(tmp_path: Path) -> None:
     # clip routes (additive, not a behavior change).
     # UI7 adds the voices-sample generation posts (additive).
     # UI8 adds validate (inline), drives, transfer and open-folder (additive).
+    # API1 adds the runtime version report (additive, not a behavior change).
     # (no auto docs/openapi/redoc anywhere; still no CORS middleware).
     assert paths == [
         "/",
@@ -302,6 +303,7 @@ def test_skeleton_routes_are_minimal(tmp_path: Path) -> None:
         "/api/jobs/{job_id}/pause",
         "/api/jobs/{job_id}/resume",
         "/api/settings",
+        "/api/version",
         "/api/voices/sample",
         "/api/voices/{name}.wav",
         "/api/voices/{name}/sample",

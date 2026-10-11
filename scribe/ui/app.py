@@ -435,6 +435,19 @@ def create_app(
     async def _health() -> dict[str, bool]:
         return {"ok": True}
 
+    @app.get("/api/version")
+    async def _version() -> dict[str, Any]:
+        """Runtime contract versions (Slice 16: the typed client pins to these).
+
+        Same object as the helper ready line. Token rule follows the app
+        mode like every other GET (exempt in ``scribe ui``, required by the
+        helper); the import stays function-local so ``ui.app`` never depends
+        on ``ui.helper`` at module load.
+        """
+        from ui.helper import helper_versions
+
+        return helper_versions()
+
     @app.get("/", response_class=HTMLResponse)
     async def _index() -> HTMLResponse:
         return HTMLResponse(_placeholder_html(run_token))

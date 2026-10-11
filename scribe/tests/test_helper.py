@@ -69,6 +69,15 @@ def test_helper_versions_keys() -> None:
     assert "2.0" in versions["spec"]
 
 
+def test_version_endpoint_matches_ready_versions(tmp_path: Path) -> None:
+    """API1: GET /api/version serves the ready-line versions object."""
+    client = _api_client(tmp_path)
+    assert client.get("/api/version").status_code == 403
+    response = client.get("/api/version", headers={"X-Auloud-Token": "tok"})
+    assert response.status_code == 200
+    assert response.json() == helper_versions()
+
+
 def test_token_required_on_get(tmp_path: Path) -> None:
     client = _api_client(tmp_path)
     assert client.get("/api/health").status_code == 403
