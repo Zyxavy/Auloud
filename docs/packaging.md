@@ -6,20 +6,19 @@ How the Python Scribe ships inside the v3 app, and the measured numbers behind t
 
 - Python 3.14.5 (venv); **pinned for the helper: CPython 3.14.8** via python-build-standalone release 20261009 (`install_only`, x86_64 Windows; Linux x86_64 at HP7). Stays on 3.14 because every pinned wheel already ships cp314 builds; 3.15 exists upstream but buys nothing here.
 - `site-packages`: 170 top-level dirs, about 396 MB. Native highlights: onnxruntime 1.30.0 (pybind `.pyd` plus `onnxruntime.dll`), PyMuPDF 1.28.2 (`mupdfcpp64.dll` 25 MB plus `_mupdf.pyd`), numpy 2.5.3 (OpenBLAS), soundfile (libsndfile), blis, lxml, pydantic-core.
-- Phonemizer is self-contained: `espeakng_loader` 0.2.4 ships `espeak-ng.dll` (409 KB) plus `espeak-ng-data` (lang and voices, about 17.5 MB); `phonemizer` 3.4.0 (required by `kokoro-onnx` 0.6.1) rides on it. **No system espeak-ng is needed at runtime**; only the `doctor` row checks for `espeak-ng.exe`, so that row becomes advisory for the helper (HP1).
-- `piper-tts` 1.8.0 carries its own espeak data (see `tts/piper.py`); same conclusion, no system dependency.
-- `en_core_web_sm` 3.8.0 URL-pinned in `pyproject.toml` plus `uv.lock`.
+- Phonemizer is self-contained: `espeakng_loader` 0.2.4 ships `espeak-ng.dll` (409 KB) plus `espeak-ng-data` (lang and voices, about 17.5 MB); `phonemizer` 3.4.0 (required by `kokoro-onnx` 0.6.1) rides on it. **No system espeak-ng is needed at runtime**; only the `doctor` row checks for `espeak-ng.exe`, so that row goes advisory for the helper (HP4, when `doctor` runs in helper context).
+- `piper-tts` 1.8.0 carries its own espeak data (see `tts/piper.py`); same conclusion, no system dependency.- `en_core_web_sm` 3.8.0 URL-pinned in `pyproject.toml` plus `uv.lock`.
 - Web stack (`ui` extra): FastAPI 0.142.2, uvicorn 0.54, starlette 1.7.
 - External today, bundled at HP2: ffmpeg/ffprobe (pinned build TBD), MSVC runtime DLLs if the sandbox proves them missing.
 - Models stay outside the bundle (sideloaded): `kokoro-v1.0.onnx` 310 MB, `voices-v1.0.bin` 27 MB, `piper/` about 99 MB (several voices).
 
 ## Helper entry reuse notes (HP1 reads these)
-
 - `ui/server.py`: 127.0.0.1-only bind guard (no `--host` flag on purpose), free-port pick from 8137 upward, per-workspace `.scribe-ui.lock` (O_EXCL plus stale rules, no same-process re-entry).
 - `ui/security.py`: per-run token (`secrets`), Host allow-list (`is_allowed_host`), constant-time token compare, `safe_join` against traversal.
 - `ui/jobs.py`: detached child processes with per-book lock, FIFO queue, stop sentinel, pause/resume/cancel, reattach after restart.
 - `lock.py`: PID-liveness plus 24 h stale pattern shared by both locks.
 - `cli.py` `doctor`: 11 rows; the espeak-ng row goes advisory for the helper (see above).
+- Ready-line discipline: the ready line means "starting", the `/api/health` check is truth; the parent retries the health check (Slice 16 owns the parent side).
 
 ## Metrics sheet (HP8 fills this; thresholds proposed in decision 9 of the slice plan)
 

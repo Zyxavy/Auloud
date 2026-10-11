@@ -293,6 +293,7 @@ def create_app(
     workspace: Path | str,
     token: str | None = None,
     *,
+    token_methods: frozenset[str] | None = None,
     job_manager: JobManager | None = None,
     spawn_fn: Any | None = None,
     pid_alive_fn: Any | None = None,
@@ -306,6 +307,8 @@ def create_app(
 
     :param workspace: file access below this root only (see ``safe_join``).
     :param token: per-run token; a fresh ``secrets`` token when omitted.
+    :param token_methods: HTTP methods requiring the token (default
+        state-changing only); the headless helper passes every method.
     :param job_manager: injected manager (tests); otherwise one is created.
     :param spawn_fn: fake detached spawner for ``JobManager`` (tests only).
     :param pid_alive_fn: fake PID liveness for ``JobManager`` (tests only).
@@ -329,6 +332,7 @@ def create_app(
     """
     root = Path(workspace).resolve()
     run_token = token or generate_token()
+    guarded_methods = token_methods if token_methods is not None else STATE_CHANGING
 
     from contextlib import asynccontextmanager
 
@@ -419,7 +423,7 @@ def create_app(
         host = request.headers.get("host")
         if not is_allowed_host(host):
             return JSONResponse({"detail": "misdirected host"}, status_code=421)
-        if request.method in STATE_CHANGING and not is_valid_token(
+        if request.method in guarded_methods and not is_valid_token(
             request.headers.get(TOKEN_HEADER),
             run_token,
         ):

@@ -99,24 +99,31 @@ def find_free_port(preferred: int, host: str = BIND_HOST) -> int:
     raise ValueError(f"{preferred}: bad-port: no free port nearby")
 
 
-def acquire_ui_lock(workspace: Path | str) -> UiLock:
+def acquire_ui_lock(
+    workspace: Path | str,
+    *,
+    lock_filename: str = UI_LOCK_FILENAME,
+    cmd: str = "ui",
+) -> UiLock:
     """Take the single-instance-per-workspace lock (or raise :class:`UiLockError`).
 
     Same O_EXCL + ``{pid, started_at, cmd}`` + stale rules as the per-book
     :func:`lock.acquire_work_lock` pattern (PID liveness via
     :func:`lock._pid_alive`, 24 h age cap), but a second holder always fails,
     even in the same process: nested UI servers never make sense, so there
-    is no same-PID re-entry shortcut here.
+    is no same-PID re-entry shortcut here. ``lock_filename``/``cmd`` let the
+    headless helper take its own lock with its own message; defaults keep
+    ``scribe ui`` behavior.
 
     Message shape is ``{file, rule, message}`` with rule ``ui-lock-held``.
     """
     folder = Path(workspace)
     folder.mkdir(parents=True, exist_ok=True)
-    path = folder / UI_LOCK_FILENAME
+    path = folder / lock_filename
     mine = {
         "pid": os.getpid(),
         "started_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-        "cmd": "ui",
+        "cmd": cmd,
     }
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
     try:
@@ -154,9 +161,10 @@ def acquire_ui_lock(workspace: Path | str) -> UiLock:
             ) from exc
         return acquire_ui_lock(folder)
     age_txt = f"{age_s:.0f}s" if age_s is not None else "unknown age"
+    holder_cmd = data.get("cmd") or cmd
     raise UiLockError(
         f"{path.name}: ui-lock-held: workspace is already served by pid {holder} "
-        f"({age_txt} old); stop that `scribe ui` first"
+        f"({age_txt} old); stop that `scribe {holder_cmd}` first"
     )
 
 
