@@ -1,6 +1,0 @@
-{
-  "identifier": "main-capability",
-  "description": "RS0 stub window",
-  "windows": ["main"],
-  "permissions": ["core:window:default"]
-}

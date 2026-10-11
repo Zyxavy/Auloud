@@ -6,13 +6,24 @@
 allow = [
     "AGPL-3.0-or-later", # our own workspace crates (deny graphs members too)
     "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception", # target-lexicon via Tauri, permissive exception
+    "Apache-2.0 WITH LLVM-exception", # was target-lexicon via Tauri; kept while deny passes
     "MIT",
     "BSD-3-Clause",
+    "BSD-2-Clause", # arrayref via the GUI stacks (permissive, tiny)
+    "BSL-1.0", # Boost license: clipboard-win + error-code (Windows clipboard stack)
+    "OFL-1.1", # font data inside epaint_default_fonts (egui's bundled fonts)
+    "Ubuntu-font-1.0", # same crate, same reason
+    "Unlicense", # ksni (system tray stack; public-domain dedication)
+    "ISC", # libloading (permissive; the rustls-stack ISCs left with TLS)
+    # Slint grant (UNCONFIRMED, UI1 spike evaluation only): the Slint crates
+    # are GPL-3.0-only OR Slint-Royalty-free OR Slint-Software. GPL stays
+    # rejected and Software-3.0 stays unexamined; UI2 confirms the grant or
+    # drops Slint (and these two lines) with it. See D-147 decision 1.
+    "LicenseRef-Slint-Royalty-free-2.0",
     "Unicode-3.0",
     "CC0-1.0",
     "Zlib",
-    # MPL-2.0: file-level copyleft in Tauri's webview stack (cssparser,
+    # MPL-2.0: file-level copyleft in webview stacks (was Tauri's cssparser,
     # selectors and friends); compatible with AGPL-3.0-or-later, never
     # modified here, so the copyleft stays inside its own files.
     "MPL-2.0",
@@ -20,6 +31,6 @@ allow = [
 
 [advisories]
 # Unmaintained lint covers our own workspace crates only. Transitive
-# neglect (for example proc-macro-error via Tauri's tree, which we cannot
-# fix) is out of scope; it resurfaces for review on every Tauri upgrade.
+# neglect (was proc-macro-error via Tauri's tree) is out of scope; it
+# resurfaces for review on every dependency upgrade.
 unmaintained = "workspace"
