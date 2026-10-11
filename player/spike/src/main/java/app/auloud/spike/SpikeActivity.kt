@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.dp
 import com.k2fsa.sherpa.onnx.GenerationConfig
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
+import com.k2fsa.sherpa.onnx.OfflineTtsKittenModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsVitsModelConfig
@@ -112,6 +113,10 @@ class SpikeActivity : ComponentActivity() {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { run("live2x") { benchLiveTwo() } }) { Text("Live2x") }
                         Button(onClick = { run("livesil") { benchLiveSilent() } }) { Text("LiveSil") }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { run("kitten") { benchKitten() } }) { Text("Kitten") }
                     }
                     Spacer(Modifier.height(8.dp))
                     Button(onClick = { export() }) { Text("Export to /Auloud/spike-results.txt") }
@@ -192,6 +197,94 @@ class SpikeActivity : ComponentActivity() {
 
     private fun piperDir(): File = File(modelsRoot(), "piper")
     private fun kokoroDir(): File = File(modelsRoot(), "kokoro")
+
+    /**
+     * KT0/KT3: Kitten bench (load, one sentence per sid, warmed RTF,
+     * thread sweep). Variant packs are sideloaded under
+     * `/Auloud/spike-models/` as `kitten-nano-int8/`, `kitten-micro/`
+     * and `kitten-nano-fp32/` (model file + `voices.bin` + `tokens.txt`
+     * + `espeak-ng-data/`); present variants bench, missing ones report
+     * and skip. Paste the lines into `docs/test-log.md`.
+     */
+    private fun kittenVariantDirs(): List<Pair<String, File>> =
+        listOf("kitten-nano-int8", "kitten-micro", "kitten-nano-fp32")
+            .map { it to File(modelsRoot(), it) }
+            .filter { (_, dir) -> dir.isDirectory }
+
+    private fun makeKitten(modelDir: File, threads: Int): OfflineTts {
+        fun need(name: String): String {
+            val file = File(modelDir, name)
+            if (!file.exists()) throw IllegalStateException("no $name in $modelDir")
+            return file.absolutePath
+        }
+        val model = modelDir.listFiles { f ->
+            f.isFile && f.name.startsWith("model", ignoreCase = true) &&
+                f.extension.lowercase() == "onnx"
+        }?.sortedBy { it.name }?.firstOrNull()
+            ?: throw IllegalStateException("no model*.onnx in $modelDir")
+        val config = OfflineTtsConfig(
+            model = OfflineTtsModelConfig(
+                kitten = OfflineTtsKittenModelConfig(
+                    model = model.absolutePath,
+                    voices = need("voices.bin"),
+                    tokens = need("tokens.txt"),
+                    dataDir = need("espeak-ng-data")
+                ),
+                numThreads = threads,
+                debug = false
+            )
+        )
+        return OfflineTts(config = config)
+    }
+
+    private fun benchKitten(): List<String> {
+        val out = mutableListOf<String>()
+        val variants = kittenVariantDirs()
+        if (variants.isEmpty()) {
+            return listOf("kitten: no variant packs under Auloud/spike-models/ (want kitten-nano-int8/, kitten-micro/)")
+        }
+        out += "abis=${Build.SUPPORTED_ABIS.joinToString(",")}"
+        variants.forEach { (variant, dir) ->
+            (1..4).forEach { threads ->
+                out += try {
+                    val pssBefore = pssMb()
+                    val loadStart = System.nanoTime()
+                    val tts = makeKitten(dir, threads)
+                    try {
+                        val loadMs = (System.nanoTime() - loadStart) / 1_000_000L
+                        var audioTotal = 0.0
+                        var wallTotal = 0L
+                        BENCH_SENTENCES.forEachIndexed { i, sentence ->
+                            // Alternate two sids: narrator/dialogue sharing one model.
+                            val (audioSec, wallMs) = synthTimed(tts, sentence, i % 2)
+                            if (i > 0) {
+                                audioTotal += audioSec
+                                wallTotal += wallMs
+                            }
+                        }
+                        val pssAfter = pssMb()
+                        "kitten=$variant threads=$threads loadMs=$loadMs " +
+                            "pssBeforeMb=$pssBefore pssAfterMb=$pssAfter " +
+                            "kittenWarmedRtf=%.2f audioSec=%.1f wallSec=%.1f ${battery()}".format(
+                                audioTotal / (wallTotal / 1000.0).coerceAtLeast(0.01),
+                                audioTotal, wallTotal / 1000.0
+                            )
+                    } finally {
+                        // A mid-loop synth failure must not strand a
+                        // loaded model on a 1.5 GB device (later runs
+                        // would OOM on the leaked RAM).
+                        try {
+                            tts.release()
+                        } catch (_: Exception) {
+                        }
+                    }
+                } catch (e: Exception) {
+                    "kitten=$variant threads=$threads FAILED: ${e.message}"
+                }
+            }
+        }
+        return out
+    }
 
     private fun makePiper(modelDir: File): OfflineTts {
         val model = File(modelDir, "en_US-lessac-medium.onnx").takeIf { it.isFile }

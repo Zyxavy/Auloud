@@ -16,8 +16,10 @@ Status: desk research done 2026-10-10; device findings TBD (staging, spike bench
 
 ## 32-bit gate (spike bench, device TBD)
 
+- Packs go under `/Auloud/spike-models/` as `kitten-nano-int8/`, `kitten-micro/`, `kitten-nano-fp32/` (model file + `voices.bin` + `tokens.txt` + `espeak-ng-data/`); the spike **Kitten** button benches each present variant at 1-4 threads (load ms, PSS before/after, warmed RTF alternating sids 0/1, battery plus temperature) and missing variants report and skip
 - Load on `armeabi-v7a`: TBD (record the exact error if it fails)
 - One-sentence synth: load time TBD, RTF TBD
+- Thread-sweep winner and warmed RTF: computed from the pasted lines with `warmedRtf`/`bestThreads` (`tts/KittenBench.kt`); paste the Kitten lines into `docs/test-log.md`
 - Second device (64-bit, if available): TBD
 
 ## Voice mapping (derived, needs the listening cross-check)
