@@ -1302,3 +1302,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Subagent-run frozen builds (first attempt failed unambiguously, rebuild passed); recipe updated in `docs/packaging.md`; proof summary saved at `logs/packaging-gate/frozen-audio2-SUMMARY.txt` (raw logs stay under temp `frozen-audio2/`).
 - Alternatives considered: bundling ffmpeg into the frozen variant now (deferred: HP4 decides with offline evidence); vendoring `config.json` by hand (rejected: the collect flag is the reproducible form).
 - Consequences / revisit when: HP4 runs both variants clean and offline (frozen ffmpeg-from-PATH is the known risk); HP8 compares RTF like-for-like on the C&P fragment.
+
+### D-155: HP4 gate takes book paths; synthetics substitute when absent
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: No Alice or C&P EPUB fragment is committed, so `scribe/dev/run_gate.ps1` takes `-AliceEpub`/`-CpEpub` paths and falls back to `scribe-golden`/`epub2-minimal` synthetics, recording the substitution in the results file. `build` has no `--voice` flag (voice comes from `cast.yaml`), so the Piper gate chapter patches the drafted `cast.yaml` narrator to `piper:en_US-lessac-low` (the only complete Piper pair in `scribe/models/piper/`).
+- Why: Slice15 lists the fragments as owner-supplied prerequisites; the gate must run without them. Voice-from-cast is the D-036/MV5 design, not a workaround.
+- Alternatives considered: committing the fragments (rejected: owner books, never commit); a `--voice` override on build (does not exist; cast patch is the supported path).
+- Consequences / revisit when: HP5/HP8 numbers on synthetics do not replace the C&P-fragment comparison; rerun the gate with the real fragments when supplied.
