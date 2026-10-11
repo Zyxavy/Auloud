@@ -40,6 +40,11 @@ How the Python Scribe ships inside the v3 app, and the measured numbers behind t
 - Findings: (1) the spaCy model needs module plus data plus dist-info — data alone leaves `doctor` FAIL (`--copy-metadata` fixed it); (2) detached-job re-entry needs no flag: `ui/jobs.py` builds child argv as `[exe, ...]` under `sys.frozen` (pinned by `test_child_argv_frozen_reenters_exe`), and a real upload plus draft job completed inside the frozen helper; (3) frozen `doctor` is all PASS; (4) frozen needs Kokoro's data files too: the first audio build died at TTS init on missing `_internal/kokoro_onnx/config.json` (only dist-info was collected; `--collect-data kokoro_onnx` fixed it, no further missing files on the Kokoro path; Piper render still unproven on frozen); (5) frozen does NOT bundle ffmpeg: it resolves `ffmpeg`/`ffprobe` from PATH (WinGet 9.0.1 on the dev machine) while embedded bundles pinned ffmpeg 9.0.2 — Slice 22 source-offer and HP4 offline notes apply.
 - Measured: 1,275 files, 347 MB; cold and warm start to ready 0.8 s; idle memory 77 MB (embedded for comparison: 11,246 files, 761 MB, idle 63 MB). Audio proof on `epub2-minimal` ch.1: 45.7 s wall, RTF 2.45x, 110 s MP3 (mono/24 kHz/64k CBR, ffprobe-verified), frozen `validate` PASS, `voices --sample` ok (266 KB WAV). RTF is not comparable to the 4.38x dev reference (different book); the HP8 sheet compares like-for-like.
 
+## HP4 clean-machine runs (not run; stop-loss per D-157)
+
+- The matrix was not executed: no clean Windows environment was available and the VM route was declined. `scribe/dev/run_gate.ps1` plus the `sandbox.wsb` mappings stand ready if one appears.
+- No thresholds are claimed: cold/warm start, idle memory, Defender, MSVC DLLs, and offline behavior on a bare machine are all unknown. The HP8 sheet keeps dev-machine numbers only.
+
 ## Decision log (slice decisions land in `docs/DECISIONS.md`; summary here at HP9)
 
 - Sandbox is unavailable on this machine (owner-confirm 2026-10-11); the HP4 clean-machine route falls back to VirtualBox, Hyper-V, or a spare machine (route chosen at HP4 at the latest).

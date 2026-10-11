@@ -1318,3 +1318,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Same-PC VM keeps the host's Python/ffmpeg/espeak off PATH while costing no extra hardware; D-151's fallback is now decided.
 - Alternatives considered: spare machine (rejected: unnecessary when the host has the headroom); Hyper-V/Sandbox (unavailable on Home).
 - Consequences / revisit when: owner installs VirtualBox, creates the VM, and runs `run_gate.ps1` per variant; revisit only if the VM cannot be built.
+
+### D-157: Packaging stop-loss taken without clean-machine runs
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: Skip the HP4 clean-machine matrix (no Sandbox on Home edition, VirtualBox route judged not worth the effort). v3 ships per the stop-loss: the Rust UI with a documented one-time setup (bootstrap or prerequisites) instead of a proven nothing-to-install bundle. NOTHING clean-machine is marked verified: no ready times, memory, Defender, DLL, or offline results exist, and the HP4/HP8 boxes stay unticked. The embedded bundle remains the default candidate (only variant with bundled ffmpeg and full dev-machine smoke); frozen keeps its known PATH-ffmpeg cost.
+- Why: Owner decision; the dev-machine evidence (HP2/HP3) is kept, the missing evidence is named, not faked.
+- Alternatives considered: claiming the gate passes unrun (rejected outright: unverified boxes stay unticked); VirtualBox VM (rejected on effort).
+- Consequences / revisit when: Slice 22 owns the one-time-setup UX; if a clean machine ever appears, `run_gate.ps1` + D-151 mappings are ready and HP9 can be made on evidence then.
