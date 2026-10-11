@@ -74,6 +74,10 @@ foreach ($v in $variants) {
     New-Item -ItemType Directory -Force $workRoot | Out-Null
     if ($v -eq "embedded") {
         $exe = "$HelperBase\embedded\python\python.exe"
+        if (-not (Test-Path $exe)) {
+            # Zip extracts with a top folder; accept that layout too.
+            $exe = "$HelperBase\embedded\helper-win64\python\python.exe"
+        }
         $cliPrefix = @("-m", "scribe")
     } else {
         $exe = "$HelperBase\frozen\scribe-helper\scribe-helper.exe"

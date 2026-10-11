@@ -1310,3 +1310,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Slice15 lists the fragments as owner-supplied prerequisites; the gate must run without them. Voice-from-cast is the D-036/MV5 design, not a workaround.
 - Alternatives considered: committing the fragments (rejected: owner books, never commit); a `--voice` override on build (does not exist; cast patch is the supported path).
 - Consequences / revisit when: HP5/HP8 numbers on synthetics do not replace the C&P-fragment comparison; rerun the gate with the real fragments when supplied.
+
+### D-156: Clean-machine route is VirtualBox on the same PC
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: HP4 runs in a VirtualBox Windows 11 VM on the owner's PC (Home edition, so Sandbox and Hyper-V are unavailable; VirtualBox is not installed yet; 25 GB RAM and 291 GB free disk leave ample headroom). The VM gets no network, 4-6 GB RAM, and three folders: the embedded zip, the frozen folder, and the models; results come back from the shared results folder.
+- Why: Same-PC VM keeps the host's Python/ffmpeg/espeak off PATH while costing no extra hardware; D-151's fallback is now decided.
+- Alternatives considered: spare machine (rejected: unnecessary when the host has the headroom); Hyper-V/Sandbox (unavailable on Home).
+- Consequences / revisit when: owner installs VirtualBox, creates the VM, and runs `run_gate.ps1` per variant; revisit only if the VM cannot be built.
