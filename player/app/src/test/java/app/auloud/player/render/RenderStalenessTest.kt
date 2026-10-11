@@ -51,7 +51,7 @@ class RenderStalenessTest {
         engine = engine,
         voices = mapOf("narrator" to narratorVoice, "dialogue" to dialogueVoice),
         speeds = mapOf("narrator" to narratorSpeed, "dialogue" to dialogueSpeed),
-        engineVersions = mapOf("system" to version)
+        engineVersions = mapOf(engine to version)
     )
 
     private fun narratorOnlyFingerprint(
@@ -75,20 +75,14 @@ class RenderStalenessTest {
 
     private val vKitten = versions("kitten" to "sherpa-1.13.8")
 
-    private fun kittenFingerprint(
-        narratorVoice: String = "kitten:1",
-        dialogueVoice: String = "kitten:0",
-        version: String = "sherpa-1.13.8"
-    ) = RenderFingerprint(
-        engine = "kitten",
-        voices = mapOf("narrator" to narratorVoice, "dialogue" to dialogueVoice),
-        speeds = mapOf("narrator" to 1.0f, "dialogue" to 1.0f),
-        engineVersions = mapOf("kitten" to version)
-    )
-
     @Test
     fun kittenDialogueSidChange_dialogueChapter_isStale() {
-        val stored = kittenFingerprint()
+        val stored = bothFingerprint(
+            narratorVoice = "kitten:1",
+            dialogueVoice = "kitten:0",
+            engine = "kitten",
+            version = "sherpa-1.13.8"
+        )
         val voices = bookVoices(narratorId = "kitten:1", dialogueId = "kitten:5")
         val state = RenderStaleness.classifyChapter(
             durationMs = 60_000L,
@@ -102,7 +96,12 @@ class RenderStalenessTest {
 
     @Test
     fun kittenSameVoices_dialogueChapter_staysCurrent() {
-        val stored = kittenFingerprint()
+        val stored = bothFingerprint(
+            narratorVoice = "kitten:1",
+            dialogueVoice = "kitten:0",
+            engine = "kitten",
+            version = "sherpa-1.13.8"
+        )
         val voices = bookVoices(narratorId = "kitten:1", dialogueId = "kitten:0")
         val state = RenderStaleness.classifyChapter(
             durationMs = 60_000L,
@@ -116,7 +115,12 @@ class RenderStalenessTest {
 
     @Test
     fun kittenVersionBump_isOutdatedNotStale() {
-        val stored = kittenFingerprint(version = "sherpa-1.13.8")
+        val stored = bothFingerprint(
+            narratorVoice = "kitten:1",
+            dialogueVoice = "kitten:0",
+            engine = "kitten",
+            version = "sherpa-1.13.8"
+        )
         val voices = bookVoices(narratorId = "kitten:1", dialogueId = "kitten:0")
         val state = RenderStaleness.classifyChapter(
             durationMs = 60_000L,
