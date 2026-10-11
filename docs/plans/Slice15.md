@@ -1,5 +1,10 @@
 # Slice 15 Implementation Plan: Rust Workspace, Spec Core and Parity Harness
 
+> SUPERSEDED (2026-10-11, D-147): RS0 and RS1 below were built and stand.
+> RS2 onward is cancelled; v3 is now a native Rust UI over the packaged
+> Python helper, per the revised `docs/10-V3Roadmap.md`. This file stays as
+> the record of what RS0/RS1 delivered and what was deliberately dropped.
+
 Project: Auloud Scribe, Rust port (D-133: Rust + Tauri v2, Windows 11 and Linux, Python canonical until parity, `spec/` unchanged, AGPL-3.0-or-later). Follows `docs/10-V3Roadmap.md` (Slice 15). Slice 14 (Kitten) is parked on device-only items and does not block this slice.
 
 ## 1. Goal

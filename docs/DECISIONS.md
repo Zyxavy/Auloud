@@ -1238,3 +1238,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: The golden-rebuild test compares rebuilt bytes against committed LF goldens; more importantly the written bundles now match the spec on every platform.
 - Alternatives considered: leaving writers platform-native and normalizing only in tests (rejected: hides genuine spec non-compliance in shipped bundles).
 - Consequences / revisit when: bundles built on Windows before this change carry CRLF text; they still validate (the validator reads text mode) and need no migration.
+
+### D-147: v3 becomes a native Rust UI over the packaged Python helper (amends D-133)
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: The full-logic Rust rewrite (RS2 onward) is cancelled: profiling reasoning plus the roadmap's own parity gate show render time lives in ONNX Runtime either way, so a rewrite buys packaging at best and risks attribution quality. v3 ships a native Rust UI (toolkit by spike: egui MIT/Apache-2.0, iced MIT, Slint triple-license with the grant to confirm, all verified on crates.io 2026-10-11) driving the existing Python Scribe as a bundled hidden helper over the documented localhost API. RS0 (workspace, toolchain) and RS1 (rule catalog, fixtures, expected files) stand and are reused; `docs/10-V3Roadmap.md` is rewritten (Tauri-port version archived); `docs/plans/Slice15.md` is marked superseded; Tauri remains the reserve option.
+- Why: One double-click program with a native UI was the actual goal; the rewrite was never needed for it. The spike-first order (packaging gate, then toolkit) retires the two biggest risks before UI code exists.
+- Alternatives considered: continuing the Tauri-port plan (rejected: rewrites working logic for no measured gain); Electron (rejected long ago by implication: never proposed, webview/native only); Tauri hosting the web UI as the primary plan (kept as decision 7 reserve).
+- Consequences / revisit when: backend ports to Rust stay possible piece by piece if the section-6 profile ever justifies them; revisit only with measured numbers, never on speculation.

@@ -16,7 +16,7 @@ Target device: Samsung Galaxy Tab E (SM-T560NU), Android 7.1.1, `minSdk 24`, abo
 ```
 player/   Android app (Kotlin, Compose, Media3, Room). Core flavor: Apache-2.0; full flavor: GPL-3.0 (see player/NOTICE).
 scribe/   Python CLI + library. License: AGPL-3.0-or-later
-scribe-rs/  Rust port (v3, parity in progress; Python stays canonical). Workspace: scribe-spec, scribe-core, scribe-cli (binary `scribe-rs`), scribe-ui (Tauri stub). License: AGPL-3.0-or-later
+scribe-rs/  Native Rust UI for Scribe (v3, RS0 skeleton; backend rewrite cancelled per D-147, Python stays canonical). License: AGPL-3.0-or-later
 parity/   Python-vs-Rust parity harness (stdlib-only driver, expected files under parity/expected/)
 spec/     bundle spec and shared test fixtures
 docs/     PRD, architecture, designs, roadmap, test plan, decisions
@@ -32,7 +32,7 @@ docs/     PRD, architecture, designs, roadmap, test plan, decisions
 
 **Scribe**
 - Python 3.11+, Windows 11 first. Library holds the logic; the CLI is a thin wrapper.
-- Rust port in `scribe-rs/` (v3): toolchain pinned in `scribe-rs/rust-toolchain.toml` (set RUSTUP_HOME/CARGO_HOME before installing if you want it off C:); `scribe-spec` stays pure (no fs/process); Python is canonical until parity, so never change Python validator behavior to match Rust.
+- Native Rust UI in `scribe-rs/` (v3, RS0 skeleton; the Tauri stub is replaced at Slice 16). The Python Scribe is the packaged backend and stays canonical: never reimplement cast, attribution, spec or validation logic in Rust; the UI talks to the helper over the documented localhost API only.
 - ffmpeg is run as a separate process, never linked.
 
 **Both**
@@ -64,4 +64,4 @@ docs/     PRD, architecture, designs, roadmap, test plan, decisions
 8. Ask before destructive commands: `git push`, deleting files, `adb uninstall`, `adb shell pm clear`, or any `adb shell` command that writes.
 
 ## Skills (in `.opencode/skills/`)
-`auloud-bundle`, `android-api24`, `slice-workflow`, `device-test`, `scribe-python`, `rust-scribe`.
+`auloud-bundle`, `android-api24`, `slice-workflow`, `device-test`, `scribe-python`, `rust-ui`.
