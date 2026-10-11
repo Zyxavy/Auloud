@@ -1,157 +1,190 @@
-# Slice 15 Implementation Plan: Rust Workspace, Spec Core and Parity Harness
+# Slice 15 Implementation Plan (Rewritten): Helper Packaging Gate
 
-> SUPERSEDED (2026-10-11, D-147): RS0 and RS1 below were built and stand.
-> RS2 onward is cancelled; v3 is now a native Rust UI over the packaged
-> Python helper, per the revised `docs/10-V3Roadmap.md`. This file stays as
-> the record of what RS0/RS1 delivered and what was deliberately dropped.
-
-Project: Auloud Scribe, Rust port (D-133: Rust + Tauri v2, Windows 11 and Linux, Python canonical until parity, `spec/` unchanged, AGPL-3.0-or-later). Follows `docs/10-V3Roadmap.md` (Slice 15). Slice 14 (Kitten) is parked on device-only items and does not block this slice.
+Replaces `docs/plans/Slice15.md` (the Rust-port plan, RS0/RS1 built, RS2 onward cancelled; the old file is archived at `docs/archive/v3/Slice15-rust-port.md`). Follows `docs/10-V3Roadmap.md`. Project: Auloud Scribe, Python side, plus build tooling. No Rust application code is written in this slice; the RS0 workspace and RS1 fixtures are reused only as test material.
 
 ## 1. Goal
 
-Stand up the Rust workspace and prove its **spec layer** against the Python Scribe: models for every bundle form, the version gate, and a validator that gives the same verdicts and the same error messages on every fixture. Add a parity harness that will carry the later slices (draft, attribution, build) and a doctor skeleton.
+Answer one question before any UI is built: **can the Python Scribe be packaged so that a Windows 11 machine with nothing installed runs it, offline, and produces the same bundles as your development setup?** The packaged Scribe is the "helper" that the native Rust app will start and talk to.
 
-**Done when** (from the roadmap): all golden bundles validate identically in Rust and Python; each bad fixture fails with the same message.
+**Done when:**
 
-## 2. What is known and what is not
+- A helper bundle runs on a clean Windows 11 environment (no Python, no `uv`, no espeak-ng, no ffmpeg, no VC++ runtime installed, network disabled), starts its API, and completes draft, build and validate on short books
+- The output matches the development setup (text and attribution identical, durations within the 50 ms tolerance, bundle validates)
+- The embedded-runtime and frozen-executable options are compared on measured numbers, and the decision (including the fallback if neither works) is logged
+- A Linux run shows what a Linux package needs
 
-**Known (verified 2026-10-11 in the repo)**
+## 2. Inputs and what is known
 
-- The Python validator is `scribe/bundle/validate.py` over `scribe/bundle/models.py`. Errors are plain `"file: message"` strings; there are **no rule ids** in Python output, so RS1 must build the template-to-id map (see decision 5).
-- Audio probing runs ffprobe as a subprocess. CBR for MP3 means one extra ffprobe call (`packet=size`) with max minus min frame size at most 1 byte; AAC chapters skip the frame check and use a 16 kbps average band. Duration tolerance is 50 ms for MP3 and provisionally 50 ms for M4A. Fixture MP3s are 0-byte placeholders, so tests inject a probe stub.
-- Bundle fixtures with `manifest.json`: `valid-bundle`, `scribe-golden`, `multivoice-golden`, `partial-golden`, `partial-aac-golden`, `rendered-aac-golden`, `pdf-golden`, `unrendered-golden`, `epub2-minimal`, plus bad fixtures `bad-json`, `missing-field`, `missing-mp3`. Non-bundle dirs (`ingest-parity`, `timing-vectors`, `speakers-gold`, `dialogue-cases.json`) are not validate inputs.
-- Both test suites address fixtures by explicit path, never by directory glob, so additive fixture files are safe.
-- This machine has no Rust toolchain (no `rustc`, `cargo` or `rustup`), no `scribe-rs/` or `parity/` dirs, and the repo has no `.gitattributes`.
-- `docs/DECISIONS.md` ends at D-140. Slice 14 is parked with its decisions unlogged.
+- Scribe today: Python 3.11+, spaCy with `en_core_web_sm` (URL-pinned), `kokoro-onnx`, `piper-tts` with its bundled espeak data, PyMuPDF, ebooklib, pysbd, FastAPI and uvicorn (the `ui` extra), ffmpeg and ffprobe as external programs, espeak-ng installed on your machine (the doctor checks it)
+- The web UI server already has a detached job runner (jobs survive a server restart), per-run token, Host-header check, SSE events and keep-awake
+- Package lessons from earlier slices: new modules and static assets need explicit inclusion in the wheel, and the installed copy must be rebuilt before trusting `uv run scribe`
+- RTF reference on your machine: about 4.38x on CPU (`docs/test-log.md`)
 
-**Not known (this slice must find out)**
-
-- Whether Rust `unicode-normalization` and Python `unicodedata` ever disagree on edge characters (fixtures decide; versions get recorded).
-- How much ffprobe output varies across versions on the CBR and bitrate paths.
-- Windows toolchain friction (MSVC, WebView2 for the Tauri stub); RS0 gates on it first.
+**Unknowns this slice resolves:** whether Kokoro needs a system espeak-ng, which native DLLs need the Microsoft C++ runtime on a bare machine, how large the bundle is, how Defender reacts, and whether a frozen executable can still spawn its own detached jobs.
 
 ## 3. Scope
 
 | In | Out (later slices) |
 | --- | --- |
-| Workspace, toolchain pin, lints, license policy | EPUB ingestion (Slice 16) |
-| Models for every bundle form; spec 1.0 to 2.0 and the version gate | Attribution and cast (17) |
-| Pure rule checks and filesystem loader; media probe as a `scribe-core` module | TTS, audio assembly, `build` (18) |
-| `validate` and `doctor` skeleton in the CLI | PDF extraction and the full CLI matrix (19) |
-| Parity harness (validate mode working; other modes stubbed) | The Tauri app itself (20) |
-| Tauri hello-window toolchain check | Models and engines (21), installer (22) |
+| A headless helper entry point with a ready handshake and parent watchdog | The Rust UI and API client (Slice 16 onward) |
+| Embedded-runtime bundle build script (Windows, Linux) | The installer and first-run model downloader (Slices 20 and 22) |
+| A frozen (PyInstaller, onedir) build for comparison | GPU providers; macOS |
+| Clean-machine runs, equivalence checks, lifecycle tests | Code signing |
+| `docs/packaging.md` with the decision | Any Rust application logic |
 
-## 4. Key decisions (log from the next free D-number at write time)
+## 4. Key decisions (log from D-148)
 
-D-141 is next as this plan is written, but Slice 14's parked decisions will also take numbers on close, so **always check the log tail first** and note the plan section in each entry. The eight decisions below are labeled S15-1 to S15-8 until logged.
-
-1. **Crate split: four crates under `scribe-rs/`.** `scribe-spec` (pure data: serde models, spec version gate, error type `{file, rule, message}`, pure rule checks over in-memory data; no file or process access), `scribe-core` (filesystem loader, UTF-8 and NFC checks, hashing, media probe module, orchestration, doctor checks; later slices add extraction, attribution and build here), `scribe-cli` (binary named **`scribe-rs`** during the parity period, renamed at v3.0), `scribe-ui` (Tauri crate, a stub in this slice). The media probe is a `MediaProbe` trait plus an ffprobe subprocess implementation plus a fake for tests, kept as a module inside `scribe-core`: one trait with one real implementation does not need its own crate. The workspace sets `default-members` to the three non-UI crates so everyday `cargo test` stays fast.
-2. **Harness location and form: `parity/`, a stdlib-only Python driver run with `uv`.** Python is canonical, so the driver imports the Python library directly (structured result from `validate_bundle` with a stub probe, no console scraping) and runs the Rust CLI with `--json`, then compares normalized results. Rust only has to emit stable JSON. No new Python dependency; the driver uses the stdlib only.
-3. **Which books the harness runs: three tiers in `parity/books.toml`.** Tracked fixtures (always run): every bundle dir under `spec/fixtures/` named in section 2. Tracked sources (run in later slices): the ingest-parity EPUBs and PDF goldens, the speakers-gold passage, and the Alice passage once promoted to `spec/fixtures/` (planned for Slice 17). Local-only books: listed in gitignored `parity/books.local.toml` (never commit absolute local paths), run when present, skipped with a clear message otherwise. Validation mode runs on the first tier plus any Python-built bundles found locally.
-4. **Expected results come from Python, stored under `parity/expected/`** (one file per fixture, mirroring the fixture name), generated by a small Python dev script. Keeping them out of `spec/fixtures/` leaves the contract dir clean for the Player and Scribe suites. Rust contract tests compare to those files; Python stays the source of truth, and changing a Python rule means regenerating expected files and updating Rust (the harness enforces this).
-5. **What "identical" means.** RS1 writes the rule table in `docs/rust-port.md`: rule id, the Python message template it matches, which fixture covers it. The export script assigns each Python error a rule id by template match and fails loudly on any unmatched message, so a Python wording change breaks the export instead of silently passing. The harness compares sorted `(file, rule, message)` triples; the sort key is defined once in `parity/README.md`. Messages that embed a parser's own detail text (for example a JSON syntax error position) compare on rule id plus message prefix only. Whole-message comparison normalizes path separators to `/` and strips the local bundle-root prefix so Windows and Linux match. The Python list rendering in the spec-version message (`must be one of ['1.0', '1.1', '1.2', '2.0']`) is pinned byte-for-byte in the rule table.
-6. **Binary name `scribe-rs`;** human output and exit codes match Python `validate` (`valid: <bundle>` on success, `error: ...` lines, exit 1 on failure) and `doctor` (table plus nonzero exit on any FAIL). `--json` is a Rust-only harness extra on both commands; the Python CLI is untouched.
-7. **Dependency policy: small, permissively licensed crates only** (serde, serde_json, thiserror, clap, unicode-normalization, sha2; dev: tempfile and a CLI test helper). `cargo deny` enforces a license allow-list from RS0; no dependency is added without a deny pass.
-8. **Line endings: add `.gitattributes`.** Fixture JSON, YAML, Markdown and TOML stay LF; audio, PDF, image and model files are binary. This stops Windows checkouts from changing bytes (the same noise already shows in Player diffs).
+1. **Embedded runtime is the default candidate.** A standalone Python distribution plus installed packages in its own folder, run as `python -m scribe ...`. It keeps native packages unmodified, makes spawning detached jobs trivial (the interpreter is a real `python.exe`), and avoids the antivirus problems typical of frozen single-file executables.
+2. **Frozen onedir build as the comparison**, not onefile. Judged on the same metrics. A frozen executable also needs a re-entry flag so the job runner can spawn itself; note that as a cost.
+3. **Reproducible by lockfile:** exact versions and hashes from the lock; the Python distribution and the ffmpeg build are pinned with URL and hash; the build writes a `helper-manifest.json` of versions and file hashes.
+4. **Install layout:** a read-only helper folder with a short path (long-path risk on Windows), and per-user data folders for workspace, models, job history, logs and settings. The helper takes these as arguments or environment variables; it never writes into its own folder.
+5. **Startup protocol:** the parent starts the helper with a port of 0 and a token in the environment; the helper prints one JSON line (`ready`, port, versions: Scribe, spec, API) and then serves on `127.0.0.1` only. The helper exits when the parent process disappears. Detached jobs deliberately do **not** die with the helper.
+6. **Windows runtime DLLs:** if the clean machine lacks the Microsoft C++ runtime, bundle the redistributable DLLs app-locally (permitted by Microsoft's redistribution terms) rather than requiring an installer.
+7. **ffmpeg:** bundle a pinned build and record whether it is LGPL or GPL (it runs as a separate program, but the source-offer obligations differ); the final choice is made in Slice 22.
+8. **Models stay outside the bundle** (Kokoro is hundreds of MB); this slice uses sideloaded copies. Download and checksum handling arrives with the model manager.
+9. **Gate thresholds (proposals, adjust if you disagree):** cold start to ready in 10 s or less, warm start in 5 s or less, idle memory 300 MB or less, build speed within 10% of the development machine, zero Defender detections, works with networking disabled. Size is recorded and judged by you.
 
 ## 5. Work packages
 
-### RS0: Toolchain and workspace skeleton (S-M), do first
+### HP0: Prep (S)
 
-- Install Rust with rustup and the MSVC build tools on Windows 11 (the "Desktop development with C++" workload); pin the toolchain in `rust-toolchain.toml`; install `cargo-deny`.
-- Create the workspace and the four crates; each crate declares `AGPL-3.0-or-later` with SPDX headers like the Python files.
-- `rustfmt` and `clippy` (warnings are errors); `cargo deny` config with the license allow-list; `.gitattributes` (decision 8).
-- `scribe-ui` hello window with Tauri v2 (last step of RS0, after the workspace gates pass, so WebView2 friction cannot block spec work).
-- Add the project skill `rust-scribe` (workspace layout, no panics across crate boundaries, fixture-driven tests, ffmpeg as a subprocess) and update `AGENTS.md` (repo layout, cargo commands, Rust+Linux line next to the Python Scribe line).
-- **Verify:** `cargo build`, `cargo test`, `cargo clippy -D warnings`, `cargo deny check` pass on a Windows machine with no prior Rust install; the hello window opens (owner confirms); decisions S15-1, S15-7, S15-8 logged.
+- Inventory the runtime: every installed package with size, native libraries and data files, what the spaCy model and Piper bring, and where Kokoro gets its phonemizer
+- Read the web UI server, detached job runner, doctor and path handling so the helper entry point reuses them
+- Write the Windows Sandbox config (`.wsb`): helper and fixtures mapped read-only, a writable results folder, networking disabled; confirm it boots
+- Create `docs/packaging.md` with the empty metrics sheet; pin the Python version; log decisions 1-9
+- **Verify:** inventory and sandbox boot recorded; decisions logged
 
-### RS1: Rule catalog and expected results (M)
+### HP1: Helper entry point (M)
 
-- Read the Python models and validator plus the spec; write the rule table in `docs/rust-port.md`: rule id, Python message template, which fixture covers it.
-- Python dev script (`scribe/dev/export_expected.py`) that writes `parity/expected/<fixture>.json`: `{valid, errors: [{file, rule, message}]}` with rule ids from template match (loud failure on unmatched), normalized and sorted per decision 5.
-- Add fixtures for any rule without coverage (valid and invalid; additive test data only, no spec change).
-- **Verify:** every rule has at least one fixture; expected files committed; the Python suites still pass unchanged (no validator behavior change; a suspicious rule gets logged and raised, never fixed in one implementation only).
+- A headless command (for example `python -m scribe helper`) with arguments for workspace, models, data and log folders, `--port 0`, the parent process id, and the token from the environment
+- Prints the single ready line; binds `127.0.0.1` only; no browser; the token is required on every request; the Host-header allow-list includes the chosen port; logs go to a file
+- Parent watchdog (Windows and Linux); graceful shutdown; detached jobs unaffected
+- `scribe ui` keeps working exactly as before
+- **Verify (tests):** ready line format, token enforcement, random port, watchdog with a simulated parent, Host check, unchanged `scribe ui`; the full Python suite stays green
 
-### RS2: Spec models and version gate (M)
+### HP2: Embedded bundle build (M-L)
 
-- Serde models for: manifest (EPUB, PDF, unrendered, partial, MP3 and AAC audio entries, per-voice engine/voice/speed/pitch, manifest-level `gain_db` and `encoder_offset_ms`, per-chapter `render_fingerprint`, `source_index`, `render_state`), chapter text (blocks, sentences with kind and speaker, optional timings, spans, page), PDF `pages` marks.
-- Unknown keys ignored; non-integer numbers where integers are required rejected with the right rule; spec version gate (accept 1.0 to 2.0, refuse newer, handle missing and malformed) with wording pinned to the Python template including the list rendering.
-- **Verify (tests):** every valid fixture deserializes; gate cases (1.0, 1.1, 1.2, 2.0, a newer minor, a newer major, missing, malformed).
+- `scribe/dev/package_helper.py` (run with `uv`, alongside the other export scripts): fetch the pinned standalone Python for the target, install locked dependencies with hashes into its site-packages, install the built Scribe wheel (static assets included) and the spaCy model wheel, strip caches and tests, byte-compile
+- Add the pinned ffmpeg and ffprobe, and the app-local C++ runtime DLLs for Windows if HP4 shows they are needed
+- Write `helper-manifest.json`; verify two builds produce the same hashes; produce a zip
+- **Verify:** on your development machine, `helper\python.exe -m scribe doctor` passes; manifest reproducible
 
-### RS3: Pure rule checks (M-L)
+### HP3: Frozen comparison build (S-M, timeboxed to about a day)
 
-- All non-media rules on in-memory data: conditional required fields by `render_state`, consecutive sentence ids, timing rules (first start 0, `0 <= start < end <= duration`, ordered, no overlap), speakers present in `voices`, voice entry shapes, span offsets inside the text, page marks, `source_index` and partial-book rules, manifest-versus-chapter duration agreement within tolerance.
-- Deterministic error ordering and the exact message templates from RS1.
-- **Verify (tests):** unit tests per rule; contract test over the non-media fixture subset against `parity/expected/`.
+- PyInstaller in onedir mode for the helper entry point, including hidden imports and data files for spaCy and its model, onnxruntime, PyMuPDF, kokoro-onnx and Piper
+- Same ready protocol; record how detached jobs are spawned (the re-entry flag) and anything that breaks
+- If it cannot be made to work in the timebox, the blockers are the finding
+- **Verify:** same smoke checks as HP2, or a written list of blockers
 
-### RS4: Filesystem loader and media probe (M)
+### HP4: Clean Windows 11 run (M)
 
-- Bundle loader: reads files, checks UTF-8 and NFC, existence, source hash, path safety (no traversal out of the bundle root).
-- `MediaProbe` trait with the ffprobe implementation using the same method as Python (stream codec/channels/rate/bitrate/duration plus the MP3-only packet-size CBR check, max minus min at most 1); MP3 and AAC tolerance rules from the spec; clear error when ffprobe is missing.
-- **Verify (tests):** contract test over **all** fixtures including media rules (stub probe for the 0-byte fixture audio, real ffprobe on generated MP3/M4A for the media paths); unit tests with the fake probe; tests skip with a clear message when ffprobe is absent (plus one environment test that fails when it is absent, so the skips cannot hide lost coverage).
+- `scribe/dev/run_gate.ps1` runs inside the sandbox with networking off and no Python: start the helper, wait for ready, then via the API and the CLI: draft and build the Alice fragment and the C&P fragment with a Kokoro voice, build a short chapter with a Piper voice, draft the PDF golden, render one `voices --sample` clip, validate every bundle, run `doctor`; write a results file
+- Record per run: ready time (first launch and second), idle memory, build speed, Defender detections (check the Defender threat log), any missing DLL or file errors
+- **Expected finding:** a missing Microsoft C++ runtime DLL; fix by bundling it (decision 6)
+- **Extra cases:** an install path near the 260-character limit, a user path with spaces and non-ASCII characters, and a second launch after the first
+- Run both variants (embedded and frozen)
+- **Verify:** results files for each variant and case saved under `docs/`
 
-### RS5: `validate` and `doctor` in the CLI (S-M)
+### HP5: Output equivalence (S-M)
 
-- `scribe-rs validate <bundle> [--json]` with exit codes and human output matching Python; `--json` emits the normalized form the harness compares.
-- `scribe-rs doctor [--json]` skeleton: ffmpeg and ffprobe (presence and version), workspace writable, toolchain info; row names and pass/fail wording follow the Python doctor so the later parity matrix is simple.
-- **Verify (tests):** CLI tests for every fixture's exit code and JSON; doctor behaves with and without ffmpeg on the path.
+- Compare helper output with the development setup for the same inputs: `script.json` and `text/*.json` identical, attribution identical, manifest equal apart from ids, timestamps and paths, audio durations and sentence timings within 50 ms, `scribe validate` passes on both
+- Run the speakers gold-set evaluation using the helper's interpreter and confirm the same accuracy as the development result (92.5% strict on the C&P set)
+- **Verify:** a comparison report with every item passing, or a list of differences with causes
 
-### RS6: Parity harness (M)
+### HP6: Lifecycle and API behavior (S-M)
 
-- `parity/` driver (stdlib only, `uv run python parity/run.py`): `books.toml` plus the `books.local.toml` overlay, a mode registry (validate implemented; draft, attribute and build present as "not implemented" so later slices only add a function), normalization and diff reporting, `--update-expected`, exit code 1 on any difference.
-- Per-case report table; machine-readable summary; comparison rules (decision 5) in `parity/README.md`, including the sort key, the parser-detail prefix rule, and path normalization.
-- **Verify:** runs green on all current fixtures; a deliberately broken fixture copy and a deliberately altered message each produce a clear diff (generated in temp dirs as harness self-tests, never committed as fixtures); runtime recorded.
+- From outside the helper (a small script): ready handshake, token required, wrong Host rejected, SSE progress during a build, pause, resume and cancel
+- **Kill the helper mid-build:** the detached job must keep running, and a new helper must see and reattach to it; kill the parent: the helper exits; port already in use; two helpers on one workspace are refused by the lock
+- Repeat on the frozen variant and record differences
+- **Verify:** every behavior recorded as pass or fail with notes
 
-### RS7: Gates and close-out (S)
+### HP7: Linux check (M)
 
-- Full Python suite (`uv run pytest` in `scribe/`) and full Rust suite on Windows, and on Linux or WSL if available (path and line-ending differences show up here).
-- Final `docs/rust-port.md` (architecture, rule table, parity levels, how to add a rule); `AGENTS.md` and the `rust-scribe` skill current; decisions, roadmap and test-log updated.
-- Tag `slice-15`; list the inputs Slice 16 needs (`ingestion-rules.md` export, ingest-parity fixtures, dialogue cases).
-- **Verify:** every box in section 7 ticked.
+- Build the embedded bundle for Linux and run a subset of HP4 and HP6 on Ubuntu 22.04 in a container or WSL with no system Python: draft and build a short book, validate, API handshake, offline
+- Record the system libraries needed (check the native libraries' dependencies), and note what an AppImage would need; no AppImage is built here
+- **Verify:** results saved; required system libraries listed
+
+### HP8: Measurements and report (S)
+
+Fill the sheet in `docs/packaging.md`:
+
+| Metric | Embedded | Frozen | Dev machine |
+| --- | --- | --- | --- |
+| Size unzipped, zipped, file count |  |  |  |
+| Cold start and warm start to ready |  |  |  |
+| Idle memory |  |  |  |
+| Build speed (RTF) on the C&P fragment |  |  |  |
+| Defender result and first-run scan time |  |  |  |
+| Long path, spaces, non-ASCII |  |  |  |
+| Offline behavior |  |  |  |
+| Detached job survives helper kill |  |  |  |
+| Build reliability and reproducibility |  |  |  |
+
+### HP9: Decision and close-out (S)
+
+- Apply the gate thresholds (decision 9); choose embedded, frozen, or the fallback; if neither passes, apply the roadmap's stop-loss (a first-run bootstrap, or a documented one-time setup)
+- Finalize `docs/packaging.md`: chosen approach, the helper contract (arguments, environment, ready line, folders, versions), build steps, pitfalls found
+- Log decisions; D-133/D-147 and the superseded plans are already recorded, so verify rather than repeat; update the roadmap with the findings that shape Slice 16 (endpoint list and ready protocol)
+- Tag `slice-15`
 
 ## 6. Order and check-ins
 
 | Step | Work packages | You can then... |
 | --- | --- | --- |
-| 1 | RS0 | build and test an empty Rust workspace and see the hello window |
-| 2 | RS1 | have the rule catalog and expected files with coverage gaps filled |
-| 3 | RS2, RS3 | see every fixture pass pure rules in Rust |
-| 4 | RS4, RS5 | validate whole bundles including audio from the CLI |
-| 5 | RS6, RS7 | run the harness and close the slice |
+| 1 | HP0, HP1 | have a headless helper and a working sandbox |
+| 2 | HP2 | unzip a Python bundle that runs Scribe on your machine |
+| 3 | HP4 (embedded), HP5, HP6 | see it run clean, offline, with identical output |
+| 4 | HP3, HP4 (frozen) | compare against a frozen build |
+| 5 | HP7, HP8 | know the Linux needs and the full numbers |
+| 6 | HP9 | decide and close |
 
-## 7. Definition of done
+## 7. Fallback paths (decided at HP9)
 
-- [ ] Toolchain pinned; `build`, `test`, `clippy` and `cargo deny` pass; hello window verified
-- [ ] Rule catalog documented; every rule covered by a fixture with a Python-generated expected file
-- [ ] All golden bundles validate identically in Rust and Python; each bad fixture fails with the same `(file, rule, message)` under the comparison rules
-- [ ] Version gate matches Python on all cases; `doctor` skeleton works
-- [ ] Harness runs on Windows (and Linux or WSL if available), and detects deliberate differences
-- [ ] Python suites unchanged and green; decisions logged; roadmap ticked only for verified items; tagged `slice-15`
+| Result | Decision |
+| --- | --- |
+| Embedded works on a clean machine | Proceed as in the roadmap |
+| Only the frozen build works | Accept it, with the antivirus caveat, and adapt job spawning |
+| Neither works cleanly | Stop-loss: a first-run bootstrap that builds the environment (needs internet once), or documented prerequisites |
+| Works but too large | Make PyMuPDF, Piper and spaCy optional on-demand packs; keep Kokoro and models separate |
+| Tauri reserve | Packaging problems don't change that option; it needs the same helper |
 
-## 8. Risks and mitigations
+## 8. Definition of done
+
+- [ ] Helper entry point built and tested; `scribe ui` unchanged; Python suite green
+- [ ] Reproducible embedded bundle for Windows and Linux; a frozen comparison build or documented blockers
+- [ ] Clean-machine runs recorded for every variant and extra case
+- [ ] Output equivalence report passes (or differences explained)
+- [ ] Lifecycle behaviors recorded, including job survival and reattach
+- [ ] Metrics sheet complete; decision logged against the thresholds; `docs/packaging.md` final
+- [ ] Tagged `slice-15`
+
+## 9. Risks and mitigations
 
 | Risk | Mitigation |
 | --- | --- |
-| Message wording drifts between implementations | Rule catalog, Python-generated expected files, harness comparison on every fixture; export fails loud on unmatched templates |
-| Python has no rule ids to compare against | Template-to-id map in RS1; rule ids assigned at export, compared as part of the triple |
-| Parser-specific error text (JSON syntax) differs | Compare rule id and prefix only for those messages (decision 5) |
-| Unicode normalization differs between Python tables and the Rust crate | Fixtures with edge characters; record both Unicode versions in the report; any difference is a finding |
-| ffprobe output or CBR detection differs across versions | Same detection method as Python, pinned in RS4; log the ffprobe version in reports; tests skip cleanly when absent with one environment test guarding coverage |
-| Windows path separators and CRLF checkouts change results | Normalize separators and strip the bundle root in comparison; `.gitattributes`; run on both platforms |
-| Rust toolchain friction on Windows (MSVC, WebView2) | RS0 first with the hello window gate last inside it; written install steps; owner installs |
-| Python rules change while the port proceeds | Any Python rule change breaks the export or the harness until Rust matches; never fix in one implementation only |
-| Scope creep into ingestion | Out of scope; stubs only; Slice 16 owns it |
-| License slip from a new crate | `cargo deny` allow-list in RS0; no dependency without a deny pass |
-| D-number collision with parked Slice 14 | Check the log tail at each write; note the plan section in every entry |
+| Missing Microsoft C++ runtime or other DLLs on a bare machine | Test in the sandbox first; bundle the DLLs app-locally |
+| Defender or SmartScreen flags the helper | Embedded runtime preferred; measure both; code signing is a later decision |
+| Windows path length and non-ASCII user paths break something | Short install path, explicit tests in HP4 |
+| Frozen build can't spawn detached jobs or misses data files | Re-entry flag; blockers recorded as findings |
+| Bundle too large | Optional packs for PDF, Piper and spaCy; models stay outside |
+| Kokoro needs a system espeak-ng | Detected in HP4; bundle the data or library; record |
+| ffmpeg license obligations | Record the build type now; decide in Slice 22 |
+| Output differs from the development setup | HP5 comparison with identical pins and exact versions |
+| Windows Sandbox unavailable on your Windows edition | Use a Hyper-V or VirtualBox VM, or a fresh user on a spare machine (see below) |
 
-## 9. Working with the agent
+## 10. Prerequisites for you
 
-- One work package per session on `dev/v3`; it writes Rust, runs `cargo` checks and the harness, and edits the Python dev scripts; **you** install the toolchain, confirm the hello window, and run the Linux or WSL pass.
-- Do not change Python validator behavior; if a rule looks wrong, log it and raise it rather than "fixing" it in only one implementation.
-- No new dependency without a `cargo deny` pass; no bundle-format change (fixture adds are additive test data only).
-- Commit per work package (`RSn: summary`); tag `slice-15`.
-- Rust code and docs both avoid the two banned glyphs per `AGENTS.md` (em-dash and unicode arrow).
+- [ ] Windows 11 edition: Windows Sandbox needs Pro, Enterprise or Education with virtualization enabled; Home needs another clean-machine route (a VirtualBox VM or a spare machine)
+- [ ] Models available for sideloading: Kokoro files and one Piper voice
+- [ ] The short test books (Alice fragment, C&P fragment, PDF golden); Ubuntu in WSL or a container for HP7
 
-## 10. Next
+## 11. Working with the agent
 
-Slice 16 (ingestion port) reuses this harness by adding a `draft` mode: chapters and blocks exact against Python on the golden EPUBs, dialogue runs matching, sentence-boundary agreement reported.
+- One work package per session; it writes the helper command, the build tooling, the test scripts and the report; **you** run the sandbox and any spare-machine tests, judge Defender prompts, and make the decision at HP9
+- It must not claim clean-machine results without a run; every number comes from a recorded run
+- No new dependency without a license check; log decisions as they are made
+- Commit per work package (`HPn: summary`); tag `slice-15`
+
+## 12. Next
+
+Slice 16 uses the helper contract from this slice: write the API document, build the typed Rust client against a real helper, and run the UI toolkit spike.

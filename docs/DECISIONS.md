@@ -1246,3 +1246,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: One double-click program with a native UI was the actual goal; the rewrite was never needed for it. The spike-first order (packaging gate, then toolkit) retires the two biggest risks before UI code exists.
 - Alternatives considered: continuing the Tauri-port plan (rejected: rewrites working logic for no measured gain); Electron (rejected long ago by implication: never proposed, webview/native only); Tauri hosting the web UI as the primary plan (kept as decision 7 reserve).
 - Consequences / revisit when: backend ports to Rust stay possible piece by piece if the section-6 profile ever justifies them; revisit only with measured numbers, never on speculation.
+
+### D-148: Slice 15 rewritten as the helper packaging gate
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: `docs/plans/Slice15.md` is replaced by the packaging-gate plan (HP0-HP9); the Rust-port version is archived at `docs/archive/v3/Slice15-rust-port.md`. Build tooling lives in `scribe/dev/` beside the other export scripts (not a new repo-root `tools/` dir). The draft's `24/25/26/27` filenames were corrected to the real paths throughout.
+- Why: The slice must match the revised roadmap; repo convention keeps dev scripts in one place and history in the archive.
+- Alternatives considered: none (user-directed revision, verified against the repo first).
+- Consequences / revisit when: none; the next plan written is the new Slice 16.
