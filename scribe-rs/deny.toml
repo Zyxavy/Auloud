@@ -1,0 +1,25 @@
+# cargo-deny policy (Slice 15, S15-7 plus D-144): only these licenses in the
+# dependency tree. Scribe itself stays AGPL-3.0-or-later; that is the
+# workspace license, not a third-party dependency. Unused allowances are
+# dropped (re-add alongside the dependency that needs them).
+[licenses]
+allow = [
+    "AGPL-3.0-or-later", # our own workspace crates (deny graphs members too)
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception", # target-lexicon via Tauri, permissive exception
+    "MIT",
+    "BSD-3-Clause",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "Zlib",
+    # MPL-2.0: file-level copyleft in Tauri's webview stack (cssparser,
+    # selectors and friends); compatible with AGPL-3.0-or-later, never
+    # modified here, so the copyleft stays inside its own files.
+    "MPL-2.0",
+]
+
+[advisories]
+# Unmaintained lint covers our own workspace crates only. Transitive
+# neglect (for example proc-macro-error via Tauri's tree, which we cannot
+# fix) is out of scope; it resurfaces for review on every Tauri upgrade.
+unmaintained = "workspace"

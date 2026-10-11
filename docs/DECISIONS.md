@@ -1190,3 +1190,35 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Smallest diffs clearing the remaining audit findings; JVM tests (FP1/FP3/FP4) and pytest (FP5/FP6) pin each.
 - Alternatives considered: ms estimation for stream sleep (rejected: no duration signal exists); composite row key and debounce (see D-139); FAT/exFAT hardlink fallback for uploads (not built: workspaces are NTFS in practice).
 - Consequences / revisit when: needs device test (stream End-of-chapter refusal notice, 15+ min screen-off stream, rotation UX). Revisit the 100 MiB cap only with maintainer evidence.
+
+### D-141: Slice 15 crate split (four crates, media as a module)
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: `scribe-rs/` holds `scribe-spec` (pure data, no fs/process), `scribe-core` (loader, media probe module, orchestration), `scribe-cli` (binary `scribe-rs`), `scribe-ui` (Tauri stub). The media probe stays a trait plus ffprobe impl plus fake inside `scribe-core`: one trait with one real implementation does not earn its own crate. Workspace `default-members` excludes `scribe-ui` so everyday `cargo test` stays fast.
+- Why: Smallest split matching the v3 roadmap; the test seam (trait plus fake) survives without workspace overhead.
+- Alternatives considered: a fifth `scribe-media` crate (rejected: abstraction with one implementation); UI in default members (rejected: Tauri build cost on every test run).
+- Consequences / revisit when: revisit only if the probe grows a second backend (for example a native metadata reader) that justifies a crate boundary.
+
+### D-142: Slice 15 dependency and license policy
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: Small permissive crates only (serde, serde_json, thiserror, clap, unicode-normalization, sha2; dev: tempfile and a CLI test helper); `cargo deny` enforces the allow-list in `scribe-rs/deny.toml` from RS0; no dependency without a deny pass. Toolchain pinned in `scribe-rs/rust-toolchain.toml` (1.99.0; RUSTUP_HOME/CARGO_HOME on D: on this machine).
+- Why: Keeps the AGPL port shippable and the Windows install reproducible.
+- Alternatives considered: none (plan-mandated).
+- Consequences / revisit when: each new crate dependency gets its own deny pass and license check.
+
+### D-143: Slice 15 parity comparison rules and file placement
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: Expected files live under `parity/expected/` (never beside fixtures in `spec/`); the harness compares sorted `(file, rule, message)` triples with rule ids assigned at export by template match (loud failure on unmatched Python wording); parser-detail messages compare on rule id plus prefix; paths normalize to `/` at comparison time. New `.gitattributes` keeps fixture text LF and marks audio/ebook/image/model files binary.
+- Why: `spec/` stays a clean contract dir for the existing suites (both address fixtures by explicit path); normalization keeps Windows and Linux results identical.
+- Alternatives considered: expected files beside fixtures (rejected: pollutes the contract dir); comparing messages only with no rule ids (rejected: ids catch same-text-different-rule drift).
+- Consequences / revisit when: revisit the prefix rule only with real parser-divergence evidence.
+
+### D-144: cargo-deny findings on the first Tauri tree (RS0)
+- Date: 2026-10-11
+- Status: Accepted
+- Decision: Allow-list gains `AGPL-3.0-or-later` (deny graphs our own crates), `MPL-2.0` (file-level copyleft inside Tauri's webview stack: cssparser, selectors and friends; compatible with AGPL, never modified here) and `Apache-2.0 WITH LLVM-exception` (target-lexicon, permissive). Four unused allowances dropped (re-added with the dependency that needs them). The `unmaintained` lint is scoped to `workspace`: transitive neglect such as proc-macro-error via Tauri is out of scope and resurfaces on every Tauri upgrade. Tauri's Windows build also needs `icons/icon.ico`; RS0 carries a generated solid-color stub (real product art is Slice 22 packaging work).
+- Why: Smallest policy that passes `cargo deny check` without hiding anything: the MPL rationale is recorded, unused entries are gone, and third-party neglect stays reviewable at upgrade time.
+- Alternatives considered: forbidding MPL-2.0 (rejected: would ban Tauri itself; the copyleft is file-scoped and compatible); failing on transitive unmaintained crates (rejected: gates our slice on upstream neglect we cannot fix).
+- Consequences / revisit when: re-check the MPL set and the unmaintained transitive list on every Tauri version bump.
