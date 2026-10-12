@@ -13,7 +13,8 @@ harness `lib.rs` (153). Resolved versions: egui/eframe 0.36.2, iced 0.14.0
 (+`smol` executor), slint 1.18.1 (inline macro, no build script).
 
 Run with `cargo run -p scribe-ui --bin spike-<egui|iced|slint>` (no helper,
-no network; all three stay alive and tick).
+no network; all three stay alive and tick). The bins were removed after the
+choice (this slice); commit `e7ea60e` preserves them.
 
 ## Measured rows (agent, dev machine 2026-10-11)
 

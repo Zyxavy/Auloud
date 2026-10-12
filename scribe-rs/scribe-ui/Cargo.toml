@@ -6,6 +6,7 @@ license.workspace = true
 
 [dependencies]
 # UI2: egui won the spike (D-159); iced + Slint removed with their bins.
+# scribe-client stays: Slice 17 wires it (helper lifecycle + Books).
 scribe-client = { path = "../scribe-client" }
 egui = "0.36"
 eframe = "0.36"
