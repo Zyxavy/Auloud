@@ -44,11 +44,6 @@ pub fn set_pages(form: &mut Form, text: &str) {
     form.range_text.clear();
 }
 
-/// Pick the device override (`None` clears back to the app setting).
-pub fn set_device(form: &mut Form, device: Option<&str>) {
-    form.device_override = device.map(str::to_owned);
-}
-
 /// Chapters argument for plan/build: the range text when set, else the
 /// picked boxes joined (`"1,3,4"`); `None` renders the whole book.
 pub fn chapters_arg(form: &Form) -> Option<String> {
@@ -86,13 +81,6 @@ pub fn to_selection(form: &Form, app_device: &str) -> scribe_client::Selection {
                 .unwrap_or_else(|| app_device.to_owned()),
         ),
     }
-}
-
-/// True when the form names a subset (chapter boxes, range, or pages).
-pub fn is_partial(form: &Form) -> bool {
-    !form.picked.is_empty()
-        || !form.range_text.trim().is_empty()
-        || !form.pages_text.trim().is_empty()
 }
 
 #[cfg(test)]
@@ -145,7 +133,6 @@ mod tests {
     #[test]
     fn empty_form_renders_the_whole_book_on_app_device() {
         let form = Form::default();
-        assert!(!is_partial(&form));
         let selection = to_selection(&form, "auto");
         assert_eq!(selection.chapters, None);
         assert_eq!(selection.pages, None);
@@ -154,11 +141,18 @@ mod tests {
 
     #[test]
     fn device_override_beats_app_setting_and_clears() {
-        let mut form = Form::default();
-        set_device(&mut form, Some("cuda"));
-        assert_eq!(to_selection(&form, "auto").device, Some("cuda".to_owned()));
-        set_device(&mut form, None);
-        assert_eq!(to_selection(&form, "auto").device, Some("auto".to_owned()));
+        let overridden = Form {
+            device_override: Some("cuda".to_owned()),
+            ..Default::default()
+        };
+        assert_eq!(
+            to_selection(&overridden, "auto").device,
+            Some("cuda".to_owned())
+        );
+        assert_eq!(
+            to_selection(&Form::default(), "auto").device,
+            Some("auto".to_owned())
+        );
     }
 
     #[test]

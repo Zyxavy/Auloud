@@ -338,6 +338,8 @@ pub enum WorkerEvent {
     BuildQueued {
         /// Queued job id.
         job_id: String,
+        /// Book the build was queued for.
+        book_id: String,
     },
     /// Helper's persisted settings (drives the keep-awake checkbox).
     HelperSettings {
@@ -543,6 +545,7 @@ fn worker_loop(
                         Ok(build) => {
                             let _ = events.send(WorkerEvent::BuildQueued {
                                 job_id: build.job_id,
+                                book_id,
                             });
                         }
                         Err(err) => {

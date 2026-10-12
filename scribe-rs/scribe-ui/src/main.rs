@@ -88,6 +88,9 @@ struct App {
     show_history: bool,
     render_form: scribe_ui::render::Form,
     preflight: Option<scribe_client::PlanResult>,
+    /// Book the preflight was requested for (the plan's own id is
+    /// range-aware for partial renders, so it cannot key this).
+    preflight_for: Option<String>,
     render_note: String,
     helper_keep_awake: Option<bool>,
     pending_remove: Option<String>,
@@ -126,6 +129,7 @@ impl App {
             show_history: false,
             render_form: scribe_ui::render::Form::default(),
             preflight: None,
+            preflight_for: None,
             render_note: String::new(),
             helper_keep_awake: None,
             pending_remove: None,
@@ -188,12 +192,16 @@ impl App {
                 WorkerEvent::Preflight { book_id, plan } => {
                     if self.selected.as_deref() == Some(&book_id) {
                         self.preflight = Some(*plan);
+                        self.preflight_for = Some(book_id);
                         self.render_note.clear();
                     }
                 }
-                WorkerEvent::BuildQueued { job_id } => {
-                    self.render_note = format!("render queued ({job_id}): watch the tray");
-                    self.preflight = None;
+                WorkerEvent::BuildQueued { job_id, book_id } => {
+                    if self.selected.as_deref() == Some(&book_id) {
+                        self.render_note = format!("render queued ({job_id}): watch the tray");
+                        self.preflight = None;
+                        self.preflight_for = None;
+                    }
                     self.worker_tx.send(WorkerCmd::RefreshBooks).ok();
                 }
                 WorkerEvent::HelperSettings { keep_awake } => {
@@ -549,6 +557,7 @@ impl App {
             self.detail_note.clear();
             self.render_form = scribe_ui::render::Form::default();
             self.preflight = None;
+            self.preflight_for = None;
             self.render_note.clear();
             self.helper_keep_awake = None;
             self.worker_tx
@@ -716,11 +725,7 @@ impl App {
                     .ok();
             }
             if ui.button("Start render").clicked() {
-                if self
-                    .preflight
-                    .as_ref()
-                    .is_some_and(|plan| plan.book_id == book_id)
-                {
+                if self.preflight_for.as_deref() == Some(book_id.as_str()) {
                     let selection =
                         scribe_ui::render::to_selection(&self.render_form, &self.settings.device);
                     self.worker_tx
@@ -734,19 +739,17 @@ impl App {
                 }
             }
         });
-        if let Some(plan) = self
-            .preflight
-            .as_ref()
-            .filter(|plan| plan.book_id == book_id)
-        {
-            ui.group(|ui| {
-                // The helper's own words (counts, estimate basis, range
-                // notice): one source, no client-side paraphrase.
-                ui.label(&plan.message);
-                if !plan.page_resolution.is_empty() {
-                    ui.label(format!("pages: {}", plan.page_resolution));
-                }
-            });
+        if self.preflight_for.as_deref() == Some(book_id.as_str()) {
+            if let Some(plan) = self.preflight.as_ref() {
+                ui.group(|ui| {
+                    // The helper's own words (counts, estimate basis, range
+                    // notice): one source, no client-side paraphrase.
+                    ui.label(&plan.message);
+                    if !plan.page_resolution.is_empty() {
+                        ui.label(format!("pages: {}", plan.page_resolution));
+                    }
+                });
+            }
         }
     }
 
