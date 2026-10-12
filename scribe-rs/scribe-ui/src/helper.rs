@@ -195,6 +195,21 @@ pub enum WorkerCmd {
         /// Workspace-local staged file.
         path: PathBuf,
     },
+    /// Cancel one job by id (draft cancel lives here until the tray).
+    CancelJob {
+        /// Job id from the jobs feed.
+        job_id: String,
+    },
+    /// Remove a book: cancel its live jobs, then delete its staged source,
+    /// work dir, and hash-matched bundles (never outside the workspace).
+    DeleteBook {
+        /// UUIDv5 book id.
+        book_id: String,
+        /// Workspace-relative source filename, if known.
+        source_file: Option<String>,
+        /// Source sha256 for bundle matching, if known.
+        source_sha: Option<String>,
+    },
 }
 
 /// Worker findings for the state machine.
@@ -255,6 +270,26 @@ pub enum WorkerEvent {
     Jobs {
         /// Newest-first as reported (order preserved).
         jobs: Vec<scribe_client::Job>,
+    },
+    /// A job was cancelled.
+    JobCancelled {
+        /// Cancelled job id.
+        job_id: String,
+    },
+    /// Cancel refused (shaped file + rule when the helper sent one).
+    JobCancelFailed {
+        /// Human reason.
+        message: String,
+    },
+    /// A book and its files are gone.
+    Deleted {
+        /// Removed book id.
+        book_id: String,
+    },
+    /// Removal refused (nothing was deleted).
+    DeleteFailed {
+        /// Human reason.
+        message: String,
     },
 }
 
@@ -354,6 +389,74 @@ fn worker_loop(
                     let _ = events.send(WorkerEvent::UploadFailed {
                         message: "helper not connected".to_owned(),
                     });
+                }
+            }
+            Ok(WorkerCmd::CancelJob { job_id }) => {
+                if let Some(client) = &client {
+                    match client.cancel_job(&job_id) {
+                        Ok(_) => {
+                            let _ = events.send(WorkerEvent::JobCancelled { job_id });
+                        }
+                        Err(err) => {
+                            let _ = events.send(WorkerEvent::JobCancelFailed {
+                                message: err.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            Ok(WorkerCmd::DeleteBook {
+                book_id,
+                source_file,
+                source_sha,
+            }) => {
+                if client.is_none() {
+                    let _ = events.send(WorkerEvent::DeleteFailed {
+                        message: "helper not connected".to_owned(),
+                    });
+                    continue;
+                }
+                let client = client.as_ref().expect("checked");
+                // Quiet the book's live jobs first (best effort); the files
+                // go regardless so a wedged job cannot block removal.
+                if let Ok(jobs) = client.list_jobs() {
+                    for job in &jobs {
+                        if job.book_id == book_id
+                            && !matches!(job.state.as_str(), "done" | "failed" | "cancelled")
+                        {
+                            client.cancel_job(&job.id).ok();
+                        }
+                    }
+                }
+                match crate::books::book_files_for_removal(
+                    &settings.workspace,
+                    &book_id,
+                    source_file.as_deref(),
+                    source_sha.as_deref(),
+                ) {
+                    Ok(paths) => {
+                        let mut failed = Vec::new();
+                        for path in &paths {
+                            let removed = if path.is_dir() {
+                                std::fs::remove_dir_all(path).is_ok()
+                            } else {
+                                std::fs::remove_file(path).is_ok()
+                            };
+                            if !removed {
+                                failed.push(path.display().to_string());
+                            }
+                        }
+                        if failed.is_empty() {
+                            let _ = events.send(WorkerEvent::Deleted { book_id });
+                        } else {
+                            let _ = events.send(WorkerEvent::DeleteFailed {
+                                message: format!("could not remove {}", failed.join(", ")),
+                            });
+                        }
+                    }
+                    Err(message) => {
+                        let _ = events.send(WorkerEvent::DeleteFailed { message });
+                    }
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}

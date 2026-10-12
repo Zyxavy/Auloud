@@ -84,6 +84,7 @@ struct App {
     detail: Option<scribe_client::BookDetail>,
     detail_note: String,
     jobs: Vec<scribe_client::Job>,
+    pending_remove: Option<String>,
 }
 
 impl App {
@@ -115,6 +116,7 @@ impl App {
             detail: None,
             detail_note: String::new(),
             jobs: Vec::new(),
+            pending_remove: None,
         }
     }
 
@@ -152,6 +154,27 @@ impl App {
                 }
                 WorkerEvent::Jobs { jobs } => {
                     self.jobs = jobs;
+                }
+                WorkerEvent::JobCancelled { job_id: _ } => {
+                    self.books_note = "job cancelled".to_owned();
+                    self.worker_tx.send(WorkerCmd::RefreshBooks).ok();
+                }
+                WorkerEvent::JobCancelFailed { message } => {
+                    self.books_note = format!("cancel failed: {message}");
+                }
+                WorkerEvent::Deleted { book_id } => {
+                    if self.selected.as_deref() == Some(&book_id) {
+                        self.selected = None;
+                        self.detail = None;
+                        self.detail_note.clear();
+                    }
+                    self.pending_remove = None;
+                    self.books_note = "book removed".to_owned();
+                    self.worker_tx.send(WorkerCmd::RefreshBooks).ok();
+                }
+                WorkerEvent::DeleteFailed { message } => {
+                    self.pending_remove = None;
+                    self.books_note = format!("remove failed: {message}");
                 }
                 WorkerEvent::Connected { base_url } => {
                     self.lifecycle(Event::Connected { base_url });
@@ -279,6 +302,42 @@ impl App {
                         }
                         if book.cast_edited {
                             ui.label("cast edited");
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        if let Some(job_id) = scribe_ui::books::draft_job_id(&self.jobs, &book.id) {
+                            if ui.button("Cancel draft").clicked() {
+                                self.worker_tx.send(WorkerCmd::CancelJob { job_id }).ok();
+                            }
+                        }
+                        if self.pending_remove.as_deref() == Some(&book.id) {
+                            if ui.button("Confirm remove").clicked() {
+                                // Hash from the detail document when it is
+                                // open (bundle matching); rows carry the
+                                // source filename themselves.
+                                let sha = self
+                                    .detail
+                                    .as_ref()
+                                    .filter(|detail| detail.id == book.id)
+                                    .and_then(|detail| detail.source_sha256.clone());
+                                let source = self
+                                    .books
+                                    .iter()
+                                    .find(|row| row.id == book.id)
+                                    .and_then(|row| row.source_file.clone());
+                                self.worker_tx
+                                    .send(WorkerCmd::DeleteBook {
+                                        book_id: book.id.clone(),
+                                        source_file: source,
+                                        source_sha: sha,
+                                    })
+                                    .ok();
+                            }
+                            if ui.button("Keep").clicked() {
+                                self.pending_remove = None;
+                            }
+                        } else if ui.button("Remove").clicked() {
+                            self.pending_remove = Some(book.id.clone());
                         }
                     });
                 });

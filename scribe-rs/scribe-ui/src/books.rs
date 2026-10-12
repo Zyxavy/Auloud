@@ -73,16 +73,84 @@ pub fn short_title(title: &str) -> String {
 /// Draft progress line for a book from the jobs list (AP3): the newest
 /// non-terminal draft job's sentence count. `None` when no draft runs.
 pub fn draft_progress(jobs: &[scribe_client::Job], book_id: &str) -> Option<String> {
-    let job = jobs.iter().find(|job| {
-        job.book_id == book_id
-            && job.kind == "draft"
-            && !matches!(job.state.as_str(), "done" | "failed" | "cancelled")
-    })?;
+    let job = draft_job(jobs, book_id)?;
     Some(format!(
         "{}: {} sentences",
         job.state,
         job.summary.rendered + job.summary.cached
     ))
+}
+
+/// Newest non-terminal draft job for a book, if any.
+pub fn draft_job<'a>(
+    jobs: &'a [scribe_client::Job],
+    book_id: &str,
+) -> Option<&'a scribe_client::Job> {
+    jobs.iter().find(|job| {
+        job.book_id == book_id
+            && job.kind == "draft"
+            && !matches!(job.state.as_str(), "done" | "failed" | "cancelled")
+    })
+}
+
+/// Id of that job (for the Cancel button).
+pub fn draft_job_id(jobs: &[scribe_client::Job], book_id: &str) -> Option<String> {
+    draft_job(jobs, book_id).map(|job| job.id.clone())
+}
+
+/// Files holding a book, for removal (pure: unit-tested). Only paths inside
+/// `workspace` are ever returned: the staged source (by filename), the
+/// `.scribe/<book-id>` work dir, and bundle dirs whose manifest
+/// `source.sha256` matches. Bundles stay when the hash is unknown.
+pub fn book_files_for_removal(
+    workspace: &std::path::Path,
+    book_id: &str,
+    source_file: Option<&str>,
+    source_sha: Option<&str>,
+) -> Result<Vec<std::path::PathBuf>, String> {
+    if book_id.is_empty()
+        || !book_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-')
+    {
+        return Err(format!("bad book id {book_id:?}"));
+    }
+    let mut paths = Vec::new();
+    if let Some(name) = source_file {
+        let file_name = std::path::Path::new(name)
+            .file_name()
+            .ok_or_else(|| format!("bad source name {name:?}"))?;
+        let staged = workspace.join(file_name);
+        if staged.is_file() {
+            paths.push(staged);
+        }
+    }
+    let work = workspace.join(".scribe").join(book_id);
+    if work.is_dir() {
+        paths.push(work);
+    }
+    if let Some(sha) = source_sha {
+        let bundles = workspace.join("bundles");
+        if let Ok(entries) = std::fs::read_dir(&bundles) {
+            for entry in entries.flatten() {
+                let manifest = entry.path().join("manifest.json");
+                if !manifest.is_file() {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&manifest).unwrap_or_default();
+                let matches = serde_json::from_str::<serde_json::Value>(&text)
+                    .ok()
+                    .and_then(|manifest| manifest.get("source").cloned())
+                    .and_then(|source| source.get("sha256").cloned())
+                    .and_then(|hash| hash.as_str().map(str::to_owned))
+                    .is_some_and(|hash| hash == sha);
+                if matches && entry.path().is_dir() {
+                    paths.push(entry.path());
+                }
+            }
+        }
+    }
+    Ok(paths)
 }
 
 /// One-line status chip from the scan state (rendering wins over draft).
@@ -315,6 +383,51 @@ mod tests {
         .expect("nulls parse");
         assert_eq!(detail.author, None);
         assert!(!detail.cast_edited);
+    }
+
+    #[test]
+    fn removal_collects_source_work_and_matching_bundles() {
+        let dir = sandbox("remove");
+        let workspace = dir.join("ws");
+        std::fs::create_dir_all(workspace.join(".scribe").join("book-1")).expect("work");
+        std::fs::write(workspace.join("book.epub"), b"fake").expect("source");
+        let good = workspace.join("bundles").join("bundle-a");
+        let other = workspace.join("bundles").join("bundle-b");
+        std::fs::create_dir_all(&good).expect("good");
+        std::fs::create_dir_all(&other).expect("other");
+        std::fs::write(
+            good.join("manifest.json"),
+            r#"{"id": "a", "source": {"sha256": "sha-match"}}"#,
+        )
+        .expect("manifest");
+        std::fs::write(
+            other.join("manifest.json"),
+            r#"{"id": "b", "source": {"sha256": "sha-other"}}"#,
+        )
+        .expect("manifest");
+        let paths =
+            book_files_for_removal(&workspace, "book-1", Some("book.epub"), Some("sha-match"))
+                .expect("collects");
+        assert!(paths.contains(&workspace.join("book.epub")));
+        assert!(paths.contains(&workspace.join(".scribe").join("book-1")));
+        assert!(paths.contains(&good));
+        assert!(!paths.contains(&other));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn removal_rejects_bad_ids_and_skips_unknown_hashes() {
+        let dir = sandbox("remove-bad");
+        let workspace = dir.join("ws");
+        std::fs::create_dir_all(&workspace).expect("ws");
+        assert!(book_files_for_removal(&workspace, "../evil", None, None).is_err());
+        assert!(book_files_for_removal(&workspace, "", None, None).is_err());
+        // Unknown hash: bundles stay, nothing fails.
+        let bundle = workspace.join("bundles").join("bundle-a");
+        std::fs::create_dir_all(&bundle).expect("bundle");
+        let paths = book_files_for_removal(&workspace, "book-1", None, None).expect("collects");
+        assert!(!paths.contains(&bundle));
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
