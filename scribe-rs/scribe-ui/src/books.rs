@@ -57,6 +57,19 @@ pub fn stage_book(workspace: &Path, source: &Path) -> Result<PathBuf, String> {
     Ok(target)
 }
 
+/// Row titles truncate (a 200-char title else pushes every chip off the
+/// row at narrow widths; the full title heads the detail panel).
+pub fn short_title(title: &str) -> String {
+    const LIMIT: usize = 60;
+    if title.chars().count() <= LIMIT {
+        title.to_owned()
+    } else {
+        let mut short: String = title.chars().take(LIMIT - 1).collect();
+        short.push('…');
+        short
+    }
+}
+
 /// One-line status chip from the scan state (rendering wins over draft).
 pub fn book_status(book: &scribe_client::BookSummary) -> String {
     if book.rendering {
@@ -221,6 +234,18 @@ mod tests {
             Some("book-2.epub")
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn long_titles_truncate_on_char_boundaries() {
+        assert_eq!(short_title("Short"), "Short");
+        let long = "A".repeat(200);
+        let short = short_title(&long);
+        assert_eq!(short.chars().count(), 60);
+        assert!(short.ends_with('…'));
+        // Multibyte safety: no split codepoint, still capped.
+        let wide = "é".repeat(200);
+        assert_eq!(short_title(&wide).chars().count(), 60);
     }
 
     #[test]

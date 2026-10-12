@@ -242,7 +242,7 @@ impl App {
                         let title = if book.title.is_empty() {
                             book.id.clone()
                         } else {
-                            book.title.clone()
+                            scribe_ui::books::short_title(&book.title)
                         };
                         if ui
                             .selectable_label(self.selected.as_deref() == Some(&book.id), title)
@@ -288,15 +288,24 @@ impl App {
             return;
         };
         ui.separator();
-        ui.heading(egui::RichText::new("Detail").color(rgb(theme::OXBLOOD)));
-        if !self.detail_note.is_empty() {
-            ui.label(&self.detail_note);
-        }
         let Some(detail) = self.detail.as_ref().filter(|detail| detail.id == id) else {
+            ui.heading(egui::RichText::new("Detail").color(rgb(theme::OXBLOOD)));
+            if !self.detail_note.is_empty() {
+                ui.label(&self.detail_note);
+            }
             ui.spinner();
             ui.label("Loading detail…");
             return;
         };
+        let heading = if detail.title.is_empty() {
+            "Detail".to_owned()
+        } else {
+            format!("Detail: {}", detail.title)
+        };
+        ui.heading(egui::RichText::new(heading).color(rgb(theme::OXBLOOD)));
+        if !self.detail_note.is_empty() {
+            ui.label(&self.detail_note);
+        }
         let cast_edited = self
             .books
             .iter()
