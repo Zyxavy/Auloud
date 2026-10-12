@@ -274,6 +274,7 @@ impl App {
         if let Some(id) = picked {
             self.selected = Some(id.clone());
             self.detail = None;
+            self.detail_note.clear();
             self.worker_tx
                 .send(WorkerCmd::SelectBook { book_id: id })
                 .ok();
