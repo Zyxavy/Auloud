@@ -220,6 +220,13 @@ impl App {
                 }
                 WorkerEvent::Jobs { jobs } => {
                     self.jobs = jobs;
+                    // Recovery clears control errors (confirmations
+                    // survive like the book notices do).
+                    if self.jobs_note.starts_with("cancel failed")
+                        || self.jobs_note.starts_with("job control failed")
+                    {
+                        self.jobs_note.clear();
+                    }
                 }
                 WorkerEvent::JobCancelled { job_id: _ } => {
                     self.jobs_note = "job cancelled".to_owned();
@@ -704,6 +711,9 @@ impl App {
             return;
         }
         // Clicked id outlives the row borrow: collect first, act after.
+        // One scroll holds list and detail: the detail stack grew past
+        // any window (stepper, render, cast, overrides, report), and a
+        // second inner scroll would strand sections off-screen.
         let mut picked: Option<String> = None;
         egui::ScrollArea::vertical().show(ui, |ui| {
             for book in &self.books {
@@ -744,9 +754,17 @@ impl App {
                         }
                     });
                     ui.horizontal(|ui| {
-                        if let Some(job_id) = scribe_ui::books::draft_job_id(&self.jobs, &book.id) {
-                            if ui.button("Cancel draft").clicked() {
-                                self.worker_tx.send(WorkerCmd::CancelJob { job_id }).ok();
+                        // Cancellable only: the server rejects the rest
+                        // (an interrupted draft offers Resume in the tray).
+                        if let Some(job) = scribe_ui::books::draft_job(&self.jobs, &book.id) {
+                            if scribe_ui::progress::can_cancel(&job.state)
+                                && ui.button("Cancel draft").clicked()
+                            {
+                                self.worker_tx
+                                    .send(WorkerCmd::CancelJob {
+                                        job_id: job.id.clone(),
+                                    })
+                                    .ok();
                             }
                         }
                         if self.pending_remove.as_deref() == Some(&book.id) {
@@ -781,6 +799,7 @@ impl App {
                     });
                 });
             }
+            self.stepper_ui(ui);
         });
         if let Some(id) = picked {
             self.selected = Some(id.clone());
@@ -814,7 +833,6 @@ impl App {
                 .send(WorkerCmd::RefreshCast { book_id: id })
                 .ok();
         }
-        self.stepper_ui(ui);
     }
 
     /// Read-only detail stepper for the selected book (AP3).

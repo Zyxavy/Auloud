@@ -93,11 +93,6 @@ pub fn draft_job<'a>(
     })
 }
 
-/// Id of that job (for the Cancel button).
-pub fn draft_job_id(jobs: &[scribe_client::Job], book_id: &str) -> Option<String> {
-    draft_job(jobs, book_id).map(|job| job.id.clone())
-}
-
 /// Files holding a book, for removal (pure: unit-tested). Only paths inside
 /// `workspace` are ever returned: the staged source (by filename), the
 /// `.scribe/<book-id>` work dir, and bundle dirs whose manifest
