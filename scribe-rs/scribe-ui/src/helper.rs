@@ -435,29 +435,40 @@ fn spawn_verified(
         Some(found) => found,
         None => {
             // Exited (or silent) before ready: the stderr tail usually names
-            // the cause (a held workspace lock prints it); a live-but-silent
-            // child is killed first so the read below cannot block.
-            let status = process.wait().ok();
-            process.kill().ok();
+            // the cause (a held workspace lock prints it). Distinguish first:
+            // a live-but-silent child is killed (kill-then-wait, so neither
+            // the wait nor the read below can block); an exited one keeps
+            // its code. Inverted order here would park the worker forever.
+            let exited = process.try_wait().ok().flatten();
+            if exited.is_none() {
+                process.kill().ok();
+            }
+            let status = process.wait().ok().or(exited);
             let mut tail = String::new();
             if let Some(mut errors) = stderr {
                 use std::io::Read as _;
                 errors.read_to_string(&mut tail).ok();
             }
             let tail = tail_chars(&tail, 500);
+            let code = status
+                .and_then(|s| s.code())
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "?".to_owned());
+            let tail = if tail.is_empty() {
+                String::new()
+            } else {
+                format!(": {tail}")
+            };
             return Err(WorkerEvent::Failed {
-                message: format!(
-                    "no ready line in 120 s (exit {code}; see helper.log in the workspace){tail}",
-                    code = status
-                        .and_then(|s| s.code())
-                        .map(|c| c.to_string())
-                        .unwrap_or_else(|| "?".to_owned()),
-                    tail = if tail.is_empty() {
-                        String::new()
-                    } else {
-                        format!(": {tail}")
-                    }
-                ),
+                message: if exited.is_some() {
+                    format!("helper exited during startup (code {code}){tail}")
+                } else if tail.is_empty() {
+                    "no ready line in 120 s (killed silent child; \
+                     see helper.log in the workspace)"
+                        .to_owned()
+                } else {
+                    format!("no ready line in 120 s (killed; last output{tail})")
+                },
             });
         }
     };
