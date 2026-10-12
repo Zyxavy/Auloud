@@ -94,6 +94,12 @@ struct App {
     preflight_for: Option<String>,
     render_note: String,
     helper_keep_awake: Option<bool>,
+    cast: Option<scribe_client::CastPayload>,
+    cast_voices: Vec<String>,
+    cast_note: String,
+    cast_conflict: bool,
+    speed_edits: std::collections::HashMap<String, String>,
+    show_minor: bool,
     pending_remove: Option<String>,
 }
 
@@ -134,6 +140,12 @@ impl App {
             preflight_for: None,
             render_note: String::new(),
             helper_keep_awake: None,
+            cast: None,
+            cast_voices: Vec::new(),
+            cast_note: String::new(),
+            cast_conflict: false,
+            speed_edits: std::collections::HashMap::new(),
+            show_minor: false,
             pending_remove: None,
         }
     }
@@ -211,6 +223,57 @@ impl App {
                 }
                 WorkerEvent::RenderFailed { message } => {
                     self.render_note = message;
+                }
+                WorkerEvent::Cast {
+                    book_id,
+                    payload,
+                    voices,
+                } => {
+                    if self.selected.as_deref() == Some(&book_id) {
+                        self.speed_edits = payload
+                            .stats
+                            .iter()
+                            .map(|stat| (stat.character.clone(), format!("{}", stat.speed)))
+                            .collect();
+                        self.cast = Some(*payload);
+                        self.cast_voices = voices;
+                        self.cast_note.clear();
+                        self.cast_conflict = false;
+                    }
+                }
+                WorkerEvent::CastPatched { book_id, patch } => {
+                    if self.selected.as_deref() == Some(&book_id) {
+                        let affected = patch.cast.affected.as_ref().map(|found| found.quotes);
+                        self.speed_edits = patch
+                            .cast
+                            .stats
+                            .iter()
+                            .map(|stat| (stat.character.clone(), format!("{}", stat.speed)))
+                            .collect();
+                        self.cast = Some(patch.cast);
+                        self.cast_note = match affected {
+                            Some(quotes) => format!(
+                                "{} ops applied, {} quotes need re-render",
+                                patch.applied, quotes
+                            ),
+                            None => format!("{} ops applied", patch.applied),
+                        };
+                        self.cast_conflict = false;
+                    }
+                }
+                WorkerEvent::CastConflict { book_id, message } => {
+                    // No auto-refresh: typed speed edits stay on screen,
+                    // Reload is explicit.
+                    if self.selected.as_deref() == Some(&book_id) {
+                        self.cast_note = message;
+                        self.cast_conflict = true;
+                    }
+                }
+                WorkerEvent::CastFailed { book_id, message } => {
+                    if self.selected.as_deref() == Some(&book_id) {
+                        self.cast_note = message;
+                        self.cast_conflict = false;
+                    }
                 }
                 WorkerEvent::Deleted { book_id } => {
                     if self.selected.as_deref() == Some(&book_id) {
@@ -545,10 +608,20 @@ impl App {
             self.preflight_for = None;
             self.render_note.clear();
             self.helper_keep_awake = None;
+            self.cast = None;
+            self.cast_voices.clear();
+            self.cast_note.clear();
+            self.cast_conflict = false;
+            self.speed_edits.clear();
             self.worker_tx
-                .send(WorkerCmd::SelectBook { book_id: id })
+                .send(WorkerCmd::SelectBook {
+                    book_id: id.clone(),
+                })
                 .ok();
             self.worker_tx.send(WorkerCmd::RefreshSettings).ok();
+            self.worker_tx
+                .send(WorkerCmd::RefreshCast { book_id: id })
+                .ok();
         }
         self.stepper_ui(ui);
     }
@@ -593,6 +666,7 @@ impl App {
         // The detail borrow ends with the loop; the render section
         // mutates form state, so it re-reads what it needs itself.
         self.render_ui(ui);
+        self.cast_ui(ui);
     }
 
     /// Render section (JP2): chapter boxes or a range string, PDF pages,
@@ -787,6 +861,160 @@ impl App {
                 self.quit_confirm = false;
             }
         });
+    }
+
+    /// Cast table (CS1): voice dropdowns, speed fields, first-person
+    /// selector, minor collapsible, conflict reload. Voice changes send
+    /// immediately; speeds apply on leave/Enter; every write is one atomic
+    /// PATCH, so a conflict names the file instead of tearing it.
+    fn cast_ui(&mut self, ui: &mut egui::Ui) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        let drafted = self
+            .detail
+            .as_ref()
+            .filter(|detail| detail.id == id)
+            .is_some_and(|detail| detail.drafted);
+        ui.separator();
+        ui.heading(egui::RichText::new("Cast").color(rgb(theme::OXBLOOD)));
+        if !drafted {
+            ui.label("cast appears after drafting");
+            return;
+        }
+        if !self.cast_note.is_empty() {
+            ui.label(&self.cast_note);
+        }
+        if self.cast_conflict && ui.button("Reload their version").clicked() {
+            self.worker_tx
+                .send(WorkerCmd::RefreshCast {
+                    book_id: id.clone(),
+                })
+                .ok();
+        }
+        // Small document (rows + guards); the full detail stays put.
+        let cast = match self.cast.clone().filter(|cast| cast.book_id == id) {
+            Some(cast) => cast,
+            None => {
+                if self.cast_note.is_empty() {
+                    ui.spinner();
+                    ui.label("Loading cast…");
+                }
+                return;
+            }
+        };
+        let currents: Vec<String> = cast.stats.iter().map(|stat| stat.voice.clone()).collect();
+        let options = scribe_ui::cast::merge_voice_options(&currents, &self.cast_voices);
+        for stat in &cast.stats {
+            ui.horizontal(|ui| {
+                ui.label(format!("{} [{}]", stat.character, stat.kind));
+                let mut voice = stat.voice.clone();
+                egui::ComboBox::from_id_salt(format!("voice-{}", stat.character))
+                    .selected_text(&voice)
+                    .show_ui(ui, |ui| {
+                        for option in &options {
+                            ui.selectable_value(&mut voice, option.clone(), option);
+                        }
+                    });
+                if voice != stat.voice {
+                    let ops = serde_json::json!([scribe_client::cast_op_set_voice(
+                        &stat.character,
+                        &voice,
+                        None
+                    )]);
+                    self.worker_tx
+                        .send(WorkerCmd::PatchCast {
+                            book_id: id.clone(),
+                            ops,
+                            mtime: cast.mtime,
+                        })
+                        .ok();
+                }
+                let buffer = self
+                    .speed_edits
+                    .entry(stat.character.clone())
+                    .or_insert_with(|| format!("{}", stat.speed));
+                let response = ui.text_edit_singleline(buffer);
+                let commit = response.lost_focus()
+                    || (response.has_focus()
+                        && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter)));
+                if commit {
+                    match scribe_ui::cast::parse_speed(buffer) {
+                        Ok(speed) if speed != stat.speed => {
+                            let ops = serde_json::json!([scribe_client::cast_op_set_speed(
+                                &stat.character,
+                                speed
+                            )]);
+                            self.worker_tx
+                                .send(WorkerCmd::PatchCast {
+                                    book_id: id.clone(),
+                                    ops,
+                                    mtime: cast.mtime,
+                                })
+                                .ok();
+                        }
+                        Err(message) => {
+                            self.cast_note = message;
+                        }
+                        _ => {}
+                    }
+                }
+                ui.label(format!("{} lines, {} min", stat.lines, stat.minutes));
+                if stat.low > 0 {
+                    ui.label(format!("{} low", stat.low));
+                }
+            });
+        }
+        ui.horizontal(|ui| {
+            ui.label("First person:");
+            let mut first = cast.first_person.clone();
+            egui::ComboBox::from_id_salt("first-person")
+                .selected_text(&first)
+                .show_ui(ui, |ui| {
+                    for option in ["narrator".to_owned()]
+                        .into_iter()
+                        .chain(cast.stats.iter().map(|stat| stat.character.clone()))
+                    {
+                        ui.selectable_value(&mut first, option.clone(), option);
+                    }
+                });
+            if first != cast.first_person {
+                let ops = serde_json::json!([scribe_client::cast_op_set_first_person(&first)]);
+                self.worker_tx
+                    .send(WorkerCmd::PatchCast {
+                        book_id: id.clone(),
+                        ops,
+                        mtime: cast.mtime,
+                    })
+                    .ok();
+            }
+        });
+        if let Some(warning) = &cast.comment_warning {
+            ui.label(warning);
+        }
+        for finding in &cast.validation {
+            ui.label(format!("{}: {}", finding.rule, finding.message));
+        }
+        if !cast.minor.is_empty() {
+            if ui
+                .button(if self.show_minor {
+                    "Hide minor".to_owned()
+                } else {
+                    format!("Minor ({})", cast.minor.len())
+                })
+                .clicked()
+            {
+                self.show_minor = !self.show_minor;
+            }
+            if self.show_minor {
+                for entry in &cast.minor {
+                    ui.label(format!(
+                        "{}: {} lines, resolves to {}",
+                        entry.speaker, entry.lines, entry.resolved
+                    ));
+                }
+            }
+        }
     }
 
     /// Native pick + stage + upload (the dialog is owner-tested; the

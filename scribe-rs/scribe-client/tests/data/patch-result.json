@@ -1,0 +1,73 @@
+{
+    "book_id":  "95186387-0c79-5296-8e3f-0c17a6bb1c7f",
+    "mtime":  1791726316.591545,
+    "has_comments":  false,
+    "cast":  {
+                 "aliases":  {
+
+                             },
+                 "characters":  {
+
+                                },
+                 "default_female":  {
+                                        "speed":  1.0,
+                                        "voice":  "af_bella"
+                                    },
+                 "default_male":  {
+                                      "speed":  1.0,
+                                      "voice":  "am_adam"
+                                  },
+                 "first_person":  "narrator",
+                 "narrator":  {
+                                  "engine":  "kokoro",
+                                  "speed":  1.0,
+                                  "voice":  "am_onyx"
+                              },
+                 "overrides":  [
+
+                               ]
+             },
+    "first_person":  "narrator",
+    "stats":  [
+                  {
+                      "character":  "narrator",
+                      "kind":  "narrator",
+                      "voice":  "am_onyx",
+                      "speed":  1.0,
+                      "lines":  50,
+                      "minutes":  0.0,
+                      "low":  0
+                  },
+                  {
+                      "character":  "default_female",
+                      "kind":  "generic",
+                      "voice":  "af_bella",
+                      "speed":  1.0,
+                      "lines":  0,
+                      "minutes":  0.0,
+                      "low":  0
+                  },
+                  {
+                      "character":  "default_male",
+                      "kind":  "generic",
+                      "voice":  "am_adam",
+                      "speed":  1.0,
+                      "lines":  0,
+                      "minutes":  0.0,
+                      "low":  0
+                  }
+              ],
+    "minor":  [
+
+              ],
+    "quotes_total":  0,
+    "low_confidence_total":  0,
+    "has_audio":  false,
+    "validation":  [
+
+                   ],
+    "affected":  {
+                     "quotes":  5
+                 },
+    "applied":  1
+}

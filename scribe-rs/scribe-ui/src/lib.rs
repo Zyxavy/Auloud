@@ -3,6 +3,7 @@
 //! lifecycle state machine, and settings. Screens live in `main.rs`.
 
 pub mod books;
+pub mod cast;
 pub mod helper;
 pub mod machine;
 pub mod progress;

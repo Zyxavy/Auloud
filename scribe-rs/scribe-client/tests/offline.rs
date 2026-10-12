@@ -7,8 +7,8 @@ use std::io::Cursor;
 use std::path::PathBuf;
 
 use scribe_client::{
-    check_compatible, BookDetail, BuildResult, CastPayload, EventStream, Health, Job, PlanResult,
-    SampleResult, Settings, UploadResult, ValidateResult, Versions, VoicesResponse,
+    check_compatible, BookDetail, BuildResult, CastPayload, EventStream, Health, Job, PatchResult,
+    PlanResult, SampleResult, Settings, UploadResult, ValidateResult, Versions, VoicesResponse,
     SUPPORTED_API_VERSION,
 };
 
@@ -164,6 +164,24 @@ fn recorded_cast_parses() {
     let cast: CastPayload = read_json("cast.json");
     assert!(!cast.book_id.is_empty());
     assert!(cast.cast.is_object());
+    // CS1: the table renders from these (dropped by the old struct).
+    assert_eq!(cast.first_person, "narrator");
+    assert_eq!(cast.stats.len(), 3);
+    assert_eq!(cast.stats[0].character, "narrator");
+    assert_eq!(cast.stats[0].kind, "narrator");
+    assert_eq!(cast.stats[0].lines, 50);
+    assert!(cast.minor.is_empty());
+}
+
+#[test]
+fn recorded_patch_result_parses() {
+    // Derived from cast.json plus the PATCH-only keys (same commit that
+    // adds patch_cast; the helper echoes the payload with affected/applied).
+    let patch: PatchResult = read_json("patch-result.json");
+    assert!(!patch.cast.book_id.is_empty());
+    assert_eq!(patch.applied, 1);
+    assert_eq!(patch.cast.affected.map(|found| found.quotes), Some(5));
+    assert_eq!(patch.cast.stats.len(), 3);
 }
 
 #[test]

@@ -231,6 +231,20 @@ pub enum WorkerCmd {
         /// Hold `SetThreadExecutionState` while any job runs.
         keep_awake: bool,
     },
+    /// Load the cast table for a book (stats, minor, guard mtime).
+    RefreshCast {
+        /// UUIDv5 book id.
+        book_id: String,
+    },
+    /// Apply cast PATCH ops atomically (voice, speed, first-person).
+    PatchCast {
+        /// UUIDv5 book id.
+        book_id: String,
+        /// Op list (`cast_op_*` shapes).
+        ops: serde_json::Value,
+        /// Guard mtime from the last cast load.
+        mtime: f64,
+    },
     /// Remove a book: cancel its live jobs, then delete its staged source,
     /// work dir, and hash-matched bundles (never outside the workspace).
     DeleteBook {
@@ -349,6 +363,36 @@ pub enum WorkerEvent {
     /// Plan, queue, or settings write refused (shaped when the helper
     /// sent one).
     RenderFailed {
+        /// Human reason.
+        message: String,
+    },
+    /// Cast table for the panel (stats, minor, guard mtime).
+    Cast {
+        /// Book the cast covers.
+        book_id: String,
+        /// Full `GET cast` document.
+        payload: Box<scribe_client::CastPayload>,
+        /// Engine voice ids for the dropdowns (best effort).
+        voices: Vec<String>,
+    },
+    /// PATCH ops applied (the panel re-renders from the echo).
+    CastPatched {
+        /// Book the patch covered.
+        book_id: String,
+        /// Echo payload plus `affected`/`applied`.
+        patch: Box<scribe_client::PatchResult>,
+    },
+    /// The cast changed on disk under us (stale guard mtime).
+    CastConflict {
+        /// Book the patch covered.
+        book_id: String,
+        /// Shaped message naming the conflict.
+        message: String,
+    },
+    /// Cast load or patch refused (shaped when the helper sent one).
+    CastFailed {
+        /// Book the attempt covered.
+        book_id: String,
         /// Human reason.
         message: String,
     },
@@ -592,6 +636,73 @@ fn worker_loop(
                     }
                 } else {
                     let _ = events.send(WorkerEvent::RenderFailed {
+                        message: "helper not connected".to_owned(),
+                    });
+                }
+            }
+            Ok(WorkerCmd::RefreshCast { book_id }) => {
+                if let Some(client) = &client {
+                    match client.cast(&book_id) {
+                        Ok(payload) => {
+                            // Dropdown options are best effort: the table
+                            // renders from the cast alone when this fails.
+                            let voices = client
+                                .voice_details("kokoro")
+                                .map(|details| {
+                                    details.into_iter().map(|voice| voice.name).collect()
+                                })
+                                .unwrap_or_default();
+                            let _ = events.send(WorkerEvent::Cast {
+                                book_id,
+                                payload: Box::new(payload),
+                                voices,
+                            });
+                        }
+                        Err(err) => {
+                            let _ = events.send(WorkerEvent::CastFailed {
+                                book_id: book_id.clone(),
+                                message: err.to_string(),
+                            });
+                        }
+                    }
+                } else {
+                    let _ = events.send(WorkerEvent::CastFailed {
+                        book_id,
+                        message: "helper not connected".to_owned(),
+                    });
+                }
+            }
+            Ok(WorkerCmd::PatchCast {
+                book_id,
+                ops,
+                mtime,
+            }) => {
+                if let Some(client) = &client {
+                    match client.patch_cast(&book_id, &ops, mtime) {
+                        Ok(patch) => {
+                            let _ = events.send(WorkerEvent::CastPatched {
+                                book_id,
+                                patch: Box::new(patch),
+                            });
+                        }
+                        Err(err) => {
+                            // A stale guard is a conflict, not a failure:
+                            // the panel offers Reload instead of an error.
+                            let message = err.to_string();
+                            if matches!(&err, scribe_client::Error::Http { error, .. } if error.rule == "conflict")
+                            {
+                                let _ = events.send(WorkerEvent::CastConflict { book_id, message });
+                            } else {
+                                let _ = events.send(WorkerEvent::CastFailed {
+                                    book_id: book_id.clone(),
+                                    message,
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    let _ = events.send(WorkerEvent::CastFailed {
+                        book_id,
                         message: "helper not connected".to_owned(),
                     });
                 }

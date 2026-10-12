@@ -14,8 +14,8 @@ use serde::Serialize;
 use crate::error::{ApiError, Error};
 use crate::sse::EventStream;
 use crate::types::{
-    BookDetail, BookSummary, BuildResult, CastPayload, Health, Job, PlanResult, SampleResult,
-    Settings, UploadResult, ValidateResult, Versions, VoiceDetail, VoicesResponse,
+    BookDetail, BookSummary, BuildResult, CastPayload, Health, Job, PatchResult, PlanResult,
+    SampleResult, Settings, UploadResult, ValidateResult, Versions, VoiceDetail, VoicesResponse,
 };
 
 /// Contract integer this client speaks (docs/api.md section 8).
@@ -36,6 +36,36 @@ pub struct Selection {
     /// `auto | cpu | cuda` (build only; plan ignores it).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
+}
+
+/// One `set_voice` PATCH op (shape per the `scribe/ui/cast.py` docs).
+pub fn cast_op_set_voice(character: &str, voice: &str, engine: Option<&str>) -> serde_json::Value {
+    let mut op = serde_json::json!({
+        "op": "set_voice",
+        "character": character,
+        "voice": voice,
+    });
+    if let Some(engine) = engine {
+        op["engine"] = serde_json::Value::String(engine.to_owned());
+    }
+    op
+}
+
+/// One `set_speed` PATCH op.
+pub fn cast_op_set_speed(character: &str, speed: f64) -> serde_json::Value {
+    serde_json::json!({
+        "op": "set_speed",
+        "character": character,
+        "speed": speed,
+    })
+}
+
+/// One `set_first_person` PATCH op.
+pub fn cast_op_set_first_person(value: &str) -> serde_json::Value {
+    serde_json::json!({
+        "op": "set_first_person",
+        "value": value,
+    })
 }
 
 /// Audition-clip request (`POST /api/voices/sample` and per-voice variant).
@@ -333,6 +363,31 @@ impl Client {
         )
     }
 
+    /// `PATCH /api/books/{book_id}/cast` (atomic op list; all ops validate
+    /// before any apply). Ops come from [`cast_op_set_voice`] and friends;
+    /// `mtime` is the guard from GET. The answer echoes the payload plus
+    /// `affected`/`applied`; a stale guard fails as shaped `conflict`.
+    pub fn patch_cast(
+        &self,
+        book_id: &str,
+        ops: &serde_json::Value,
+        mtime: f64,
+    ) -> Result<PatchResult, Error> {
+        #[derive(Serialize)]
+        struct Patch<'a> {
+            ops: &'a serde_json::Value,
+            expected_mtime: f64,
+        }
+        self.send_json(
+            "PATCH",
+            &format!("/api/books/{book_id}/cast"),
+            Some(&Patch {
+                ops,
+                expected_mtime: mtime,
+            }),
+        )
+    }
+
     /// `GET /api/cast/voices?engine=`.
     pub fn voices(&self, engine: &str) -> Result<VoicesResponse, Error> {
         let response = self
@@ -441,6 +496,26 @@ pub fn check_compatible(versions: &Versions) -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cast_ops_match_server_shapes() {
+        assert_eq!(
+            cast_op_set_voice("Alice", "jf_alpha", None),
+            serde_json::json!({"op": "set_voice", "character": "Alice", "voice": "jf_alpha"})
+        );
+        assert_eq!(
+            cast_op_set_voice("Bob", "en_US-lessac-low", Some("piper"))["engine"],
+            serde_json::Value::String("piper".to_owned())
+        );
+        assert_eq!(
+            cast_op_set_speed("Alice", 1.1),
+            serde_json::json!({"op": "set_speed", "character": "Alice", "speed": 1.1})
+        );
+        assert_eq!(
+            cast_op_set_first_person("narrator"),
+            serde_json::json!({"op": "set_first_person", "value": "narrator"})
+        );
+    }
 
     #[test]
     fn shaped_body_passes_through() {

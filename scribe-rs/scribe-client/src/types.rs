@@ -375,6 +375,49 @@ pub struct SampleResult {
     pub coalesced: bool,
 }
 
+/// One stats row of `GET /api/books/{book_id}/cast`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CastStat {
+    /// Speaker name (`narrator`, a character, or a generic).
+    #[serde(default)]
+    pub character: String,
+    /// `narrator | character | generic`.
+    #[serde(default)]
+    pub kind: String,
+    /// Assigned voice id.
+    #[serde(default)]
+    pub voice: String,
+    /// Speed multiplier.
+    #[serde(default)]
+    pub speed: f64,
+    /// Attributed lines.
+    #[serde(default)]
+    pub lines: u64,
+    /// Rendered minutes (bundle timings, 0 without audio).
+    #[serde(default)]
+    pub minutes: f64,
+    /// Low-confidence lines.
+    #[serde(default)]
+    pub low: u64,
+}
+
+/// One minor-surface row (bit parts resolving to generics).
+#[derive(Debug, Clone, Deserialize)]
+pub struct MinorEntry {
+    /// Raw surface text speaker.
+    #[serde(default)]
+    pub speaker: String,
+    /// Line count (at most 3 by server rule).
+    #[serde(default)]
+    pub lines: u64,
+    /// Voice it resolves to.
+    #[serde(default)]
+    pub resolved: String,
+    /// Example quote locator (opaque).
+    #[serde(default)]
+    pub example: serde_json::Value,
+}
+
 /// `GET /api/books/{book_id}/cast` answer (the `cast` document itself stays
 /// opaque; see [`BookDetail::cast`]).
 #[derive(Debug, Clone, Deserialize)]
@@ -382,7 +425,7 @@ pub struct CastPayload {
     /// Echo of the book.
     #[serde(default)]
     pub book_id: String,
-    /// Conflict-guard mtime from GET (echo back on PUT).
+    /// Conflict-guard mtime from GET (echo back on writes).
     #[serde(default)]
     pub mtime: f64,
     /// The file carries `#` comments a save would drop.
@@ -391,9 +434,44 @@ pub struct CastPayload {
     /// Opaque cast document.
     #[serde(default)]
     pub cast: serde_json::Value,
+    /// First-person voice (`narrator`, a character, or an alias).
+    #[serde(default)]
+    pub first_person: String,
+    /// Per-speaker rows (narrator, characters, generics).
+    #[serde(default)]
+    pub stats: Vec<CastStat>,
+    /// Minor surfaces behind the collapsible.
+    #[serde(default)]
+    pub minor: Vec<MinorEntry>,
+    /// Quote totals.
+    #[serde(default)]
+    pub quotes_total: u64,
+    /// Low-confidence quote totals.
+    #[serde(default)]
+    pub low_confidence_total: u64,
+    /// Bundle timings exist for minutes.
+    #[serde(default)]
+    pub has_audio: bool,
+    /// Shaped cast errors.
+    #[serde(default)]
+    pub validation: Vec<ApiError>,
+    /// Present when the file has `#` comments.
+    #[serde(default)]
+    pub comment_warning: Option<String>,
     /// Quotes re-voiced by the last save.
     #[serde(default)]
     pub affected: Option<AffectedQuotes>,
+}
+
+/// `PATCH /api/books/{book_id}/cast` answer: the payload plus op results.
+#[derive(Debug, Clone, Deserialize)]
+pub struct PatchResult {
+    /// Full cast payload after the ops.
+    #[serde(flatten)]
+    pub cast: CastPayload,
+    /// Ops applied (echo of the request length).
+    #[serde(default)]
+    pub applied: u64,
 }
 
 /// `affected` inside cast save answers.
