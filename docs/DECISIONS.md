@@ -1366,3 +1366,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Owner picked in-app playback over reveal-fallback; wav-only features keep the tree minimal (no mp3/flac/vorbis decoders for clips the helper always serves as wav).
 - Alternatives considered: reveal-the-wav fallback (declined by owner); default features (rejected: pulls decoders audition never uses).
 - Consequences / revisit when: CS3 adds the dep alongside its first use; revisit if deny ever flags the tree.
+
+### D-163: Detached children get an explicit models dir (build + voices sample)
+- Date: 2026-10-12
+- Status: Accepted
+- Decision: The spawner passes `--models-dir` (same `resolve_models_dir` rule the plan route uses: workspace/models wins, else CWD models) to detached build and voices-sample children. Drafts need no models.
+- Why: Every API-queued build and sample failed "model files missing" the instant it started: children inherit the helper's cwd (repo root in dev), never the workspace, so the bare default looked in the wrong place. Same class as D-158's out-dir fix, fixed at the same seam with spawner-argv tests.
+- Alternatives considered: copying models next to the helper cwd (rejected: scatters 350 MB per layout, breaks packaged hermeticity); changing the child cwd to the workspace (rejected: bigger blast radius, out-dir/work-dir are already absolute).
+- Consequences / revisit when: workspace/models stays the one models home for app runs; revisit if a layout ever needs per-book models.

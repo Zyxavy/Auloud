@@ -819,6 +819,15 @@ def test_spawn_build_passes_workspace_out_dir(
     cmd = seen[0]
     assert "--out-dir" in cmd
     assert cmd[cmd.index("--out-dir") + 1] == str(manager.workspace / "bundles" / "book-1")
+    # Detached children inherit the helper's cwd, never the workspace: the
+    # models dir rides along explicitly (every API build failed "model
+    # files missing" with models only under the workspace).
+    (tmp_path / "models").mkdir()
+    manager._spawn_detached(
+        {"kind": "build", "book_id": "book-1", "source_file": "alice.epub", "device": "cpu"},
+        tmp_path / "jobs" / "job-2",
+    )
+    assert seen[1][seen[1].index("--models-dir") + 1] == str(tmp_path / "models")
 
 
 def test_spawn_voices_sample_passes_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -852,6 +861,9 @@ def test_spawn_voices_sample_passes_engine(tmp_path: Path, monkeypatch: pytest.M
         tmp_path / "jobs" / "job-2",
     )
     assert seen[1][seen[1].index("--engine") + 1] == "kokoro"
+    # Sample children get the same explicit models dir (they failed the
+    # same way: CWD `models` is the helper's, not the workspace's).
+    assert "--models-dir" in seen[1]
 
 
 def test_child_argv_frozen_reenters_exe(monkeypatch: pytest.MonkeyPatch) -> None:

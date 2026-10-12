@@ -932,7 +932,14 @@ class JobManager:
     def _spawn_detached(self, job: dict[str, Any], folder: Path) -> Any:
         """Production spawner: detached ``scribe build``/``draft``/``voices``."""
         from .books import BUNDLES_DIRNAME, WORK_DIRNAME
+        from .cast import resolve_models_dir
 
+        # Same rule the plan route uses (workspace/models wins, else CWD
+        # models): detached children inherit the helper's cwd, never the
+        # workspace, so an unwired default looks in the wrong place (every
+        # API build failed "model files missing" with models only under
+        # the workspace). Always explicit, never a bare default.
+        models_arg = ["--models-dir", str(resolve_models_dir(self.workspace))]
         work_root = self.workspace / WORK_DIRNAME
         log_path = folder / LOG_FILENAME
         if job.get("kind") == "draft":
@@ -955,6 +962,7 @@ class JobManager:
                 str(job.get("engine") or "kokoro"),
                 "--out-dir",
                 str(out_dir),
+                *models_arg,
             )
             for voice in (job.get("voices") or []):
                 cmd += ["--voice", str(voice)]
@@ -990,6 +998,7 @@ class JobManager:
         if job.get("pages"):
             cmd += ["--pages", str(job["pages"])]
         cmd += ["--device", str(job.get("device") or "cpu")]
+        cmd += models_arg
         return _detached_popen(cmd, log_path)
 
     # -- transfer runner (UI8, in-process thread) ---------------------------
