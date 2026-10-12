@@ -153,6 +153,29 @@ pub fn book_files_for_removal(
     Ok(paths)
 }
 
+/// Row title for a job: the book's short title, else the raw id (sample
+/// jobs carry no book). Shared by the tray row and the quit panel so the
+/// fallback changes once.
+pub fn job_book_title(books: &[scribe_client::BookSummary], job: &scribe_client::Job) -> String {
+    books
+        .iter()
+        .find(|book| book.id == job.book_id)
+        .map(|book| {
+            if book.title.is_empty() {
+                job.book_id.clone()
+            } else {
+                short_title(&book.title)
+            }
+        })
+        .unwrap_or_else(|| {
+            if job.book_id.is_empty() {
+                job.kind.clone()
+            } else {
+                job.book_id.clone()
+            }
+        })
+}
+
 /// One-line status chip from the scan state (rendering wins over draft).
 pub fn book_status(book: &scribe_client::BookSummary) -> String {
     if book.rendering {
@@ -440,6 +463,33 @@ mod tests {
         // Multibyte safety: no split codepoint, still capped.
         let wide = "é".repeat(200);
         assert_eq!(short_title(&wide).chars().count(), 60);
+    }
+
+    #[test]
+    fn job_titles_prefer_short_book_titles() {
+        let book = scribe_client::BookSummary {
+            id: "b1".to_owned(),
+            title: "A Title".to_owned(),
+            ..Default::default()
+        };
+        let books = std::slice::from_ref(&book);
+        let job = scribe_client::Job {
+            book_id: "b1".to_owned(),
+            kind: "build".to_owned(),
+            ..Default::default()
+        };
+        assert_eq!(job_book_title(books, &job), "A Title");
+        let orphan = scribe_client::Job {
+            book_id: "gone".to_owned(),
+            kind: "build".to_owned(),
+            ..Default::default()
+        };
+        assert_eq!(job_book_title(books, &orphan), "gone");
+        let sample = scribe_client::Job {
+            kind: "voices-sample".to_owned(),
+            ..Default::default()
+        };
+        assert_eq!(job_book_title(&[], &sample), "voices-sample");
     }
 
     #[test]

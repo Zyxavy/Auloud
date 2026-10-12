@@ -84,6 +84,14 @@ pub fn job_label(job: &Job) -> String {
     }
 }
 
+/// Quit-intercept decision (JP3): cancel the close only for a fresh request
+/// with live jobs and no open panel. An open panel means the user already
+/// answered once; cancelling again would trap them (the panel's own Quit
+/// arrives as another close request, which would cancel forever).
+pub fn should_cancel_close(close_requested: bool, has_live_jobs: bool, panel_open: bool) -> bool {
+    close_requested && has_live_jobs && !panel_open
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,6 +186,14 @@ mod tests {
         assert_eq!(format_wall(45.0), "45s");
         assert_eq!(format_wall(192.0), "3m 12s");
         assert_eq!(format_wall(f64::NAN), "0s");
+    }
+
+    #[test]
+    fn quit_cancel_needs_fresh_request_live_jobs_and_closed_panel() {
+        assert!(should_cancel_close(true, true, false));
+        assert!(!should_cancel_close(true, true, true));
+        assert!(!should_cancel_close(true, false, false));
+        assert!(!should_cancel_close(false, true, false));
     }
 
     #[test]

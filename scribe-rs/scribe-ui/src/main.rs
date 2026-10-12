@@ -377,24 +377,7 @@ impl App {
     /// spinner marks indeterminate progress.
     fn job_row(&mut self, ui: &mut egui::Ui, job: &scribe_client::Job) {
         use scribe_ui::progress;
-        let title = self
-            .books
-            .iter()
-            .find(|book| book.id == job.book_id)
-            .map(|book| {
-                if book.title.is_empty() {
-                    job.book_id.clone()
-                } else {
-                    scribe_ui::books::short_title(&book.title)
-                }
-            })
-            .unwrap_or_else(|| {
-                if job.book_id.is_empty() {
-                    job.kind.clone()
-                } else {
-                    job.book_id.clone()
-                }
-            });
+        let title = scribe_ui::books::job_book_title(&self.books, job);
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.label(format!("{}: {}", progress::job_label(job), title));
@@ -761,21 +744,26 @@ impl App {
     /// means no interruption, ever. Running-only: any other machine state
     /// has no fresh jobs feed, so a warning there could name stale jobs.
     fn quit_intercept(&mut self, ui: &mut egui::Ui) {
-        if ui.ctx().input(|i| i.viewport().close_requested()) {
-            let (live, _) = scribe_ui::progress::split_jobs(&self.jobs);
-            if !live.is_empty() {
-                // eframe 0.36 has no close hook; this is the documented
-                // path (see `App::on_exit` docs in eframe's epi.rs).
-                ui.ctx()
-                    .send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                self.quit_confirm = true;
-            }
+        let jobs = self.jobs.clone();
+        let (live, _) = scribe_ui::progress::split_jobs(&jobs);
+        // Gate on the panel flag too: the panel's own Quit arrives as
+        // another close request, and cancelling it again would trap the
+        // user (Quit could never quit while a job runs).
+        let close_requested = ui.ctx().input(|i| i.viewport().close_requested());
+        if scribe_ui::progress::should_cancel_close(
+            close_requested,
+            !live.is_empty(),
+            self.quit_confirm,
+        ) {
+            // eframe 0.36 has no close hook; this is the documented
+            // path (see `App::on_exit` docs in eframe's epi.rs).
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.quit_confirm = true;
         }
         if !self.quit_confirm {
             return;
         }
-        let jobs = self.jobs.clone();
-        let (live, _) = scribe_ui::progress::split_jobs(&jobs);
         ui.separator();
         ui.heading(egui::RichText::new("Quit with running jobs?").color(rgb(theme::OXBLOOD)));
         if live.is_empty() {
@@ -783,22 +771,10 @@ impl App {
         } else {
             ui.label("These renders continue detached and reattach on relaunch:");
             for job in &live {
-                let title = self
-                    .books
-                    .iter()
-                    .find(|book| book.id == job.book_id)
-                    .map(|book| {
-                        if book.title.is_empty() {
-                            job.book_id.clone()
-                        } else {
-                            scribe_ui::books::short_title(&book.title)
-                        }
-                    })
-                    .unwrap_or_else(|| job.book_id.clone());
                 ui.label(format!(
                     "{}: {} ({} sentences)",
                     scribe_ui::progress::job_label(job),
-                    title,
+                    scribe_ui::books::job_book_title(&self.books, job),
                     scribe_ui::progress::done_sentences(&job.summary)
                 ));
             }
