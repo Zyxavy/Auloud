@@ -27,8 +27,10 @@ what you expect.
 
 - [ ] Restart the app mid-draft: the list reattaches by id, the draft
   continues or resumes, no duplicate rows.
-- [ ] Kill the helper process mid-run: crash screen within seconds,
-  auto-retry spins, Retry works after relaunching manually if needed.
+- [ ] Kill the helper process mid-run: brief Starting spinner, then
+  auto-recovery to Running (a single kill never shows the crash screen by
+  design). For the crash screen + Retry: kill the fresh helper three more
+  times in a row, or break the helper path so respawns fail.
 - [ ] Set a bad helper path in Settings: Missing screen with the reason;
   Settings stays openable from it; fixing the path + Retry connects.
 
