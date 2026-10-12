@@ -10,3 +10,5 @@ license.workspace = true
 scribe-client = { path = "../scribe-client" }
 egui = "0.36"
 eframe = "0.36"
+# AP2: native add-book dialog (owner-approved; MIT, deny-checked).
+rfd = "0.17"

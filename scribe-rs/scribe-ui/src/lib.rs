@@ -2,6 +2,7 @@
 //! Shared UI code (Slice 17 AP1): design tokens, helper lifecycle worker,
 //! lifecycle state machine, and settings. Screens live in `main.rs`.
 
+pub mod books;
 pub mod helper;
 pub mod machine;
 pub mod settings;

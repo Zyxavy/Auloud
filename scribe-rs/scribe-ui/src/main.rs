@@ -1,13 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Native app shell (Slice 17 AP1, egui): window, theme, navigation, helper
-//! lifecycle, and settings. Screens other than lifecycle states and Settings
-//! show which slice builds them (AP2/AP3 own Books and the stepper).
+//! Native app shell (Slice 17, egui): window, theme, navigation, helper
+//! lifecycle, settings, and Books. Book detail lands in AP3; other screens
+//! show which slice builds them.
 
 use eframe::egui;
+use scribe_ui::books::{book_status, stage_book};
 use scribe_ui::helper::{self, WorkerCmd, WorkerEvent};
 use scribe_ui::machine::{self, Action, Event, State};
 use scribe_ui::settings::{self, Settings};
 use scribe_ui::theme;
+
+/// Book list refresh cadence while running.
+const BOOKS_POLL: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Theme token to an egui color (tokens stay plain RGB triples in one place).
 fn rgb(color: (u8, u8, u8)) -> egui::Color32 {
@@ -40,7 +44,7 @@ impl Screen {
     /// Slice that builds the real screen (honest placeholder text).
     fn lands_in(self) -> &'static str {
         match self {
-            Self::Books => "AP2: Books list, add-book, draft",
+            Self::Books => "Books (list below; detail stepper in AP3)",
             Self::Jobs => "Slice 18: jobs tray, render step",
             Self::Cast => "Slice 19: cast table, audition, overrides",
             Self::Voices => "Slice 19: voices view, engine selector",
@@ -71,6 +75,9 @@ struct App {
     device_edit: String,
     helper_edit: String,
     notice: String,
+    books: Vec<scribe_client::BookSummary>,
+    books_note: String,
+    last_books_poll: std::time::Instant,
 }
 
 impl App {
@@ -94,23 +101,57 @@ impl App {
             worker_rx,
             screen: Screen::Books,
             notice: String::new(),
+            books: Vec::new(),
+            books_note: String::new(),
+            last_books_poll: std::time::Instant::now(),
         }
     }
 
-    /// Drain worker events through the state machine (called every frame).
+    /// Drain worker events: lifecycle ones through the state machine, book
+    /// ones straight into view state (called every frame).
     fn pump(&mut self) {
         while let Ok(event) = self.worker_rx.try_recv() {
-            let event = match event {
-                WorkerEvent::Connected { base_url } => Event::Connected { base_url },
-                WorkerEvent::Failed { message } => Event::Failed { message },
-                WorkerEvent::VersionWrong { have, want } => Event::VersionWrong { have, want },
-                WorkerEvent::ChildDied => Event::ChildDied,
-            };
-            let (state, action) = machine::transition(&self.machine, &event);
-            self.machine = state;
-            if action == Action::Spawn {
-                self.worker_tx.send(WorkerCmd::Spawn).ok();
+            match event {
+                WorkerEvent::Books { books } => {
+                    self.books = books;
+                    self.books_note.clear();
+                }
+                WorkerEvent::BooksFailed { message } => {
+                    self.books_note = format!("book list failed: {message}");
+                }
+                WorkerEvent::Uploaded { filename, .. } => {
+                    self.books_note = format!("draft queued for {filename}");
+                    self.worker_tx.send(WorkerCmd::RefreshBooks).ok();
+                }
+                WorkerEvent::UploadFailed { message } => {
+                    self.books_note = format!("add failed: {message}");
+                }
+                WorkerEvent::Connected { base_url } => {
+                    self.lifecycle(Event::Connected { base_url });
+                }
+                WorkerEvent::Failed { message } => {
+                    self.lifecycle(Event::Failed { message });
+                }
+                WorkerEvent::VersionWrong { have, want } => {
+                    self.lifecycle(Event::VersionWrong { have, want });
+                }
+                WorkerEvent::ChildDied => self.lifecycle(Event::ChildDied),
             }
+        }
+        if matches!(self.machine, State::Running { .. })
+            && self.last_books_poll.elapsed() >= BOOKS_POLL
+        {
+            self.last_books_poll = std::time::Instant::now();
+            self.worker_tx.send(WorkerCmd::RefreshBooks).ok();
+        }
+    }
+
+    /// One lifecycle event through the machine (spawning on demand).
+    fn lifecycle(&mut self, event: Event) {
+        let (state, action) = machine::transition(&self.machine, &event);
+        self.machine = state;
+        if action == Action::Spawn {
+            self.worker_tx.send(WorkerCmd::Spawn).ok();
         }
     }
 
@@ -152,8 +193,77 @@ impl App {
             self.settings_ui(ui);
             return;
         }
+        if self.screen == Screen::Books {
+            self.books_ui(ui);
+            return;
+        }
         ui.heading(egui::RichText::new(self.screen.title()).color(rgb(theme::OXBLOOD)));
         ui.label(self.screen.lands_in());
+    }
+
+    /// Books list with status chips + add-book (AP2).
+    fn books_ui(&mut self, ui: &mut egui::Ui) {
+        ui.heading(egui::RichText::new("Books").color(rgb(theme::OXBLOOD)));
+        if ui.button("Add book").clicked() {
+            self.add_book();
+        }
+        if !self.books_note.is_empty() {
+            ui.label(&self.books_note);
+        }
+        if self.books.is_empty() {
+            ui.label("No books yet. Add book to draft your first.");
+            return;
+        }
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for book in &self.books {
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(&book.title).strong());
+                        ui.label(book_status(book));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(format!(
+                            "{} sentences, {} chapters",
+                            book.sentences, book.chapters
+                        ));
+                        if book.bundles > 0 {
+                            ui.label(if book.valid {
+                                format!("{} bundles, valid", book.bundles)
+                            } else {
+                                format!("{} bundles", book.bundles)
+                            });
+                        }
+                        if book.cast_edited {
+                            ui.label("cast edited");
+                        }
+                    });
+                });
+            }
+        });
+    }
+
+    /// Native pick + stage + upload (the dialog is owner-tested; the
+    /// staging below it is unit-tested in `books.rs`).
+    fn add_book(&mut self) {
+        let Some(path) = rfd::FileDialog::new()
+            .add_filter("Ebooks", &["epub", "pdf"])
+            .pick_file()
+        else {
+            return;
+        };
+        match stage_book(&self.settings.workspace, &path) {
+            Ok(staged) => {
+                self.books_note = format!(
+                    "uploading {}…",
+                    staged
+                        .file_name()
+                        .map(|n| n.to_string_lossy())
+                        .unwrap_or_default()
+                );
+                self.worker_tx.send(WorkerCmd::Upload { path: staged }).ok();
+            }
+            Err(message) => self.books_note = message,
+        }
     }
 
     /// Settings editor, reachable from any machine state (a bad helper path

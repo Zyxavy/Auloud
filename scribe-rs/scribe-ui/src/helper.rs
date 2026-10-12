@@ -173,6 +173,13 @@ pub enum WorkerCmd {
     Spawn,
     /// Kill the child (if any) and stop the thread.
     Shutdown,
+    /// Refresh the book list (needs a verified helper; ignored before).
+    RefreshBooks,
+    /// Upload a staged book file (queues its draft job server-side).
+    Upload {
+        /// Workspace-local staged file.
+        path: PathBuf,
+    },
 }
 
 /// Worker findings for the state machine.
@@ -197,6 +204,28 @@ pub enum WorkerEvent {
     },
     /// A verified child died.
     ChildDied,
+    /// Current book list.
+    Books {
+        /// Newest-first as reported (order preserved).
+        books: Vec<scribe_client::BookSummary>,
+    },
+    /// Book list refresh failed (transient; the old list stays).
+    BooksFailed {
+        /// Human reason.
+        message: String,
+    },
+    /// Upload accepted; the draft job queues server-side.
+    Uploaded {
+        /// UUIDv5 book id.
+        book_id: String,
+        /// Stored filename.
+        filename: String,
+    },
+    /// Upload refused (shaped file + rule when the helper sent one).
+    UploadFailed {
+        /// Human reason.
+        message: String,
+    },
 }
 
 /// Start the worker thread (owns the child; see module docs).
@@ -209,6 +238,7 @@ pub fn spawn_worker(settings: Settings) -> (Sender<WorkerCmd>, Receiver<WorkerEv
 
 fn worker_loop(settings: Settings, commands: Receiver<WorkerCmd>, events: Sender<WorkerEvent>) {
     let mut child: Option<Child> = None;
+    let mut client: Option<scribe_client::Client> = None;
     loop {
         match commands.recv_timeout(WATCH_POLL) {
             Ok(WorkerCmd::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -218,12 +248,45 @@ fn worker_loop(settings: Settings, commands: Receiver<WorkerCmd>, events: Sender
                 }
                 let token = generate_token();
                 match spawn_verified(&settings, &token) {
-                    Ok((process, base_url)) => {
+                    Ok((process, verified)) => {
+                        let base_url = verified.base_url().to_owned();
                         child = Some(process);
+                        client = Some(verified);
                         let _ = events.send(WorkerEvent::Connected { base_url });
                     }
                     Err(event) => {
                         let _ = events.send(event);
+                    }
+                }
+            }
+            Ok(WorkerCmd::RefreshBooks) => {
+                if let Some(client) = &client {
+                    match client.list_books() {
+                        Ok(books) => {
+                            let _ = events.send(WorkerEvent::Books { books });
+                        }
+                        Err(err) => {
+                            let _ = events.send(WorkerEvent::BooksFailed {
+                                message: err.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            Ok(WorkerCmd::Upload { path }) => {
+                if let Some(client) = &client {
+                    match client.upload_book(&path) {
+                        Ok(upload) => {
+                            let _ = events.send(WorkerEvent::Uploaded {
+                                book_id: upload.book_id,
+                                filename: upload.filename,
+                            });
+                        }
+                        Err(err) => {
+                            let _ = events.send(WorkerEvent::UploadFailed {
+                                message: err.to_string(),
+                            });
+                        }
                     }
                 }
             }
@@ -233,6 +296,7 @@ fn worker_loop(settings: Settings, commands: Receiver<WorkerCmd>, events: Sender
             match process.try_wait() {
                 Ok(Some(_)) => {
                     child = None;
+                    client = None;
                     let _ = events.send(WorkerEvent::ChildDied);
                 }
                 Ok(None) => {}
@@ -241,6 +305,7 @@ fn worker_loop(settings: Settings, commands: Receiver<WorkerCmd>, events: Sender
                 // Running state with no further events.
                 Err(_) => {
                     child = None;
+                    client = None;
                     let _ = events.send(WorkerEvent::ChildDied);
                 }
             }
@@ -252,8 +317,11 @@ fn worker_loop(settings: Settings, commands: Receiver<WorkerCmd>, events: Sender
     }
 }
 
-/// Spawn + wait-ready + health + version; the child on success.
-fn spawn_verified(settings: &Settings, token: &str) -> Result<(Child, String), WorkerEvent> {
+/// Spawn + wait-ready + health + version; the child and bound client.
+fn spawn_verified(
+    settings: &Settings,
+    token: &str,
+) -> Result<(Child, scribe_client::Client), WorkerEvent> {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(Path::to_path_buf))
@@ -315,7 +383,7 @@ fn spawn_verified(settings: &Settings, token: &str) -> Result<(Child, String), W
         }
     }
     match client.ensure_compatible() {
-        Ok(_) => Ok((process, base_url)),
+        Ok(_) => Ok((process, client)),
         Err(scribe_client::Error::VersionMismatch { have, want }) => {
             process.kill().ok();
             process.wait().ok();
