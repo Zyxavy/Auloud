@@ -86,6 +86,10 @@ struct App {
     jobs: Vec<scribe_client::Job>,
     jobs_note: String,
     show_history: bool,
+    render_form: scribe_ui::render::Form,
+    preflight: Option<scribe_client::PlanResult>,
+    render_note: String,
+    helper_keep_awake: Option<bool>,
     pending_remove: Option<String>,
 }
 
@@ -120,6 +124,10 @@ impl App {
             jobs: Vec::new(),
             jobs_note: String::new(),
             show_history: false,
+            render_form: scribe_ui::render::Form::default(),
+            preflight: None,
+            render_note: String::new(),
+            helper_keep_awake: None,
             pending_remove: None,
         }
     }
@@ -176,6 +184,23 @@ impl App {
                 }
                 WorkerEvent::JobActionFailed { message } => {
                     self.jobs_note = format!("job control failed: {message}");
+                }
+                WorkerEvent::Preflight { book_id, plan } => {
+                    if self.selected.as_deref() == Some(&book_id) {
+                        self.preflight = Some(*plan);
+                        self.render_note.clear();
+                    }
+                }
+                WorkerEvent::BuildQueued { job_id } => {
+                    self.render_note = format!("render queued ({job_id}): watch the tray");
+                    self.preflight = None;
+                    self.worker_tx.send(WorkerCmd::RefreshBooks).ok();
+                }
+                WorkerEvent::HelperSettings { keep_awake } => {
+                    self.helper_keep_awake = Some(keep_awake);
+                }
+                WorkerEvent::RenderFailed { message } => {
+                    self.render_note = message;
                 }
                 WorkerEvent::Deleted { book_id } => {
                     if self.selected.as_deref() == Some(&book_id) {
@@ -522,9 +547,14 @@ impl App {
             self.selected = Some(id.clone());
             self.detail = None;
             self.detail_note.clear();
+            self.render_form = scribe_ui::render::Form::default();
+            self.preflight = None;
+            self.render_note.clear();
+            self.helper_keep_awake = None;
             self.worker_tx
                 .send(WorkerCmd::SelectBook { book_id: id })
                 .ok();
+            self.worker_tx.send(WorkerCmd::RefreshSettings).ok();
         }
         self.stepper_ui(ui);
     }
@@ -564,6 +594,158 @@ impl App {
                 ui.label(format!("[{}]", mark));
                 ui.label(step.label);
                 ui.label(step.note);
+            });
+        }
+        // The detail borrow ends with the loop; the render section
+        // mutates form state, so it re-reads what it needs itself.
+        self.render_ui(ui);
+    }
+
+    /// Render section (JP2): chapter boxes or a range string, PDF pages,
+    /// device override, keep-awake toggle, preflight, start. Editing any
+    /// picker clears the preflight (it describes the old selection).
+    fn render_ui(&mut self, ui: &mut egui::Ui) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        // Chapters only (the full detail document stays put: it is big).
+        let chapters = match self.detail.as_ref().filter(|detail| detail.id == id) {
+            Some(detail) => detail.chapters.clone(),
+            None => return,
+        };
+        let book_id = id;
+        let is_pdf = self
+            .books
+            .iter()
+            .find(|row| row.id == book_id)
+            .and_then(|row| row.source_type.clone())
+            .is_some_and(|kind| kind == "pdf");
+        ui.separator();
+        ui.heading(egui::RichText::new("Render").color(rgb(theme::OXBLOOD)));
+        if !self.render_note.is_empty() {
+            ui.label(&self.render_note);
+        }
+        if chapters.is_empty() {
+            ui.label("nothing to render (no chapters yet)");
+            return;
+        }
+        egui::ScrollArea::vertical()
+            .max_height(180.0)
+            .show(ui, |ui| {
+                for chapter in &chapters {
+                    let mut checked = self.render_form.picked.contains(&chapter.index);
+                    if ui
+                        .checkbox(
+                            &mut checked,
+                            format!(
+                                "{}. {} ({} sentences)",
+                                chapter.index, chapter.title, chapter.sentences
+                            ),
+                        )
+                        .clicked()
+                    {
+                        scribe_ui::render::toggle(&mut self.render_form, chapter.index);
+                        self.preflight = None;
+                    }
+                }
+            });
+        ui.horizontal(|ui| {
+            ui.label("Chapters (range):");
+            if ui
+                .text_edit_singleline(&mut self.render_form.range_text)
+                .changed()
+            {
+                let text = self.render_form.range_text.clone();
+                scribe_ui::render::set_range(&mut self.render_form, &text);
+                self.preflight = None;
+            }
+        });
+        if is_pdf {
+            ui.horizontal(|ui| {
+                ui.label("Pages:");
+                if ui
+                    .text_edit_singleline(&mut self.render_form.pages_text)
+                    .changed()
+                {
+                    let text = self.render_form.pages_text.clone();
+                    scribe_ui::render::set_pages(&mut self.render_form, &text);
+                    self.preflight = None;
+                }
+            });
+        }
+        ui.horizontal(|ui| {
+            ui.label("Device:");
+            ui.radio_value(
+                &mut self.render_form.device_override,
+                None,
+                format!("App default ({})", self.settings.device),
+            );
+            for device in settings::DEVICES {
+                ui.radio_value(
+                    &mut self.render_form.device_override,
+                    Some(device.to_owned()),
+                    device,
+                );
+            }
+        });
+        match self.helper_keep_awake {
+            Some(awake) => {
+                let mut next = awake;
+                if ui
+                    .checkbox(&mut next, "Keep awake during renders")
+                    .changed()
+                {
+                    self.worker_tx
+                        .send(WorkerCmd::SetKeepAwake { keep_awake: next })
+                        .ok();
+                }
+            }
+            None => {
+                ui.label("keep-awake: loading…");
+            }
+        }
+        ui.horizontal(|ui| {
+            if ui.button("Check plan").clicked() {
+                let selection =
+                    scribe_ui::render::to_selection(&self.render_form, &self.settings.device);
+                self.worker_tx
+                    .send(WorkerCmd::PlanRender {
+                        book_id: book_id.clone(),
+                        selection,
+                    })
+                    .ok();
+            }
+            if ui.button("Start render").clicked() {
+                if self
+                    .preflight
+                    .as_ref()
+                    .is_some_and(|plan| plan.book_id == book_id)
+                {
+                    let selection =
+                        scribe_ui::render::to_selection(&self.render_form, &self.settings.device);
+                    self.worker_tx
+                        .send(WorkerCmd::QueueBuild {
+                            book_id: book_id.clone(),
+                            selection,
+                        })
+                        .ok();
+                } else {
+                    self.render_note = "check the plan first".to_owned();
+                }
+            }
+        });
+        if let Some(plan) = self
+            .preflight
+            .as_ref()
+            .filter(|plan| plan.book_id == book_id)
+        {
+            ui.group(|ui| {
+                // The helper's own words (counts, estimate basis, range
+                // notice): one source, no client-side paraphrase.
+                ui.label(&plan.message);
+                if !plan.page_resolution.is_empty() {
+                    ui.label(format!("pages: {}", plan.page_resolution));
+                }
             });
         }
     }

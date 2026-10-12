@@ -210,6 +210,27 @@ pub enum WorkerCmd {
         /// Job id from the jobs feed.
         job_id: String,
     },
+    /// Preflight a render (pure: counts, estimate, page resolution).
+    PlanRender {
+        /// UUIDv5 book id.
+        book_id: String,
+        /// Chapters/pages/device selection.
+        selection: scribe_client::Selection,
+    },
+    /// Queue a detached build job (survives app exit).
+    QueueBuild {
+        /// UUIDv5 book id.
+        book_id: String,
+        /// Chapters/pages/device selection.
+        selection: scribe_client::Selection,
+    },
+    /// Read the helper's persisted settings (keep-awake toggle state).
+    RefreshSettings,
+    /// Persist the keep-awake toggle helper-side.
+    SetKeepAwake {
+        /// Hold `SetThreadExecutionState` while any job runs.
+        keep_awake: bool,
+    },
     /// Remove a book: cancel its live jobs, then delete its staged source,
     /// work dir, and hash-matched bundles (never outside the workspace).
     DeleteBook {
@@ -303,6 +324,29 @@ pub enum WorkerEvent {
     },
     /// Pause/resume refused (shaped file + rule when the helper sent one).
     JobActionFailed {
+        /// Human reason.
+        message: String,
+    },
+    /// Preflight answer for the render panel.
+    Preflight {
+        /// Book the plan covers.
+        book_id: String,
+        /// Counts, estimate, page resolution, range notice.
+        plan: Box<scribe_client::PlanResult>,
+    },
+    /// A build job was queued (the tray owns it from here).
+    BuildQueued {
+        /// Queued job id.
+        job_id: String,
+    },
+    /// Helper's persisted settings (drives the keep-awake checkbox).
+    HelperSettings {
+        /// Keep Windows awake while a job runs.
+        keep_awake: bool,
+    },
+    /// Plan, queue, or settings write refused (shaped when the helper
+    /// sent one).
+    RenderFailed {
         /// Human reason.
         message: String,
     },
@@ -468,6 +512,83 @@ fn worker_loop(
                     }
                 } else {
                     let _ = events.send(WorkerEvent::JobActionFailed {
+                        message: "helper not connected".to_owned(),
+                    });
+                }
+            }
+            Ok(WorkerCmd::PlanRender { book_id, selection }) => {
+                if let Some(client) = &client {
+                    match client.plan_build(&book_id, &selection) {
+                        Ok(plan) => {
+                            let _ = events.send(WorkerEvent::Preflight {
+                                book_id,
+                                plan: Box::new(plan),
+                            });
+                        }
+                        Err(err) => {
+                            let _ = events.send(WorkerEvent::RenderFailed {
+                                message: err.to_string(),
+                            });
+                        }
+                    }
+                } else {
+                    let _ = events.send(WorkerEvent::RenderFailed {
+                        message: "helper not connected".to_owned(),
+                    });
+                }
+            }
+            Ok(WorkerCmd::QueueBuild { book_id, selection }) => {
+                if let Some(client) = &client {
+                    match client.queue_build(&book_id, &selection) {
+                        Ok(build) => {
+                            let _ = events.send(WorkerEvent::BuildQueued {
+                                job_id: build.job_id,
+                            });
+                        }
+                        Err(err) => {
+                            let _ = events.send(WorkerEvent::RenderFailed {
+                                message: err.to_string(),
+                            });
+                        }
+                    }
+                } else {
+                    let _ = events.send(WorkerEvent::RenderFailed {
+                        message: "helper not connected".to_owned(),
+                    });
+                }
+            }
+            Ok(WorkerCmd::RefreshSettings) => {
+                if let Some(client) = &client {
+                    match client.settings() {
+                        Ok(settings) => {
+                            let _ = events.send(WorkerEvent::HelperSettings {
+                                keep_awake: settings.keep_awake,
+                            });
+                        }
+                        Err(err) => {
+                            let _ = events.send(WorkerEvent::RenderFailed {
+                                message: err.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            Ok(WorkerCmd::SetKeepAwake { keep_awake }) => {
+                if let Some(client) = &client {
+                    match client.update_settings(Some(keep_awake), None) {
+                        Ok(settings) => {
+                            let _ = events.send(WorkerEvent::HelperSettings {
+                                keep_awake: settings.keep_awake,
+                            });
+                        }
+                        Err(err) => {
+                            let _ = events.send(WorkerEvent::RenderFailed {
+                                message: err.to_string(),
+                            });
+                        }
+                    }
+                } else {
+                    let _ = events.send(WorkerEvent::RenderFailed {
                         message: "helper not connected".to_owned(),
                     });
                 }
