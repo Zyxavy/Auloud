@@ -277,6 +277,47 @@ mod tests {
     }
 
     #[test]
+    fn null_metadata_fields_parse() {
+        // Owner case: fresh PDF upload with no readable metadata. The scan
+        // emits null author/source fields; `#[serde(default)]` alone rejects
+        // explicit null, so these must be Option.
+        let row: scribe_client::BookSummary = serde_json::from_value(serde_json::json!({
+            "id": "book-1",
+            "title": "Kent Andrew Parejas-1",
+            "author": null,
+            "source_file": null,
+            "source_type": null,
+            "chapters": 0,
+            "sentences": 0,
+            "drafted": false,
+            "cast_edited": false,
+            "rendering": false,
+            "rendering_percent": null,
+            "draft_status": "drafting",
+            "bundles": 0,
+            "valid": false,
+            "on_tablet": false,
+        }))
+        .expect("nulls parse");
+        assert_eq!(row.author, None);
+        assert_eq!(row.source_file, None);
+        assert_eq!(row.source_type, None);
+        let detail: scribe_client::BookDetail = serde_json::from_value(serde_json::json!({
+            "id": "book-1",
+            "title": "Kent Andrew Parejas-1",
+            "author": null,
+            "source_file": null,
+            "source_sha256": null,
+            "drafted": false,
+            "draft_status": "drafting",
+            "cast_edited": false,
+        }))
+        .expect("nulls parse");
+        assert_eq!(detail.author, None);
+        assert!(!detail.cast_edited);
+    }
+
+    #[test]
     fn long_titles_truncate_on_char_boundaries() {
         assert_eq!(short_title("Short"), "Short");
         let long = "A".repeat(200);

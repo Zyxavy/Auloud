@@ -9,8 +9,9 @@
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::settings::Settings;
@@ -257,15 +258,26 @@ pub enum WorkerEvent {
     },
 }
 
-/// Start the worker thread (owns the child; see module docs).
-pub fn spawn_worker(settings: Settings) -> (Sender<WorkerCmd>, Receiver<WorkerEvent>) {
+/// Start the worker thread (owns the child; see module docs). The returned
+/// flag stops a blocking startup wait: `on_exit` sets it alongside Shutdown
+/// so closing mid-spawn cannot orphan the helper.
+pub fn spawn_worker(
+    settings: Settings,
+) -> (Sender<WorkerCmd>, Receiver<WorkerEvent>, Arc<AtomicBool>) {
     let (cmd_tx, cmd_rx) = mpsc::channel();
     let (event_tx, event_rx) = mpsc::channel();
-    std::thread::spawn(move || worker_loop(settings, cmd_rx, event_tx));
-    (cmd_tx, event_rx)
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker_stop = stop.clone();
+    std::thread::spawn(move || worker_loop(settings, cmd_rx, event_tx, worker_stop));
+    (cmd_tx, event_rx, stop)
 }
 
-fn worker_loop(settings: Settings, commands: Receiver<WorkerCmd>, events: Sender<WorkerEvent>) {
+fn worker_loop(
+    settings: Settings,
+    commands: Receiver<WorkerCmd>,
+    events: Sender<WorkerEvent>,
+    stop: Arc<AtomicBool>,
+) {
     let mut child: Option<Child> = None;
     let mut client: Option<scribe_client::Client> = None;
     let mut selected: Option<String> = None;
@@ -277,7 +289,7 @@ fn worker_loop(settings: Settings, commands: Receiver<WorkerCmd>, events: Sender
                     continue;
                 }
                 let token = generate_token();
-                match spawn_verified(&settings, &token) {
+                match spawn_verified(&settings, &token, &stop) {
                     Ok((process, verified)) => {
                         let base_url = verified.base_url().to_owned();
                         child = Some(process);
@@ -387,9 +399,11 @@ fn send_detail(client: &scribe_client::Client, book_id: &str, events: &Sender<Wo
     }
 }
 /// Spawn + wait-ready + health + version; the child and bound client.
+/// `stop` aborts a blocking startup wait (set alongside Shutdown).
 fn spawn_verified(
     settings: &Settings,
     token: &str,
+    stop: &AtomicBool,
 ) -> Result<(Child, scribe_client::Client), WorkerEvent> {
     let exe_dir = std::env::current_exe()
         .ok()
@@ -431,14 +445,12 @@ fn spawn_verified(
     })?;
     let stdout = process.stdout.take();
     let stderr = process.stderr.take();
-    let (port, stdout_rest) = match wait_ready(stdout, READY_TIMEOUT) {
+    let (port, stdout_rest) = match wait_ready(stdout, READY_TIMEOUT, stop) {
         Some(found) => found,
         None => {
-            // Exited (or silent) before ready: the stderr tail usually names
-            // the cause (a held workspace lock prints it). Distinguish first:
-            // a live-but-silent child is killed (kill-then-wait, so neither
-            // the wait nor the read below can block); an exited one keeps
-            // its code. Inverted order here would park the worker forever.
+            // Exited, silent, or shutting down before ready: distinguish
+            // first so neither the wait nor the read below can block (a
+            // live child is killed; an exited one keeps its code).
             let exited = process.try_wait().ok().flatten();
             if exited.is_none() {
                 process.kill().ok();
@@ -449,27 +461,10 @@ fn spawn_verified(
                 use std::io::Read as _;
                 errors.read_to_string(&mut tail).ok();
             }
-            let tail = tail_chars(&tail, 500);
-            let code = status
-                .and_then(|s| s.code())
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "?".to_owned());
-            let tail = if tail.is_empty() {
-                String::new()
-            } else {
-                format!(": {tail}")
-            };
-            return Err(WorkerEvent::Failed {
-                message: if exited.is_some() {
-                    format!("helper exited during startup (code {code}){tail}")
-                } else if tail.is_empty() {
-                    "no ready line in 120 s (killed silent child; \
-                     see helper.log in the workspace)"
-                        .to_owned()
-                } else {
-                    format!("no ready line in 120 s (killed; last output{tail})")
-                },
-            });
+            return Err(startup_failure(
+                status.and_then(|s| s.code()).map(|c| c as u32),
+                &tail,
+            ));
         }
     };
     // Ready: drain both pipes into the void from here on (a running helper
@@ -525,6 +520,29 @@ fn spawn_verified(
     }
 }
 
+/// Failure message for a spawn that never verified (pure: unit-tested).
+/// An exited child names its code and tail (usually a held workspace lock);
+/// a killed silent child says so. Nothing here blocks.
+fn startup_failure(code: Option<u32>, tail: &str) -> WorkerEvent {
+    let tail = tail_chars(tail, 500);
+    let mut message = match code {
+        Some(code) => format!("helper exited during startup (code {code})"),
+        None => "no ready line in 120 s (killed silent child)".to_owned(),
+    };
+    if tail.is_empty() {
+        message.push_str("; see helper.log in the workspace");
+    } else {
+        message.push_str(&format!(": {tail}"));
+        if tail.contains("ui-lock-held") {
+            message.push_str(
+                ". If no Auloud window is open, that process is orphaned: \
+                 stop it in Task Manager, then press Retry",
+            );
+        }
+    }
+    WorkerEvent::Failed { message }
+}
+
 /// Last `limit` chars of child output for failure messages (char-safe).
 fn tail_chars(text: &str, limit: usize) -> String {
     let trimmed = text.trim();
@@ -539,32 +557,49 @@ fn tail_chars(text: &str, limit: usize) -> String {
 
 /// First ready port from piped stdout, plus the reader positioned after it
 /// (the caller drains the rest; an undrained pipe would stall a running
-/// helper once full). `None` port means timeout or closed pipe.
+/// helper once full). `None` port means timeout, closed pipe, or shutdown.
+/// The blocking read lives on its own thread so `stop` (set by `on_exit`)
+/// interrupts the wait: closing mid-spawn kills the child instead of
+/// orphaning it. The reader thread always ends (EOF follows the kill).
 fn wait_ready(
     stdout: Option<std::process::ChildStdout>,
     timeout: Duration,
+    stop: &AtomicBool,
 ) -> Option<(u16, BufReader<std::process::ChildStdout>)> {
     let stdout = stdout?;
-    let start = Instant::now();
-    // Blocking line reads: the child logs steadily while starting (verified
-    // across the packaging runs), and EOF means it died. A completely silent
-    // hang past the ceiling is the accepted edge (documented, not hidden);
-    // the UI thread stays usable throughout.
-    let mut reader = BufReader::new(stdout);
-    let mut line = String::new();
-    loop {
-        if start.elapsed() > timeout {
-            return None;
-        }
-        line.clear();
-        match reader.read_line(&mut line) {
-            Ok(0) => return None,
-            Ok(_) => {
-                if let Some(port) = parse_ready_port(&line) {
-                    return Some((port, reader));
+    let (found_tx, found_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line) {
+                Ok(0) | Err(_) => {
+                    found_tx.send(None).ok();
+                    break;
+                }
+                Ok(_) => {
+                    if let Some(port) = parse_ready_port(&line) {
+                        found_tx.send(Some((port, reader))).ok();
+                        break;
+                    }
                 }
             }
-            Err(_) => return None,
+        }
+    });
+    let start = Instant::now();
+    loop {
+        if stop.load(Ordering::Relaxed) {
+            return None;
+        }
+        match found_rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(found) => return found,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if start.elapsed() > timeout {
+                    return None;
+                }
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => return None,
         }
     }
 }
@@ -580,6 +615,36 @@ mod tests {
         assert_ne!(first, second);
         assert_eq!(first.len(), 32);
         assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn startup_failure_names_code_tail_and_lock() {
+        let locked = "UiLockError: .scribe-ui.lock: ui-lock-held: workspace is already served";
+        let event = startup_failure(Some(1), locked);
+        match event {
+            WorkerEvent::Failed { message } => {
+                assert!(message.contains("code 1"), "{message}");
+                assert!(message.contains("ui-lock-held"), "{message}");
+                assert!(message.contains("Task Manager"), "{message}");
+            }
+            _ => panic!("want Failed, got {event:?}"),
+        }
+        let event = startup_failure(None, "");
+        match event {
+            WorkerEvent::Failed { message } => {
+                assert!(message.contains("killed silent child"), "{message}");
+                assert!(message.contains("helper.log"), "{message}");
+            }
+            _ => panic!("want Failed, got {event:?}"),
+        }
+        let event = startup_failure(None, "some output");
+        match event {
+            WorkerEvent::Failed { message } => {
+                assert!(message.contains("some output"), "{message}");
+                assert!(!message.contains("Task Manager"), "{message}");
+            }
+            _ => panic!("want Failed, got {event:?}"),
+        }
     }
 
     #[test]

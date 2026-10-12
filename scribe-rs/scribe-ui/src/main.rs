@@ -71,6 +71,7 @@ struct App {
     machine: State,
     worker_tx: std::sync::mpsc::Sender<WorkerCmd>,
     worker_rx: std::sync::mpsc::Receiver<WorkerEvent>,
+    shutdown: std::sync::Arc<std::sync::atomic::AtomicBool>,
     screen: Screen,
     workspace_edit: String,
     device_edit: String,
@@ -88,7 +89,7 @@ struct App {
 impl App {
     fn new() -> Self {
         let settings = Settings::load();
-        let (worker_tx, worker_rx) = helper::spawn_worker(settings.clone());
+        let (worker_tx, worker_rx, shutdown) = helper::spawn_worker(settings.clone());
         worker_tx
             .send(WorkerCmd::Spawn)
             .expect("worker takes commands");
@@ -104,6 +105,7 @@ impl App {
             machine: State::Starting { attempt: 0 },
             worker_tx,
             worker_rx,
+            shutdown,
             screen: Screen::Books,
             notice: String::new(),
             books: Vec::new(),
@@ -317,12 +319,7 @@ impl App {
         if !self.detail_note.is_empty() {
             ui.label(&self.detail_note);
         }
-        let cast_edited = self
-            .books
-            .iter()
-            .find(|book| book.id == id)
-            .map(|book| book.cast_edited)
-            .unwrap_or(false);
+        let cast_edited = detail.cast_edited;
         for step in scribe_ui::books::stepper(detail, cast_edited) {
             let mark = match step.status {
                 scribe_ui::books::StepStatus::Done => "done",
@@ -444,6 +441,10 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self) {
+        // Flag first so a blocking startup wait aborts; the message then
+        // tells the worker to kill the child on its way out.
+        self.shutdown
+            .store(true, std::sync::atomic::Ordering::SeqCst);
         self.worker_tx.send(WorkerCmd::Shutdown).ok();
         self.settings.save().ok();
     }
