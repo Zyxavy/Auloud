@@ -47,8 +47,8 @@ impl Screen {
         match self {
             Self::Books => "Books (list below; detail stepper in AP3)",
             Self::Jobs => "live jobs + history (same tray as below, expanded)",
-            Self::Cast => "Slice 19: cast table, audition, overrides",
-            Self::Voices => "Slice 19: voices view, engine selector",
+            Self::Cast => "per-book Cast section (below the detail stepper)",
+            Self::Voices => "audition voices (list below)",
             Self::Validate => "Slice 20: validate list, transfer, models",
             Self::Settings => "here: workspace, device, helper path",
         }
@@ -108,7 +108,22 @@ struct App {
     match_speaker: String,
     report_md: Option<String>,
     show_report: bool,
+    voices_engine: String,
+    voices: Option<scribe_client::VoicesResponse>,
+    voices_for: Option<String>,
+    voices_note: String,
+    audio: Option<AudioOut>,
     pending_remove: Option<String>,
+}
+
+/// Audition playback (CS3): the device handle must outlive the player.
+struct AudioOut {
+    /// OS audio sink (dropping it ends playback).
+    _handle: rodio::MixerDeviceSink,
+    /// Queued clips (one voice at a time; a new Play cuts the old).
+    player: rodio::Player,
+    /// Voice on the player (empty when idle).
+    track: String,
 }
 
 impl App {
@@ -162,6 +177,11 @@ impl App {
             match_speaker: String::new(),
             report_md: None,
             show_report: false,
+            voices_engine: "kokoro".to_owned(),
+            voices: None,
+            voices_for: None,
+            voices_note: String::new(),
+            audio: None,
             pending_remove: None,
         }
     }
@@ -310,6 +330,38 @@ impl App {
                         self.show_report = true;
                     }
                 }
+                WorkerEvent::Voices { engine, response } => {
+                    if self.voices_engine == engine {
+                        self.voices = Some(*response);
+                        self.voices_note.clear();
+                    }
+                }
+                WorkerEvent::Wav { name, bytes } => match self.ensure_audio() {
+                    Ok(()) => match scribe_ui::cast::decode_wav(&bytes) {
+                        Ok(source) => {
+                            if let Some(audio) = self.audio.as_mut() {
+                                audio.player.stop();
+                                audio.player.append(source);
+                                audio.track = name;
+                            }
+                            self.voices_note.clear();
+                        }
+                        Err(message) => {
+                            self.voices_note = message;
+                        }
+                    },
+                    Err(message) => {
+                        self.voices_note = message;
+                    }
+                },
+                WorkerEvent::SampleQueued { job_id } => {
+                    self.voices_note = format!(
+                        "sample queued ({job_id}): press Play again when the tray shows it done"
+                    );
+                }
+                WorkerEvent::VoicesFailed { message } => {
+                    self.voices_note = message;
+                }
                 WorkerEvent::Deleted { book_id } => {
                     if self.selected.as_deref() == Some(&book_id) {
                         self.selected = None;
@@ -399,8 +451,104 @@ impl App {
             self.jobs_ui(ui);
             return;
         }
+        if self.screen == Screen::Voices {
+            self.voices_ui(ui);
+            return;
+        }
         ui.heading(egui::RichText::new(self.screen.title()).color(rgb(theme::OXBLOOD)));
         ui.label(self.screen.lands_in());
+    }
+
+    /// Lazily open the OS audio sink (first Play only; headless machines
+    /// get a note instead of a crash).
+    fn ensure_audio(&mut self) -> Result<(), String> {
+        if self.audio.is_none() {
+            let handle = rodio::DeviceSinkBuilder::open_default_sink()
+                .map_err(|err| format!("no audio device: {err:?}"))?;
+            let player = rodio::Player::connect_new(handle.mixer());
+            self.audio = Some(AudioOut {
+                _handle: handle,
+                player,
+                track: String::new(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Voices screen (CS3): engine selector, voice list with audition,
+    /// sample sentence. Clips fetch on Play (queued jobs seed them).
+    fn voices_ui(&mut self, ui: &mut egui::Ui) {
+        ui.heading(egui::RichText::new("Voices").color(rgb(theme::OXBLOOD)));
+        if !self.voices_note.is_empty() {
+            ui.label(&self.voices_note);
+        }
+        if let Some(audio) = self.audio.as_ref() {
+            if !audio.player.empty() {
+                ui.horizontal(|ui| {
+                    ui.label(format!("playing {}", audio.track));
+                    if ui.button("Stop").clicked() {
+                        audio.player.stop();
+                    }
+                });
+            }
+        }
+        ui.horizontal(|ui| {
+            ui.label("Engine:");
+            for engine in scribe_ui::cast::ENGINES {
+                ui.radio_value(&mut self.voices_engine, engine.to_owned(), engine);
+            }
+            if ui.button("Reload").clicked() {
+                self.voices_for = None;
+            }
+        });
+        if self.voices_for.as_deref() != Some(self.voices_engine.as_str()) {
+            self.voices_for = Some(self.voices_engine.clone());
+            self.worker_tx
+                .send(WorkerCmd::RefreshVoices {
+                    engine: self.voices_engine.clone(),
+                })
+                .ok();
+        }
+        let response = match self
+            .voices
+            .as_ref()
+            .filter(|response| response.engine == self.voices_engine)
+        {
+            Some(response) => response.clone(),
+            None => {
+                if self.voices_note.is_empty() {
+                    ui.spinner();
+                    ui.label("Loading voices…");
+                }
+                return;
+            }
+        };
+        if !response.sample_text.is_empty() {
+            ui.label(format!("Sample: {}", response.sample_text));
+        }
+        if response.details.is_empty() {
+            ui.label("no voices listed for this engine");
+            return;
+        }
+        let engine = response.engine.clone();
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for voice in &response.details {
+                ui.horizontal(|ui| {
+                    ui.label(format!(
+                        "{} ({} {})",
+                        voice.name, voice.locale, voice.gender
+                    ));
+                    if ui.button("Play").clicked() {
+                        self.worker_tx
+                            .send(WorkerCmd::PlayVoice {
+                                engine: engine.clone(),
+                                name: voice.name.clone(),
+                            })
+                            .ok();
+                    }
+                });
+            }
+        });
     }
 
     /// Jobs screen (JP1): the tray expanded (live rows + full history).

@@ -160,6 +160,7 @@ fn recorded_voices_parse() {
     assert!(!voices.voices.is_empty());
     assert_eq!(voices.engine, "kokoro");
     assert!(!voices.text_hash.is_empty());
+    assert!(!voices.sample_text.is_empty(), "audition sentence shown");
     let initial: SampleResult = read_json("sample-initial.json");
     assert!(!initial.voices.is_empty());
     if initial.cached {

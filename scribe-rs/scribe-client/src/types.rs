@@ -349,6 +349,9 @@ pub struct VoicesResponse {
     /// 12-hex hash of the audition sentence.
     #[serde(default)]
     pub text_hash: String,
+    /// Sentence every audition clip reads.
+    #[serde(default)]
+    pub sample_text: String,
     /// Per-voice locale/gender rows.
     #[serde(default)]
     pub details: Vec<VoiceDetail>,

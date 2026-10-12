@@ -6,6 +6,7 @@
 //! here, never on the UI thread. The token travels by environment (never
 //! argv, never logs).
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -250,6 +251,18 @@ pub enum WorkerCmd {
         /// UUIDv5 book id.
         book_id: String,
     },
+    /// Load the voice list for an engine (dropdowns + voices screen).
+    RefreshVoices {
+        /// Engine id (`kokoro | piper`).
+        engine: String,
+    },
+    /// Fetch an audition clip (cached bytes, else its sample job).
+    PlayVoice {
+        /// Engine id for seeding when uncached.
+        engine: String,
+        /// Voice id.
+        name: String,
+    },
     /// Apply cast PATCH ops atomically (voice, speed, first-person).
     PatchCast {
         /// UUIDv5 book id.
@@ -424,6 +437,30 @@ pub enum WorkerEvent {
         /// Raw `cast_report.md`.
         markdown: String,
     },
+    /// Voice list for the voices screen.
+    Voices {
+        /// Engine the list covers.
+        engine: String,
+        /// Full `GET voices` document.
+        response: Box<scribe_client::VoicesResponse>,
+    },
+    /// Audition clip bytes, ready to play.
+    Wav {
+        /// Voice the clip covers.
+        name: String,
+        /// Raw wav bytes.
+        bytes: Vec<u8>,
+    },
+    /// Audition clip is rendering (the tray owns the job).
+    SampleQueued {
+        /// Sample job id.
+        job_id: String,
+    },
+    /// Voices load, seed, or clip fetch refused.
+    VoicesFailed {
+        /// Human reason.
+        message: String,
+    },
     /// A book and its files are gone.
     Deleted {
         /// Removed book id.
@@ -459,6 +496,8 @@ fn worker_loop(
     let mut child: Option<Child> = None;
     let mut client: Option<scribe_client::Client> = None;
     let mut selected: Option<String> = None;
+    // Audition clips by `engine/name` (tiny, immutable upstream).
+    let mut wavs: HashMap<String, Vec<u8>> = HashMap::new();
     loop {
         match commands.recv_timeout(WATCH_POLL) {
             Ok(WorkerCmd::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -781,6 +820,88 @@ fn worker_loop(
                 } else {
                     let _ = events.send(WorkerEvent::CastFailed {
                         book_id,
+                        message: "helper not connected".to_owned(),
+                    });
+                }
+            }
+            Ok(WorkerCmd::RefreshVoices { engine }) => {
+                if let Some(client) = &client {
+                    match client.voices(&engine) {
+                        Ok(response) => {
+                            let _ = events.send(WorkerEvent::Voices {
+                                engine,
+                                response: Box::new(response),
+                            });
+                        }
+                        Err(err) => {
+                            let _ = events.send(WorkerEvent::VoicesFailed {
+                                message: err.to_string(),
+                            });
+                        }
+                    }
+                } else {
+                    let _ = events.send(WorkerEvent::VoicesFailed {
+                        message: "helper not connected".to_owned(),
+                    });
+                }
+            }
+            Ok(WorkerCmd::PlayVoice { engine, name }) => {
+                if let Some(client) = &client {
+                    // One fetch per voice per session: clips are tiny and
+                    // immutable-cached server-side, so memory stays flat.
+                    let key = format!("{engine}/{name}");
+                    let mut bytes = wavs.get(&key).cloned();
+                    if bytes.is_none() {
+                        match client.voice_wav(&name) {
+                            Ok(fetched) => {
+                                wavs.insert(key.clone(), fetched.clone());
+                                bytes = Some(fetched);
+                            }
+                            Err(err) if matches!(&err, scribe_client::Error::Http { error, .. } if error.rule == "sample-missing") =>
+                            {
+                                // Seed the clip, then play on the next
+                                // press (the tray shows the seed job).
+                                let request = scribe_client::SampleRequest {
+                                    voices: Some(vec![name.clone()]),
+                                    regenerate: None,
+                                    engine: Some(engine),
+                                };
+                                match client.sample_voices(&request) {
+                                    Ok(sample) if sample.cached => match client.voice_wav(&name) {
+                                        Ok(fetched) => {
+                                            wavs.insert(key, fetched.clone());
+                                            bytes = Some(fetched);
+                                        }
+                                        Err(err) => {
+                                            let _ = events.send(WorkerEvent::VoicesFailed {
+                                                message: err.to_string(),
+                                            });
+                                        }
+                                    },
+                                    Ok(sample) => {
+                                        let _ = events.send(WorkerEvent::SampleQueued {
+                                            job_id: sample.job_id.unwrap_or_default(),
+                                        });
+                                    }
+                                    Err(err) => {
+                                        let _ = events.send(WorkerEvent::VoicesFailed {
+                                            message: err.to_string(),
+                                        });
+                                    }
+                                }
+                            }
+                            Err(err) => {
+                                let _ = events.send(WorkerEvent::VoicesFailed {
+                                    message: err.to_string(),
+                                });
+                            }
+                        }
+                    }
+                    if let Some(bytes) = bytes {
+                        let _ = events.send(WorkerEvent::Wav { name, bytes });
+                    }
+                } else {
+                    let _ = events.send(WorkerEvent::VoicesFailed {
                         message: "helper not connected".to_owned(),
                     });
                 }
