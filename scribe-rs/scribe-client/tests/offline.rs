@@ -7,9 +7,9 @@ use std::io::Cursor;
 use std::path::PathBuf;
 
 use scribe_client::{
-    check_compatible, BookDetail, BuildResult, CastPayload, EventStream, Health, Job, PatchResult,
-    PlanResult, SampleResult, Settings, UploadResult, ValidateResult, Versions, VoicesResponse,
-    SUPPORTED_API_VERSION,
+    check_compatible, BookDetail, BuildResult, CastPayload, CastReport, EventStream, Health, Job,
+    PatchResult, PlanResult, QuoteEntry, QuotesPage, SampleResult, Settings, UploadResult,
+    ValidateResult, Versions, VoicesResponse, SUPPORTED_API_VERSION,
 };
 
 fn data(name: &str) -> PathBuf {
@@ -130,6 +130,28 @@ fn recorded_pause_resume_shapes_parse() {
     assert_eq!(resumed.state, "running");
     assert_eq!(resumed.book_id, paused.book_id);
     assert!(resumed.summary.audio_ms > 0);
+}
+
+#[test]
+fn recorded_quotes_and_report_parse() {
+    // Synthesized from the route shapes (app.py `_quotes`, `_cast_report`;
+    // same commit that adds the calls). Keys eyed against the code.
+    let page: QuotesPage = read_json("quotes.json");
+    assert_eq!(page.confidence, "low");
+    assert_eq!(page.total, 2);
+    assert_eq!(page.quotes.len(), 2);
+    let first = &page.quotes[0];
+    assert_eq!((first.chapter, first.block, first.quote), (1, 8, 1));
+    assert_eq!(first.resolved.as_deref(), Some("default_female"));
+    let _: QuoteEntry = serde_json::from_value(serde_json::json!({
+        "chapter": 1, "block": 8, "quote": 1,
+        "speaker": "Alice", "confidence": "low", "text": "Run!",
+    }))
+    .expect("report subset parses without rule/resolved");
+    let report: CastReport = read_json("cast-report.json");
+    assert!(!report.markdown.is_empty());
+    assert_eq!(report.low_confidence.len(), 1);
+    assert_eq!(report.low_confidence[0].speaker, "Alice");
 }
 
 #[test]

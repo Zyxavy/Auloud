@@ -13,13 +13,15 @@ mod sse;
 mod types;
 
 pub use client::{
+    cast_op_add_override_match, cast_op_add_override_quote, cast_op_remove_override_quote,
     cast_op_set_first_person, cast_op_set_speed, cast_op_set_voice, check_compatible, Client,
     SampleRequest, Selection, SUPPORTED_API_VERSION, TOKEN_HEADER,
 };
 pub use error::{ApiError, Error};
 pub use sse::{Event, EventStream};
 pub use types::{
-    AffectedQuotes, BookDetail, BookSummary, BuildResult, BundleEntry, CastPayload, CastStat,
-    ChapterEntry, Health, Job, JobSummary, MinorEntry, PatchResult, PlanResult, SampleResult,
-    Settings, UploadResult, ValidateResult, Versions, VoiceDetail, VoicesResponse,
+    AffectedQuotes, BookDetail, BookSummary, BuildResult, BundleEntry, CastPayload, CastReport,
+    CastStat, ChapterEntry, Health, Job, JobSummary, MinorEntry, PatchResult, PlanResult,
+    QuoteEntry, QuotesPage, SampleResult, Settings, UploadResult, ValidateResult, Versions,
+    VoiceDetail, VoicesResponse,
 };

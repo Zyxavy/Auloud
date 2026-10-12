@@ -100,6 +100,14 @@ struct App {
     cast_conflict: bool,
     speed_edits: std::collections::HashMap<String, String>,
     show_minor: bool,
+    quotes: Option<scribe_client::QuotesPage>,
+    quotes_low_only: bool,
+    quotes_page: u64,
+    override_speakers: std::collections::HashMap<(u64, u64, u64), String>,
+    match_text: String,
+    match_speaker: String,
+    report_md: Option<String>,
+    show_report: bool,
     pending_remove: Option<String>,
 }
 
@@ -146,6 +154,14 @@ impl App {
             cast_conflict: false,
             speed_edits: std::collections::HashMap::new(),
             show_minor: false,
+            quotes: None,
+            quotes_low_only: true,
+            quotes_page: 1,
+            override_speakers: std::collections::HashMap::new(),
+            match_text: String::new(),
+            match_speaker: String::new(),
+            report_md: None,
+            show_report: false,
             pending_remove: None,
         }
     }
@@ -239,6 +255,9 @@ impl App {
                         self.cast_voices = voices;
                         self.cast_note.clear();
                         self.cast_conflict = false;
+                        // Quotes follow the cast (one fetch per load, not
+                        // per poll); the picker stays in step with edits.
+                        self.refresh_quotes(&book_id);
                     }
                 }
                 WorkerEvent::CastPatched { book_id, patch } => {
@@ -273,6 +292,17 @@ impl App {
                     if self.selected.as_deref() == Some(&book_id) {
                         self.cast_note = message;
                         self.cast_conflict = false;
+                    }
+                }
+                WorkerEvent::Quotes { book_id, page } => {
+                    if self.selected.as_deref() == Some(&book_id) {
+                        self.quotes = Some(*page);
+                    }
+                }
+                WorkerEvent::Report { book_id, markdown } => {
+                    if self.selected.as_deref() == Some(&book_id) {
+                        self.report_md = Some(markdown);
+                        self.show_report = true;
                     }
                 }
                 WorkerEvent::Deleted { book_id } => {
@@ -613,6 +643,14 @@ impl App {
             self.cast_note.clear();
             self.cast_conflict = false;
             self.speed_edits.clear();
+            self.quotes = None;
+            self.quotes_low_only = true;
+            self.quotes_page = 1;
+            self.override_speakers.clear();
+            self.match_text.clear();
+            self.match_speaker.clear();
+            self.report_md = None;
+            self.show_report = false;
             self.worker_tx
                 .send(WorkerCmd::SelectBook {
                     book_id: id.clone(),
@@ -971,14 +1009,7 @@ impl App {
             egui::ComboBox::from_id_salt("first-person")
                 .selected_text(&first)
                 .show_ui(ui, |ui| {
-                    // Narrator plus real characters only: the server
-                    // rejects generics (`_known_speakers` in cast.py).
-                    for option in ["narrator".to_owned()].into_iter().chain(
-                        cast.stats
-                            .iter()
-                            .filter(|stat| stat.kind == "character")
-                            .map(|stat| stat.character.clone()),
-                    ) {
+                    for option in scribe_ui::cast::speaker_options(&cast.stats) {
                         ui.selectable_value(&mut first, option.clone(), option);
                     }
                 });
@@ -1017,6 +1048,210 @@ impl App {
                         entry.speaker, entry.lines, entry.resolved
                     ));
                 }
+            }
+        }
+        let speakers = scribe_ui::cast::speaker_options(&cast.stats);
+        self.quotes_ui(ui, &id, cast.mtime, &speakers);
+        self.report_ui(ui, &id);
+    }
+
+    /// Ask the worker for the current quotes page (filter + page state).
+    fn refresh_quotes(&self, book_id: &str) {
+        let confidence = if self.quotes_low_only { "low" } else { "all" };
+        self.worker_tx
+            .send(WorkerCmd::RefreshQuotes {
+                book_id: book_id.to_owned(),
+                confidence: confidence.to_owned(),
+                page: self.quotes_page,
+            })
+            .ok();
+    }
+
+    /// Override picker (CS2): one page of quotes with per-quote speaker
+    /// assignment and clearing, plus a regex row. Every write is one
+    /// atomic PATCH; the echo's affected count is the rebuild preflight.
+    fn quotes_ui(&mut self, ui: &mut egui::Ui, book_id: &str, mtime: f64, speakers: &[String]) {
+        ui.separator();
+        ui.heading(egui::RichText::new("Overrides").color(rgb(theme::OXBLOOD)));
+        ui.horizontal(|ui| {
+            let mut low = self.quotes_low_only;
+            ui.checkbox(&mut low, "Low confidence only");
+            if low != self.quotes_low_only {
+                self.quotes_low_only = low;
+                self.quotes_page = 1;
+                self.refresh_quotes(book_id);
+            }
+            if let Some(page) = self.quotes.as_ref().filter(|page| page.book_id == book_id) {
+                ui.label(scribe_ui::cast::page_window(
+                    page.total,
+                    page.page,
+                    page.per_page,
+                ));
+            }
+        });
+        let page = match self.quotes.clone().filter(|page| page.book_id == book_id) {
+            Some(page) => page,
+            None => {
+                ui.label("Loading quotes…");
+                return;
+            }
+        };
+        ui.horizontal(|ui| {
+            if ui.button("Prev").clicked() && self.quotes_page > 1 {
+                self.quotes_page -= 1;
+                self.refresh_quotes(book_id);
+            }
+            if ui.button("Next").clicked() && page.page.saturating_mul(page.per_page) < page.total {
+                self.quotes_page += 1;
+                self.refresh_quotes(book_id);
+            }
+        });
+        egui::ScrollArea::vertical()
+            .max_height(240.0)
+            .show(ui, |ui| {
+                for quote in &page.quotes {
+                    let key = (quote.chapter, quote.block, quote.quote);
+                    let fallback = quote
+                        .resolved
+                        .clone()
+                        .unwrap_or_else(|| quote.speaker.clone());
+                    let selected = self
+                        .override_speakers
+                        .entry(key)
+                        .or_insert_with(|| fallback.clone())
+                        .clone();
+                    ui.group(|ui| {
+                        ui.label(format!(
+                            "{}.{}.{}: {}",
+                            quote.chapter, quote.block, quote.quote, quote.text
+                        ));
+                        ui.horizontal(|ui| {
+                            ui.label(format!(
+                                "was {}",
+                                quote.resolved.as_deref().unwrap_or(&quote.speaker)
+                            ));
+                            let mut speaker = selected.clone();
+                            egui::ComboBox::from_id_salt(format!(
+                                "override-{}-{}-{}",
+                                quote.chapter, quote.block, quote.quote
+                            ))
+                            .selected_text(&speaker)
+                            .show_ui(ui, |ui| {
+                                for option in speakers {
+                                    ui.selectable_value(&mut speaker, option.clone(), option);
+                                }
+                            });
+                            if speaker != selected {
+                                self.override_speakers.insert(key, speaker.clone());
+                            }
+                            if ui.button("Override").clicked() {
+                                let ops =
+                                    serde_json::json!([scribe_client::cast_op_add_override_quote(
+                                        quote.chapter,
+                                        quote.block,
+                                        quote.quote,
+                                        &speaker
+                                    )]);
+                                self.worker_tx
+                                    .send(WorkerCmd::PatchCast {
+                                        book_id: book_id.to_owned(),
+                                        ops,
+                                        mtime,
+                                    })
+                                    .ok();
+                                self.refresh_quotes(book_id);
+                            }
+                            if ui.button("Clear").clicked() {
+                                let ops = serde_json::json!([
+                                    scribe_client::cast_op_remove_override_quote(
+                                        quote.chapter,
+                                        quote.block,
+                                        quote.quote
+                                    )
+                                ]);
+                                self.worker_tx
+                                    .send(WorkerCmd::PatchCast {
+                                        book_id: book_id.to_owned(),
+                                        ops,
+                                        mtime,
+                                    })
+                                    .ok();
+                                self.refresh_quotes(book_id);
+                            }
+                        });
+                    });
+                }
+            });
+        ui.horizontal(|ui| {
+            ui.label("Match:");
+            ui.text_edit_singleline(&mut self.match_text);
+            let mut speaker = if self.match_speaker.is_empty() {
+                speakers.first().cloned().unwrap_or_default()
+            } else {
+                self.match_speaker.clone()
+            };
+            egui::ComboBox::from_id_salt("override-match")
+                .selected_text(&speaker)
+                .show_ui(ui, |ui| {
+                    for option in speakers {
+                        ui.selectable_value(&mut speaker, option.clone(), option);
+                    }
+                });
+            if speaker != self.match_speaker {
+                self.match_speaker = speaker.clone();
+            }
+            if ui.button("Add match").clicked() {
+                if self.match_text.trim().is_empty() || speaker.is_empty() {
+                    self.cast_note = "match needs a pattern and a speaker".to_owned();
+                } else {
+                    let ops = serde_json::json!([scribe_client::cast_op_add_override_match(
+                        self.match_text.trim(),
+                        &speaker
+                    )]);
+                    self.worker_tx
+                        .send(WorkerCmd::PatchCast {
+                            book_id: book_id.to_owned(),
+                            ops,
+                            mtime,
+                        })
+                        .ok();
+                    self.refresh_quotes(book_id);
+                }
+            }
+        });
+    }
+
+    /// Read-only cast report (CS2): markdown text behind one button.
+    fn report_ui(&mut self, ui: &mut egui::Ui, book_id: &str) {
+        ui.separator();
+        ui.heading(egui::RichText::new("Report").color(rgb(theme::OXBLOOD)));
+        if self.report_md.is_none() {
+            if ui.button("Load report").clicked() {
+                self.worker_tx
+                    .send(WorkerCmd::RefreshReport {
+                        book_id: book_id.to_owned(),
+                    })
+                    .ok();
+            }
+            return;
+        }
+        if ui
+            .button(if self.show_report {
+                "Hide report".to_owned()
+            } else {
+                "Show report".to_owned()
+            })
+            .clicked()
+        {
+            self.show_report = !self.show_report;
+        }
+        if self.show_report {
+            if let Some(markdown) = self.report_md.as_ref() {
+                egui::ScrollArea::vertical()
+                    .max_height(240.0)
+                    .show(ui, |ui| {
+                        ui.label(markdown);
+                    });
             }
         }
     }

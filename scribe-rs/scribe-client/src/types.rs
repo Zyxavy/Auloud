@@ -376,7 +376,7 @@ pub struct SampleResult {
 }
 
 /// One stats row of `GET /api/books/{book_id}/cast`.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct CastStat {
     /// Speaker name (`narrator`, a character, or a generic).
     #[serde(default)]
@@ -472,6 +472,78 @@ pub struct PatchResult {
     /// Ops applied (echo of the request length).
     #[serde(default)]
     pub applied: u64,
+}
+
+/// One dialogue quote (`GET quotes`, report low-confidence lists).
+#[derive(Debug, Clone, Deserialize)]
+pub struct QuoteEntry {
+    /// 1-based chapter index.
+    #[serde(default)]
+    pub chapter: u64,
+    /// Block index.
+    #[serde(default)]
+    pub block: u64,
+    /// Quote index.
+    #[serde(default)]
+    pub quote: u64,
+    /// Quote text.
+    #[serde(default)]
+    pub text: String,
+    /// Attributed surface speaker.
+    #[serde(default)]
+    pub speaker: String,
+    /// `high | low`.
+    #[serde(default)]
+    pub confidence: String,
+    /// Attribution rule that fired.
+    #[serde(default)]
+    pub rule: String,
+    /// Resolved voice owner (quotes route only).
+    #[serde(default)]
+    pub resolved: Option<String>,
+}
+
+/// `GET /api/books/{book_id}/quotes` answer (paged, reading order).
+#[derive(Debug, Clone, Deserialize)]
+pub struct QuotesPage {
+    /// Echo of the book.
+    #[serde(default)]
+    pub book_id: String,
+    /// Quotes matching the filter.
+    #[serde(default)]
+    pub total: u64,
+    /// 1-based page echo.
+    #[serde(default)]
+    pub page: u64,
+    /// Page size echo.
+    #[serde(default)]
+    pub per_page: u64,
+    /// `all | low` echo.
+    #[serde(default)]
+    pub confidence: String,
+    /// This page's quotes.
+    #[serde(default)]
+    pub quotes: Vec<QuoteEntry>,
+}
+
+/// `GET /api/books/{book_id}/cast/report` answer (read-only).
+#[derive(Debug, Clone, Deserialize)]
+pub struct CastReport {
+    /// Echo of the book.
+    #[serde(default)]
+    pub book_id: String,
+    /// Guard mtime (informational; report never writes).
+    #[serde(default)]
+    pub mtime: f64,
+    /// Raw `cast_report.md`.
+    #[serde(default)]
+    pub markdown: String,
+    /// Escaped HTML twin.
+    #[serde(default)]
+    pub html: String,
+    /// Low-confidence quotes.
+    #[serde(default)]
+    pub low_confidence: Vec<QuoteEntry>,
 }
 
 /// `affected` inside cast save answers.

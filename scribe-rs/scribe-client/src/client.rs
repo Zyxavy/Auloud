@@ -14,8 +14,9 @@ use serde::Serialize;
 use crate::error::{ApiError, Error};
 use crate::sse::EventStream;
 use crate::types::{
-    BookDetail, BookSummary, BuildResult, CastPayload, Health, Job, PatchResult, PlanResult,
-    SampleResult, Settings, UploadResult, ValidateResult, Versions, VoiceDetail, VoicesResponse,
+    BookDetail, BookSummary, BuildResult, CastPayload, CastReport, Health, Job, PatchResult,
+    PlanResult, QuotesPage, SampleResult, Settings, UploadResult, ValidateResult, Versions,
+    VoiceDetail, VoicesResponse,
 };
 
 /// Contract integer this client speaks (docs/api.md section 8).
@@ -65,6 +66,41 @@ pub fn cast_op_set_first_person(value: &str) -> serde_json::Value {
     serde_json::json!({
         "op": "set_first_person",
         "value": value,
+    })
+}
+
+/// One `add_override` PATCH op for a picked quote (chapter/block/quote key).
+pub fn cast_op_add_override_quote(
+    chapter: u64,
+    block: u64,
+    quote: u64,
+    speaker: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "op": "add_override",
+        "chapter": chapter,
+        "block": block,
+        "quote": quote,
+        "speaker": speaker,
+    })
+}
+
+/// One `add_override` PATCH op for a regex match.
+pub fn cast_op_add_override_match(match_: &str, speaker: &str) -> serde_json::Value {
+    serde_json::json!({
+        "op": "add_override",
+        "match": match_,
+        "speaker": speaker,
+    })
+}
+
+/// One `remove_override` PATCH op for a quote key (drops any override there).
+pub fn cast_op_remove_override_quote(chapter: u64, block: u64, quote: u64) -> serde_json::Value {
+    serde_json::json!({
+        "op": "remove_override",
+        "chapter": chapter,
+        "block": block,
+        "quote": quote,
     })
 }
 
@@ -388,6 +424,30 @@ impl Client {
         )
     }
 
+    /// `GET /api/books/{book_id}/cast/report` (read-only markdown twin).
+    pub fn cast_report(&self, book_id: &str) -> Result<CastReport, Error> {
+        self.get_json(&format!("/api/books/{book_id}/cast/report"))
+    }
+
+    /// `GET /api/books/{book_id}/quotes` (paged, reading order).
+    pub fn quotes(
+        &self,
+        book_id: &str,
+        confidence: &str,
+        page: u64,
+        per_page: u64,
+    ) -> Result<QuotesPage, Error> {
+        let response = self
+            .agent
+            .get(&format!("{}/api/books/{book_id}/quotes", self.base))
+            .header(TOKEN_HEADER, &self.token)
+            .query("confidence", confidence)
+            .query("page", page.to_string())
+            .query("per_page", per_page.to_string())
+            .call()?;
+        self.read_json(response)
+    }
+
     /// `GET /api/cast/voices?engine=`.
     pub fn voices(&self, engine: &str) -> Result<VoicesResponse, Error> {
         let response = self
@@ -514,6 +574,33 @@ mod tests {
         assert_eq!(
             cast_op_set_first_person("narrator"),
             serde_json::json!({"op": "set_first_person", "value": "narrator"})
+        );
+        assert_eq!(
+            cast_op_add_override_quote(1, 8, 1, "Bob"),
+            serde_json::json!({
+                "op": "add_override",
+                "chapter": 1,
+                "block": 8,
+                "quote": 1,
+                "speaker": "Bob",
+            })
+        );
+        assert_eq!(
+            cast_op_add_override_match("^\"Run!\"", "Alice"),
+            serde_json::json!({
+                "op": "add_override",
+                "match": "^\"Run!\"",
+                "speaker": "Alice",
+            })
+        );
+        assert_eq!(
+            cast_op_remove_override_quote(1, 8, 1),
+            serde_json::json!({
+                "op": "remove_override",
+                "chapter": 1,
+                "block": 8,
+                "quote": 1,
+            })
         );
     }
 

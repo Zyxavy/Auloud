@@ -236,6 +236,20 @@ pub enum WorkerCmd {
         /// UUIDv5 book id.
         book_id: String,
     },
+    /// Load one quotes page (low-confidence default, reading order).
+    RefreshQuotes {
+        /// UUIDv5 book id.
+        book_id: String,
+        /// `all | low`.
+        confidence: String,
+        /// 1-based page.
+        page: u64,
+    },
+    /// Load the read-only cast report.
+    RefreshReport {
+        /// UUIDv5 book id.
+        book_id: String,
+    },
     /// Apply cast PATCH ops atomically (voice, speed, first-person).
     PatchCast {
         /// UUIDv5 book id.
@@ -395,6 +409,20 @@ pub enum WorkerEvent {
         book_id: String,
         /// Human reason.
         message: String,
+    },
+    /// One quotes page for the override picker.
+    Quotes {
+        /// Book the quotes cover.
+        book_id: String,
+        /// Page echo with rows.
+        page: Box<scribe_client::QuotesPage>,
+    },
+    /// Read-only cast report markdown.
+    Report {
+        /// Book the report covers.
+        book_id: String,
+        /// Raw `cast_report.md`.
+        markdown: String,
     },
     /// A book and its files are gone.
     Deleted {
@@ -698,6 +726,56 @@ fn worker_loop(
                                     message,
                                 });
                             }
+                        }
+                    }
+                } else {
+                    let _ = events.send(WorkerEvent::CastFailed {
+                        book_id,
+                        message: "helper not connected".to_owned(),
+                    });
+                }
+            }
+            Ok(WorkerCmd::RefreshQuotes {
+                book_id,
+                confidence,
+                page,
+            }) => {
+                if let Some(client) = &client {
+                    match client.quotes(&book_id, &confidence, page, crate::cast::QUOTES_PER_PAGE) {
+                        Ok(page) => {
+                            let _ = events.send(WorkerEvent::Quotes {
+                                book_id,
+                                page: Box::new(page),
+                            });
+                        }
+                        Err(err) => {
+                            let _ = events.send(WorkerEvent::CastFailed {
+                                book_id: book_id.clone(),
+                                message: err.to_string(),
+                            });
+                        }
+                    }
+                } else {
+                    let _ = events.send(WorkerEvent::CastFailed {
+                        book_id,
+                        message: "helper not connected".to_owned(),
+                    });
+                }
+            }
+            Ok(WorkerCmd::RefreshReport { book_id }) => {
+                if let Some(client) = &client {
+                    match client.cast_report(&book_id) {
+                        Ok(report) => {
+                            let _ = events.send(WorkerEvent::Report {
+                                book_id,
+                                markdown: report.markdown,
+                            });
+                        }
+                        Err(err) => {
+                            let _ = events.send(WorkerEvent::CastFailed {
+                                book_id: book_id.clone(),
+                                message: err.to_string(),
+                            });
                         }
                     }
                 } else {
