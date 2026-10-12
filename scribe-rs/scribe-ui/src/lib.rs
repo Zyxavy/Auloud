@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
-//! Shared UI code (Slice 16 UI2): design tokens only. Screens and helper
-//! wiring land in later slices; the throwaway spike harness is gone with
-//! the spikes (history preserves it).
+//! Shared UI code (Slice 17 AP1): design tokens, helper lifecycle worker,
+//! lifecycle state machine, and settings. Screens live in `main.rs`.
+
+pub mod helper;
+pub mod machine;
+pub mod settings;
 
 /// Design tokens from `scribe/ui/static/index.html` (light theme).
 pub mod theme {
