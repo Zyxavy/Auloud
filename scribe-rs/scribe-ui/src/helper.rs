@@ -250,6 +250,11 @@ pub enum WorkerEvent {
         /// Human reason.
         message: String,
     },
+    /// Current job list (drives draft progress; the tray owns it later).
+    Jobs {
+        /// Newest-first as reported (order preserved).
+        jobs: Vec<scribe_client::Job>,
+    },
 }
 
 /// Start the worker thread (owns the child; see module docs).
@@ -291,6 +296,9 @@ fn worker_loop(settings: Settings, commands: Receiver<WorkerCmd>, events: Sender
                             let _ = events.send(WorkerEvent::Books { books });
                             if let Some(book_id) = &selected {
                                 send_detail(client, book_id, &events);
+                            }
+                            if let Ok(jobs) = client.list_jobs() {
+                                let _ = events.send(WorkerEvent::Jobs { jobs });
                             }
                         }
                         Err(err) => {
@@ -403,7 +411,15 @@ fn spawn_verified(
         .env(TOKEN_ENV, token)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(Stdio::piped());
+    // No console window for the helper (the app itself is already
+    // window-subsystem); piped stdio is unaffected.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        // CREATE_NO_WINDOW.
+        command.creation_flags(0x08000000);
+    }
     if let Some(work_dir) = &resolved.work_dir {
         command.current_dir(work_dir);
     }
@@ -414,17 +430,52 @@ fn spawn_verified(
         ),
     })?;
     let stdout = process.stdout.take();
-    let port = wait_ready(stdout, READY_TIMEOUT);
-    let port = match port {
-        Some(port) => port,
+    let stderr = process.stderr.take();
+    let (port, stdout_rest) = match wait_ready(stdout, READY_TIMEOUT) {
+        Some(found) => found,
         None => {
+            // Exited (or silent) before ready: the stderr tail usually names
+            // the cause (a held workspace lock prints it); a live-but-silent
+            // child is killed first so the read below cannot block.
+            let status = process.wait().ok();
             process.kill().ok();
-            process.wait().ok();
+            let mut tail = String::new();
+            if let Some(mut errors) = stderr {
+                use std::io::Read as _;
+                errors.read_to_string(&mut tail).ok();
+            }
+            let tail = tail_chars(&tail, 500);
             return Err(WorkerEvent::Failed {
-                message: "no ready line in 120 s (see helper.log in the workspace)".to_owned(),
+                message: format!(
+                    "no ready line in 120 s (exit {code}; see helper.log in the workspace){tail}",
+                    code = status
+                        .and_then(|s| s.code())
+                        .map(|c| c.to_string())
+                        .unwrap_or_else(|| "?".to_owned()),
+                    tail = if tail.is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {tail}")
+                    }
+                ),
             });
         }
     };
+    // Ready: drain both pipes into the void from here on (a running helper
+    // keeps logging; an undrained pipe would stall it once full).
+    std::thread::spawn(move || {
+        use std::io::Read as _;
+        let mut out = stdout_rest;
+        let mut chunk = [0_u8; 8192];
+        while out.read(&mut chunk).is_ok_and(|n| n > 0) {}
+    });
+    if let Some(mut errors) = stderr {
+        std::thread::spawn(move || {
+            use std::io::Read as _;
+            let mut chunk = [0_u8; 8192];
+            while errors.read(&mut chunk).is_ok_and(|n| n > 0) {}
+        });
+    }
     let base_url = format!("http://127.0.0.1:{port}");
     let client = match scribe_client::Client::new(&base_url, token) {
         Ok(client) => client,
@@ -463,8 +514,25 @@ fn spawn_verified(
     }
 }
 
-/// First ready port from piped stdout (None on timeout or closed pipe).
-fn wait_ready(stdout: Option<std::process::ChildStdout>, timeout: Duration) -> Option<u16> {
+/// Last `limit` chars of child output for failure messages (char-safe).
+fn tail_chars(text: &str, limit: usize) -> String {
+    let trimmed = text.trim();
+    if trimmed.chars().count() <= limit {
+        return trimmed.to_owned();
+    }
+    trimmed
+        .chars()
+        .skip(trimmed.chars().count() - limit)
+        .collect()
+}
+
+/// First ready port from piped stdout, plus the reader positioned after it
+/// (the caller drains the rest; an undrained pipe would stall a running
+/// helper once full). `None` port means timeout or closed pipe.
+fn wait_ready(
+    stdout: Option<std::process::ChildStdout>,
+    timeout: Duration,
+) -> Option<(u16, BufReader<std::process::ChildStdout>)> {
     let stdout = stdout?;
     let start = Instant::now();
     // Blocking line reads: the child logs steadily while starting (verified
@@ -482,7 +550,7 @@ fn wait_ready(stdout: Option<std::process::ChildStdout>, timeout: Duration) -> O
             Ok(0) => return None,
             Ok(_) => {
                 if let Some(port) = parse_ready_port(&line) {
-                    return Some(port);
+                    return Some((port, reader));
                 }
             }
             Err(_) => return None,

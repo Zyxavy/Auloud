@@ -252,7 +252,7 @@ pub struct JobSummary {
 }
 
 /// The public job shape behind every jobs route.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct Job {
     /// Job id (`job-` plus hex).
     #[serde(default)]

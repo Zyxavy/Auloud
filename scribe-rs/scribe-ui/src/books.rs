@@ -70,6 +70,21 @@ pub fn short_title(title: &str) -> String {
     }
 }
 
+/// Draft progress line for a book from the jobs list (AP3): the newest
+/// non-terminal draft job's sentence count. `None` when no draft runs.
+pub fn draft_progress(jobs: &[scribe_client::Job], book_id: &str) -> Option<String> {
+    let job = jobs.iter().find(|job| {
+        job.book_id == book_id
+            && job.kind == "draft"
+            && !matches!(job.state.as_str(), "done" | "failed" | "cancelled")
+    })?;
+    Some(format!(
+        "{}: {} sentences",
+        job.state,
+        job.summary.rendered + job.summary.cached
+    ))
+}
+
 /// One-line status chip from the scan state (rendering wins over draft).
 pub fn book_status(book: &scribe_client::BookSummary) -> String {
     if book.rendering {
@@ -234,6 +249,31 @@ mod tests {
             Some("book-2.epub")
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn draft_progress_names_state_and_count() {
+        let running = scribe_client::Job {
+            book_id: "b1".to_owned(),
+            kind: "draft".to_owned(),
+            state: "running".to_owned(),
+            summary: scribe_client::JobSummary {
+                rendered: 40,
+                cached: 10,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(
+            draft_progress(std::slice::from_ref(&running), "b1"),
+            Some("running: 50 sentences".to_owned())
+        );
+        assert_eq!(draft_progress(std::slice::from_ref(&running), "b2"), None);
+        let mut done = running.clone();
+        done.state = "done".to_owned();
+        assert_eq!(draft_progress(std::slice::from_ref(&done), "b1"), None);
+        let empty: Vec<scribe_client::Job> = Vec::new();
+        assert_eq!(draft_progress(&empty, "b1"), None);
     }
 
     #[test]

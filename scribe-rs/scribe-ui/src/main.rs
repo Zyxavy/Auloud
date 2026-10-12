@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Native app shell (Slice 17, egui): window, theme, navigation, helper
 //! lifecycle, settings, and Books. Book detail lands in AP3; other screens
@@ -81,6 +82,7 @@ struct App {
     selected: Option<String>,
     detail: Option<scribe_client::BookDetail>,
     detail_note: String,
+    jobs: Vec<scribe_client::Job>,
 }
 
 impl App {
@@ -110,6 +112,7 @@ impl App {
             selected: None,
             detail: None,
             detail_note: String::new(),
+            jobs: Vec::new(),
         }
     }
 
@@ -144,6 +147,9 @@ impl App {
                 }
                 WorkerEvent::DetailFailed { message } => {
                     self.detail_note = format!("detail failed: {message}");
+                }
+                WorkerEvent::Jobs { jobs } => {
+                    self.jobs = jobs;
                 }
                 WorkerEvent::Connected { base_url } => {
                     self.lifecycle(Event::Connected { base_url });
@@ -251,6 +257,11 @@ impl App {
                             picked = Some(book.id.clone());
                         }
                         ui.label(book_status(book));
+                        if let Some(progress) =
+                            scribe_ui::books::draft_progress(&self.jobs, &book.id)
+                        {
+                            ui.label(progress);
+                        }
                     });
                     ui.horizontal(|ui| {
                         ui.label(format!(
