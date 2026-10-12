@@ -1,7 +1,7 @@
 # Slice 18 Implementation Plan: Jobs Tray and Render Step
 
 Follows `docs/10-V3Roadmap.md` Slice 18, the `rust-ui` skill, and `docs/api.md`.
-Project: the app learns long-running renders — an always-visible tray with
+Project: the app learns long-running renders: an always-visible tray with
 live progress and job controls, a render step with preflight, and a quit
 warning. Books/detail (AP2/AP3) stay as they are.
 
@@ -9,7 +9,7 @@ warning. Books/detail (AP2/AP3) stay as they are.
 
 Make renders first-class: **start a multi-chapter render, watch truthful
 progress with pause/resume/cancel, close the window mid-render, relaunch
-to find it reattached** — and never lose one to a sleep, a quit, or a
+to find it reattached**, and never lose one to a sleep, a quit, or a
 silent stall.
 
 **Done when:**
@@ -181,4 +181,4 @@ several jobs, preflight estimate accuracy on real books, and whether the
 
 Slice 19 builds on this slice: cast table with voice dropdowns and audition
 playback, overrides editor with quote picker and rebuild preflight, voices
-view with the engine selector — all against the jobs flow proven here.
+view with the engine selector: all against the jobs flow proven here.
