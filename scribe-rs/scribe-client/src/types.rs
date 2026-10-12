@@ -28,7 +28,7 @@ pub struct Health {
 }
 
 /// One row of `GET /api/books`.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct BookSummary {
     /// UUIDv5 hex of the source bytes.
     #[serde(default)]
