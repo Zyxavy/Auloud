@@ -2870,6 +2870,7 @@ dependencies = [
  "egui",
  "rfd",
  "scribe-client",
+ "serde_json",
 ]
 
 [[package]]

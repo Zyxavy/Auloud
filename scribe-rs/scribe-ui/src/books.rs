@@ -69,6 +69,117 @@ pub fn book_status(book: &scribe_client::BookSummary) -> String {
     }
 }
 
+/// One stepper row (extract, draft, cast, render, validate, transfer).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StepState {
+    /// Step name.
+    pub label: &'static str,
+    /// Done, pending, or failed.
+    pub status: StepStatus,
+    /// Counts, percents, and hints (stale cast, invalid bundle).
+    pub note: String,
+}
+
+/// Stepper row state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepStatus {
+    /// Artifact present and good.
+    Done,
+    /// Not started or still running.
+    Pending,
+    /// Ran and failed.
+    Failed,
+}
+
+/// Read-only stepper from a book detail payload plus the list's cast-edited
+/// flag (the detail document does not carry it). Pure mapping over recorded
+/// shapes; every branch has a unit test below.
+pub fn stepper(detail: &scribe_client::BookDetail, cast_edited: bool) -> Vec<StepState> {
+    let mut steps = Vec::with_capacity(6);
+    steps.push(StepState {
+        label: "extract",
+        status: if detail.total_sentences > 0 {
+            StepStatus::Done
+        } else {
+            StepStatus::Pending
+        },
+        note: format!("{} sentences", detail.total_sentences),
+    });
+    let (draft_status, draft_note) = match detail.draft_status.as_str() {
+        "done" => (
+            StepStatus::Done,
+            format!("{} chapters", detail.chapters.len()),
+        ),
+        "failed" | "cancelled" => (StepStatus::Failed, format!("draft {}", detail.draft_status)),
+        "drafting" => (StepStatus::Pending, "drafting…".to_owned()),
+        _ => (StepStatus::Pending, "not drafted".to_owned()),
+    };
+    steps.push(StepState {
+        label: "draft",
+        status: draft_status,
+        note: draft_note,
+    });
+    let has_narrator = detail
+        .cast
+        .get("has_narrator")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    steps.push(StepState {
+        label: "cast",
+        status: if has_narrator {
+            StepStatus::Done
+        } else {
+            StepStatus::Pending
+        },
+        note: if cast_edited && has_narrator {
+            "edited since draft: re-render to apply".to_owned()
+        } else if has_narrator {
+            "narrator assigned".to_owned()
+        } else {
+            "no cast yet".to_owned()
+        },
+    });
+    steps.push(StepState {
+        label: "render",
+        status: if detail.bundles.is_empty() {
+            StepStatus::Pending
+        } else {
+            StepStatus::Done
+        },
+        note: if detail.bundles.is_empty() {
+            "no bundles".to_owned()
+        } else {
+            format!("{} bundles", detail.bundles.len())
+        },
+    });
+    let (validate_status, validate_note) = if detail.valid {
+        (StepStatus::Done, "bundle validates".to_owned())
+    } else if detail.bundles.is_empty() {
+        (StepStatus::Pending, "nothing to validate".to_owned())
+    } else {
+        (StepStatus::Failed, "bundle invalid".to_owned())
+    };
+    steps.push(StepState {
+        label: "validate",
+        status: validate_status,
+        note: validate_note,
+    });
+    steps.push(StepState {
+        label: "transfer",
+        status: if detail.on_tablet {
+            StepStatus::Done
+        } else {
+            StepStatus::Pending
+        },
+        note: if detail.on_tablet {
+            "on tablet".to_owned()
+        } else {
+            "not transferred".to_owned()
+        },
+    });
+    steps
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,6 +236,115 @@ mod tests {
         assert_eq!(book_status(&book), "rendering");
         book.rendering = false;
         assert_eq!(book_status(&book), "draft: done");
+    }
+
+    fn fixture(name: &str) -> serde_json::Value {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("scribe-client")
+            .join("tests")
+            .join("data")
+            .join(name);
+        let text = std::fs::read_to_string(&path).expect("recorded fixture");
+        serde_json::from_str(&text).expect("fixture parses")
+    }
+
+    fn detail_of(payload: serde_json::Value) -> scribe_client::BookDetail {
+        serde_json::from_value(payload).expect("detail parses")
+    }
+
+    #[test]
+    fn recorded_drafted_book_steps_truthfully() {
+        let detail = detail_of(fixture("book-detail.json"));
+        assert!(detail.drafted);
+        let steps = stepper(&detail, false);
+        let state = |label: &str| {
+            steps
+                .iter()
+                .find(|step| step.label == label)
+                .map(|step| step.status)
+        };
+        assert_eq!(state("extract"), Some(StepStatus::Done));
+        assert_eq!(state("draft"), Some(StepStatus::Done));
+        assert_eq!(state("cast"), Some(StepStatus::Done));
+        assert_eq!(state("render"), Some(StepStatus::Pending));
+        assert_eq!(state("validate"), Some(StepStatus::Pending));
+        assert_eq!(state("transfer"), Some(StepStatus::Pending));
+    }
+
+    #[test]
+    fn fresh_book_is_all_pending() {
+        let detail = detail_of(serde_json::json!({
+            "id": "book-0",
+            "draft_status": "none",
+            "chapters": [],
+            "total_sentences": 0,
+            "cast": {},
+            "bundles": [],
+            "valid": false,
+            "validation": [],
+            "on_tablet": false,
+        }));
+        let steps = stepper(&detail, false);
+        assert!(steps.iter().all(|step| step.status == StepStatus::Pending));
+    }
+
+    #[test]
+    fn full_book_with_stale_cast_steps_truthfully() {
+        let detail = detail_of(serde_json::json!({
+            "id": "book-1",
+            "draft_status": "done",
+            "chapters": [{"index": 1, "title": "Ch 1", "sentences": 10, "est_seconds": 60.0}],
+            "total_sentences": 10,
+            "cast": {"has_narrator": true},
+            "bundles": [{"id": "b1", "path": "bundles/b1", "chapters": 1,
+                         "duration_ms": 60000, "valid": true, "errors": []}],
+            "valid": true,
+            "validation": [],
+            "on_tablet": true,
+        }));
+        let steps = stepper(&detail, true);
+        let state = |label: &str| {
+            steps
+                .iter()
+                .find(|step| step.label == label)
+                .map(|step| step.status)
+        };
+        assert_eq!(state("extract"), Some(StepStatus::Done));
+        assert_eq!(state("draft"), Some(StepStatus::Done));
+        assert_eq!(state("cast"), Some(StepStatus::Done));
+        assert_eq!(state("render"), Some(StepStatus::Done));
+        assert_eq!(state("validate"), Some(StepStatus::Done));
+        assert_eq!(state("transfer"), Some(StepStatus::Done));
+        let cast = steps.iter().find(|step| step.label == "cast").unwrap();
+        assert!(cast.note.contains("edited since draft"), "{}", cast.note);
+    }
+
+    #[test]
+    fn failed_draft_and_invalid_bundle_flag() {
+        let detail = detail_of(serde_json::json!({
+            "id": "book-2",
+            "draft_status": "failed",
+            "chapters": [],
+            "total_sentences": 0,
+            "cast": {},
+            "bundles": [{"id": "b1", "path": "bundles/b1", "chapters": 0,
+                         "duration_ms": 0, "valid": false,
+                         "errors": [{"file": "audio", "rule": "x", "message": "bad"}]}],
+            "valid": false,
+            "validation": [],
+            "on_tablet": false,
+        }));
+        let steps = stepper(&detail, false);
+        let state = |label: &str| {
+            steps
+                .iter()
+                .find(|step| step.label == label)
+                .map(|step| step.status)
+        };
+        assert_eq!(state("draft"), Some(StepStatus::Failed));
+        assert_eq!(state("validate"), Some(StepStatus::Failed));
+        assert_eq!(state("render"), Some(StepStatus::Done));
     }
 
     #[test]

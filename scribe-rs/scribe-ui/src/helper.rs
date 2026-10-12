@@ -175,6 +175,11 @@ pub enum WorkerCmd {
     Shutdown,
     /// Refresh the book list (needs a verified helper; ignored before).
     RefreshBooks,
+    /// Select a book for the detail stepper (fetches immediately).
+    SelectBook {
+        /// UUIDv5 book id.
+        book_id: String,
+    },
     /// Upload a staged book file (queues its draft job server-side).
     Upload {
         /// Workspace-local staged file.
@@ -226,6 +231,16 @@ pub enum WorkerEvent {
         /// Human reason.
         message: String,
     },
+    /// Detail payload for the selected book (boxed: the document is big).
+    Detail {
+        /// Full `GET /api/books/{id}` document.
+        detail: Box<scribe_client::BookDetail>,
+    },
+    /// Detail fetch failed (selection stays; the old stepper stays).
+    DetailFailed {
+        /// Human reason.
+        message: String,
+    },
 }
 
 /// Start the worker thread (owns the child; see module docs).
@@ -239,6 +254,7 @@ pub fn spawn_worker(settings: Settings) -> (Sender<WorkerCmd>, Receiver<WorkerEv
 fn worker_loop(settings: Settings, commands: Receiver<WorkerCmd>, events: Sender<WorkerEvent>) {
     let mut child: Option<Child> = None;
     let mut client: Option<scribe_client::Client> = None;
+    let mut selected: Option<String> = None;
     loop {
         match commands.recv_timeout(WATCH_POLL) {
             Ok(WorkerCmd::Shutdown) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -264,6 +280,9 @@ fn worker_loop(settings: Settings, commands: Receiver<WorkerCmd>, events: Sender
                     match client.list_books() {
                         Ok(books) => {
                             let _ = events.send(WorkerEvent::Books { books });
+                            if let Some(book_id) = &selected {
+                                send_detail(client, book_id, &events);
+                            }
                         }
                         Err(err) => {
                             let _ = events.send(WorkerEvent::BooksFailed {
@@ -277,6 +296,12 @@ fn worker_loop(settings: Settings, commands: Receiver<WorkerCmd>, events: Sender
                     let _ = events.send(WorkerEvent::BooksFailed {
                         message: "helper not connected".to_owned(),
                     });
+                }
+            }
+            Ok(WorkerCmd::SelectBook { book_id }) => {
+                selected = Some(book_id.clone());
+                if let Some(client) = &client {
+                    send_detail(client, &book_id, &events);
                 }
             }
             Ok(WorkerCmd::Upload { path }) => {
@@ -329,6 +354,21 @@ fn worker_loop(settings: Settings, commands: Receiver<WorkerCmd>, events: Sender
     }
 }
 
+/// One detail fetch (list and detail stay one refresh behind at most).
+fn send_detail(client: &scribe_client::Client, book_id: &str, events: &Sender<WorkerEvent>) {
+    match client.book_detail(book_id) {
+        Ok(detail) => {
+            let _ = events.send(WorkerEvent::Detail {
+                detail: Box::new(detail),
+            });
+        }
+        Err(err) => {
+            let _ = events.send(WorkerEvent::DetailFailed {
+                message: err.to_string(),
+            });
+        }
+    }
+}
 /// Spawn + wait-ready + health + version; the child and bound client.
 fn spawn_verified(
     settings: &Settings,

@@ -12,3 +12,5 @@ egui = "0.36"
 eframe = "0.36"
 # AP2: native add-book dialog (owner-approved; MIT, deny-checked).
 rfd = "0.17"
+# AP3: cast/detail JSON + fixture parsing (owner-approved; same as client's).
+serde_json = "1"

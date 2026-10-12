@@ -78,6 +78,9 @@ struct App {
     books: Vec<scribe_client::BookSummary>,
     books_note: String,
     last_books_poll: std::time::Instant,
+    selected: Option<String>,
+    detail: Option<scribe_client::BookDetail>,
+    detail_note: String,
 }
 
 impl App {
@@ -104,6 +107,9 @@ impl App {
             books: Vec::new(),
             books_note: String::new(),
             last_books_poll: std::time::Instant::now(),
+            selected: None,
+            detail: None,
+            detail_note: String::new(),
         }
     }
 
@@ -131,6 +137,13 @@ impl App {
                 }
                 WorkerEvent::UploadFailed { message } => {
                     self.books_note = format!("add failed: {message}");
+                }
+                WorkerEvent::Detail { detail } => {
+                    self.detail = Some(*detail);
+                    self.detail_note.clear();
+                }
+                WorkerEvent::DetailFailed { message } => {
+                    self.detail_note = format!("detail failed: {message}");
                 }
                 WorkerEvent::Connected { base_url } => {
                     self.lifecycle(Event::Connected { base_url });
@@ -220,11 +233,23 @@ impl App {
             ui.label("No books yet. Add book to draft your first.");
             return;
         }
+        // Clicked id outlives the row borrow: collect first, act after.
+        let mut picked: Option<String> = None;
         egui::ScrollArea::vertical().show(ui, |ui| {
             for book in &self.books {
                 ui.group(|ui| {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(&book.title).strong());
+                        let title = if book.title.is_empty() {
+                            book.id.clone()
+                        } else {
+                            book.title.clone()
+                        };
+                        if ui
+                            .selectable_label(self.selected.as_deref() == Some(&book.id), title)
+                            .clicked()
+                        {
+                            picked = Some(book.id.clone());
+                        }
                         ui.label(book_status(book));
                     });
                     ui.horizontal(|ui| {
@@ -246,6 +271,49 @@ impl App {
                 });
             }
         });
+        if let Some(id) = picked {
+            self.selected = Some(id.clone());
+            self.detail = None;
+            self.worker_tx
+                .send(WorkerCmd::SelectBook { book_id: id })
+                .ok();
+        }
+        self.stepper_ui(ui);
+    }
+
+    /// Read-only detail stepper for the selected book (AP3).
+    fn stepper_ui(&mut self, ui: &mut egui::Ui) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        ui.separator();
+        ui.heading(egui::RichText::new("Detail").color(rgb(theme::OXBLOOD)));
+        if !self.detail_note.is_empty() {
+            ui.label(&self.detail_note);
+        }
+        let Some(detail) = self.detail.as_ref().filter(|detail| detail.id == id) else {
+            ui.spinner();
+            ui.label("Loading detail…");
+            return;
+        };
+        let cast_edited = self
+            .books
+            .iter()
+            .find(|book| book.id == id)
+            .map(|book| book.cast_edited)
+            .unwrap_or(false);
+        for step in scribe_ui::books::stepper(detail, cast_edited) {
+            let mark = match step.status {
+                scribe_ui::books::StepStatus::Done => "done",
+                scribe_ui::books::StepStatus::Pending => "pending",
+                scribe_ui::books::StepStatus::Failed => "FAILED",
+            };
+            ui.horizontal(|ui| {
+                ui.label(format!("[{}]", mark));
+                ui.label(step.label);
+                ui.label(step.note);
+            });
+        }
     }
 
     /// Native pick + stage + upload (the dialog is owner-tested; the
