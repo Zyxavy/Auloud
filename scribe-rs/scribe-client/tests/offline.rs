@@ -119,6 +119,20 @@ fn recorded_build_and_validate_parse() {
 }
 
 #[test]
+fn recorded_pause_resume_shapes_parse() {
+    // The tray's Pause/Resume buttons rely on these response shapes (a Job
+    // in its new state); pin the contract the worker arms parse.
+    let paused: Job = read_json("job-paused.json");
+    assert_eq!(paused.state, "paused");
+    assert_eq!(paused.kind, "build");
+    assert!(paused.pid.is_none(), "paused jobs hold no child");
+    let resumed: Job = read_json("job-resumed.json");
+    assert_eq!(resumed.state, "running");
+    assert_eq!(resumed.book_id, paused.book_id);
+    assert!(resumed.summary.audio_ms > 0);
+}
+
+#[test]
 fn recorded_voices_parse() {
     let voices: VoicesResponse = read_json("voices-kokoro.json");
     assert!(!voices.voices.is_empty());

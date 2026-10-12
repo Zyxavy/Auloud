@@ -289,9 +289,11 @@ impl App {
             ui.label("No settled jobs yet.");
         } else {
             ui.label(format!("History ({})", history.len()));
-            for job in &history {
-                self.job_row(ui, job);
-            }
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                for job in &history {
+                    self.job_row(ui, job);
+                }
+            });
         }
     }
 
@@ -323,9 +325,13 @@ impl App {
             self.job_row(ui, job);
         }
         if self.show_history {
-            for job in &history {
-                self.job_row(ui, job);
-            }
+            egui::ScrollArea::vertical()
+                .max_height(240.0)
+                .show(ui, |ui| {
+                    for job in &history {
+                        self.job_row(ui, job);
+                    }
+                });
         }
     }
 
@@ -372,15 +378,18 @@ impl App {
                     "wall {}",
                     progress::format_wall(job.summary.wall_s)
                 ));
-                let percent = self
+                let scan_percent = self
                     .books
                     .iter()
                     .find(|book| book.id == job.book_id)
-                    .and_then(|book| book.rendering_percent)
-                    .map(|percent| (percent as f32 / 100.0).clamp(0.0, 1.0));
-                match percent {
-                    Some(fraction) => {
-                        ui.add(egui::ProgressBar::new(fraction).show_percentage());
+                    .and_then(|book| book.rendering_percent);
+                match scan_percent {
+                    // Book scan's number, labeled as such: the jobs feed
+                    // carries no totals, so this is never the job's own
+                    // percent.
+                    Some(percent) => {
+                        let fraction = (percent as f32 / 100.0).clamp(0.0, 1.0);
+                        ui.add(egui::ProgressBar::new(fraction).text(format!("scan {percent}%")));
                     }
                     None if job.state == "running" => {
                         ui.spinner();

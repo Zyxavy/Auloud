@@ -428,6 +428,10 @@ fn worker_loop(
                             });
                         }
                     }
+                } else {
+                    let _ = events.send(WorkerEvent::JobCancelFailed {
+                        message: "helper not connected".to_owned(),
+                    });
                 }
             }
             Ok(WorkerCmd::PauseJob { job_id }) => {
@@ -442,6 +446,12 @@ fn worker_loop(
                             });
                         }
                     }
+                } else {
+                    // Same dying window as cancel: say so instead of
+                    // dropping the press silently.
+                    let _ = events.send(WorkerEvent::JobActionFailed {
+                        message: "helper not connected".to_owned(),
+                    });
                 }
             }
             Ok(WorkerCmd::ResumeJob { job_id }) => {
@@ -456,6 +466,10 @@ fn worker_loop(
                             });
                         }
                     }
+                } else {
+                    let _ = events.send(WorkerEvent::JobActionFailed {
+                        message: "helper not connected".to_owned(),
+                    });
                 }
             }
             Ok(WorkerCmd::DeleteBook {
