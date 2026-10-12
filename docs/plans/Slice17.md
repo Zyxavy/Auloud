@@ -2,7 +2,7 @@
 
 Follows `docs/10-V3Roadmap.md` Slice 17, the `rust-ui` skill, and `docs/api.md`
 (the contract). Project: the egui app becomes usable end to end for the
-front half of the workflow — open, add a book, draft it — with no browser
+front half of the workflow: open, add a book, draft it, with no browser
 or console. Cast/render/validate/transfer screens stay placeholders with
 their Slice 19/20 labels until their slices.
 
@@ -10,7 +10,7 @@ their Slice 19/20 labels until their slices.
 
 Prove the native app can own the helper and the first half of the workflow:
 **launch the helper, watch it, talk to it, add a book through a native
-dialog, draft it, and show where the book stands** — all inside the egui
+dialog, draft it, and show where the book stands**, all inside the egui
 shell from UI2.
 
 **Done when:**
@@ -73,7 +73,7 @@ draft poll.
    diagnosable, never mysterious.
 3. **One helper per workspace.** The helper's own lock already refuses
    doubles; the app surfaces that refusal as "already running" instead of
-   fighting it. Closing the window stops the helper the app started — and
+   fighting it. Closing the window stops the helper the app started, and
    only that one (detached jobs keep rendering by design).
 4. **Version mismatch is an upgrade screen.** The client's loud error
    becomes a full screen naming both versions and the doc, never a toast.
