@@ -1358,3 +1358,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Any fraction without a reported total would be invented progress.
 - Alternatives considered: estimating totals from sentence counts client-side (rejected: logic about what numbers mean stays Python).
 - Consequences / revisit when: JP2 wires the estimate into the tray; revisit only if the helper ever reports totals per job.
+
+### D-162: Audition playback is rodio (CS0)
+- Date: 2026-10-12
+- Status: Accepted
+- Decision: Voice audition plays in-app via rodio 0.23 (`default-features = false`, `playback` + `wav` only): cpal for output, symphonia for wav decode. License MIT OR Apache-2.0, both on the allow list; `cargo deny check licenses` green and `cargo check -p scribe-ui` green with it in the tree (verified, then reverted; the dep lands with CS3's first use).
+- Why: Owner picked in-app playback over reveal-fallback; wav-only features keep the tree minimal (no mp3/flac/vorbis decoders for clips the helper always serves as wav).
+- Alternatives considered: reveal-the-wav fallback (declined by owner); default features (rejected: pulls decoders audition never uses).
+- Consequences / revisit when: CS3 adds the dep alongside its first use; revisit if deny ever flags the tree.
