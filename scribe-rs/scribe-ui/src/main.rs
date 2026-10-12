@@ -278,6 +278,11 @@ impl App {
                             None => format!("{} ops applied", patch.applied),
                         };
                         self.cast_conflict = false;
+                        // The picker and report describe the old cast:
+                        // resync both behind the same echo.
+                        self.refresh_quotes(&book_id);
+                        self.report_md = None;
+                        self.show_report = false;
                     }
                 }
                 WorkerEvent::CastConflict { book_id, message } => {
@@ -937,51 +942,39 @@ impl App {
                 if self.cast_note.is_empty() {
                     ui.spinner();
                     ui.label("Loading cast…");
+                } else if ui.button("Retry").clicked() {
+                    // Covers the stale 404 a finished draft leaves
+                    // behind: the note names it, this refetches it.
+                    self.worker_tx
+                        .send(WorkerCmd::RefreshCast {
+                            book_id: id.clone(),
+                        })
+                        .ok();
                 }
                 return;
             }
         };
         let currents: Vec<String> = cast.stats.iter().map(|stat| stat.voice.clone()).collect();
         let options = scribe_ui::cast::merge_voice_options(&currents, &self.cast_voices);
-        for stat in &cast.stats {
-            ui.horizontal(|ui| {
-                ui.label(format!("{} [{}]", stat.character, stat.kind));
-                let mut voice = stat.voice.clone();
-                egui::ComboBox::from_id_salt(format!("voice-{}", stat.character))
-                    .selected_text(&voice)
-                    .show_ui(ui, |ui| {
-                        for option in &options {
-                            ui.selectable_value(&mut voice, option.clone(), option);
-                        }
-                    });
-                if voice != stat.voice {
-                    let ops = serde_json::json!([scribe_client::cast_op_set_voice(
-                        &stat.character,
-                        &voice,
-                        None
-                    )]);
-                    self.worker_tx
-                        .send(WorkerCmd::PatchCast {
-                            book_id: id.clone(),
-                            ops,
-                            mtime: cast.mtime,
-                        })
-                        .ok();
-                }
-                let buffer = self
-                    .speed_edits
-                    .entry(stat.character.clone())
-                    .or_insert_with(|| format!("{}", stat.speed));
-                let response = ui.text_edit_singleline(buffer);
-                let commit = response.lost_focus()
-                    || (response.has_focus()
-                        && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter)));
-                if commit {
-                    match scribe_ui::cast::parse_speed(buffer) {
-                        Ok(speed) if speed != stat.speed => {
-                            let ops = serde_json::json!([scribe_client::cast_op_set_speed(
+        egui::ScrollArea::vertical()
+            .max_height(240.0)
+            .show(ui, |ui| {
+                for stat in &cast.stats {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{} [{}]", stat.character, stat.kind));
+                        let mut voice = stat.voice.clone();
+                        egui::ComboBox::from_id_salt(format!("voice-{}", stat.character))
+                            .selected_text(&voice)
+                            .show_ui(ui, |ui| {
+                                for option in &options {
+                                    ui.selectable_value(&mut voice, option.clone(), option);
+                                }
+                            });
+                        if voice != stat.voice {
+                            let ops = serde_json::json!([scribe_client::cast_op_set_voice(
                                 &stat.character,
-                                speed
+                                &voice,
+                                None
                             )]);
                             self.worker_tx
                                 .send(WorkerCmd::PatchCast {
@@ -991,18 +984,43 @@ impl App {
                                 })
                                 .ok();
                         }
-                        Err(message) => {
-                            self.cast_note = message;
+                        let buffer = self
+                            .speed_edits
+                            .entry(stat.character.clone())
+                            .or_insert_with(|| format!("{}", stat.speed));
+                        let response = ui.text_edit_singleline(buffer);
+                        let commit = response.lost_focus()
+                            || (response.has_focus()
+                                && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter)));
+                        if commit {
+                            match scribe_ui::cast::parse_speed(buffer) {
+                                Ok(speed) if speed != stat.speed => {
+                                    let ops =
+                                        serde_json::json!([scribe_client::cast_op_set_speed(
+                                            &stat.character,
+                                            speed
+                                        )]);
+                                    self.worker_tx
+                                        .send(WorkerCmd::PatchCast {
+                                            book_id: id.clone(),
+                                            ops,
+                                            mtime: cast.mtime,
+                                        })
+                                        .ok();
+                                }
+                                Err(message) => {
+                                    self.cast_note = message;
+                                }
+                                _ => {}
+                            }
                         }
-                        _ => {}
-                    }
-                }
-                ui.label(format!("{} lines, {} min", stat.lines, stat.minutes));
-                if stat.low > 0 {
-                    ui.label(format!("{} low", stat.low));
+                        ui.label(format!("{} lines, {} min", stat.lines, stat.minutes));
+                        if stat.low > 0 {
+                            ui.label(format!("{} low", stat.low));
+                        }
+                    });
                 }
             });
-        }
         ui.horizontal(|ui| {
             ui.label("First person:");
             let mut first = cast.first_person.clone();
@@ -1092,7 +1110,11 @@ impl App {
         let page = match self.quotes.clone().filter(|page| page.book_id == book_id) {
             Some(page) => page,
             None => {
-                ui.label("Loading quotes…");
+                if self.cast_note.is_empty() {
+                    ui.label("Loading quotes…");
+                } else if ui.button("Retry").clicked() {
+                    self.refresh_quotes(book_id);
+                }
                 return;
             }
         };
@@ -1159,7 +1181,9 @@ impl App {
                                         mtime,
                                     })
                                     .ok();
-                                self.refresh_quotes(book_id);
+                                // Fall back to the fresh `resolved` once the
+                                // echo lands (the arm resyncs the picker).
+                                self.override_speakers.remove(&key);
                             }
                             if ui.button("Clear").clicked() {
                                 let ops = serde_json::json!([
@@ -1176,7 +1200,7 @@ impl App {
                                         mtime,
                                     })
                                     .ok();
-                                self.refresh_quotes(book_id);
+                                self.override_speakers.remove(&key);
                             }
                         });
                     });
@@ -1215,7 +1239,6 @@ impl App {
                             mtime,
                         })
                         .ok();
-                    self.refresh_quotes(book_id);
                 }
             }
         });
