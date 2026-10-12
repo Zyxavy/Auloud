@@ -462,6 +462,7 @@ fn spawn_verified(
                 errors.read_to_string(&mut tail).ok();
             }
             return Err(startup_failure(
+                exited.is_some(),
                 status.and_then(|s| s.code()).map(|c| c as u32),
                 &tail,
             ));
@@ -521,13 +522,15 @@ fn spawn_verified(
 }
 
 /// Failure message for a spawn that never verified (pure: unit-tested).
-/// An exited child names its code and tail (usually a held workspace lock);
-/// a killed silent child says so. Nothing here blocks.
-fn startup_failure(code: Option<u32>, tail: &str) -> WorkerEvent {
+/// The `exited` flag (not the code) distinguishes the cases: a killed child
+/// still reports an exit code on Windows, so the code alone cannot tell a
+/// kill from a natural exit with the same code.
+fn startup_failure(exited: bool, code: Option<u32>, tail: &str) -> WorkerEvent {
     let tail = tail_chars(tail, 500);
-    let mut message = match code {
-        Some(code) => format!("helper exited during startup (code {code})"),
-        None => "no ready line in 120 s (killed silent child)".to_owned(),
+    let mut message = match (exited, code) {
+        (true, Some(code)) => format!("helper exited during startup (code {code})"),
+        (true, None) => "helper exited during startup (no exit code)".to_owned(),
+        (false, _) => "no ready line in 120 s (killed silent child)".to_owned(),
     };
     if tail.is_empty() {
         message.push_str("; see helper.log in the workspace");
@@ -620,7 +623,7 @@ mod tests {
     #[test]
     fn startup_failure_names_code_tail_and_lock() {
         let locked = "UiLockError: .scribe-ui.lock: ui-lock-held: workspace is already served";
-        let event = startup_failure(Some(1), locked);
+        let event = startup_failure(true, Some(1), locked);
         match event {
             WorkerEvent::Failed { message } => {
                 assert!(message.contains("code 1"), "{message}");
@@ -629,7 +632,7 @@ mod tests {
             }
             _ => panic!("want Failed, got {event:?}"),
         }
-        let event = startup_failure(None, "");
+        let event = startup_failure(false, None, "");
         match event {
             WorkerEvent::Failed { message } => {
                 assert!(message.contains("killed silent child"), "{message}");
@@ -637,7 +640,17 @@ mod tests {
             }
             _ => panic!("want Failed, got {event:?}"),
         }
-        let event = startup_failure(None, "some output");
+        // A kill still reports a code on Windows: the flag (not the code)
+        // decides the message.
+        let event = startup_failure(false, Some(1), "");
+        match event {
+            WorkerEvent::Failed { message } => {
+                assert!(message.contains("killed silent child"), "{message}");
+                assert!(!message.contains("exited during startup"), "{message}");
+            }
+            _ => panic!("want Failed, got {event:?}"),
+        }
+        let event = startup_failure(false, Some(1), "some output");
         match event {
             WorkerEvent::Failed { message } => {
                 assert!(message.contains("some output"), "{message}");
