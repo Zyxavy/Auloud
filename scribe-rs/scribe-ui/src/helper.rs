@@ -200,6 +200,16 @@ pub enum WorkerCmd {
         /// Job id from the jobs feed.
         job_id: String,
     },
+    /// Pause a running job (graceful: sentence boundary, cache kept).
+    PauseJob {
+        /// Job id from the jobs feed.
+        job_id: String,
+    },
+    /// Resume a resumable job (paused, interrupted, failed, cancelled).
+    ResumeJob {
+        /// Job id from the jobs feed.
+        job_id: String,
+    },
     /// Remove a book: cancel its live jobs, then delete its staged source,
     /// work dir, and hash-matched bundles (never outside the workspace).
     DeleteBook {
@@ -278,6 +288,21 @@ pub enum WorkerEvent {
     },
     /// Cancel refused (shaped file + rule when the helper sent one).
     JobCancelFailed {
+        /// Human reason.
+        message: String,
+    },
+    /// A job was paused.
+    JobPaused {
+        /// Paused job id.
+        job_id: String,
+    },
+    /// A job was resumed.
+    JobResumed {
+        /// Resumed job id.
+        job_id: String,
+    },
+    /// Pause/resume refused (shaped file + rule when the helper sent one).
+    JobActionFailed {
         /// Human reason.
         message: String,
     },
@@ -399,6 +424,34 @@ fn worker_loop(
                         }
                         Err(err) => {
                             let _ = events.send(WorkerEvent::JobCancelFailed {
+                                message: err.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            Ok(WorkerCmd::PauseJob { job_id }) => {
+                if let Some(client) = &client {
+                    match client.pause_job(&job_id) {
+                        Ok(_) => {
+                            let _ = events.send(WorkerEvent::JobPaused { job_id });
+                        }
+                        Err(err) => {
+                            let _ = events.send(WorkerEvent::JobActionFailed {
+                                message: err.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            Ok(WorkerCmd::ResumeJob { job_id }) => {
+                if let Some(client) = &client {
+                    match client.resume_job(&job_id) {
+                        Ok(_) => {
+                            let _ = events.send(WorkerEvent::JobResumed { job_id });
+                        }
+                        Err(err) => {
+                            let _ = events.send(WorkerEvent::JobActionFailed {
                                 message: err.to_string(),
                             });
                         }

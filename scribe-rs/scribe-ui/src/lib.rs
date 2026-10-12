@@ -5,6 +5,7 @@
 pub mod books;
 pub mod helper;
 pub mod machine;
+pub mod progress;
 pub mod settings;
 
 /// Design tokens from `scribe/ui/static/index.html` (light theme).

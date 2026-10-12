@@ -46,7 +46,7 @@ impl Screen {
     fn lands_in(self) -> &'static str {
         match self {
             Self::Books => "Books (list below; detail stepper in AP3)",
-            Self::Jobs => "Slice 18: jobs tray, render step",
+            Self::Jobs => "live jobs + history (same tray as below, expanded)",
             Self::Cast => "Slice 19: cast table, audition, overrides",
             Self::Voices => "Slice 19: voices view, engine selector",
             Self::Validate => "Slice 20: validate list, transfer, models",
@@ -84,6 +84,8 @@ struct App {
     detail: Option<scribe_client::BookDetail>,
     detail_note: String,
     jobs: Vec<scribe_client::Job>,
+    jobs_note: String,
+    show_history: bool,
     pending_remove: Option<String>,
 }
 
@@ -116,6 +118,8 @@ impl App {
             detail: None,
             detail_note: String::new(),
             jobs: Vec::new(),
+            jobs_note: String::new(),
+            show_history: false,
             pending_remove: None,
         }
     }
@@ -156,11 +160,22 @@ impl App {
                     self.jobs = jobs;
                 }
                 WorkerEvent::JobCancelled { job_id: _ } => {
-                    self.books_note = "job cancelled".to_owned();
+                    self.jobs_note = "job cancelled".to_owned();
                     self.worker_tx.send(WorkerCmd::RefreshBooks).ok();
                 }
                 WorkerEvent::JobCancelFailed { message } => {
-                    self.books_note = format!("cancel failed: {message}");
+                    self.jobs_note = format!("cancel failed: {message}");
+                }
+                WorkerEvent::JobPaused { job_id: _ } => {
+                    self.jobs_note = "job paused".to_owned();
+                    self.worker_tx.send(WorkerCmd::RefreshBooks).ok();
+                }
+                WorkerEvent::JobResumed { job_id: _ } => {
+                    self.jobs_note = "job resumed".to_owned();
+                    self.worker_tx.send(WorkerCmd::RefreshBooks).ok();
+                }
+                WorkerEvent::JobActionFailed { message } => {
+                    self.jobs_note = format!("job control failed: {message}");
                 }
                 WorkerEvent::Deleted { book_id } => {
                     if self.selected.as_deref() == Some(&book_id) {
@@ -247,8 +262,159 @@ impl App {
             self.books_ui(ui);
             return;
         }
+        if self.screen == Screen::Jobs {
+            self.jobs_ui(ui);
+            return;
+        }
         ui.heading(egui::RichText::new(self.screen.title()).color(rgb(theme::OXBLOOD)));
         ui.label(self.screen.lands_in());
+    }
+
+    /// Jobs screen (JP1): the tray expanded (live rows + full history).
+    fn jobs_ui(&mut self, ui: &mut egui::Ui) {
+        ui.heading(egui::RichText::new("Jobs").color(rgb(theme::OXBLOOD)));
+        if !self.jobs_note.is_empty() {
+            ui.label(&self.jobs_note);
+        }
+        let jobs = self.jobs.clone();
+        let (live, history) = scribe_ui::progress::split_jobs(&jobs);
+        if live.is_empty() {
+            ui.label("No running jobs.");
+        }
+        for job in &live {
+            self.job_row(ui, job);
+        }
+        ui.separator();
+        if history.is_empty() {
+            ui.label("No settled jobs yet.");
+        } else {
+            ui.label(format!("History ({})", history.len()));
+            for job in &history {
+                self.job_row(ui, job);
+            }
+        }
+    }
+
+    /// Bottom strip on every screen (JP1): live rows plus history behind a
+    /// toggle. Reads the jobs feed the 2 s poll already fetches; reattach
+    /// falls out of the list-on-boot the tray reads.
+    fn tray_ui(&mut self, ui: &mut egui::Ui) {
+        ui.separator();
+        let jobs = self.jobs.clone();
+        let (live, history) = scribe_ui::progress::split_jobs(&jobs);
+        ui.horizontal(|ui| {
+            ui.label(format!("Jobs ({})", live.len()));
+            if !self.jobs_note.is_empty() {
+                ui.label(&self.jobs_note);
+            }
+            if !history.is_empty()
+                && ui
+                    .button(if self.show_history {
+                        format!("Hide history ({})", history.len())
+                    } else {
+                        format!("History ({})", history.len())
+                    })
+                    .clicked()
+            {
+                self.show_history = !self.show_history;
+            }
+        });
+        for job in &live {
+            self.job_row(ui, job);
+        }
+        if self.show_history {
+            for job in &history {
+                self.job_row(ui, job);
+            }
+        }
+    }
+
+    /// One job row: label, state, counts, RTF, cache hits, controls. No
+    /// percent or ETA: the jobs feed carries no plan totals and no
+    /// estimate (JP2 preflight owns estimates); the bar below reuses the
+    /// book scan's reported render percent when it exists, else a
+    /// spinner marks indeterminate progress.
+    fn job_row(&mut self, ui: &mut egui::Ui, job: &scribe_client::Job) {
+        use scribe_ui::progress;
+        let title = self
+            .books
+            .iter()
+            .find(|book| book.id == job.book_id)
+            .map(|book| {
+                if book.title.is_empty() {
+                    job.book_id.clone()
+                } else {
+                    scribe_ui::books::short_title(&book.title)
+                }
+            })
+            .unwrap_or_else(|| {
+                if job.book_id.is_empty() {
+                    job.kind.clone()
+                } else {
+                    job.book_id.clone()
+                }
+            });
+        ui.group(|ui| {
+            ui.horizontal(|ui| {
+                ui.label(format!("{}: {}", progress::job_label(job), title));
+                ui.label(&job.state);
+                ui.label(format!(
+                    "{} sentences ({} cached)",
+                    progress::done_sentences(&job.summary),
+                    job.summary.cached
+                ));
+            });
+            ui.horizontal(|ui| {
+                if let Some(rtf) = progress::rtf(&job.summary) {
+                    ui.label(format!("RTF {}", progress::format_rtf(rtf)));
+                }
+                ui.label(format!(
+                    "wall {}",
+                    progress::format_wall(job.summary.wall_s)
+                ));
+                let percent = self
+                    .books
+                    .iter()
+                    .find(|book| book.id == job.book_id)
+                    .and_then(|book| book.rendering_percent)
+                    .map(|percent| (percent as f32 / 100.0).clamp(0.0, 1.0));
+                match percent {
+                    Some(fraction) => {
+                        ui.add(egui::ProgressBar::new(fraction).show_percentage());
+                    }
+                    None if job.state == "running" => {
+                        ui.spinner();
+                    }
+                    None => {}
+                }
+            });
+            if let Some(error) = &job.error {
+                ui.label(format!("error {}: {}", error.rule, error.message));
+            }
+            ui.horizontal(|ui| {
+                if progress::can_pause(&job.state) && ui.button("Pause").clicked() {
+                    self.worker_tx
+                        .send(WorkerCmd::PauseJob {
+                            job_id: job.id.clone(),
+                        })
+                        .ok();
+                }
+                if progress::can_resume(&job.state) && ui.button("Resume").clicked() {
+                    self.worker_tx
+                        .send(WorkerCmd::ResumeJob {
+                            job_id: job.id.clone(),
+                        })
+                        .ok();
+                }
+                if progress::can_cancel(&job.state) && ui.button("Cancel").clicked() {
+                    self.worker_tx
+                        .send(WorkerCmd::CancelJob {
+                            job_id: job.id.clone(),
+                        })
+                        .ok();
+                }
+            });
+        });
     }
 
     /// Books list with status chips + add-book (AP2).
@@ -474,7 +640,10 @@ impl eframe::App for App {
         // halted: a bad helper path must stay fixable (Retry alone loops
         // the same refusal).
         match self.machine.clone() {
-            State::Running { .. } => self.screen_ui(ui),
+            State::Running { .. } => {
+                self.screen_ui(ui);
+                self.tray_ui(ui);
+            }
             _ if self.screen == Screen::Settings => self.settings_ui(ui),
             State::Starting { .. } => {
                 ui.spinner();

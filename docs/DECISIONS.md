@@ -1350,3 +1350,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Owner verdict on the UI1 comparison (measured rows: egui release 13.9 MB / 282 MB idle, incremental 3.1 s; same two screens, same canned data).
 - Alternatives considered: iced (release 10.6 MB; Elm-style; executor + free-fn patterns), Slint (release 13.9 MB / 152 MB idle; declarative; grant question open).
 - Consequences / revisit when: `scribe-ui` scaffolds on egui in UI2; the spike bins live on in history only; revisit only with new evidence (e.g., a blocking egui limitation found in Slice 17-19).
+
+### D-161: Tray shows no percent or ETA until the render panel lands
+- Date: 2026-10-12
+- Status: Accepted
+- Decision: JP1 rows show sentence counts, RTF, wall time, and cache hits; the bar reuses the book scan's reported render percent when present, else a spinner marks indeterminate progress. Percent-from-plan and ETA-from-estimate wait for JP2 preflight (the jobs feed carries no totals and no estimate).
+- Why: Any fraction without a reported total would be invented progress.
+- Alternatives considered: estimating totals from sentence counts client-side (rejected: logic about what numbers mean stays Python).
+- Consequences / revisit when: JP2 wires the estimate into the tray; revisit only if the helper ever reports totals per job.
