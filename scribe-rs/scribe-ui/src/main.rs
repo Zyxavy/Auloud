@@ -971,10 +971,14 @@ impl App {
             egui::ComboBox::from_id_salt("first-person")
                 .selected_text(&first)
                 .show_ui(ui, |ui| {
-                    for option in ["narrator".to_owned()]
-                        .into_iter()
-                        .chain(cast.stats.iter().map(|stat| stat.character.clone()))
-                    {
+                    // Narrator plus real characters only: the server
+                    // rejects generics (`_known_speakers` in cast.py).
+                    for option in ["narrator".to_owned()].into_iter().chain(
+                        cast.stats
+                            .iter()
+                            .filter(|stat| stat.kind == "character")
+                            .map(|stat| stat.character.clone()),
+                    ) {
                         ui.selectable_value(&mut first, option.clone(), option);
                     }
                 });
