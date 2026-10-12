@@ -13,13 +13,7 @@ allow = [
     "BSL-1.0", # Boost license: clipboard-win + error-code (Windows clipboard stack)
     "OFL-1.1", # font data inside epaint_default_fonts (egui's bundled fonts)
     "Ubuntu-font-1.0", # same crate, same reason
-    "Unlicense", # ksni (system tray stack; public-domain dedication)
     "ISC", # libloading (permissive; the rustls-stack ISCs left with TLS)
-    # Slint grant (UNCONFIRMED, UI1 spike evaluation only): the Slint crates
-    # are GPL-3.0-only OR Slint-Royalty-free OR Slint-Software. GPL stays
-    # rejected and Software-3.0 stays unexamined; UI2 confirms the grant or
-    # drops Slint (and these two lines) with it. See D-147 decision 1.
-    "LicenseRef-Slint-Royalty-free-2.0",
     "Unicode-3.0",
     "CC0-1.0",
     "Zlib",

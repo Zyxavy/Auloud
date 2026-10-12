@@ -1334,3 +1334,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Both found by evidence while recording/running API2 proofs (fixture validate, live test), fixed at the root (shared spawner, client config), not worked around.
 - Alternatives considered: CLI-side bundle placement (rejected: the spawner owns the argv); `Connection: close` per request (rejected: the idle cap keeps pooling for rapid sequences with one central line); retrying resets in the test (rejected: masks real breakage, and the UI would hit the same resets).
 - Consequences / revisit when: old flat `bundles/` outputs from earlier runs stay invisible (fresh builds land correctly); revisit the idle cap only if the helper's keep-alive timeout changes.
+
+### D-159: Toolkit choice is egui
+- Date: 2026-10-12
+- Status: Accepted
+- Decision: The native UI builds on egui/eframe 0.36.2 (MIT OR Apache-2.0, deny green). iced 0.14.0 and Slint 1.18.1 spikes are removed with their bins and dependencies; the Slint license grant stays unconfirmed and undecided (its spike-scoped deny allowance goes with it). Detailed judged rows (looks, Narrator, scaling) were skipped in favor of the verdict.
+- Why: Owner verdict on the UI1 comparison (measured rows: egui release 13.9 MB / 282 MB idle, incremental 3.1 s; same two screens, same canned data).
+- Alternatives considered: iced (release 10.6 MB; Elm-style; executor + free-fn patterns), Slint (release 13.9 MB / 152 MB idle; declarative; grant question open).
+- Consequences / revisit when: `scribe-ui` scaffolds on egui in UI2; the spike bins live on in history only; revisit only with new evidence (e.g., a blocking egui limitation found in Slice 17-19).

@@ -1,5 +1,9 @@
 # Toolkit Score Sheet (Slice 16 UI1 spikes, UI2 judges)
 
+**Choice (UI2, 2026-10-12): egui.** Owner verdict; detailed judged rows below
+were skipped in favor of the decision. Slint drops with its bins (grant never
+confirmed); iced drops with its bin.
+
 Same two screens in each toolkit (60-row cast table with in-cell voice
 dropdowns + audition buttons; jobs tray with SSE-replayed progress), same
 canned data (`scribe-ui` harness: deterministic rows + the real recorded

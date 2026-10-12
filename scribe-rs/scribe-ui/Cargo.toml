@@ -5,9 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-# UI1 spike-only comparison (D-147 decision 1); losers removed at UI2.
+# UI2: egui won the spike (D-159); iced + Slint removed with their bins.
 scribe-client = { path = "../scribe-client" }
 egui = "0.36"
 eframe = "0.36"
-iced = { version = "0.14", features = ["smol"] }
-slint = "1.18"
