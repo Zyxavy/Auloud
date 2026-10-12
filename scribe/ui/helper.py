@@ -77,12 +77,20 @@ def pick_port(preferred: int) -> int:
     return find_free_port(preferred, BIND_HOST)
 
 
-def parent_gone(parent_pid: int, *, pid_alive_fn: Callable[[int], bool] | None = None) -> bool:
+def parent_gone(
+    parent_pid: int,
+    *,
+    pid_alive_fn: Callable[[int], bool] | None = None,
+    parent_started_at: str | float | None = None,
+) -> bool:
     """True when the parent process id is dead (watchdog predicate)."""
     if isinstance(parent_pid, bool) or not isinstance(parent_pid, int) or parent_pid <= 0:
         raise HelperError(f"bad parent pid {parent_pid!r} (need a positive integer)")
-    alive = pid_alive_fn or _pid_alive
-    return not alive(parent_pid)
+    if pid_alive_fn is not None:
+        alive = pid_alive_fn(parent_pid)
+    else:
+        alive = _pid_alive(parent_pid, started_at=parent_started_at)
+    return not alive
 
 
 def build_helper_app(workspace: Path | str, token: str) -> Any:
@@ -95,10 +103,16 @@ def build_helper_app(workspace: Path | str, token: str) -> Any:
 
 
 def watchdog_once(
-    server: Any, parent_pid: int, *, pid_alive_fn: Callable[[int], bool] | None = None
+    server: Any,
+    parent_pid: int,
+    *,
+    pid_alive_fn: Callable[[int], bool] | None = None,
+    parent_started_at: str | float | None = None,
 ) -> bool:
     """One watchdog check: stop the server when the parent died (tested)."""
-    if parent_gone(parent_pid, pid_alive_fn=pid_alive_fn):
+    if parent_gone(
+        parent_pid, pid_alive_fn=pid_alive_fn, parent_started_at=parent_started_at
+    ):
         server.should_exit = True
         return True
     return False
@@ -109,11 +123,14 @@ def _watch_parent(
     parent_pid: int,
     poll_s: float = WATCHDOG_POLL_S,
     pid_alive_fn: Callable[[int], bool] | None = None,
+    parent_started_at: str | float | None = None,
 ) -> None:
     """Watchdog thread body: poll until the parent disappears, then stop."""
     import time
 
-    while not watchdog_once(server, parent_pid, pid_alive_fn=pid_alive_fn):
+    while not watchdog_once(
+        server, parent_pid, pid_alive_fn=pid_alive_fn, parent_started_at=parent_started_at
+    ):
         time.sleep(poll_s)
 
 
@@ -155,9 +172,15 @@ def run_helper(
         server = uvicorn.Server(config)
         watcher: threading.Thread | None = None
         if parent_pid is not None:
+            # Identity anchor for the watchdog (pid reuse guard): captured
+            # while the parent is known alive; None falls back to pid-only.
+            from lock import _pid_start_time
+
+            parent_started = _pid_start_time(parent_pid)
             watcher = threading.Thread(
                 target=_watch_parent,
                 args=(server, parent_pid, watchdog_poll_s),
+                kwargs={"parent_started_at": parent_started},
                 daemon=True,
             )
             watcher.start()

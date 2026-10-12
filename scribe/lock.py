@@ -29,9 +29,13 @@ dependency; ``os.kill(pid, 0)`` is not reliable for liveness on Win32) and
 replaced (old file removed, new lock taken). A lock whose PID is alive is
 honored, unless its age exceeds ``STALE_AFTER_S`` (default 24 h: a render
 never legitimately holds the lock that long, so it must be a dead holder
-whose PID got recycled). No heartbeat thread: Windows file lifetimes plus
-a second concurrent run failing fast matter more than sub-minute staleness
-for a localhost UI plus CLI.
+whose PID got recycled). PIDs alone cannot prove identity (Windows reuses
+them, and a held handle keeps a dead object queryable), so acquirers also
+compare the holder's process start time against the lock timestamp
+(:func:`_pid_start_time`, ±``PID_IDENTITY_WINDOW_S``); a recycled PID
+fails the match and the lock clears. No heartbeat thread: Windows file
+lifetimes plus a second concurrent run failing fast matter more than
+sub-minute staleness for a localhost UI plus CLI.
 
 Second concurrent runs raise :class:`WorkLockError` naming the file and
 the rule (``{file, rule, message}`` shape, no traceback at the CLI).
@@ -51,6 +55,9 @@ from typing import Any
 LOCK_FILENAME = ".scribe.lock"
 #: Locks older than this are stale even when the PID looks alive (PID reuse).
 STALE_AFTER_S = 24 * 3600
+#: A lock holder counts as the same process only when its start time is
+#: within this of the lock timestamp (recycled-PID guard for :func:`_pid_alive`).
+PID_IDENTITY_WINDOW_S = 120.0
 
 
 class WorkLockError(ValueError):
@@ -93,13 +100,20 @@ class WorkLock:
         self.release()
 
 
-def _pid_alive(pid: int) -> bool:
+def _pid_alive(pid: int, *, started_at: str | float | None = None) -> bool:
     """True when a process with ``pid`` plausibly exists (no new deps).
 
     Windows: ``OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`` via
     ``ctypes`` (documented Win32 approach; ``os.kill`` semantics differ on
     Windows). POSIX: ``os.kill(pid, 0)`` (``EPERM`` means alive, ``ESRCH``
     means gone).
+
+    Existence is not identity: PIDs get recycled, and a held handle keeps a
+    dead object queryable. When ``started_at`` (lock timestamp, ISO string
+    or unix seconds) is given, the holder also has to have started within
+    ``PID_IDENTITY_WINDOW_S`` of it (see :func:`_pid_start_time`); a
+    recycled PID fails the match. Unknowable start times fall back to plain
+    existence (legacy behavior).
     """
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return False
@@ -111,17 +125,80 @@ def _pid_alive(pid: int) -> bool:
             if not handle:
                 return False
             kernel32.CloseHandle(handle)
-            return True
-        os.kill(pid, 0)
-        return True
+            exists = True
+        else:
+            os.kill(pid, 0)
+            exists = True
     except ProcessLookupError:
         return False
     except PermissionError:
-        return True
+        exists = True
     except OSError:
         return False
     except Exception:
         return False
+    if not exists or started_at is None:
+        return exists
+    try:
+        if isinstance(started_at, (int, float)) and not isinstance(started_at, bool):
+            stamp = float(started_at)
+        else:
+            stamp = (
+                datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+                .replace(tzinfo=timezone.utc)
+                .timestamp()
+            )
+    except (ValueError, TypeError, OverflowError):
+        return True
+    start = _pid_start_time(pid)
+    if start is None:
+        return True
+    return abs(start - stamp) <= PID_IDENTITY_WINDOW_S
+
+
+def _pid_start_time(pid: int) -> float | None:
+    """Process start as unix seconds, or None when unknowable (no new deps).
+
+    Windows: ``GetProcessTimes`` creation time via ``ctypes``. POSIX:
+    ``/proc/<pid>/stat`` field 22 against ``/proc/stat`` btime. Anything
+    unexpected means None (the caller falls back to plain existence).
+    """
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
+        return None
+    try:
+        if os.name == "nt":
+            import ctypes.wintypes
+
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            handle = kernel32.OpenProcess(0x1000, False, pid)
+            if not handle:
+                return None
+            try:
+                creation = ctypes.wintypes.FILETIME()
+                discard = ctypes.wintypes.FILETIME()
+                if not kernel32.GetProcessTimes(
+                    handle,
+                    ctypes.byref(creation),
+                    ctypes.byref(discard),
+                    ctypes.byref(discard),
+                    ctypes.byref(discard),
+                ):
+                    return None
+                ticks = (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+                return ticks / 10_000_000 - 11_644_473_600.0
+            finally:
+                kernel32.CloseHandle(handle)
+        with open(f"/proc/{pid}/stat", encoding="utf-8") as handle:
+            after = handle.read().rsplit(")", 1)[1].split()
+        start_ticks = int(after[20])
+        ticks_per_sec = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+        with open("/proc/stat", encoding="utf-8") as handle:
+            btime = next(
+                int(line.split()[1]) for line in handle if line.startswith("btime")
+            )
+        return btime + start_ticks / ticks_per_sec
+    except Exception:
+        return None
 
 
 def _read_lock(path: Path) -> dict[str, Any] | None:
@@ -181,7 +258,9 @@ def acquire_work_lock(work_dir: Path | str, *, cmd: str = "") -> WorkLock:
     # outer holder keeps exclusivity until its own release).
     if isinstance(holder, int) and holder == os.getpid():
         return WorkLock(work_dir=folder, path=path, pid=mine["pid"], owned=False)
-    alive = _pid_alive(holder) if isinstance(holder, int) else False
+    alive = (
+        _pid_alive(holder, started_at=started) if isinstance(holder, int) else False
+    )
     stale = (not alive) or (age_s is not None and age_s > STALE_AFTER_S)
     if stale:
         try:

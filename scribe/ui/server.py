@@ -149,7 +149,9 @@ def acquire_ui_lock(
         age_s = (datetime.now(timezone.utc) - stamp).total_seconds()
     except (ValueError, TypeError):
         age_s = None
-    alive = _pid_alive(holder) if isinstance(holder, int) else False
+    alive = (
+        _pid_alive(holder, started_at=started) if isinstance(holder, int) else False
+    )
     stale = (not alive) or (age_s is not None and age_s > STALE_AFTER_S)
     if stale:
         try:

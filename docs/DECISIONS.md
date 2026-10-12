@@ -1335,6 +1335,14 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Alternatives considered: CLI-side bundle placement (rejected: the spawner owns the argv); `Connection: close` per request (rejected: the idle cap keeps pooling for rapid sequences with one central line); retrying resets in the test (rejected: masks real breakage, and the UI would hit the same resets).
 - Consequences / revisit when: old flat `bundles/` outputs from earlier runs stay invisible (fresh builds land correctly); revisit the idle cap only if the helper's keep-alive timeout changes.
 
+### D-160: Lock holders verified by pid plus start time
+- Date: 2026-10-12
+- Status: Accepted
+- Decision: `_pid_alive` takes an optional lock timestamp and matches the holder's process start time within 120 s (`_pid_start_time`: GetProcessTimes on Windows, /proc stat on POSIX); a recycled pid fails the match and the lock clears. Both lock acquires pass their lock timestamps; the helper watchdog anchors the parent start at boot. The Rust app passes `--parent-pid` so orphaned helpers self-reap instead of holding the workspace lock.
+- Why: A dead holder's recycled pid read "alive" forever and blocked every launch with a growing age (pid 27948 incident); existence checks cannot tell a recycled pid (or a handle-kept zombie) from the holder.
+- Alternatives considered: deleting the stale file by hand each time (unblocks once, fixes nothing); trusting pid existence plus the 24 h cap (the status quo that caused the incident).
+- Consequences / revisit when: locks now clear on pid reuse within 2 min instead of 24 h; revisit the window only with evidence of false clears.
+
 ### D-159: Toolkit choice is egui
 - Date: 2026-10-12
 - Status: Accepted

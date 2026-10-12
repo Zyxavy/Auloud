@@ -398,6 +398,19 @@ fn send_detail(client: &scribe_client::Client, book_id: &str, events: &Sender<Wo
         }
     }
 }
+/// Spawn argv tail (pure: unit-tested). Always carries our own pid so an
+/// orphaned helper reaps itself instead of holding the workspace lock.
+fn spawn_tail(workspace: &Path) -> Vec<String> {
+    vec![
+        "--workspace".to_owned(),
+        workspace.display().to_string(),
+        "--port".to_owned(),
+        "0".to_owned(),
+        "--parent-pid".to_owned(),
+        std::process::id().to_string(),
+    ]
+}
+
 /// Spawn + wait-ready + health + version; the child and bound client.
 /// `stop` aborts a blocking startup wait (set alongside Shutdown).
 fn spawn_verified(
@@ -418,10 +431,7 @@ fn spawn_verified(
     let mut command = Command::new(&resolved.program);
     command
         .args(&resolved.args)
-        .arg("--workspace")
-        .arg(&workspace)
-        .arg("--port")
-        .arg("0")
+        .args(spawn_tail(&workspace))
         .env(TOKEN_ENV, token)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -610,6 +620,16 @@ fn wait_ready(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spawn_tail_carries_parent_pid() {
+        let tail = spawn_tail(Path::new("C:\\ws"));
+        let pid = tail
+            .iter()
+            .position(|arg| arg == "--parent-pid")
+            .expect("parent pid flag");
+        assert_eq!(tail[pid + 1], std::process::id().to_string());
+    }
 
     #[test]
     fn tokens_differ_and_read_hex() {
