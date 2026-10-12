@@ -149,31 +149,37 @@ impl App {
     /// Screens shown while the helper serves.
     fn screen_ui(&mut self, ui: &mut egui::Ui) {
         if self.screen == Screen::Settings {
-            ui.heading(egui::RichText::new("Settings").color(rgb(theme::OXBLOOD)));
-            ui.horizontal(|ui| {
-                ui.label("Workspace:");
-                ui.text_edit_singleline(&mut self.workspace_edit);
-            });
-            ui.horizontal(|ui| {
-                ui.label("Device:");
-                for device in settings::DEVICES {
-                    ui.radio_value(&mut self.device_edit, device.to_owned(), device);
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.label("Helper path (empty = discover):");
-                ui.text_edit_singleline(&mut self.helper_edit);
-            });
-            if ui.button("Save").clicked() {
-                self.save_settings();
-            }
-            if !self.notice.is_empty() {
-                ui.label(&self.notice);
-            }
+            self.settings_ui(ui);
             return;
         }
         ui.heading(egui::RichText::new(self.screen.title()).color(rgb(theme::OXBLOOD)));
         ui.label(self.screen.lands_in());
+    }
+
+    /// Settings editor, reachable from any machine state (a bad helper path
+    /// must stay fixable: the halt screens route here, never past it).
+    fn settings_ui(&mut self, ui: &mut egui::Ui) {
+        ui.heading(egui::RichText::new("Settings").color(rgb(theme::OXBLOOD)));
+        ui.horizontal(|ui| {
+            ui.label("Workspace:");
+            ui.text_edit_singleline(&mut self.workspace_edit);
+        });
+        ui.horizontal(|ui| {
+            ui.label("Device:");
+            for device in settings::DEVICES {
+                ui.radio_value(&mut self.device_edit, device.to_owned(), device);
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Helper path (empty = discover):");
+            ui.text_edit_singleline(&mut self.helper_edit);
+        });
+        if ui.button("Save").clicked() {
+            self.save_settings();
+        }
+        if !self.notice.is_empty() {
+            ui.label(&self.notice);
+        }
     }
 
     /// Halt screens (missing/crashed/version): reason + Retry.
@@ -203,9 +209,12 @@ impl eframe::App for App {
         });
         ui.separator();
         // Clone to satisfy the borrow checker: halt screens read the state
-        // while the buttons mutate it.
+        // while the buttons mutate it. Settings stays reachable while
+        // halted: a bad helper path must stay fixable (Retry alone loops
+        // the same refusal).
         match self.machine.clone() {
             State::Running { .. } => self.screen_ui(ui),
+            _ if self.screen == Screen::Settings => self.settings_ui(ui),
             State::Starting { .. } => {
                 ui.spinner();
                 ui.label("Starting helper…");

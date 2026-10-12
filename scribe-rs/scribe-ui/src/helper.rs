@@ -236,11 +236,12 @@ fn worker_loop(settings: Settings, commands: Receiver<WorkerCmd>, events: Sender
                     let _ = events.send(WorkerEvent::ChildDied);
                 }
                 Ok(None) => {}
-                Err(err) => {
+                // Unmonitorable counts as dead: the machine ignores Failed
+                // while Running, which would freeze the UI in a phantom
+                // Running state with no further events.
+                Err(_) => {
                     child = None;
-                    let _ = events.send(WorkerEvent::Failed {
-                        message: format!("cannot poll helper: {err}"),
-                    });
+                    let _ = events.send(WorkerEvent::ChildDied);
                 }
             }
         }
