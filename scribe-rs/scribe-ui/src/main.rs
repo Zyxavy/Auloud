@@ -114,7 +114,13 @@ impl App {
             match event {
                 WorkerEvent::Books { books } => {
                     self.books = books;
-                    self.books_note.clear();
+                    // Recovery clears the list error; user-facing notices
+                    // (upload confirmations, add failures) survive until the
+                    // next one (the post-upload refresh would else wipe them
+                    // within milliseconds).
+                    if self.books_note.starts_with("book list failed") {
+                        self.books_note.clear();
+                    }
                 }
                 WorkerEvent::BooksFailed { message } => {
                     self.books_note = format!("book list failed: {message}");

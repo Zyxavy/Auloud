@@ -271,6 +271,12 @@ fn worker_loop(settings: Settings, commands: Receiver<WorkerCmd>, events: Sender
                             });
                         }
                     }
+                } else {
+                    // Dying window (child just cleared): say so instead of
+                    // dropping the refresh silently; the next tick heals it.
+                    let _ = events.send(WorkerEvent::BooksFailed {
+                        message: "helper not connected".to_owned(),
+                    });
                 }
             }
             Ok(WorkerCmd::Upload { path }) => {
@@ -288,6 +294,12 @@ fn worker_loop(settings: Settings, commands: Receiver<WorkerCmd>, events: Sender
                             });
                         }
                     }
+                } else {
+                    // Same dying window: a silent drop would leave the UI
+                    // stuck on "uploading…" with nothing sent.
+                    let _ = events.send(WorkerEvent::UploadFailed {
+                        message: "helper not connected".to_owned(),
+                    });
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
