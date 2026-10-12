@@ -30,6 +30,11 @@ pub struct ResolvedCommand {
     /// Arguments (`helper --workspace DIR --port 0`, plus `-m scribe` for
     /// interpreter layouts).
     pub args: Vec<String>,
+    /// Working directory override. Set only for the dev-tree fallback:
+    /// `python -m scribe` resolves the working tree only from the repo
+    /// root (anywhere else it finds the stale installed copy, which lacks
+    /// new routes and fails version checks with a confusing 404).
+    pub work_dir: Option<PathBuf>,
 }
 
 /// Resolve the helper command: explicit setting, bundled layouts (the
@@ -66,7 +71,10 @@ pub fn resolve_command(settings: &Settings, exe_dir: &Path) -> Result<ResolvedCo
         let venv_python = anchor.join("scribe").join(".venv").join(exe_scripts());
         let venv_python = venv_python.join(exe_python());
         if venv_python.is_file() {
-            return Ok(command_for(&venv_python));
+            let mut resolved = command_for(&venv_python);
+            // The namespace package resolves the working tree only here.
+            resolved.work_dir = Some(anchor.clone());
+            return Ok(resolved);
         }
         if !anchor.pop() {
             break;
@@ -94,6 +102,7 @@ fn command_for(exe: &Path) -> ResolvedCommand {
     ResolvedCommand {
         program: exe.to_path_buf(),
         args,
+        work_dir: None,
     }
 }
 
@@ -395,6 +404,9 @@ fn spawn_verified(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
+    if let Some(work_dir) = &resolved.work_dir {
+        command.current_dir(work_dir);
+    }
     let mut process = command.spawn().map_err(|err| WorkerEvent::Failed {
         message: format!(
             "cannot start {}: {err} (fix it in Settings)",
@@ -558,6 +570,8 @@ mod tests {
         let resolved = resolve_command(&settings, &nested).expect("resolves");
         assert!(resolved.program.ends_with(exe_python()));
         assert_eq!(resolved.args, ["-m", "scribe", "helper"]);
+        // Working tree resolves only from the repo root.
+        assert_eq!(resolved.work_dir, Some(root.clone()));
         std::fs::remove_dir_all(&root).ok();
     }
 
