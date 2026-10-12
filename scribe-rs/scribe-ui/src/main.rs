@@ -86,6 +86,7 @@ struct App {
     jobs: Vec<scribe_client::Job>,
     jobs_note: String,
     show_history: bool,
+    quit_confirm: bool,
     render_form: scribe_ui::render::Form,
     preflight: Option<scribe_client::PlanResult>,
     /// Book the preflight was requested for (the plan's own id is
@@ -127,6 +128,7 @@ impl App {
             jobs: Vec::new(),
             jobs_note: String::new(),
             show_history: false,
+            quit_confirm: false,
             render_form: scribe_ui::render::Form::default(),
             preflight: None,
             preflight_for: None,
@@ -753,6 +755,64 @@ impl App {
         }
     }
 
+    /// Quit intercept (JP3): closing with live jobs asks first instead of
+    /// vanishing. Quit never kills a render (detached jobs survive the app
+    /// and reattach on relaunch); Stay cancels the close. No live jobs
+    /// means no interruption, ever. Running-only: any other machine state
+    /// has no fresh jobs feed, so a warning there could name stale jobs.
+    fn quit_intercept(&mut self, ui: &mut egui::Ui) {
+        if ui.ctx().input(|i| i.viewport().close_requested()) {
+            let (live, _) = scribe_ui::progress::split_jobs(&self.jobs);
+            if !live.is_empty() {
+                // eframe 0.36 has no close hook; this is the documented
+                // path (see `App::on_exit` docs in eframe's epi.rs).
+                ui.ctx()
+                    .send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.quit_confirm = true;
+            }
+        }
+        if !self.quit_confirm {
+            return;
+        }
+        let jobs = self.jobs.clone();
+        let (live, _) = scribe_ui::progress::split_jobs(&jobs);
+        ui.separator();
+        ui.heading(egui::RichText::new("Quit with running jobs?").color(rgb(theme::OXBLOOD)));
+        if live.is_empty() {
+            ui.label("No running jobs anymore. Quitting is safe.");
+        } else {
+            ui.label("These renders continue detached and reattach on relaunch:");
+            for job in &live {
+                let title = self
+                    .books
+                    .iter()
+                    .find(|book| book.id == job.book_id)
+                    .map(|book| {
+                        if book.title.is_empty() {
+                            job.book_id.clone()
+                        } else {
+                            scribe_ui::books::short_title(&book.title)
+                        }
+                    })
+                    .unwrap_or_else(|| job.book_id.clone());
+                ui.label(format!(
+                    "{}: {} ({} sentences)",
+                    scribe_ui::progress::job_label(job),
+                    title,
+                    scribe_ui::progress::done_sentences(&job.summary)
+                ));
+            }
+        }
+        ui.horizontal(|ui| {
+            if ui.button("Quit").clicked() {
+                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            if ui.button("Stay").clicked() {
+                self.quit_confirm = false;
+            }
+        });
+    }
+
     /// Native pick + stage + upload (the dialog is owner-tested; the
     /// staging below it is unit-tested in `books.rs`).
     fn add_book(&mut self) {
@@ -837,6 +897,7 @@ impl eframe::App for App {
             State::Running { .. } => {
                 self.screen_ui(ui);
                 self.tray_ui(ui);
+                self.quit_intercept(ui);
             }
             _ if self.screen == Screen::Settings => self.settings_ui(ui),
             State::Starting { .. } => {
