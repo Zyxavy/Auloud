@@ -67,11 +67,14 @@ one of the two is wrong (contract-first rule, Slice16 decision 1).
 
 ## 3. Books
 
-- `GET /api/books` -> `200 {books: [{id, title, author, source_file,
-  source_type: epub|pdf, chapters, sentences, drafted, cast_edited,
+- `GET /api/books` -> `200 {books: [{id, title, author (string|null: no
+  readable metadata), source_file (string|null), source_type
+  (epub|pdf|null), chapters, sentences, drafted, cast_edited,
   rendering, rendering_percent: 0-100|null, draft_status, bundles, valid,
   on_tablet, transfer}]}`, sorted by title.
-- `GET /api/books/{book_id}` -> full detail: identity, `chapters: [{index,
+- `GET /api/books/{book_id}` -> full detail: identity (`author`,
+  `source_file`, `source_sha256` are null until mapped; `cast_edited`
+  flags a `cast.yaml` newer than the script), `chapters: [{index,
   title, sentences, est_seconds}]`, `cast` summary, `bundles: [{id, path,
   chapters, duration_ms, valid, errors}]`, `validation`, `on_tablet`,
   transfer record. `400 path-traversal` on a bad id; `404 book-not-found`.

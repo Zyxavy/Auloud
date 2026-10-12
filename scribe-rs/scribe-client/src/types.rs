@@ -36,15 +36,15 @@ pub struct BookSummary {
     /// Book title.
     #[serde(default)]
     pub title: String,
-    /// Book author.
+    /// Book author (null when the source carries no metadata).
     #[serde(default)]
-    pub author: String,
-    /// Workspace-relative source path.
+    pub author: Option<String>,
+    /// Workspace-relative source path (null before any source is mapped).
     #[serde(default)]
-    pub source_file: String,
-    /// `epub` or `pdf`.
+    pub source_file: Option<String>,
+    /// `epub` or `pdf` (null before any source is mapped).
     #[serde(default)]
-    pub source_type: String,
+    pub source_type: Option<String>,
     /// Chapter and sentence counts.
     #[serde(default)]
     pub chapters: u64,
@@ -127,12 +127,18 @@ pub struct BookDetail {
     /// Book identity.
     #[serde(default)]
     pub title: String,
-    /// Workspace-relative source path.
+    /// Book author (null when the source carries no metadata).
     #[serde(default)]
-    pub source_file: String,
-    /// Hex sha256 of the source bytes.
+    pub author: Option<String>,
+    /// Workspace-relative source path (null before drafting maps it).
     #[serde(default)]
-    pub source_sha256: String,
+    pub source_file: Option<String>,
+    /// Hex sha256 of the source bytes (null before drafting maps it).
+    #[serde(default)]
+    pub source_sha256: Option<String>,
+    /// `cast.yaml` newer than `script.json` (stale-cast hint).
+    #[serde(default)]
+    pub cast_edited: bool,
     /// Draft artifacts present.
     #[serde(default)]
     pub drafted: bool,
