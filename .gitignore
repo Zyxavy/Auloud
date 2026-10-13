@@ -21,6 +21,7 @@ local.properties
 captures/
 *.hprof
 .DS_Store
+.ruff_cache
 
 # Signing keys (never commit)
 *.jks
