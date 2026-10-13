@@ -41,6 +41,10 @@ import kotlinx.coroutines.launch
  *   the last one the same way.
  * - Follow reuses the shared machine: manual scroll detaches, back-to-now
  *   and chapter changes re-attach.
+ * - The voice leads across chapter ends: a service chapter advance loads
+ *   the new chapter's text here with no command back (it is already
+ *   there), so highlight and text keep going ReadEra-style, including
+ *   after screen-off returns.
  *
  * The ViewModel owns its coroutines (a [SupervisorJob] over [dispatcher]);
  * call [clear] when the screen is disposed, like `ViewModel.onCleared`.
@@ -77,6 +81,17 @@ class UnrenderedReaderViewModel(
             scope.launch {
                 stream.sid.collect { sid ->
                     _state.value = _state.value.copy(liveSid = sid)
+                }
+            }
+            // The voice leads across chapter ends (ReadEra-style follow):
+            // a new service chapter loads its text here. No service
+            // command goes back (it is already there), and the save rides
+            // the normal load path, so screen-off returns find the spot.
+            scope.launch {
+                stream.chapterPos.collect { pos ->
+                    if (pos != null && pos != _state.value.chapterIndex) {
+                        followStreamChapter(pos)
+                    }
                 }
             }
         }
@@ -127,6 +142,19 @@ class UnrenderedReaderViewModel(
     /** Twin of [nextChapter] toward the book start. */
     fun previousChapter() {
         jumpToChapter(_state.value.chapterIndex - 1)
+    }
+
+    /**
+     * Service-led chapter move (voice crossed the chapter end): loads the
+     * text like [jumpToChapter] but sends no command back — commanding the
+     * service would restart the chapter it just left. Out-of-range is a
+     * no-op via [coerceChapterJump], same as manual jumps.
+     */
+    private fun followStreamChapter(pos: Int) {
+        val target = coerceChapterJump(pos, chapterCount) ?: return
+        if (target == _state.value.chapterIndex && _state.value.chapter != null) return
+        settleJob?.cancel()
+        loadChapter(target, null)
     }
 
     /** Manual scroll detached the view (same rule as the timed reader). */

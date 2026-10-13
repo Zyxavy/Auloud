@@ -29,6 +29,8 @@ data class PlaybackState(
     val sleepRemainingMs: Long? = null,
     /** ST5: live voice sentence sid (null when no stream is speaking). */
     val streamSid: Int? = null,
+    /** Live voice chapter position (null when no stream chapter is live). */
+    val streamChapterPos: Int? = null,
     /**
      * CP4: transient skip/storage notice ("Skipped ..." or
      * "Storage unavailable - playback paused"). Null when nothing is

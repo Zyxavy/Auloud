@@ -149,6 +149,8 @@ private fun UnrenderedContent(
             LiveStream(
                 sid = controller.state.map { it.streamSid }
                     .stateIn(scope, SharingStarted.Eagerly, null),
+                chapterPos = controller.state.map { it.streamChapterPos }
+                    .stateIn(scope, SharingStarted.Eagerly, null),
                 restartAt = { index ->
                     controller.seekToSentence(index)
                     controller.play()
