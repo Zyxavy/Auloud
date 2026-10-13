@@ -30,7 +30,7 @@ Answer one question before any UI is built: **can the Python Scribe be packaged 
 | Embedded-runtime bundle build script (Windows, Linux) | The installer and first-run model downloader (Slices 20 and 22) |
 | A frozen (PyInstaller, onedir) build for comparison | GPU providers; macOS |
 | Clean-machine runs, equivalence checks, lifecycle tests | Code signing |
-| `docs/packaging.md` with the decision | Any Rust application logic |
+| `docs/archive/v3/packaging.md` with the decision | Any Rust application logic |
 
 ## 4. Key decisions (log from D-148)
 
@@ -51,7 +51,7 @@ Answer one question before any UI is built: **can the Python Scribe be packaged 
 - Inventory the runtime: every installed package with size, native libraries and data files, what the spaCy model and Piper bring, and where Kokoro gets its phonemizer
 - Read the web UI server, detached job runner, doctor and path handling so the helper entry point reuses them
 - Write the Windows Sandbox config (`.wsb`): helper and fixtures mapped read-only, a writable results folder, networking disabled; confirm it boots
-- Create `docs/packaging.md` with the empty metrics sheet; pin the Python version; log decisions 1-9
+- Create `docs/archive/v3/packaging.md` with the empty metrics sheet; pin the Python version; log decisions 1-9
 - **Verify:** inventory and sandbox boot recorded; decisions logged
 
 ### HP1: Helper entry point (M)
@@ -106,7 +106,7 @@ Answer one question before any UI is built: **can the Python Scribe be packaged 
 
 ### HP8: Measurements and report (S)
 
-Fill the sheet in `docs/packaging.md`:
+Fill the sheet in `docs/archive/v3/packaging.md`:
 
 | Metric | Embedded | Frozen | Dev machine |
 | --- | --- | --- | --- |
@@ -123,7 +123,7 @@ Fill the sheet in `docs/packaging.md`:
 ### HP9: Decision and close-out (S)
 
 - Apply the gate thresholds (decision 9); choose embedded, frozen, or the fallback; if neither passes, apply the roadmap's stop-loss (a first-run bootstrap, or a documented one-time setup)
-- Finalize `docs/packaging.md`: chosen approach, the helper contract (arguments, environment, ready line, folders, versions), build steps, pitfalls found
+- Finalize `docs/archive/v3/packaging.md`: chosen approach, the helper contract (arguments, environment, ready line, folders, versions), build steps, pitfalls found
 - Log decisions; D-133/D-147 and the superseded plans are already recorded, so verify rather than repeat; update the roadmap with the findings that shape Slice 16 (endpoint list and ready protocol)
 - Tag `slice-15`
 
@@ -155,7 +155,7 @@ Fill the sheet in `docs/packaging.md`:
 - [ ] Clean-machine runs recorded for every variant and extra case
 - [ ] Output equivalence report passes (or differences explained)
 - [ ] Lifecycle behaviors recorded, including job survival and reattach
-- [ ] Metrics sheet complete; decision logged against the thresholds; `docs/packaging.md` final
+- [ ] Metrics sheet complete; decision logged against the thresholds; `docs/archive/v3/packaging.md` final
 - [ ] Tagged `slice-15`
 
 ## 9. Risks and mitigations

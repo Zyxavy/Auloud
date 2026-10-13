@@ -64,7 +64,7 @@ Add KittenTTS as an optional neural voice tier, measure it on the Tab E (nano in
 - **Voice mapping:** read the sherpa-onnx conversion script for how `voices.bin` orders the voices, and confirm by generating the same sentence on the PC for each sid and for each named voice in the Python KittenTTS package, comparing the results; record the evidence and the table (and genders after your listening confirmation)
 - **License check:** read the license text and model card for each variant you will test; record terms, whether redistribution is allowed, and the espeak-ng data note; log decision 7 with the findings
 - Define the pack detection rules (decision 2), including how the model filename varies across variants
-- **Verify:** findings written in `docs/kitten.md` with sources and dates; spike result in `docs/test-log.md`; decisions logged
+- **Verify:** findings written in `docs/archive/v2/kitten.md` with sources and dates; spike result in `docs/test-log.md`; decisions logged
 
 ### KT1: Engine adapter (M)
 

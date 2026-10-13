@@ -31,7 +31,7 @@ import kotlinx.coroutines.flow.StateFlow
  * time, spoken by the system TTS engine, nothing saved.
  *
  * A [SimpleBasePlayer] subclass (confirmed in the pinned media3-common
- * 1.5.1 artifact, `docs/streaming.md` section 4), so the existing
+ * 1.5.1 artifact, `docs/archive/v2/streaming.md` section 4), so the existing
  * `MediaSession`, notification, lock-screen and Bluetooth controls keep
  * working: play/pause/stop, chapter next/previous (via [StreamNavigator],
  * the service switches chapters), speed (re-queues at the new rate) and

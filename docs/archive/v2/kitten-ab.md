@@ -2,7 +2,7 @@
 
 ## Passage
 
-`docs/kitten-ab-passage-clean.txt` (604 words, Alice ch.1 opening, public domain). `docs/kitten-ab-passage.txt` is the same text with `[speaker/kind]` labels per sentence (Alice dialogue vs narrator) for checking voice distinction. Render the clean text with each engine below; the bracket file never goes into an engine.
+`docs/archive/v2/kitten-ab-passage-clean.txt` (604 words, Alice ch.1 opening, public domain). `docs/archive/v2/kitten-ab-passage.txt` is the same text with `[speaker/kind]` labels per sentence (Alice dialogue vs narrator) for checking voice distinction. Render the clean text with each engine below; the bracket file never goes into an engine.
 
 ## Engines (same passage each)
 

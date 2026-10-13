@@ -2,7 +2,7 @@
 
 The contract between the Python Scribe helper and the native Rust UI (Slice 16).
 Written from `scribe/ui/` code; the `scribe-client` crate (API2) is its
-executable companion — if a recorded-response test disagrees with this doc,
+executable companion: if a recorded-response test disagrees with this doc,
 one of the two is wrong (contract-first rule, Slice16 decision 1).
 
 ## 1. Connection
@@ -14,7 +14,7 @@ one of the two is wrong (contract-first rule, Slice16 decision 1).
   `{"ready": true, "port": <picked>, "versions": {"api": 1, "scribe": "0.1.0",
   "spec": ["1.0", "1.1", "1.2", "2.0"]}}` (keys sorted; scribe/spec values
   follow the installed code). The ready line means "starting"; `/api/health`
-  is truth — the parent retries it (Slice 16 owns the parent side).
+  is truth. The parent retries it (Slice 16 owns the parent side).
 - Version pin: the client speaks one `api` version (today `1`) and checks it on
   the ready line and `GET /api/version`. A helper version it does not know
   fails loudly with the upgrade message, never silently.

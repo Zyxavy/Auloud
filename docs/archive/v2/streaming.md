@@ -27,6 +27,15 @@ The core never imports Android or Media3: it consumes a driver seam and
 emits state, so ST2 is fully JVM-tested against a fake driver. The
 service owns the Android half (focus, noisy-audio, wake lock, saves).
 
+```mermaid
+flowchart LR
+    Reader[Reader screen] -->|"Listen now"| Service[Playback service]
+    Service --> Player[Stream player]
+    Player --> TTS[System TTS]
+    TTS -- sentence sid --> Highlight[Sentence highlight]
+    Player -- chapter done --> Next[Next chapter]
+```
+
 Proposed homes (ST2-ST4 create these; names may move once, then stay):
 
 - `tts/StreamPlanner.kt`: queue plan (next N utterances with ids, voice
@@ -58,7 +67,7 @@ Two variants behind the driver seam, measured in ST0 (LiveSw vs Live2x):
 - (a) one `TextToSpeech` instance, voice set per utterance;
 - (b) two instances, one voice each, sequential hand-off on `done`.
 
-The smaller switch gap wins. Fallback, no shame: if both gap audibly
+The smaller switch gap wins. Fallback: if both gap audibly
 in dialogue-heavy text, stream single-voice (narrator for everything)
 and keep two voices for rendered audio only. The planner already tags
 each utterance with its role, so the fallback is a voice-mapping change,

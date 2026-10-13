@@ -72,6 +72,18 @@ Rust UI app (scribe-ui)  <--HTTP/SSE on 127.0.0.1, random port + token-->  Helpe
 
 ## 4. Slices
 
+```mermaid
+flowchart LR
+    S14[14: Kitten engine] --> S15[15: Packaging gate]
+    S15 --> S16[16: API + toolkit]
+    S16 --> S17[17: App shell + books]
+    S17 --> S18[18: Jobs + render]
+    S18 --> S19[19: Cast + voices]
+    S19 --> S20[20: Validate + transfer]
+    S20 --> S21[21: Design + polish]
+    S21 --> S22[22: Installers + release]
+```
+
 ### Slice 14: KittenTTS engine (Player `full` flavor)
 
 Unchanged. See `docs/plans/Slice14.md`; its remaining items are device-only.

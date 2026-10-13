@@ -76,7 +76,7 @@ Extend the spike app (or a debug screen) to run these on the Tab E with the syst
 
 ### ST1: Design note (S)
 
-- Architecture of decisions 2-8, state machine for the stream, the hand-off with rendered chapters, reader live mode, error handling; `docs/streaming.md`
+- Architecture of decisions 2-8, state machine for the stream, the hand-off with rendered chapters, reader live mode, error handling; `docs/archive/v2/streaming.md`
 - **Verify:** reviewed; decisions logged
 
 ### ST2: Stream core logic (M)
@@ -142,7 +142,7 @@ Extend the spike app (or a debug screen) to run these on the Tab E with the syst
 
 - [x] Gate recorded with numbers and a go, reduced-go or no-go decision
 - [x] If go: all verifications passed, suites green in both flavors, device acceptance passed on the Tab E
-- [x] Decisions logged; `docs/streaming.md` written; README and roadmap updated; tagged `slice-13` (v2.1)
+- [x] Decisions logged; `docs/archive/v2/streaming.md` written; README and roadmap updated; tagged `slice-13` (v2.1)
 
 ## 9. Risks and mitigations
 

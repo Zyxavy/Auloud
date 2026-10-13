@@ -1,6 +1,6 @@
 # KittenTTS findings (Slice 14, KT0)
 
-Status: desk research done 2026-10-10; device findings TBD (staging, spike bench, listening confirmation). KT4 listening materials: `docs/kitten-ab.md` (protocol + score sheet), `docs/kitten-ab-passage-clean.txt` (604-word Alice passage), `docs/kitten-ab-passage.txt` (same with speaker labels).
+Status: desk research done 2026-10-10; device findings TBD (staging, spike bench, listening confirmation). KT4 listening materials: `docs/archive/v2/kitten-ab.md` (protocol + score sheet), `docs/archive/v2/kitten-ab-passage-clean.txt` (604-word Alice passage), `docs/archive/v2/kitten-ab-passage.txt` (same with speaker labels).
 
 ## Pinned runtime (verified locally)
 

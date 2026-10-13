@@ -88,7 +88,8 @@ docs/     PRD, designs, roadmap, test plan, runbooks, signing guide
 - [x] **v1 (done):** PC renders MP3 audiobooks from EPUB/PDF with narrator + character voices and sentence timings; read-along player with three modes; release APK `1.0.0` soak-passed on the Tab E.
 - [~] **v2 (partial):** on-device rendering (System TTS plus Piper in `full`), two voices, background renders, live streaming of unrendered chapters. Player `2.1.0` tagged; some device numbers still provisional.
 - [ ] **v3 (next):** native desktop Scribe app (Rust UI driving the packaged Python backend): jobs tray, render step with preflight, cast table with audition, voices view, validate/transfer, installers. Python Scribe stays canonical until parity.
-- [ ] **v4 (later):** Android platform refresh: current `targetSdk`, background-service rules, newer Android versions, word-level highlight. Placeholder until v3 ships. (No v5 defined; v4 is the next platform slice.)
+- [ ] **v4 (later):** Android platform refresh: current `targetSdk`, background-service rules, newer Android versions, word-level highlight. Placeholder until v3 ships.
+- [ ] **v5 (planned):** iOS/iPadOS Player in Swift (xtool build from Windows): import and play bundles with read-along, no rendering on device. See [V5 plan](docs/V5-iOS-support.md).
 
 ## Limitations
 

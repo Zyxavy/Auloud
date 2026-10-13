@@ -21,7 +21,7 @@ Scope: a **Player-only** native Swift app for iPad (and iPhone as a free side ef
 - That an xtool-signed app with `UIBackgroundModes: audio` plays with the screen off, shows lock-screen controls, and survives interruptions on your iPad
 - That the Windows route (WSL, `usbipd`, or `--ipa` plus a Windows sideloader) actually works with your iPad. Your Android tablet never enumerated over USB, so treat iPad USB as unproven
 - That iPad Files access (folder picking, file sharing, external drives) works the way the plan below assumes
-- Whether a paid Developer Program account ($99/year, my understanding) is worth it to avoid the 7-day expiry; the free account is enough to start
+- Whether a paid Developer Program account (about $99/year) is worth it to avoid the 7-day expiry; the free account is enough to start
 
 **Risks outside the code**
 

@@ -10,7 +10,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * KT1: KittenTTS pack detection (pure Kotlin, no native imports).
  *
  * A Kitten pack is a folder with a model file (`model*.onnx`: the name
- * varies per variant, see `docs/kitten.md`), `voices.bin`, `tokens.txt`
+ * varies per variant, see `docs/archive/v2/kitten.md`), `voices.bin`, `tokens.txt`
  * and `espeak-ng-data/`. Voice ids are speaker sids (`kitten:<sid>`);
  * names and genders stay numeric until KT0 verifies the mapping, so the
  * adapter lists bare sids and KT5 maps them.
