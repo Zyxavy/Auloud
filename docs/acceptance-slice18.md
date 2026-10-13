@@ -48,5 +48,5 @@ panel, and quitting.
 
 ## D. Verdict
 
-- Result (pass / fail with notes):
-- Failures pasted below (screen + action + what showed):
+- Result (pass / fail with notes): pass (owner run 2026-10-13, no failures noted; boxes left unticked pending a detailed per-box pass)
+- Failures pasted below (screen + action + what showed): none reported
