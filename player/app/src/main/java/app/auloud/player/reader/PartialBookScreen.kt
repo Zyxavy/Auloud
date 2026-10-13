@@ -261,6 +261,9 @@ fun PartialBookScreen(
                 panelVm.refresh()
             },
             modifier = modifier,
+            showChapters = showChapters,
+            onOpenChapters = { showChapters = true },
+            onDismissChapters = { showChapters = false },
             onOpenRender = {
                 readAt = null
                 readAutoPlay = false
