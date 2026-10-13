@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-OPT-BOOL",
+      "message": "manifest.json: invalid field 'cbr' (need boolean)"
+    }
+  ]
+}

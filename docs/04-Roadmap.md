@@ -1,6 +1,6 @@
 # Roadmap: Read-Along Audiobook Player
 
-Working doc. Update the status boxes as you go. Relates to `01-PRD.md`, `02-ArchitectureV1.md`, `03-BundleSpec.md`.
+Working doc. Update the status boxes as you go. Relates to `01-PRD.md`, `03-BundleSpec.md` (v1 architecture frozen at `archive/v1/02-ArchitectureV1.md`).
 
 Status key: `[ ]` not started, `[~]` in progress, `[x]` done. Size: S (a few evenings), M (a few weekends), L (longer).
 
@@ -171,17 +171,17 @@ All user-verified on the Tab E 2026-10-05, logged in `docs/archive/v1/soak-log.m
 
 Embed the EPUB/PDF in the app so the device runs its own TTS (Kokoro or Piper).
 
-*Status: built on `dev/v2` (Player `2.0.0`, two voices, System TTS plus Piper in the `full` flavor); release pending the Slice 12 soak and sign-off. Detail lives in `docs/09-V2Roadmap.md`; Slices 9-11 are device-passed, Slice 12 is in progress. Boxes below stay as written until the Slice 12 gate ticks them.*
+*Status: shipped as Player `2.1.0` (Slices 9-13 device-passed and tagged). Detail lives in `docs/09-V2Roadmap.md`.*
 
-- [ ] Benchmark spike first: measure real-time factor of Piper and Kokoro on target devices
-- [ ] Engine interface so voices are pluggable
-- [ ] On-device tagging with rules
-- [ ] Background render (no charger requirement, D-130); streaming synthesis for immediate listening
-- [ ] Decide licensing impact of bundling espeak-ng
+- [x] Benchmark spike first: measure real-time factor of Piper and Kokoro on target devices
+- [x] Engine interface so voices are pluggable
+- [x] On-device tagging with rules
+- [x] Background render (no charger requirement, D-130); streaming synthesis for immediate listening
+- [x] Decide licensing impact of bundling espeak-ng
 
 ## v3
 
-Scribe desktop port (D-133): port Scribe to Rust with a Tauri v2 app for Windows 11 and Linux. The Python Scribe stays canonical until parity; the port honors `spec/` unchanged.
+Scribe desktop port (D-133): port Scribe to Rust with a Tauri v2 app for Windows 11 and Linux. The Python Scribe stays canonical until parity; the port honors `spec/` unchanged. Full plan: `docs/10-V3Roadmap.md` (KittenTTS engine first, then the port in Slices 15-22).
 
 ## v4
 

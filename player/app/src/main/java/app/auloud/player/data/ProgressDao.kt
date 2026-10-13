@@ -13,6 +13,13 @@ interface ProgressDao {
     @Query("SELECT * FROM progress WHERE bookId = :bookId")
     suspend fun load(bookId: String): ProgressEntity?
 
+    /**
+     * FP2: every saved position in one query (the library screen reads all
+     * rows per books emission; per-book loads were N+1).
+     */
+    @Query("SELECT * FROM progress")
+    suspend fun getAll(): List<ProgressEntity>
+
     @Upsert
     suspend fun upsert(progress: ProgressEntity)
 

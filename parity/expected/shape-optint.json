@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-OPT-INT",
+      "message": "manifest.json: invalid field 'duration_ms' (need integer)"
+    }
+  ]
+}

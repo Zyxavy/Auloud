@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-MANIFEST-OBJECT",
+      "message": "manifest.json: manifest must be a JSON object"
+    }
+  ]
+}

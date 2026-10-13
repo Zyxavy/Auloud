@@ -334,7 +334,7 @@ object IngestPipeline {
         manifest: Manifest
     ): List<String> {
         return try {
-            BundleValidator.validate(tempDir, manifest, storage::exists, storage::readText)
+            BundleValidator.validate(tempDir, manifest, storage::exists, storage::readText, storage::sizeBytes)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

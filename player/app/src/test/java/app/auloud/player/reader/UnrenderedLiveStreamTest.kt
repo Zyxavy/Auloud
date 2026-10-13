@@ -44,6 +44,8 @@ class UnrenderedLiveStreamTest {
 
         override suspend fun load(bookId: String): ProgressEntity? = rows[bookId]
 
+        override suspend fun getAll(): List<ProgressEntity> = rows.values.toList()
+
         override suspend fun upsert(progress: ProgressEntity) {
             rows[progress.bookId] = progress
         }
@@ -55,12 +57,14 @@ class UnrenderedLiveStreamTest {
 
     private class FakeLive {
         val sids = MutableStateFlow<Int?>(null)
+        val chapterPositions = MutableStateFlow<Int?>(null)
         val restarts = mutableListOf<Int>()
         val chapterSeeks = mutableListOf<Int>()
         var nexts = 0
         var previouses = 0
         val stream = LiveStream(
             sid = sids,
+            chapterPos = chapterPositions,
             restartAt = { restarts += it },
             seekToChapter = { chapterSeeks += it },
             nextChapter = { nexts++ },
@@ -206,6 +210,89 @@ class UnrenderedLiveStreamTest {
                 var state = awaitItem()
                 while (state.chapter == null) state = awaitItem()
                 vm.jumpToChapter(7)
+                testScheduler.advanceUntilIdle()
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            vm.clear()
+        }
+        assertTrue(fake.chapterSeeks.isEmpty())
+    }
+
+    @Test
+    fun serviceChapterAdvance_loadsTextWithoutCommandingService() = runTest {
+        val dao = FakeProgressDao()
+        val repo = RoomProgressRepository(dao)
+        val fake = FakeLive()
+        val files = mapOf(
+            "text/ch001.json" to chapterPayload(),
+            "text/ch002.json" to chapterPayload().replace("\"chapter\": 1", "\"chapter\": 2")
+        )
+        val vm = UnrenderedReaderViewModel(
+            bookId = "book-live",
+            storage = FakeStorage(files),
+            textPathForChapter = { "text/ch00${it + 1}.json" },
+            chapterCount = 2,
+            progress = repo,
+            dispatcher = StandardTestDispatcher(testScheduler),
+            debounceMs = 25L,
+            live = fake.stream
+        )
+        try {
+            vm.state.test {
+                testScheduler.advanceUntilIdle()
+                var state = awaitItem()
+                while (state.chapter == null) state = awaitItem()
+                assertEquals(0, state.chapterIndex)
+                // The voice crossed the chapter end: the reader follows,
+                // but sends no seek back (the service is already there).
+                fake.chapterPositions.value = 1
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                // chapterIndex flips synchronously when the follow fires;
+                // wait for the loaded chapter itself (IO-backed).
+                while (state.chapterIndex != 1 || state.chapter == null) {
+                    state = awaitItem()
+                }
+                assertEquals(2, state.chapter?.chapter)
+                // Let the follow-up save land before tearing down.
+                testScheduler.advanceUntilIdle()
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            vm.clear()
+        }
+        assertTrue(
+            "follow must not command the service: ${fake.chapterSeeks}",
+            fake.chapterSeeks.isEmpty()
+        )
+        assertEquals(1, repo.load("book-live").getOrThrow()?.chapterIndex)
+    }
+
+    @Test
+    fun serviceChapterAdvanceOutOfRange_isIgnored() = runTest {
+        val dao = FakeProgressDao()
+        val fake = FakeLive()
+        val files = mapOf(
+            "text/ch001.json" to chapterPayload(),
+            "text/ch002.json" to chapterPayload().replace("\"chapter\": 1", "\"chapter\": 2")
+        )
+        val vm = UnrenderedReaderViewModel(
+            bookId = "book-live",
+            storage = FakeStorage(files),
+            textPathForChapter = { "text/ch00${it + 1}.json" },
+            chapterCount = 2,
+            progress = RoomProgressRepository(dao),
+            dispatcher = StandardTestDispatcher(testScheduler),
+            debounceMs = 25L,
+            live = fake.stream
+        )
+        try {
+            vm.state.test {
+                testScheduler.advanceUntilIdle()
+                var state = awaitItem()
+                while (state.chapter == null) state = awaitItem()
+                fake.chapterPositions.value = 9
                 testScheduler.advanceUntilIdle()
                 cancelAndIgnoreRemainingEvents()
             }

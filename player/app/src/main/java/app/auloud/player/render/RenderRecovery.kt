@@ -21,7 +21,9 @@ import kotlinx.serialization.json.Json
  * plus [StrayTempSweep.sweepPaths]): no parallel sweeper, same
  * best-effort never-throw contract. Candidates are computed from the
  * manifest, so unknown strays are impossible and live files are never
- * touched.
+ * touched. When the manifest itself is unreadable there are no entries
+ * to derive candidates from, so [sweepOrphanTemps] lists `audio/` and
+ * `text/` for `*.tmp` residue instead (FP4).
  *
  * Half-finished chapter repairs (each reported, never silent):
  * - audio without JSON (`OrphanAudio`): the audio file has no timed JSON
@@ -109,10 +111,11 @@ object RenderRecovery {
                 io::exists,
                 io::deleteIfExists
             )
+            val orphanSwept = sweepOrphanTemps(bundleDir, io)
             val job = RenderStateStore.markInterruptedIfActive(bundleDir, io, clock, sleeper)
             return Result.success(
                 RecoveryReport(
-                    sweptTemps = fixedSwept,
+                    sweptTemps = (fixedSwept + orphanSwept).sorted(),
                     sweptSpool = emptyList(),
                     repairs = emptyList(),
                     manifestRewritten = false,
@@ -123,8 +126,27 @@ object RenderRecovery {
             )
         }
         val manifest = BundleParser.parseText(rawManifest).getOrElse {
+            // FP4: a torn manifest still leaves per-chapter temps behind
+            // (kill mid-finalize), so sweep them by directory listing
+            // before reporting the failure; without entries there are no
+            // manifest-derived candidates.
+            val fixedSwept = StrayTempSweep.sweepPaths(
+                listOf(
+                    "$manifestPath${StrayTempSweep.RENDER_TMP_SUFFIX}",
+                    join(bundleDir, RenderStateStore.STATE_FILE) + RenderStateStore.TEMP_SUFFIX
+                ),
+                io::exists,
+                io::deleteIfExists
+            )
+            val orphanSwept = sweepOrphanTemps(bundleDir, io)
+            val swept = (fixedSwept + orphanSwept).sorted()
+            RenderStateStore.markInterruptedIfActive(bundleDir, io, clock, sleeper)
             return Result.failure(
-                java.io.IOException("$manifestPath: manifest unreadable (${it.message})", it)
+                java.io.IOException(
+                    "$manifestPath: manifest unreadable (${it.message}; " +
+                        "swept ${swept.size} temp(s))",
+                    it
+                )
             )
         }
         val sweptTemps = StrayTempSweep.sweepPaths(
@@ -271,6 +293,30 @@ object RenderRecovery {
             )
         }
         return null
+    }
+
+    /**
+     * FP4: orphan render temps by directory listing (no manifest needed).
+     *
+     * Finalize writes every temp as `<target>.tmp` inside `audio/` and
+     * `text/`, so a kill mid-finalize with a torn or missing manifest
+     * still leaves only `*.tmp` residue there. Lists both dirs and
+     * deletes every `*.tmp` hit best-effort via [RenderFileIo] (never
+     * throws; a listing failure reads as no strays). Live files never
+     * end in `.tmp`, so they are never touched. Returns deleted paths
+     * sorted.
+     */
+    fun sweepOrphanTemps(bundleDir: String, io: RenderFileIo): List<String> {
+        val candidates = ArrayList<String>()
+        for (sub in listOf("audio", "text")) {
+            val listed = try {
+                io.listFiles(join(bundleDir, sub), "", StrayTempSweep.RENDER_TMP_SUFFIX)
+            } catch (_: Exception) {
+                emptyList()
+            }
+            candidates.addAll(listed)
+        }
+        return StrayTempSweep.sweepPaths(candidates, io::exists, io::deleteIfExists)
     }
 
     /**

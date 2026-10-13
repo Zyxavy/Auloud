@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 
 /**
  * WP5: one row of the library list.
@@ -179,6 +180,12 @@ class LibraryViewModel(
     // chapters need re-render" with no extra invalidation).
     private val staleCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
     private val isScanning = MutableStateFlow(false)
+    /**
+     * FP2: owns the whole rescan. The `isScanning` flag check in [rescan]
+     * races a second call (the first launch may not run before it), so a
+     * rapid second rescan must also fail here via [Mutex.tryLock].
+     */
+    private val scanMutex = Mutex()
     private val hasPermission = MutableStateFlow(false)
     private val selectedBookId = MutableStateFlow<String?>(null)
 
@@ -258,8 +265,12 @@ class LibraryViewModel(
         }
         hasPermission.value = true
         scope.launch(ioDispatcher) {
-            isScanning.value = true
+            // FP2: the flag check above races a second call, so the mutex
+            // owns the whole scan; a rapid second rescan finds it held and
+            // returns without touching the library.
+            if (!scanMutex.tryLock()) return@launch
             try {
+                isScanning.value = true
                 val folders = try {
                     watchFolderStore.getWatchFolders()
                 } catch (e: CancellationException) {
@@ -321,7 +332,7 @@ class LibraryViewModel(
                             // (`exists` + `readText`); huge/missing/invalid
                             // chapter text becomes chapter-scoped errors.
                             val problems = BundleValidator.validate(
-                                dir, manifest, storage::exists, storage::readText
+                                dir, manifest, storage::exists, storage::readText, storage::sizeBytes
                             )
                             if (problems.isNotEmpty()) {
                                 val manifestProblems = problems.filterNot { isChapterFileProblem(it) }
@@ -436,16 +447,17 @@ class LibraryViewModel(
                 staleCounts.value = stale
             } finally {
                 isScanning.value = false
+                scanMutex.unlock()
             }
         }
     }
 
     /**
-     * IN8: library delete (row action, confirmed in the dialog): removes
-     * the book folder, then the library row, then the saved position, so
-     * a later re-import starts fresh. Failures surface as library notices
-     * (never silent, never a crash); the books flow refreshes the list on
-     * success with no rescan needed.
+     * IN8: library delete (row action, confirmed in the dialog): the
+     * repository removes the book folder, then the row plus the saved
+     * position in one Room transaction. Failures surface as library
+     * notices (never silent, never a crash); the books flow refreshes
+     * the list on success with no rescan needed.
      */
     fun deleteBook(bookId: String) {
         scope.launch(ioDispatcher) {
@@ -460,21 +472,6 @@ class LibraryViewModel(
                 addNotice(
                     "Library",
                     deleted.exceptionOrNull()?.message ?: "$bookId: could not delete book"
-                )
-                return@launch
-            }
-            val progress = try {
-                progressRepository.delete(bookId)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
-            if (progress.isFailure) {
-                addNotice(
-                    "Library",
-                    progress.exceptionOrNull()?.message
-                        ?: "$bookId: could not delete saved position"
                 )
             }
         }
@@ -521,20 +518,22 @@ class LibraryViewModel(
             progressPositions.value = emptyMap()
             return
         }
-        val positions = mutableMapOf<String, Long>()
-        for (book in list) {
-            val positionMs = try {
-                progressRepository.load(book.id).getOrNull()?.positionMs
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                null
-            }
-            if (positionMs != null) {
-                positions[book.id] = positionMs
-            }
+        // FP2: one map query per books emission, not one load per book
+        // (a 3-book import costs a single read however often rescan
+        // upserts fire the flow). Scoped to the listed ids so a stale
+        // row for a removed book never lingers in the map.
+        val all = try {
+            progressRepository.loadAll().getOrNull()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
         }
-        progressPositions.value = positions
+        progressPositions.value = if (all == null) {
+            emptyMap()
+        } else {
+            list.mapNotNull { book -> all[book.id]?.let { book.id to it } }.toMap()
+        }
     }
 
     private fun join(dir: String, rel: String): String =

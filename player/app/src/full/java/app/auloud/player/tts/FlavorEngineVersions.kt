@@ -6,3 +6,10 @@ package app.auloud.player.tts
  * AAR in `gradle/libs.versions.toml`: sherpa-onnx 1.13.8.
  */
 internal fun piperEngineVersion(): String = "sherpa-1.13.8"
+
+/**
+ * KT2: same runtime pin for the bundled Kitten engine (one sherpa-onnx
+ * AAR serves both engines; KT6 refines the fingerprint version with the
+ * pack variant).
+ */
+internal fun kittenEngineVersion(): String = "sherpa-1.13.8"

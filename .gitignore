@@ -3,6 +3,10 @@
 logs/
 scratch
 
+# Rust generated: never commit
+target/
+scribe-rs/*/gen/
+
 # Android generated: never commit (WP1)
 .gradle/
 build/
@@ -17,6 +21,7 @@ local.properties
 captures/
 *.hprof
 .DS_Store
+.ruff_cache
 
 # Signing keys (never commit)
 *.jks

@@ -513,7 +513,9 @@ def canonical_json(document: dict[str, object]) -> str:
 
 def _write_json(path: Path, document: dict[str, object]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(canonical_json(document), encoding="utf-8")
+    # newline="\n": committed fixtures compare byte-for-byte against fresh
+    # exports (RS1), so generators must not emit Windows CRLF.
+    path.write_text(canonical_json(document), encoding="utf-8", newline="\n")
     return path
 
 

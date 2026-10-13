@@ -1,0 +1,15 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "GAIN-EMPTY",
+      "message": "manifest.json: gain_db present but empty (need one number per role)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "RS-COMPLETE-MISMATCH",
+      "message": "manifest.json: render_state 'complete' but 1 chapter(s) omit duration_ms (rendered books carry audio and duration_ms everywhere)"
+    }
+  ]
+}

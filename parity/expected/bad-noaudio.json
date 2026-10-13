@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "AUDIO-MISSING-1X",
+      "message": "manifest.json: missing required field 'audio' (absent)"
+    }
+  ]
+}

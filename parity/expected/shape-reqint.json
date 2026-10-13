@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-REQ-INT",
+      "message": "manifest.json: missing or invalid required field 'index' (need integer)"
+    }
+  ]
+}

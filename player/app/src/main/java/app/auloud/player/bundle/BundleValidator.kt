@@ -35,10 +35,11 @@ import kotlinx.serialization.json.longOrNull
  * manifest entry (spec-version match, duration presence match, 2.0
  * reserved speakers) via [validateAgainstManifest]. PDF page-sync chapters
  * (`pages` instead of `blocks`) are NOT errors —
- * listening still works. Files over [MAX_TEXT_BYTES] are refused with a
- * named error without parsing, so the check cannot OOM on huge values
- * (`ChapterTextLoader` itself caps nothing, so this cap lives here and is
- * mirrored in the KDoc).
+ * listening still works. Files over [MAX_TEXT_BYTES] bytes are refused
+ * with a named error: the size seam short-circuits the read, otherwise
+ * the byte length is checked right after it, so the check cannot OOM
+ * on huge values (`ChapterTextLoader` itself caps nothing, so this cap
+ * lives here and is mirrored in the KDoc).
  *
  * Every returned error names the file and the rule broken, e.g.
  * `manifest.json: chapter 2 audio file missing audio/ch002.mp3`.
@@ -92,15 +93,30 @@ object BundleValidator {
     fun validate(
         bundleDir: File,
         manifest: Manifest,
-        readText: ((String) -> String?)? = null
+        readText: ((String) -> String?)? = null,
+        textSize: ((String) -> Long?)? = null
     ): List<String> =
-        validate(bundleDir.path, manifest, { File(it).isFile }, readText)
+        validate(
+            bundleDir.path,
+            manifest,
+            { File(it).isFile },
+            readText,
+            textSize ?: { File(it).takeIf { f -> f.isFile }?.length() }
+        )
 
     fun validate(
         bundleDirPath: String,
         manifest: Manifest,
         exists: (String) -> Boolean = { File(it).isFile },
-        readText: ((String) -> String?)? = null
+        readText: ((String) -> String?)? = null,
+        /**
+         * FP4: byte size of a text file (e.g. `storage::sizeBytes`), checked
+         * BEFORE reading so an oversize file short-circuits the read (the
+         * old check counted chars after a full read, so CJK text passed at
+         * nearly 3x the byte budget). Null (unknown size, e.g. SAF) or a
+         * throw falls back to the post-read byte check below. Pure seam.
+         */
+        textSize: ((String) -> Long?)? = null
     ): List<String> {
         val errors = mutableListOf<String>()
         if (manifest.specVersion.isBlank()) {
@@ -216,6 +232,11 @@ object BundleValidator {
                 val textPath = joinPath(bundleDirPath, chapter.text)
                 if (!exists(textPath)) {
                     errors.add("manifest.json: $label text file missing ${chapter.text}")
+                } else if (isOverTextCap(textPath, textSize)) {
+                    errors.add(
+                        "manifest.json: $label text file too large ${chapter.text} " +
+                            "(exceeds 8 MB limit)"
+                    )
                 } else {
                     val raw: String? = try {
                         readText(textPath)
@@ -237,10 +258,10 @@ object BundleValidator {
                                     "(cannot read)"
                             )
                         }
-                    } else if (raw.length > MAX_TEXT_BYTES) {
+                    } else if (utf8ByteLength(raw) > MAX_TEXT_BYTES) {
                         errors.add(
                             "manifest.json: $label text file too large ${chapter.text} " +
-                                "(size ${raw.length} exceeds 8 MB limit)"
+                                "(size ${utf8ByteLength(raw)} exceeds 8 MB limit)"
                         )
                     } else {
                         val parsed = ChapterTextLoader.parse(chapter.text, raw)
@@ -612,6 +633,38 @@ object BundleValidator {
 
     private fun joinPath(dir: String, rel: String): String =
         dir.trimEnd('/') + '/' + rel.trimStart('/')
+
+    /**
+     * FP4: true when the size seam reports over [MAX_TEXT_BYTES]. Null
+     * (unknown) or any throw reads as unknown, never as over: the
+     * post-read byte check still applies after the read.
+     */
+    internal fun isOverTextCap(textPath: String, textSize: ((String) -> Long?)?): Boolean =
+        try {
+            val size = textSize?.invoke(textPath) ?: return false
+            size > MAX_TEXT_BYTES
+        } catch (_: Exception) {
+            false
+        }
+
+    /**
+     * FP4: UTF-8 byte length without allocating the encoded copy. ASCII
+     * is 1 byte, `< 0x800` is 2, other BMP chars are 3; surrogate halves
+     * count 4 each, so pairs overcount 2x, which is the safe direction
+     * for a size cap. Pure, API 24 safe.
+     */
+    internal fun utf8ByteLength(text: String): Long {
+        var size = 0L
+        for (c in text) {
+            size += when {
+                c.code < 0x80 -> 1
+                c.code < 0x800 -> 2
+                c.code < 0xD800 || c.code > 0xDFFF -> 3
+                else -> 4
+            }
+        }
+        return size
+    }
 
     /**
      * Parses `manifest.json` in [bundleDir] then validates it.

@@ -22,6 +22,15 @@ object ModelPacks {
 
     const val MODELS_DIR_NAME = "models"
 
+    private const val TOKENS_FILENAME = "tokens.txt"
+    private const val ESPEAK_DIRNAME = "espeak-ng-data"
+
+    /** KT2: an incomplete pack attempt plus the human reason. */
+    data class PackProblem(
+        val label: String,
+        val reason: String
+    )
+
     /** Pack roots to scan: shared-internal always, microSD when mounted. */
     fun roots(internalAuloudDir: File, removableRoot: String?): List<File> {
         val out = mutableListOf(File(internalAuloudDir, MODELS_DIR_NAME))
@@ -46,6 +55,63 @@ object ModelPacks {
             }
         }
         return packs.sortedBy { it.label }
+    }
+
+    /**
+     * KT2: incomplete pack attempts with the reason (null when none).
+     *
+     * Same depth rule as [scan]; complete packs never appear here. Only
+     * dirs that look like model attempts qualify (an `.onnx` file, or a
+     * Kitten marker): plain folders stay silent. A dir with `model*.onnx`
+     * plus tokens and espeak data but no `voices.bin` reads as a Piper
+     * pack (it plays as one), never as a problem.
+     */
+    fun scanProblems(roots: List<File>): List<PackProblem> {
+        val out = mutableListOf<PackProblem>()
+        roots.forEach { root ->
+            val candidates = listOf(root) + safeChildren(root)
+            candidates.forEach { dir ->
+                packProblemOf(dir)?.let { out.add(it) }
+            }
+        }
+        return out.sortedBy { it.label }
+    }
+
+    private fun packProblemOf(dir: File): PackProblem? {
+        val files: Set<String> = try {
+            if (!dir.isDirectory) return null
+            dir.listFiles()?.filter { it.isFile }?.map { it.name }.orEmpty().toSet()
+        } catch (_: Exception) {
+            return null
+        }
+        // A pack any engine can bind is never a problem (generic packs,
+        // complete Piper dirs, complete Kitten packs all land here).
+        if (detectKittenPack(dir) != null) return null
+        val hasOnnx = files.any { it.substringAfterLast('.', "").lowercase() == "onnx" }
+        val kittenAttempt = files.contains(KITTEN_VOICES_FILENAME) ||
+            files.contains(KITTEN_PACK_FILENAME)
+        if (!hasOnnx && !kittenAttempt) return null
+        if (packOf(dir) != null && !kittenAttempt &&
+            files.contains(TOKENS_FILENAME) && hasEspeakDir(dir)
+        ) {
+            return null
+        }
+        val label = dir.name.ifBlank { dir.absolutePath }
+        if (kittenAttempt) {
+            if (!hasOnnx) return PackProblem(label, "no .onnx model file")
+            if (!files.contains(KITTEN_VOICES_FILENAME)) return PackProblem(label, "missing voices.bin")
+        }
+        if (!files.contains(TOKENS_FILENAME)) return PackProblem(label, "missing tokens.txt")
+        if (!hasEspeakDir(dir)) return PackProblem(label, "missing espeak-ng-data")
+        return null
+    }
+
+    private fun hasEspeakDir(dir: File): Boolean {
+        return try {
+            File(dir, ESPEAK_DIRNAME).isDirectory
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun safeChildren(dir: File): List<File> {

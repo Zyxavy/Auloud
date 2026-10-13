@@ -21,6 +21,7 @@ internal fun bookVoiceVersionOf(appContext: Context): (String) -> String? = { na
     when (namespace) {
         SystemTtsAdapter.SYSTEM_NAMESPACE -> bookVoiceSystemVersion(appContext)
         SherpaPiperEngine.PIPER_NAMESPACE -> piperEngineVersion()
+        KITTEN_NAMESPACE -> kittenEngineVersion()
         BeepTtsEngine.NAMESPACE -> BeepTtsEngine.VERSION
         else -> null
     }

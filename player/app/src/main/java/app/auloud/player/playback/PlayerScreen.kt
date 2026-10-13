@@ -159,7 +159,7 @@ fun PlayerScreen(
         },
         sleepRemainingMs = state.sleepRemainingMs,
         onSleep = {
-            sleepOption = cycleSleepOption(sleepOption)
+            sleepOption = cycleSleepOption(sleepCycleBase(sleepOption, state.sleepRemainingMs))
             sendSleepOption(appContext, sleepOption)
         },
         onBack = onBack,
@@ -401,7 +401,7 @@ private fun PlayerSeekBar(
 @Composable
 private fun PlayerPositionText(positionMs: Long, durationMs: Long, modifier: Modifier = Modifier) {
     Text(
-        text = "${formatMs(positionMs)} / ${formatMs(durationMs)}",
+        text = "${formatMmSs(positionMs)} / ${formatMmSs(durationMs)}",
         style = MaterialTheme.typography.bodyMedium,
         modifier = modifier
     )
@@ -429,12 +429,4 @@ private fun PlayerControls(
         }
         Button(onClick = onNext, enabled = controlsEnabled && canNext) { Text("Next") }
     }
-}
-
-/** mm:ss, API 24 safe (no java.time). */
-private fun formatMs(ms: Long): String {
-    val totalSeconds = (ms.coerceAtLeast(0L) / 1_000L).coerceAtMost(599_999L)
-    val minutes = totalSeconds / 60L
-    val seconds = totalSeconds % 60L
-    return "$minutes:${if (seconds < 10L) "0$seconds" else "$seconds"}"
 }

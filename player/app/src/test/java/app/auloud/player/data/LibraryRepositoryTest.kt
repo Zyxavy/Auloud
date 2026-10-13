@@ -27,6 +27,8 @@ class LibraryRepositoryTest {
     private var clockMs = 1_000L
     private lateinit var dao: FakeBookDao
     private lateinit var storage: FakeBundleStorage
+    private lateinit var progressDao: FakeProgressDao
+    private var txRuns = 0
     private lateinit var repo: LibraryRepository
 
     @Before
@@ -38,8 +40,16 @@ class LibraryRepositoryTest {
                 "$bundleDir/cover.jpg"
             )
         )
+        progressDao = FakeProgressDao()
+        txRuns = 0
         repo = RoomLibraryRepository(dao, storage, now = { clockMs })
     }
+
+    private fun repoWithProgress(): LibraryRepository = RoomLibraryRepository(
+        dao, storage, now = { clockMs },
+        progressDao = progressDao,
+        inTransaction = { block -> txRuns += 1; block() }
+    )
 
     @Test
     fun importBundle_mapsManifestFields() = runBlocking {
@@ -227,6 +237,71 @@ class LibraryRepositoryTest {
         assertEquals(1, repo.books().first().size)
     }
 
+    @Test
+    fun deleteBook_failedFolderDelete_keepsRow() = runBlocking {
+        repo.importBundle(bundleDir, manifest()).getOrThrow()
+        storage.deleteFails = true
+
+        val result = repo.deleteBook("8f0c6c1e-3a8f-4c6e-9d54-0b6a3f1a2b77")
+
+        assertTrue(result.isFailure)
+        assertTrue(
+            "failure names the rule, was: ${result.exceptionOrNull()?.message}",
+            result.exceptionOrNull()?.message?.contains("could not delete book folder") == true
+        )
+        assertEquals(1, repo.books().first().size)
+    }
+
+    @Test
+    fun deleteBook_removesProgressInOneTransaction() = runBlocking {
+        val repo = repoWithProgress()
+        repo.importBundle(bundleDir, manifest()).getOrThrow()
+        progressDao.rows["8f0c6c1e-3a8f-4c6e-9d54-0b6a3f1a2b77"] =
+            ProgressEntity("8f0c6c1e-3a8f-4c6e-9d54-0b6a3f1a2b77", 1, 500L, 1_000L)
+
+        repo.deleteBook("8f0c6c1e-3a8f-4c6e-9d54-0b6a3f1a2b77").getOrThrow()
+
+        assertTrue(repo.books().first().isEmpty())
+        assertTrue(progressDao.rows.isEmpty())
+        assertEquals(1, txRuns)
+    }
+
+    @Test
+    fun deleteBook_progressFailure_surfacesFailure() = runBlocking {
+        val repo = repoWithProgress()
+        repo.importBundle(bundleDir, manifest()).getOrThrow()
+        progressDao.fail = true
+
+        val result = repo.deleteBook("8f0c6c1e-3a8f-4c6e-9d54-0b6a3f1a2b77")
+
+        assertTrue(result.isFailure)
+    }
+
+    @Test
+    fun importBundle_sameIdDifferentFolder_skipsAndReports() = runBlocking {
+        val otherDir = "/storage/1234-ABCD/Auloud/other-book"
+        storage = FakeBundleStorage(
+            existing = setOf(
+                "$bundleDir/manifest.json",
+                "$bundleDir/cover.jpg",
+                "$otherDir/manifest.json",
+                "$otherDir/cover.jpg"
+            )
+        )
+        repo = RoomLibraryRepository(dao, storage, now = { clockMs })
+        repo.importBundle(bundleDir, manifest()).getOrThrow()
+
+        val result = repo.importBundle(otherDir, manifest())
+
+        assertTrue(result.isFailure)
+        val message = result.exceptionOrNull()?.message ?: ""
+        assertTrue("names the file, was: $message", "manifest.json" in message)
+        assertTrue("names the id, was: $message", manifest().id in message)
+        assertTrue("names the first folder, was: $message", bundleDir in message)
+        // First import wins: the row still points at the first folder.
+        assertEquals(bundleDir, repo.books().first().single().bundlePath)
+    }
+
     private fun manifest(
         id: String = "8f0c6c1e-3a8f-4c6e-9d54-0b6a3f1a2b77",
         title: String = "Example Novel",
@@ -279,12 +354,14 @@ class LibraryRepositoryTest {
     }
 
     /** Existence-check-only [BundleStorage]; `audioUri` is never used by repositories. */
-    private class FakeBundleStorage(private val existing: Set<String>) : BundleStorage {
+    private class FakeBundleStorage(existing: Set<String>) : BundleStorage {
+        private val remaining = existing.toMutableSet()
         val deletedPaths = mutableListOf<String>()
+        var deleteFails = false
 
         override fun listBundleDirs(root: String): List<String> = emptyList()
         override fun readText(path: String): String = throw UnsupportedOperationException()
-        override fun exists(path: String): Boolean = path in existing
+        override fun exists(path: String): Boolean = path in remaining
         override fun audioUri(bundleDir: String, relPath: String): Uri =
             throw UnsupportedOperationException("not used by repositories")
         override fun coverUri(bundleDirPath: String, coverRel: String): String? {
@@ -293,6 +370,28 @@ class LibraryRepositoryTest {
         }
         override fun deleteRecursively(path: String) {
             deletedPaths.add(path)
+            if (deleteFails) return
+            val prefix = path.trimEnd('/') + '/'
+            remaining.removeAll { it == path || it.startsWith(prefix) }
+        }
+    }
+
+    /** In-memory [ProgressDao] with an injectable failure. */
+    private class FakeProgressDao : ProgressDao {
+        val rows = mutableMapOf<String, ProgressEntity>()
+        var fail = false
+
+        override suspend fun load(bookId: String): ProgressEntity? = rows[bookId]
+
+        override suspend fun getAll(): List<ProgressEntity> = rows.values.toList()
+
+        override suspend fun upsert(progress: ProgressEntity) {
+            rows[progress.bookId] = progress
+        }
+
+        override suspend fun deleteById(bookId: String) {
+            if (fail) throw java.io.IOException("fake db failure")
+            rows.remove(bookId)
         }
     }
 }

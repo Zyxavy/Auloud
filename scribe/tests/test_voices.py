@@ -222,7 +222,7 @@ def test_voices_command_lists_without_rendering(tmp_path: Path, monkeypatch: obj
 
     mp = monkeypatch  # type: ignore[union-attr]
     engine = FakeVoicesEngine()
-    mp.setattr(build, "create_engine", lambda _models_dir: engine)
+    mp.setattr(build, "create_engine", lambda _models_dir, **_k: engine)
     out_dir = tmp_path / "samples"
     result = CliRunner().invoke(cli.app, ["voices", "--out-dir", str(out_dir)])
     assert result.exit_code == 0
@@ -236,7 +236,7 @@ def test_voices_command_sample_renders_and_lists(tmp_path: Path, monkeypatch: ob
 
     mp = monkeypatch  # type: ignore[union-attr]
     engine = FakeVoicesEngine(voices=("af_heart", "af_bella"))
-    mp.setattr(build, "create_engine", lambda _models_dir: engine)
+    mp.setattr(build, "create_engine", lambda _models_dir, **_k: engine)
     out_dir = tmp_path / "samples"
     result = CliRunner().invoke(cli.app, ["voices", "--sample", "--out-dir", str(out_dir)])
     assert result.exit_code == 0
@@ -254,7 +254,7 @@ def test_voices_command_engine_failure_is_clean_exit_1(monkeypatch: object) -> N
 
     mp = monkeypatch  # type: ignore[union-attr]
 
-    def _boom(_models_dir: object) -> object:
+    def _boom(_models_dir: object, **_kwargs: object) -> object:
         raise build.BuildError("cannot init TTS engine: no models here")
 
     mp.setattr(build, "create_engine", _boom)

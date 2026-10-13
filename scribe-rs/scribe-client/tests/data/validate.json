@@ -1,0 +1,15 @@
+{
+  "book_id": "95186387-0c79-5296-8e3f-0c17a6bb1c7f",
+  "valid": true,
+  "validation": [],
+  "bundles": [
+    {
+      "id": "f00c9fbd-e180-54a1-a62d-b1bec8cad170",
+      "path": "bundles/95186387-0c79-5296-8e3f-0c17a6bb1c7f",
+      "chapters": 1,
+      "duration_ms": 110285,
+      "valid": true,
+      "errors": []
+    }
+  ]
+}

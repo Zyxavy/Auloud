@@ -84,6 +84,22 @@ class RenderFingerprintTest {
     }
 
     @Test
+    fun kitten_twoSidsOneModel_roundTripsAndSidFlipInvalidates() {
+        val base = RenderFingerprint(
+            engine = RenderFingerprint.combineEngine("kitten", "kitten"),
+            voices = mapOf("narrator" to "kitten:1", "dialogue" to "kitten:0"),
+            speeds = mapOf("narrator" to 1.0f, "dialogue" to 1.0f),
+            engineVersions = mapOf("kitten" to "sherpa-1.13.8")
+        )
+        assertEquals("kitten", base.engine)
+        assertEquals(base, RenderFingerprint.fromJsonObject(base.toJsonObject()))
+        val sidSwap = base.copy(
+            voices = mapOf("narrator" to "kitten:1", "dialogue" to "kitten:5")
+        )
+        assertTrue(sidSwap.fileTag() != base.fileTag())
+    }
+
+    @Test
     fun spoolIndex_roundTripsWithSplitPairs() {
         val index = SpoolChapterIndex(
             chapter = 7,

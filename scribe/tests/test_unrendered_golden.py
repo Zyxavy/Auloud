@@ -142,7 +142,15 @@ def test_unrendered_golden_pins() -> None:
         assert all("start_ms" not in s and "end_ms" not in s for s in sentences)
         assert all(s["speaker"] in ("narrator", "dialogue") for s in sentences)
     total = sum(
-        len([s for b in json.loads((GOLDEN / e["text"]).read_text(encoding="utf-8"))["blocks"] for s in b.get("sentences", [])])
+        len(
+            [
+                s
+                for b in json.loads((GOLDEN / e["text"]).read_text(encoding="utf-8"))[
+                    "blocks"
+                ]
+                for s in b.get("sentences", [])
+            ]
+        )
         for e in manifest["chapters"]
     )
     assert total == 7
@@ -178,7 +186,7 @@ def test_rendered_1x_bundles_still_validate(tmp_path: Path) -> None:
     fixtures = Path(__file__).resolve().parents[2] / "spec" / "fixtures"
     root = tmp_path / "valid-bundle"
     shutil.copytree(fixtures / "valid-bundle", root)
-    (root / "source").mkdir()
+    (root / "source").mkdir(exist_ok=True)
     (root / "source" / "book.epub").write_bytes(b"")
     result = validate_bundle(root, probe=_stub_probe({"ch001.mp3": 1832400, "ch002.mp3": 1640100}))
     assert result.ok, result.errors

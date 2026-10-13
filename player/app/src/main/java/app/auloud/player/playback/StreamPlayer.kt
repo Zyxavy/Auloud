@@ -31,7 +31,7 @@ import kotlinx.coroutines.flow.StateFlow
  * time, spoken by the system TTS engine, nothing saved.
  *
  * A [SimpleBasePlayer] subclass (confirmed in the pinned media3-common
- * 1.5.1 artifact, `docs/streaming.md` section 4), so the existing
+ * 1.5.1 artifact, `docs/archive/v2/streaming.md` section 4), so the existing
  * `MediaSession`, notification, lock-screen and Bluetooth controls keep
  * working: play/pause/stop, chapter next/previous (via [StreamNavigator],
  * the service switches chapters), speed (re-queues at the new rate) and
@@ -263,6 +263,13 @@ class StreamPlayer(
 
     // -- feed -------------------------------------------------------------
 
+    /**
+     * FP1: timeout-free acquire (a 10-minute timeout cannot cover long
+     * chapters); the lock is held only while speaking and released on
+     * every exit path (pause, chapter done, failure, release), each
+     * guarded by isHeld.
+     */
+    @android.annotation.SuppressLint("WakelockTimeout")
     private fun startSpeaking() {
         val chapter = input
         val stream = core
@@ -273,7 +280,7 @@ class StreamPlayer(
             return startSpeaking()
         }
         requestFocus()
-        wakeLock.acquire(10 * 60 * 1000L)
+        wakeLock.acquire()
         val first = when (stream.status) {
             StreamCore.Status.Paused -> stream.resume()
             StreamCore.Status.Playing -> stream.requeue()

@@ -1,0 +1,42 @@
+<Configuration>
+  <!-- HP0 sandbox for the Slice 15 packaging gate.
+    Maps the repo fixtures read-only and a writable results folder.
+    The helper build folder mapping is added at HP2 (uncomment then).
+    Networking stays disabled: the gate runs fully offline. -->
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>D:\PROGRAMS\Websites\Auloud\spec\fixtures</HostFolder>
+      <SandboxFolder>C:\fixtures</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+    <MappedFolder>
+      <HostFolder>D:\PROGRAMS\Websites\Auloud\logs\packaging-gate</HostFolder>
+      <SandboxFolder>C:\results</SandboxFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+    <!-- HP2: map the helper zip output dir read-only here as C:\helper. -->
+    <MappedFolder>
+      <HostFolder>D:\PROGRAMS\Websites\Auloud\logs\packaging-gate\helper-win64</HostFolder>
+      <SandboxFolder>C:\helper\embedded</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+    <!-- HP3: map the frozen onedir output here. -->
+    <MappedFolder>
+      <HostFolder>D:\PROGRAMS\Websites\Auloud\logs\packaging-gate\frozen\scribe-helper</HostFolder>
+      <SandboxFolder>C:\helper\frozen\scribe-helper</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+    <!-- Sideloaded models for the gate (Kokoro pair + piper voices). -->
+    <MappedFolder>
+      <HostFolder>D:\PROGRAMS\Websites\Auloud\scribe\models</HostFolder>
+      <SandboxFolder>C:\helper\models</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>cmd.exe</Command>
+  </LogonCommand>
+  <Networking>Disable</Networking>
+  <vGPU>Disable</vGPU>
+  <MemoryInMB>4096</MemoryInMB>
+</Configuration>

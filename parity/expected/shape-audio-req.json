@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-AUDIO-REQUIRED",
+      "message": "manifest.json: missing or invalid required field 'audio' (need object)"
+    }
+  ]
+}

@@ -60,6 +60,7 @@ packages = []
 
 [tool.hatch.build.targets.wheel.force-include]
 "cli.py" = "scribe/cli.py"
+"__main__.py" = "scribe/__main__.py"
 "draft.py" = "scribe/draft.py"
 "build.py" = "scribe/build.py"
 "lock.py" = "scribe/lock.py"

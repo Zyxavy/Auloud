@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "source/book.epub",
+      "rule": "SRC-FILE-MISSING",
+      "message": "source/book.epub: file missing (listed in manifest source)"
+    }
+  ]
+}

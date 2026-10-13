@@ -119,6 +119,8 @@ import asyncio
 import html
 import json
 import logging
+import os
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -152,6 +154,13 @@ STATE_CHANGING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 _HEARTBEAT_S = 15.0
 _TAIL_POLL_S = 0.5
+
+#: Largest single ebook upload the server accepts (streamed to disk in
+#: chunks, so this caps disk use, not RAM; ebooks over this are refused
+#: with 413 ``too-large`` before any draft is queued).
+MAX_UPLOAD_BYTES = 100 * 1024 * 1024
+#: Upload read/write chunk (1 MiB; progress is chunk-granular).
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
 
 log = logging.getLogger("auloud.ui")
 
@@ -284,6 +293,7 @@ def create_app(
     workspace: Path | str,
     token: str | None = None,
     *,
+    token_methods: frozenset[str] | None = None,
     job_manager: JobManager | None = None,
     spawn_fn: Any | None = None,
     pid_alive_fn: Any | None = None,
@@ -297,6 +307,8 @@ def create_app(
 
     :param workspace: file access below this root only (see ``safe_join``).
     :param token: per-run token; a fresh ``secrets`` token when omitted.
+    :param token_methods: HTTP methods requiring the token (default
+        state-changing only); the headless helper passes every method.
     :param job_manager: injected manager (tests); otherwise one is created.
     :param spawn_fn: fake detached spawner for ``JobManager`` (tests only).
     :param pid_alive_fn: fake PID liveness for ``JobManager`` (tests only).
@@ -320,6 +332,7 @@ def create_app(
     """
     root = Path(workspace).resolve()
     run_token = token or generate_token()
+    guarded_methods = token_methods if token_methods is not None else STATE_CHANGING
 
     from contextlib import asynccontextmanager
 
@@ -410,7 +423,7 @@ def create_app(
         host = request.headers.get("host")
         if not is_allowed_host(host):
             return JSONResponse({"detail": "misdirected host"}, status_code=421)
-        if request.method in STATE_CHANGING and not is_valid_token(
+        if request.method in guarded_methods and not is_valid_token(
             request.headers.get(TOKEN_HEADER),
             run_token,
         ):
@@ -421,6 +434,19 @@ def create_app(
     @app.get("/api/health")
     async def _health() -> dict[str, bool]:
         return {"ok": True}
+
+    @app.get("/api/version")
+    async def _version() -> dict[str, Any]:
+        """Runtime contract versions (Slice 16: the typed client pins to these).
+
+        Same object as the helper ready line. Token rule follows the app
+        mode like every other GET (exempt in ``scribe ui``, required by the
+        helper); the import stays function-local so ``ui.app`` never depends
+        on ``ui.helper`` at module load.
+        """
+        from ui.helper import helper_versions
+
+        return helper_versions()
 
     @app.get("/", response_class=HTMLResponse)
     async def _index() -> HTMLResponse:
@@ -484,57 +510,149 @@ def create_app(
                 status_code=400,
             )
         try:
-            dest = safe_join(root, safe)
+            safe_join(root, safe)
         except ValueError as exc:
             return JSONResponse(
                 _split_shaped(str(exc), safe, "path-traversal"), status_code=400
             )
-        final = dest
-        final_name = safe
-        if final.exists():
-            stem = Path(safe).stem
-            ext = Path(safe).suffix
-            placed = False
-            for num in range(1, 1000):
-                candidate_name = f"{stem}-{num}{ext}"
-                try:
-                    candidate = safe_join(root, candidate_name)
-                except ValueError as exc:
-                    return JSONResponse(
-                        _split_shaped(str(exc), candidate_name, "path-traversal"),
-                        status_code=400,
-                    )
-                if not candidate.exists():
-                    final = candidate
-                    final_name = candidate_name
-                    placed = True
-                    break
-            if not placed:
-                return JSONResponse(
-                    _error_shape(safe, "name-taken", f"{safe}: name-taken: too many copies"),
-                    status_code=409,
+        # Stream to a unique temp (O_CREAT|O_EXCL) in chunks so a large
+        # upload never sits whole in RAM. The temp carries a ``.part``
+        # suffix the book scan never matches, so a crashed upload can never
+        # become a partial-file draft; only the atomic link below makes the
+        # bytes visible under the final name.
+        tmp: Path | None = None
+        fd: int | None = None
+        # O_BINARY: without it Windows text-mode translates b"\n" to
+        # b"\r\n" on write, corrupting binary uploads (absent on POSIX).
+        _o_binary = getattr(os, "O_BINARY", 0)
+        for _ in range(5):
+            candidate_tmp = root / f".upload-{uuid.uuid4().hex}.part"
+            try:
+                fd = os.open(
+                    candidate_tmp,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | _o_binary,
+                    0o600,
                 )
-        try:
-            data = await file.read()
-        except Exception as exc:
+                tmp = candidate_tmp
+                break
+            except FileExistsError:
+                continue
+            except OSError as exc:
+                return JSONResponse(
+                    _error_shape(safe, "unwritable", f"{safe}: unwritable: {exc}"),
+                    status_code=400,
+                )
+        if tmp is None or fd is None:
             return JSONResponse(
-                _error_shape(final_name, "unreadable", f"{final_name}: unreadable: {exc}"),
+                _error_shape(safe, "unwritable", f"{safe}: unwritable: no temp slot"),
                 status_code=400,
             )
-        if not data:
+        total = 0
+        stream_error: JSONResponse | None = None
+        try:
+            while True:
+                try:
+                    chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+                except Exception as exc:
+                    stream_error = JSONResponse(
+                        _error_shape(safe, "unreadable", f"{safe}: unreadable: {exc}"),
+                        status_code=400,
+                    )
+                    break
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_UPLOAD_BYTES:
+                    stream_error = JSONResponse(
+                        _error_shape(
+                            safe,
+                            "too-large",
+                            f"{safe}: too-large: upload exceeds "
+                            f"{MAX_UPLOAD_BYTES} bytes",
+                        ),
+                        status_code=413,
+                    )
+                    break
+                try:
+                    view = memoryview(chunk)
+                    while view:
+                        written = os.write(fd, view)
+                        view = view[written:]
+                except OSError as exc:
+                    stream_error = JSONResponse(
+                        _error_shape(safe, "unwritable", f"{safe}: unwritable: {exc}"),
+                        status_code=400,
+                    )
+                    break
+        finally:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        if stream_error is not None:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return stream_error
+        if total == 0:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
             return JSONResponse(
                 _error_shape(
-                    final_name, "empty-file", f"{final_name}: empty-file: upload is empty"
+                    safe, "empty-file", f"{safe}: empty-file: upload is empty"
                 ),
                 status_code=400,
             )
+        # Atomic exclusive placement: os.link fails when the target exists,
+        # so concurrent same-name uploads land on distinct -N names instead
+        # of racing a check-then-write.
+        stem = Path(safe).stem
+        ext = Path(safe).suffix
+        final: Path | None = None
+        final_name = safe
+        for num in range(0, 1000):
+            candidate_name = safe if num == 0 else f"{stem}-{num}{ext}"
+            try:
+                candidate = safe_join(root, candidate_name)
+            except ValueError as exc:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                return JSONResponse(
+                    _split_shaped(str(exc), candidate_name, "path-traversal"),
+                    status_code=400,
+                )
+            try:
+                os.link(tmp, candidate)
+            except FileExistsError:
+                continue
+            except OSError as exc:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                return JSONResponse(
+                    _error_shape(
+                        candidate_name, "unwritable",
+                        f"{candidate_name}: unwritable: {exc}",
+                    ),
+                    status_code=400,
+                )
+            final = candidate
+            final_name = candidate_name
+            break
         try:
-            final.parent.mkdir(parents=True, exist_ok=True)
-            final.write_bytes(data)
-        except OSError as exc:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        if final is None:
             return JSONResponse(
-                _error_shape(final_name, "unwritable", f"{final_name}: unwritable: {exc}"),
-                status_code=400,
+                _error_shape(safe, "name-taken", f"{safe}: name-taken: too many copies"),
+                status_code=409,
             )
         try:
             from draft import book_id_for_file

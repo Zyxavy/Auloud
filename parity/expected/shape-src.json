@@ -1,0 +1,15 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "text/ch001.json",
+      "rule": "CHAPTER-SRC-ABSENT-MISMATCH",
+      "message": "text/ch001.json: source_index mismatch: manifest entry has None, chapter file has 0 (both present or both absent)"
+    },
+    {
+      "file": "text/ch001.json",
+      "rule": "CHAPTER-SRC-INVALID",
+      "message": "text/ch001.json: invalid source_index 0 (need 1-based source chapter)"
+    }
+  ]
+}

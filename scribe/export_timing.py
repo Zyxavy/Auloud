@@ -493,9 +493,11 @@ def export_all(fixtures_dir: Path | str | None = None) -> list[Path]:
     target = root / TIMING_VECTORS_DIRNAME
     target.mkdir(parents=True, exist_ok=True)
     vectors_path = target / "timing-vectors.json"
-    vectors_path.write_text(canonical_json(build_timing_vectors()), encoding="utf-8")
+    vectors_path.write_text(
+        canonical_json(build_timing_vectors()), encoding="utf-8", newline="\n"
+    )
     readme_path = target / "README.md"
-    readme_path.write_text(TIMING_VECTORS_README, encoding="utf-8")
+    readme_path.write_text(TIMING_VECTORS_README, encoding="utf-8", newline="\n")
     return [vectors_path, readme_path]
 
 

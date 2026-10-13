@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-VOICES-OBJECT",
+      "message": "manifest.json: invalid field 'voices' (need object)"
+    }
+  ]
+}

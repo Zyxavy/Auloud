@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "AUDIO-NONE-FORBIDDEN",
+      "message": "manifest.json: audio must be absent when render_state is 'none' (unrendered books carry no audio)"
+    }
+  ]
+}

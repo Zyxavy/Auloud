@@ -51,7 +51,7 @@ class RenderStalenessTest {
         engine = engine,
         voices = mapOf("narrator" to narratorVoice, "dialogue" to dialogueVoice),
         speeds = mapOf("narrator" to narratorSpeed, "dialogue" to dialogueSpeed),
-        engineVersions = mapOf("system" to version)
+        engineVersions = mapOf(engine to version)
     )
 
     private fun narratorOnlyFingerprint(
@@ -72,6 +72,65 @@ class RenderStalenessTest {
         blockChapter(1, listOf("narrator" to "Hello. ", "dialogue" to "Hi. "))
 
     private val v1 = versions("system" to "v1", "piper" to "pack-3")
+
+    private val vKitten = versions("kitten" to "sherpa-1.13.8")
+
+    @Test
+    fun kittenDialogueSidChange_dialogueChapter_isStale() {
+        val stored = bothFingerprint(
+            narratorVoice = "kitten:1",
+            dialogueVoice = "kitten:0",
+            engine = "kitten",
+            version = "sherpa-1.13.8"
+        )
+        val voices = bookVoices(narratorId = "kitten:1", dialogueId = "kitten:5")
+        val state = RenderStaleness.classifyChapter(
+            durationMs = 60_000L,
+            storedJson = stored.toJsonObject(),
+            bookVoices = voices,
+            versionOf = vKitten,
+            chapter = dialogueChapter()
+        )
+        assertEquals(ChapterStaleState.STALE, state)
+    }
+
+    @Test
+    fun kittenSameVoices_dialogueChapter_staysCurrent() {
+        val stored = bothFingerprint(
+            narratorVoice = "kitten:1",
+            dialogueVoice = "kitten:0",
+            engine = "kitten",
+            version = "sherpa-1.13.8"
+        )
+        val voices = bookVoices(narratorId = "kitten:1", dialogueId = "kitten:0")
+        val state = RenderStaleness.classifyChapter(
+            durationMs = 60_000L,
+            storedJson = stored.toJsonObject(),
+            bookVoices = voices,
+            versionOf = vKitten,
+            chapter = dialogueChapter()
+        )
+        assertEquals(ChapterStaleState.CURRENT, state)
+    }
+
+    @Test
+    fun kittenVersionBump_isOutdatedNotStale() {
+        val stored = bothFingerprint(
+            narratorVoice = "kitten:1",
+            dialogueVoice = "kitten:0",
+            engine = "kitten",
+            version = "sherpa-1.13.8"
+        )
+        val voices = bookVoices(narratorId = "kitten:1", dialogueId = "kitten:0")
+        val state = RenderStaleness.classifyChapter(
+            durationMs = 60_000L,
+            storedJson = stored.toJsonObject(),
+            bookVoices = voices,
+            versionOf = versions("kitten" to "sherpa-1.13.9"),
+            chapter = dialogueChapter()
+        )
+        assertEquals(ChapterStaleState.OUTDATED, state)
+    }
 
     @Test
     fun narratorChange_isStale() {

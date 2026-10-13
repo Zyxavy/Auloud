@@ -135,6 +135,20 @@ class SherpaPiperEngineTest {
     }
 
     @Test
+    fun voices_kittenLayoutSkippedForPiper() {
+        // KT2: a Kitten folder (model + voices.bin + tokens + espeak)
+        // belongs to the Kitten engine; without the skip its model file
+        // would surface as a bogus piper voice.
+        val dir = File(tmp.root, "kitten-nano-en-v0_8-int8").apply { mkdirs() }
+        File(dir, "model.int8.onnx").writeBytes(ByteArray(10))
+        File(dir, "voices.bin").writeBytes(ByteArray(10))
+        File(dir, "tokens.txt").writeText("a 0\n")
+        File(dir, "espeak-ng-data").mkdirs()
+        val pack = ModelPack("kitten-nano-en-v0_8-int8", dir.absolutePath, listOf("model"), 10L)
+        assertTrue(engine(pack).voices().isEmpty())
+    }
+
+    @Test
     fun release_dropsInstancesAndEmptiesVoices() = runBlocking {
         val engine = engine(packDir("piper", listOf("v")))
         engine.synthesize("Hi.", TtsVoice(id = "piper:v", engine = "piper"), 1.0f)

@@ -68,6 +68,11 @@ fun UnrenderedBookScreen(
     onOpenChapters: () -> Unit = {},
     onDismissChapters: () -> Unit = {},
     /**
+     * Back to the render hub (PartialBookScreen sets this; null hides the
+     * Render menu item, so standalone uses stay exactly as before).
+     */
+    onOpenRender: (() -> Unit)? = null,
+    /**
      * ST7-fix: manifest chapter position to start streaming on open
      * ("Listen now" from the hub, null = read-only open as before).
      */
@@ -107,6 +112,7 @@ fun UnrenderedBookScreen(
         onDismissChapters = onDismissChapters,
         onBack = onBack,
         modifier = modifier,
+        onOpenRender = onOpenRender,
         autoPlayChapter = autoPlayChapter
     )
 }
@@ -123,6 +129,7 @@ private fun UnrenderedContent(
     onDismissChapters: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenRender: (() -> Unit)? = null,
     autoPlayChapter: Int? = null
 ) {
     val context = LocalContext.current
@@ -141,6 +148,8 @@ private fun UnrenderedContent(
         } else {
             LiveStream(
                 sid = controller.state.map { it.streamSid }
+                    .stateIn(scope, SharingStarted.Eagerly, null),
+                chapterPos = controller.state.map { it.streamChapterPos }
                     .stateIn(scope, SharingStarted.Eagerly, null),
                 restartAt = { index ->
                     controller.seekToSentence(index)
@@ -263,6 +272,12 @@ private fun UnrenderedContent(
             onSentenceTap = viewModel::onSentenceTap,
             onTopVisibleSentence = viewModel::onTopVisibleSid,
             onOpenChapters = onOpenChapters,
+            onOpenRender = onOpenRender,
+            onSpeak = if (streamingAvailable) ::playLive else null,
+            onPreviousChapter = viewModel::previousChapter,
+            onNextChapter = viewModel::nextChapter,
+            canGoPrevious = unrendered.chapterIndex > 0,
+            canGoNext = unrendered.chapterIndex < entries.size - 1,
             dialogueMarking = marking,
             modifier = Modifier.weight(1f).fillMaxWidth()
         )

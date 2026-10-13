@@ -61,6 +61,19 @@ object ChapterTextLoader {
 
     /** Parses an in-memory `text/chNNN.json` payload (pure; used by tests). */
     internal fun parse(textPath: String, raw: String): Result<ChapterText> {
+        // Fast path: single-pass decode, no DOM (the Tab E win — a big
+        // chapter's DOM plus second decode pass was the open latency).
+        // Any failure falls through to the DOM peek, which keeps the exact
+        // PdfForm-vs-invalid distinction and messages below.
+        var fastError: Throwable? = null
+        try {
+            val chapter = BundleParser.json.decodeFromString(ChapterText.serializer(), raw)
+            return validate(textPath, chapter).map { chapter }
+        } catch (e: SerializationException) {
+            fastError = e
+        } catch (e: IllegalArgumentException) {
+            fastError = e
+        }
         val root = try {
             BundleParser.json.parseToJsonElement(raw).jsonObject
         } catch (e: SerializationException) {
@@ -103,18 +116,14 @@ object ChapterTextLoader {
                 )
             )
         }
-        val chapter = try {
-            BundleParser.json.decodeFromJsonElement(ChapterText.serializer(), root)
-        } catch (e: SerializationException) {
-            return Result.failure(
-                ChapterTextInvalid("$textPath: invalid chapter text: ${e.message}", e)
+        // Already failed once above with the same bytes and settings;
+        // valid JSON here means an invalid chapter (never a retry).
+        return Result.failure(
+            ChapterTextInvalid(
+                "$textPath: invalid chapter text: ${fastError?.message}",
+                fastError
             )
-        } catch (e: IllegalArgumentException) {
-            return Result.failure(
-                ChapterTextInvalid("$textPath: invalid chapter text: ${e.message}", e)
-            )
-        }
-        return validate(textPath, chapter).map { chapter }
+        )
     }
 
     /**
@@ -136,8 +145,16 @@ object ChapterTextLoader {
             }
         }
         val sentences = chapter.sentencesInOrder()
-        val expected = (1..sentences.size).toList()
-        if (sentences.map { it.sid } != expected) {
+        // Single pass, no garbage: the old `(1..size).toList()` plus
+        // `map { it.sid }` allocated two full lists on every chapter open.
+        var sidsOrdered = true
+        for (index in sentences.indices) {
+            if (sentences[index].sid != index + 1) {
+                sidsOrdered = false
+                break
+            }
+        }
+        if (!sidsOrdered) {
             errors.add(
                 "sids [${sentences.take(8).joinToString { it.sid.toString() }}" +
                     "${if (sentences.size > 8) ", ..." else ""}]: " +

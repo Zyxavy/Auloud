@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "VOICES-RESERVED-MISSING",
+      "message": "manifest.json: voices missing reserved speaker 'dialogue' (2.0 books need both narrator and dialogue)"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-REQ-LIST",
+      "message": "manifest.json: missing or invalid required field 'chapters' (need list)"
+    }
+  ]
+}

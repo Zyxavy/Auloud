@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SRC-SHA-NOT-HEX",
+      "message": "manifest.json: source sha256 is not a 64-char hex string"
+    }
+  ]
+}

@@ -11,10 +11,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -86,6 +95,24 @@ fun ReaderScreen(
     onConfirmTapJump: () -> Unit = {},
     onDismissTapJump: () -> Unit = {},
     /**
+     * Reader menu (unrendered books): the trailing top-right dropdown with
+     * Chapters, Render and Listen entries. Null hides the menu and keeps
+     * the left Chapters button, so existing callers render exactly as
+     * before (the timed reader passes neither).
+     */
+    onOpenRender: (() -> Unit)? = null,
+    onSpeak: (() -> Unit)? = null,
+    /**
+     * Read-mode chapter stepping (null hides both buttons, so every
+     * existing caller renders exactly as before). The flags disable the
+     * buttons at the book ends; stepping itself stays a host decision
+     * (controller seek for timed books, ViewModel jump for untimed ones).
+     */
+    onPreviousChapter: (() -> Unit)? = null,
+    onNextChapter: (() -> Unit)? = null,
+    canGoPrevious: Boolean = true,
+    canGoNext: Boolean = true,
+    /**
      * IN9: dialogue marking (dialogue sentences in the tertiary accent).
      * Defaults to on; 1.x books carry no `dialogue` speakers so they render
      * exactly as before either way.
@@ -93,18 +120,35 @@ fun ReaderScreen(
     dialogueMarking: Boolean = true
 ) {
     Column(modifier = modifier.fillMaxSize()) {
+        val showMenu = onOpenRender != null || onSpeak != null
         Row(
             modifier = Modifier.fillMaxWidth().padding(8.dp),
             horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = onBack) { Text("Back") }
-            TextButton(onClick = onOpenChapters) { Text("Chapters") }
+            if (!showMenu) {
+                TextButton(onClick = onOpenChapters) { Text("Chapters") }
+            }
+            if (onPreviousChapter != null) {
+                TextButton(onClick = onPreviousChapter, enabled = canGoPrevious) { Text("Previous") }
+            }
+            if (onNextChapter != null) {
+                TextButton(onClick = onNextChapter, enabled = canGoNext) { Text("Next") }
+            }
             Text(
                 text = state.chapter?.title ?: "",
                 style = MaterialTheme.typography.titleMedium,
-                maxLines = 1
+                maxLines = 1,
+                modifier = Modifier.weight(1f, fill = false)
             )
+            if (showMenu) {
+                ReaderMenu(
+                    onOpenChapters = onOpenChapters,
+                    onOpenRender = onOpenRender,
+                    onSpeak = onSpeak
+                )
+            }
         }
         when {
             state.isTextLoading || (state.chapter == null && state.textError == null) -> {
@@ -138,13 +182,17 @@ fun ReaderScreen(
                     )
                 }
                 // CP3 follow-up: a tap arms the jump; the audio moves only on
-                // confirm, so accidental taps never lose the place.
+                // confirm, so accidental taps never lose the place. The
+                // excerpt is hoisted out of the dialog so the sentence list
+                // is not rebuilt on every recomposition.
                 val pending = state.pendingTapSid
-                if (pending != null) {
-                    val excerpt = state.chapter
+                val pendingExcerpt = remember(state.chapter, pending) {
+                    state.chapter
                         ?.sentencesInOrder()
                         ?.firstOrNull { it.sid == pending }
                         ?.text
+                }
+                if (pending != null) {
                     AlertDialog(
                         onDismissRequest = onDismissTapJump,
                         confirmButton = {
@@ -154,9 +202,58 @@ fun ReaderScreen(
                             TextButton(onClick = onDismissTapJump) { Text("Cancel") }
                         },
                         title = { Text("Jump to this line?") },
-                        text = excerpt?.let { { Text(it) } }
+                        text = pendingExcerpt?.let { { Text(it) } }
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Top-right reader menu (unrendered books): Chapters always, Render and
+ * Listen only where the host wires them. Thin UI over host callbacks;
+ * nothing to unit-test beyond the callers' wiring.
+ */
+@Composable
+private fun ReaderMenu(
+    onOpenChapters: () -> Unit,
+    onOpenRender: (() -> Unit)?,
+    onSpeak: (() -> Unit)?,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(Icons.Filled.MoreVert, contentDescription = "Menu")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("Chapters") },
+                leadingIcon = { Icon(Icons.Filled.List, contentDescription = null) },
+                onClick = {
+                    expanded = false
+                    onOpenChapters()
+                }
+            )
+            if (onOpenRender != null) {
+                DropdownMenuItem(
+                    text = { Text("Render") },
+                    leadingIcon = { Icon(Icons.Filled.Build, contentDescription = null) },
+                    onClick = {
+                        expanded = false
+                        onOpenRender()
+                    }
+                )
+            }
+            if (onSpeak != null) {
+                DropdownMenuItem(
+                    text = { Text("Listen") },
+                    leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                    onClick = {
+                        expanded = false
+                        onSpeak()
+                    }
+                )
             }
         }
     }
@@ -202,24 +299,29 @@ private fun ChapterContent(
             visibleBlocks = first until first + count
         }
     }
-    LaunchedEffect(listState, chapter) {
-        snapshotFlow {
-            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
-        }.collect { (blockIndex, scrollPx) ->
-            val block = chapter.blocks.getOrNull(blockIndex) ?: return@collect
-            val layout = layouts.getOrNull(blockIndex) ?: return@collect
-            if (block.type != "para" && block.type != "quote") {
-                block.sentences.firstOrNull()?.let { onTopVisibleSentence(it.sid) }
-                return@collect
-            }
-            val offset = layoutResults[block.id]?.let { result ->
-                try {
-                    result.getOffsetForPosition(Offset(100f, scrollPx + 4f))
-                } catch (_: Exception) {
-                    0
+    // FP3: the top-visible hit test feeds Read-mode position only (the
+    // ViewModel ignores it elsewhere), so the effect does not run outside
+    // Read mode: no layout hit tests whose results would die.
+    if (state.mode == ReaderMode.Read) {
+        LaunchedEffect(listState, chapter) {
+            snapshotFlow {
+                listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+            }.collect { (blockIndex, scrollPx) ->
+                val block = chapter.blocks.getOrNull(blockIndex) ?: return@collect
+                val layout = layouts.getOrNull(blockIndex) ?: return@collect
+                if (block.type != "para" && block.type != "quote") {
+                    block.sentences.firstOrNull()?.let { onTopVisibleSentence(it.sid) }
+                    return@collect
                 }
-            } ?: 0
-            sidAtOffset(layout.sentences, offset)?.let { onTopVisibleSentence(it) }
+                val offset = layoutResults[block.id]?.let { result ->
+                    try {
+                        result.getOffsetForPosition(Offset(100f, scrollPx + 4f))
+                    } catch (_: Exception) {
+                        0
+                    }
+                } ?: 0
+                sidAtOffset(layout.sentences, offset)?.let { onTopVisibleSentence(it) }
+            }
         }
     }
     // Drag source only: finger drags detach, programmatic auto-scrolls never

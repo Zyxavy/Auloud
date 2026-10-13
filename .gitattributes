@@ -1,0 +1,17 @@
+# Keep fixture and source text LF on every checkout so Windows never
+# changes bytes (Slice 15, S15-8). Audio, ebook, image and model files are
+# binary so no conversion is ever attempted.
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.rs text eol=lf
+*.mp3 binary
+*.m4a binary
+*.wav binary
+*.pdf binary
+*.epub binary
+*.jpg binary
+*.bin binary
+*.onnx binary

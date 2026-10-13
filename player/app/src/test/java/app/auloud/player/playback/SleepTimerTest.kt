@@ -77,4 +77,60 @@ class SleepTimerTest {
             assertEquals(next, current)
         }
     }
+
+    @Test
+    fun cycleBase_deadTimer_resetsStaleCursorToOff() {
+        // Timer expired or cancelled elsewhere: the next tap starts fresh.
+        assertEquals(SleepOption.Off, sleepCycleBase(SleepOption.Min15, null))
+        assertEquals(SleepOption.Off, sleepCycleBase(SleepOption.Off, null))
+    }
+
+    @Test
+    fun cycleBase_liveTimer_keepsKnownCursor() {
+        assertEquals(SleepOption.Min15, sleepCycleBase(SleepOption.Min15, 60_000L))
+        assertEquals(SleepOption.EndOfChapter, sleepCycleBase(SleepOption.EndOfChapter, 60_000L))
+    }
+
+    @Test
+    fun cycleBase_rotationWithLiveTimer_nextTapCancels() {
+        // Rotation resets the UI cursor to Off while the service timer runs:
+        // the base reads as end-of-chapter, so one cycle lands on Off.
+        val base = sleepCycleBase(SleepOption.Off, 60_000L)
+        assertEquals(SleepOption.EndOfChapter, base)
+        assertEquals(SleepOption.Off, cycleSleepOption(base))
+    }
+
+    @Test
+    fun formatMmSs_shapes() {
+        assertEquals("0:00", formatMmSs(0L))
+        assertEquals("1:01", formatMmSs(61_000L))
+        assertEquals("0:00", formatMmSs(-100L))
+    }
+
+    @Test
+    fun streamEndOfChapter_refusedOnlyOnStream() {
+        // FP1: End-of-chapter is meaningless on streams (sentence counts,
+        // not ms), so the service refuses it there only.
+        assertTrue(isStreamEndOfChapterRefused(SleepOption.EndOfChapter, true))
+        assertFalse(isStreamEndOfChapterRefused(SleepOption.EndOfChapter, false))
+        for (option in listOf(
+            SleepOption.Off, SleepOption.Min15, SleepOption.Min30,
+            SleepOption.Min45, SleepOption.Min60
+        )) {
+            assertFalse(isStreamEndOfChapterRefused(option, true))
+            assertFalse(isStreamEndOfChapterRefused(option, false))
+        }
+    }
+
+    @Test
+    fun streamCountsAsMs_wouldPinFade_whyRefused() {
+        // FP1 regression pin: feeding a stream sentence index/count
+        // straight into the timer yields a few hundred "ms" remaining, so
+        // the fade pins the volume near zero for the whole chapter. The
+        // service must refuse End-of-chapter on streams instead.
+        val timer = SleepTimer()
+        timer.start(SleepOption.EndOfChapter, 0L)
+        assertEquals(150L, timer.remainingMs(0L, 50L, 200L))
+        assertEquals(0.015f, timer.fadeVolume(0L, 50L, 200L), 0.001f)
+    }
 }

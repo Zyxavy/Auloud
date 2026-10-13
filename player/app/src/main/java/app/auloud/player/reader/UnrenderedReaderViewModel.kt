@@ -34,12 +34,17 @@ import kotlinx.coroutines.launch
  * - [jumpToChapter] validates with [coerceChapterJump] (out-of-range is a
  *   no-op) and loads the chapter start, saving it on success. Failures
  *   keep the error state and do not overwrite the last good position.
+ *   [nextChapter] and [previousChapter] step through it (ends no-op).
  * - [onSentenceTap] moves the reading position immediately (no confirm
  *   prompt: there is no audio to lose) and saves it; unknown sids are
  *   ignored. [onTopVisibleSid] debounces rapid scroll reports and settles
  *   the last one the same way.
  * - Follow reuses the shared machine: manual scroll detaches, back-to-now
  *   and chapter changes re-attach.
+ * - The voice leads across chapter ends: a service chapter advance loads
+ *   the new chapter's text here with no command back (it is already
+ *   there), so highlight and text keep going ReadEra-style, including
+ *   after screen-off returns.
  *
  * The ViewModel owns its coroutines (a [SupervisorJob] over [dispatcher]);
  * call [clear] when the screen is disposed, like `ViewModel.onCleared`.
@@ -78,6 +83,17 @@ class UnrenderedReaderViewModel(
                     _state.value = _state.value.copy(liveSid = sid)
                 }
             }
+            // The voice leads across chapter ends (ReadEra-style follow):
+            // a new service chapter loads its text here. No service
+            // command goes back (it is already there), and the save rides
+            // the normal load path, so screen-off returns find the spot.
+            scope.launch {
+                stream.chapterPos.collect { pos ->
+                    if (pos != null && pos != _state.value.chapterIndex) {
+                        followStreamChapter(pos)
+                    }
+                }
+            }
         }
         scope.launch {
             val saved = try {
@@ -111,6 +127,33 @@ class UnrenderedReaderViewModel(
         if (target == _state.value.chapterIndex && _state.value.chapter != null) return
         settleJob?.cancel()
         live?.seekToChapter(target)
+        loadChapter(target, null)
+    }
+
+    /**
+     * Read-mode chapter stepping (ends are no-ops via [coerceChapterJump]).
+     * Loads the chapter start and saves it on success, same as
+     * [jumpToChapter]; a live stream moves along too.
+     */
+    fun nextChapter() {
+        jumpToChapter(_state.value.chapterIndex + 1)
+    }
+
+    /** Twin of [nextChapter] toward the book start. */
+    fun previousChapter() {
+        jumpToChapter(_state.value.chapterIndex - 1)
+    }
+
+    /**
+     * Service-led chapter move (voice crossed the chapter end): loads the
+     * text like [jumpToChapter] but sends no command back — commanding the
+     * service would restart the chapter it just left. Out-of-range is a
+     * no-op via [coerceChapterJump], same as manual jumps.
+     */
+    private fun followStreamChapter(pos: Int) {
+        val target = coerceChapterJump(pos, chapterCount) ?: return
+        if (target == _state.value.chapterIndex && _state.value.chapter != null) return
+        settleJob?.cancel()
         loadChapter(target, null)
     }
 

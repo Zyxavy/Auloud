@@ -5,7 +5,8 @@ package app.auloud.player.tts
  *
  * Each engine declares what it can do ([capabilities]) and synthesizes
  * one utterance at a time. Voice ids are namespaced per engine
- * (`kokoro:af_heart`, `piper:en_US-lessac-low`, `system:en-us-x-sfg#female`),
+ * (`kokoro:af_heart`, `piper:en_US-lessac-low`, `kitten:3`,
+ * `system:en-us-x-sfg#female`),
  * matching the `engine` field Scribe already writes in the manifest; the
  * [EngineRegistry] routes on the namespace prefix. Two-voice roles
  * ([TtsRole]) are the unit of voice settings everywhere (D-071).

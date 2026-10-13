@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-FP-VERSIONS-MAP",
+      "message": "manifest.json: invalid field 'render_fingerprint.engine_versions' (need string map)"
+    }
+  ]
+}

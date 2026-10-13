@@ -1,0 +1,19 @@
+[package]
+name = "scribe-ui"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# UI2: egui won the spike (D-159); iced + Slint removed with their bins.
+# scribe-client stays: Slice 17 wires it (helper lifecycle + Books).
+scribe-client = { path = "../scribe-client" }
+egui = "0.36"
+eframe = "0.36"
+# AP2: native add-book dialog (owner-approved; MIT, deny-checked).
+rfd = "0.17"
+# AP3: cast/detail JSON + fixture parsing (owner-approved; same as client's).
+serde_json = "1"
+# CS3: audition playback (owner-approved D-162; MIT OR Apache-2.0, deny green).
+# wav-only: the helper serves clips as wav, so no mp3/flac/vorbis decoders.
+rodio = { version = "0.23", default-features = false, features = ["playback", "wav"] }

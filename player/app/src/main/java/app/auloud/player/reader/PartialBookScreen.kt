@@ -61,9 +61,11 @@ import app.auloud.player.storage.BundleStorage
 import app.auloud.player.tts.AndroidSystemTtsDriver
 import app.auloud.player.tts.EngineRegistry
 import app.auloud.player.tts.PrefsTtsStore
+import app.auloud.player.tts.SherpaKittenEngine
 import app.auloud.player.tts.SherpaPiperEngine
 import app.auloud.player.tts.SystemTtsAdapter
 import app.auloud.player.tts.bookVoiceVersionOf
+import app.auloud.player.tts.kittenEngineOrNull
 import app.auloud.player.tts.scanAppModelPacks
 import java.io.File
 import kotlinx.coroutines.Dispatchers
@@ -110,6 +112,7 @@ fun PartialBookScreen(
     val appContext = remember(context) { context.applicationContext }
     val scope = rememberCoroutineScope()
     val panelSherpaHolder = remember(book.id) { arrayOfNulls<SherpaPiperEngine>(1) }
+    val panelKittenHolder = remember(book.id) { arrayOfNulls<SherpaKittenEngine>(1) }
     val panelVm = remember(book.id) {
         val scratch = File(appContext.cacheDir, "panel-tts-probe")
         val driver = AndroidSystemTtsDriver(appContext)
@@ -117,10 +120,14 @@ fun PartialBookScreen(
         val packs = scanAppModelPacks(appContext)
         val sherpa = SherpaPiperEngine(packs).takeIf { it.voices().isNotEmpty() }
         panelSherpaHolder[0] = sherpa
+        // KT2: Kitten joins the registry on the same rule as Piper.
+        val kitten = packs.kittenEngineOrNull()
+        panelKittenHolder[0] = kitten
         val registry = EngineRegistry(
             listOfNotNull(
                 adapter,
                 sherpa,
+                kitten,
                 DebugRenderEngines.beepEngineIfDebug(BuildConfig.DEBUG)
             )
         )
@@ -174,6 +181,8 @@ fun PartialBookScreen(
             panelVm.clear()
             panelSherpaHolder[0]?.release()
             panelSherpaHolder[0] = null
+            panelKittenHolder[0]?.release()
+            panelKittenHolder[0] = null
         }
     }
     val panelState by panelVm.state.collectAsState()
@@ -182,6 +191,21 @@ fun PartialBookScreen(
     }
     var listenAt by remember(book.id) { mutableStateOf<Int?>(null) }
     var readAt by remember(book.id) { mutableStateOf<Int?>(null) }
+    // Reader-first: unrendered books land in chapter text (saved spot,
+    // else chapter 1), not the render panel. Back dismisses back to the
+    // panel; the panel's Read button returns.
+    var readerDismissed by remember(book.id) { mutableStateOf(false) }
+    LaunchedEffect(book.id, chapters) {
+        val list = chapters
+        if (!readerDismissed && readAt == null && !list.isNullOrEmpty()) {
+            val saved = try {
+                withContext(Dispatchers.IO) { progress.load(book.id).getOrNull()?.chapterIndex }
+            } catch (_: Exception) {
+                null
+            }
+            readAt = (saved ?: 0).coerceIn(0, list.size - 1)
+        }
+    }
     // ST7-fix: "Listen now" opens the reader already playing the stream.
     var readAutoPlay by remember(book.id) { mutableStateOf(false) }
     var showChapters by remember(book.id) { mutableStateOf(false) }
@@ -233,9 +257,19 @@ fun PartialBookScreen(
             onBack = {
                 readAt = null
                 readAutoPlay = false
+                readerDismissed = true
                 panelVm.refresh()
             },
             modifier = modifier,
+            showChapters = showChapters,
+            onOpenChapters = { showChapters = true },
+            onDismissChapters = { showChapters = false },
+            onOpenRender = {
+                readAt = null
+                readAutoPlay = false
+                readerDismissed = true
+                panelVm.refresh()
+            },
             autoPlayChapter = readAt?.takeIf { readAutoPlay }
         )
         return
@@ -370,6 +404,14 @@ fun PartialBookScreen(
                     onClick = { listenTarget?.let { openChapter(it, autoplay = listenLive) } },
                     enabled = listenTarget != null
                 ) { Text(if (listenLive) "Listen now" else "Listen") }
+                Button(
+                    onClick = {
+                        if (entries.isNotEmpty()) {
+                            readAutoPlay = false
+                            readAt = panelState.readingChapter.coerceIn(0, entries.size - 1)
+                        }
+                    }
+                ) { Text("Read") }
                 Button(onClick = { showChapters = true }) { Text("Chapters") }
                 OutlinedButton(onClick = { showBookVoices = true }) { Text("Voices") }
             }

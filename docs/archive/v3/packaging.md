@@ -1,0 +1,59 @@
+# Helper Packaging (Slice 15)
+
+How the Python Scribe ships inside the v3 app, and the measured numbers behind the choice.
+
+## Runtime inventory (HP0, dev machine 2026-10-11)
+
+- Python 3.14.5 (venv); **pinned for the helper: CPython 3.14.8** via python-build-standalone release 20261009 (`install_only`, x86_64 Windows; Linux x86_64 at HP7). Stays on 3.14 because every pinned wheel already ships cp314 builds; 3.15 exists upstream but buys nothing here.
+- `site-packages`: 170 top-level dirs, about 396 MB. Native highlights: onnxruntime 1.30.0 (pybind `.pyd` plus `onnxruntime.dll`), PyMuPDF 1.28.2 (`mupdfcpp64.dll` 25 MB plus `_mupdf.pyd`), numpy 2.5.3 (OpenBLAS), soundfile (libsndfile), blis, lxml, pydantic-core.
+- Phonemizer is self-contained: `espeakng_loader` 0.2.4 ships `espeak-ng.dll` (409 KB) plus `espeak-ng-data` (lang and voices, about 17.5 MB); `phonemizer` 3.4.0 (required by `kokoro-onnx` 0.6.1) rides on it. **No system espeak-ng is needed at runtime**; only the `doctor` row checks for `espeak-ng.exe`, so that row goes advisory for the helper (HP4, when `doctor` runs in helper context).
+- `piper-tts` 1.8.0 carries its own espeak data (see `tts/piper.py`); same conclusion, no system dependency. `en_core_web_sm` 3.8.0 URL-pinned in `pyproject.toml` plus `uv.lock`.
+- Web stack (`ui` extra): FastAPI 0.142.2, uvicorn 0.54, starlette 1.7.
+- External today, bundled at HP2: ffmpeg/ffprobe (pinned build TBD), MSVC runtime DLLs if the sandbox proves them missing.
+- Models stay outside the bundle (sideloaded): `kokoro-v1.0.onnx` 310 MB, `voices-v1.0.bin` 27 MB, `piper/` about 99 MB (several voices).
+
+## Helper entry reuse notes (HP1 reads these)
+- `ui/server.py`: 127.0.0.1-only bind guard (no `--host` flag on purpose), free-port pick from 8137 upward, per-workspace `.scribe-ui.lock` (O_EXCL plus stale rules, no same-process re-entry).
+- `ui/security.py`: per-run token (`secrets`), Host allow-list (`is_allowed_host`), constant-time token compare, `safe_join` against traversal.
+- `ui/jobs.py`: detached child processes with per-book lock, FIFO queue, stop sentinel, pause/resume/cancel, reattach after restart.
+- `lock.py`: PID-liveness plus 24 h stale pattern shared by both locks.
+- `cli.py` `doctor`: 11 rows; the espeak-ng row goes advisory for the helper (see above).
+- Ready-line discipline: the ready line means "starting", the `/api/health` check is truth; the parent retries the health check (Slice 16 owns the parent side).
+
+## Metrics sheet (HP8 fills this; thresholds proposed in decision 9 of the slice plan)
+
+| Metric | Embedded | Frozen | Dev machine |
+| --- | --- | --- | --- |
+| Size unzipped, zipped, file count |  |  |  |
+| Cold start and warm start to ready |  |  |  |
+| Idle memory |  |  |  |
+| Build speed (RTF) on the C&P fragment |  |  | about 4.38x CPU (test-log reference) |
+| Defender result and first-run scan time |  |  |  |
+| Long path, spaces, non-ASCII |  |  |  |
+| Offline behavior |  |  |  |
+| Detached job survives helper kill |  |  |  |
+| Build reliability and reproducibility |  |  | |
+
+## HP3 frozen comparison (dev-machine builds 2026-10-11)
+
+- Recipe: PyInstaller 6.22.3 (GPLv2 with the bundle exception; build-only tool in a scratch venv, never a project dependency) in onedir mode with `cli.py` as the entry (its `__main__` guard runs the app; flat imports resolve at analysis). Collects beyond auto-detection: `--collect-all espeakng_loader`, `--collect-data en_core_web_sm`, `--hidden-import en_core_web_sm`, `--copy-metadata en_core_web_sm`, `--collect-data piper`, `--collect-data _soundfile_data`, `--collect-data kokoro_onnx`.
+- Findings: (1) the spaCy model needs module plus data plus dist-info: data alone leaves `doctor` FAIL (`--copy-metadata` fixed it); (2) detached-job re-entry needs no flag: `ui/jobs.py` builds child argv as `[exe, ...]` under `sys.frozen` (pinned by `test_child_argv_frozen_reenters_exe`), and a real upload plus draft job completed inside the frozen helper; (3) frozen `doctor` is all PASS; (4) frozen needs Kokoro's data files too: the first audio build died at TTS init on missing `_internal/kokoro_onnx/config.json` (only dist-info was collected; `--collect-data kokoro_onnx` fixed it, no further missing files on the Kokoro path; Piper render still unproven on frozen); (5) frozen does NOT bundle ffmpeg: it resolves `ffmpeg`/`ffprobe` from PATH (WinGet 9.0.1 on the dev machine) while embedded bundles pinned ffmpeg 9.0.2 (Slice 22 source-offer and HP4 offline notes apply).
+- Measured: 1,275 files, 347 MB; cold and warm start to ready 0.8 s; idle memory 77 MB (embedded for comparison: 11,246 files, 761 MB, idle 63 MB). Audio proof on `epub2-minimal` ch.1: 45.7 s wall, RTF 2.45x, 110 s MP3 (mono/24 kHz/64k CBR, ffprobe-verified), frozen `validate` PASS, `voices --sample` ok (266 KB WAV). RTF is not comparable to the 4.38x dev reference (different book); the HP8 sheet compares like-for-like.
+
+## HP4 clean-machine runs (not run; stop-loss per D-157)
+
+- The matrix was not executed: no clean Windows environment was available and the VM route was declined. `scribe/dev/run_gate.ps1` plus the `sandbox.wsb` mappings stand ready if one appears.
+- No thresholds are claimed: cold/warm start, idle memory, Defender, MSVC DLLs, and offline behavior on a bare machine are all unknown. The HP8 sheet keeps dev-machine numbers only.
+
+## Decision log (slice decisions land in `docs/DECISIONS.md`; summary here at HP9)
+
+- Sandbox is unavailable on this machine (owner-confirm 2026-10-11); the HP4 clean-machine route falls back to VirtualBox, Hyper-V, or a spare machine (route chosen at HP4 at the latest).
+- Gate thresholds approved as proposed (cold ready 10 s, warm 5 s, idle 300 MB, speed within 10%, zero Defender hits, offline OK).
+
+## HP2 embedded bundle (dev-machine build 2026-10-11)
+
+- Pins: CPython 3.14.8 (`...-install_only.tar.gz`, sha256 `6c03535b…b4bb4`), ffmpeg 9.0.2 essentials (`...-essentials_build.zip`, sha256 `60f46726…b3fa20`, **GPLv3**; Slice 22 owns the source-offer decision).
+- Deps from `uv.lock` hashes (`uv export` plus `ui` extra, no dev group); Scribe wheel built locally; tests stripped; hash-based byte-compile.
+- Result: 11,246 files, 761 MB unzipped; `helper-manifest.json` carries every file hash. (An earlier build measured 13,238 files, 783 MB; the current manifest is the 11,246-file one.)
+- Smoke on the dev machine: `doctor` all PASS from the bundle, bundled ffmpeg/ffprobe run, and a real Kokoro synth (22,528 samples) works with no system espeak-ng: the HP0 phonemizer finding holds end to end.
+- Reproducibility: `--verify-reproducible` passes (identical file hashes across two builds, installer metadata excluded).

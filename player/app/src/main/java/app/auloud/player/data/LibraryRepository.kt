@@ -35,9 +35,10 @@ interface LibraryRepository {
     /**
      * IN8: library delete (the "Not rendered" row action and its
      * rendered-book twin): removes the book folder through `BundleStorage`
-     * and then the library row. An unknown [bookId] fails with a
-     * file-and-rule message instead of deleting anything. Saved progress
-     * is removed separately via `ProgressRepository.delete`.
+     * (verified gone for file folders before the row falls) and then the
+     * library row plus the saved position in one Room transaction. An
+     * unknown [bookId] fails with a file-and-rule message instead of
+     * deleting anything.
      */
     suspend fun deleteBook(bookId: String): Result<Unit>
 }

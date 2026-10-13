@@ -1,0 +1,336 @@
+{
+  "voices": [
+    "af_alloy",
+    "af_aoede",
+    "af_bella",
+    "af_heart",
+    "af_jessica",
+    "af_kore",
+    "af_nicole",
+    "af_nova",
+    "af_river",
+    "af_sarah",
+    "af_sky",
+    "am_adam",
+    "am_echo",
+    "am_eric",
+    "am_fenrir",
+    "am_liam",
+    "am_michael",
+    "am_onyx",
+    "am_puck",
+    "am_santa",
+    "bf_alice",
+    "bf_emma",
+    "bf_isabella",
+    "bf_lily",
+    "bm_daniel",
+    "bm_fable",
+    "bm_george",
+    "bm_lewis",
+    "ef_dora",
+    "em_alex",
+    "em_santa",
+    "ff_siwis",
+    "hf_alpha",
+    "hf_beta",
+    "hm_omega",
+    "hm_psi",
+    "if_sara",
+    "im_nicola",
+    "jf_alpha",
+    "jf_gongitsune",
+    "jf_nezumi",
+    "jf_tebukuro",
+    "jm_kumo",
+    "pf_dora",
+    "pm_alex",
+    "pm_santa",
+    "zf_xiaobei",
+    "zf_xiaoni",
+    "zf_xiaoxiao",
+    "zf_xiaoyi",
+    "zm_yunjian",
+    "zm_yunxi",
+    "zm_yunxia",
+    "zm_yunyang"
+  ],
+  "source": "engine",
+  "engine": "kokoro",
+  "engine_version": "kokoro-onnx 0.6.1",
+  "sample_text": "The old lighthouse keeper whispered a secret to the curious child as the foghorn sounded at dawn.",
+  "text_hash": "c3719d3ac927",
+  "details": [
+    {
+      "name": "af_alloy",
+      "locale": "American",
+      "gender": "female"
+    },
+    {
+      "name": "af_aoede",
+      "locale": "American",
+      "gender": "female"
+    },
+    {
+      "name": "af_bella",
+      "locale": "American",
+      "gender": "female"
+    },
+    {
+      "name": "af_heart",
+      "locale": "American",
+      "gender": "female"
+    },
+    {
+      "name": "af_jessica",
+      "locale": "American",
+      "gender": "female"
+    },
+    {
+      "name": "af_kore",
+      "locale": "American",
+      "gender": "female"
+    },
+    {
+      "name": "af_nicole",
+      "locale": "American",
+      "gender": "female"
+    },
+    {
+      "name": "af_nova",
+      "locale": "American",
+      "gender": "female"
+    },
+    {
+      "name": "af_river",
+      "locale": "American",
+      "gender": "female"
+    },
+    {
+      "name": "af_sarah",
+      "locale": "American",
+      "gender": "female"
+    },
+    {
+      "name": "af_sky",
+      "locale": "American",
+      "gender": "female"
+    },
+    {
+      "name": "am_adam",
+      "locale": "American",
+      "gender": "male"
+    },
+    {
+      "name": "am_echo",
+      "locale": "American",
+      "gender": "male"
+    },
+    {
+      "name": "am_eric",
+      "locale": "American",
+      "gender": "male"
+    },
+    {
+      "name": "am_fenrir",
+      "locale": "American",
+      "gender": "male"
+    },
+    {
+      "name": "am_liam",
+      "locale": "American",
+      "gender": "male"
+    },
+    {
+      "name": "am_michael",
+      "locale": "American",
+      "gender": "male"
+    },
+    {
+      "name": "am_onyx",
+      "locale": "American",
+      "gender": "male"
+    },
+    {
+      "name": "am_puck",
+      "locale": "American",
+      "gender": "male"
+    },
+    {
+      "name": "am_santa",
+      "locale": "American",
+      "gender": "male"
+    },
+    {
+      "name": "bf_alice",
+      "locale": "British",
+      "gender": "female"
+    },
+    {
+      "name": "bf_emma",
+      "locale": "British",
+      "gender": "female"
+    },
+    {
+      "name": "bf_isabella",
+      "locale": "British",
+      "gender": "female"
+    },
+    {
+      "name": "bf_lily",
+      "locale": "British",
+      "gender": "female"
+    },
+    {
+      "name": "bm_daniel",
+      "locale": "British",
+      "gender": "male"
+    },
+    {
+      "name": "bm_fable",
+      "locale": "British",
+      "gender": "male"
+    },
+    {
+      "name": "bm_george",
+      "locale": "British",
+      "gender": "male"
+    },
+    {
+      "name": "bm_lewis",
+      "locale": "British",
+      "gender": "male"
+    },
+    {
+      "name": "ef_dora",
+      "locale": "Spanish",
+      "gender": "female"
+    },
+    {
+      "name": "em_alex",
+      "locale": "Spanish",
+      "gender": "male"
+    },
+    {
+      "name": "em_santa",
+      "locale": "Spanish",
+      "gender": "male"
+    },
+    {
+      "name": "ff_siwis",
+      "locale": "unknown",
+      "gender": "female"
+    },
+    {
+      "name": "hf_alpha",
+      "locale": "Hindi",
+      "gender": "female"
+    },
+    {
+      "name": "hf_beta",
+      "locale": "Hindi",
+      "gender": "female"
+    },
+    {
+      "name": "hm_omega",
+      "locale": "Hindi",
+      "gender": "male"
+    },
+    {
+      "name": "hm_psi",
+      "locale": "Hindi",
+      "gender": "male"
+    },
+    {
+      "name": "if_sara",
+      "locale": "Italian",
+      "gender": "female"
+    },
+    {
+      "name": "im_nicola",
+      "locale": "Italian",
+      "gender": "male"
+    },
+    {
+      "name": "jf_alpha",
+      "locale": "Japanese",
+      "gender": "female"
+    },
+    {
+      "name": "jf_gongitsune",
+      "locale": "Japanese",
+      "gender": "female"
+    },
+    {
+      "name": "jf_nezumi",
+      "locale": "Japanese",
+      "gender": "female"
+    },
+    {
+      "name": "jf_tebukuro",
+      "locale": "Japanese",
+      "gender": "female"
+    },
+    {
+      "name": "jm_kumo",
+      "locale": "Japanese",
+      "gender": "male"
+    },
+    {
+      "name": "pf_dora",
+      "locale": "Portuguese",
+      "gender": "female"
+    },
+    {
+      "name": "pm_alex",
+      "locale": "Portuguese",
+      "gender": "male"
+    },
+    {
+      "name": "pm_santa",
+      "locale": "Portuguese",
+      "gender": "male"
+    },
+    {
+      "name": "zf_xiaobei",
+      "locale": "Chinese",
+      "gender": "female"
+    },
+    {
+      "name": "zf_xiaoni",
+      "locale": "Chinese",
+      "gender": "female"
+    },
+    {
+      "name": "zf_xiaoxiao",
+      "locale": "Chinese",
+      "gender": "female"
+    },
+    {
+      "name": "zf_xiaoyi",
+      "locale": "Chinese",
+      "gender": "female"
+    },
+    {
+      "name": "zm_yunjian",
+      "locale": "Chinese",
+      "gender": "male"
+    },
+    {
+      "name": "zm_yunxi",
+      "locale": "Chinese",
+      "gender": "male"
+    },
+    {
+      "name": "zm_yunxia",
+      "locale": "Chinese",
+      "gender": "male"
+    },
+    {
+      "name": "zm_yunyang",
+      "locale": "Chinese",
+      "gender": "male"
+    }
+  ],
+  "note": "Voice grid source with the engine version and locale/gender hints. Clips are versioned by (voice, engine version, sample text); source is 'engine' (all engine voices) or 'palette' (D-036 shortlist, no models dir found; Kokoro only)."
+}

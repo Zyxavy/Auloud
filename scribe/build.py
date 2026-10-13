@@ -437,7 +437,11 @@ def _record_build_stats(
     try:
         existing = _load_build_stats(path.parent)
         merged = (existing + entries)[-keep:]
-        path.write_text(json.dumps(merged, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        path.write_text(
+            json.dumps(merged, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+            newline="\n",
+        )
     except OSError:
         pass
 
@@ -538,12 +542,6 @@ def _narrator_entry(cast_path: Path) -> tuple[str, float, str]:
     except (TypeError, ValueError) as exc:
         raise BuildError(f"{cast_path.name}: narrator 'speed' is not a number") from exc
     return voice, speed, _entry_engine(entry)
-
-
-def _narrator_voice(cast_path: Path) -> tuple[str, float]:
-    """``(voice, speed)`` for the narrator entry of ``cast.yaml``."""
-    voice, speed, _engine = _narrator_entry(cast_path)
-    return voice, speed
 
 
 def resolve_sentence_voice(
@@ -651,12 +649,7 @@ def _resolve_engines(
             engines[NARRATOR_ENGINE] = primary
         else:
             try:
-                try:
-                    engines[NARRATOR_ENGINE] = create_engine(models_dir, device=device)
-                except TypeError:
-                    # Back-compat for test monkeypatches replacing
-                    # create_engine with a single-arg lambda (pre-UI1).
-                    engines[NARRATOR_ENGINE] = create_engine(models_dir)
+                engines[NARRATOR_ENGINE] = create_engine(models_dir, device=device)
             except BuildError:
                 if strict:
                     raise
@@ -1032,9 +1025,11 @@ def _with_timings(chapter: ChapterFile, timings: list[Any], duration_ms: int) ->
 def _write_json(path: Path, data: dict[str, Any]) -> None:
     """Write UTF-8 JSON deterministically (sorted keys, trailing newline)."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    # newline="\n": chapter JSON joins the bundle, whose spec mandates \n.
     path.write_text(
         json.dumps(data, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
 
 

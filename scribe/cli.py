@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import importlib.util
+import os
 import shutil
 import subprocess
 import sys
@@ -110,6 +111,13 @@ SPACY_MODEL_HELP = (
 PASS = "PASS"
 FAIL = "FAIL"
 INFO = "INFO"
+
+
+def _require_ui_extra(cmd: str) -> None:
+    """Fail loudly when FastAPI/uvicorn are missing (both ui commands)."""
+    if importlib.util.find_spec("fastapi") is None or importlib.util.find_spec("uvicorn") is None:
+        typer.echo(f"{cmd} failed: the 'ui' extra is not installed.\n{UI_EXTRA_HINT}", err=True)
+        raise typer.Exit(code=1)
 
 
 @dataclass
@@ -888,12 +896,7 @@ def ui(
     and uvicorn lazy-import here so the plain CLI install never needs the
     optional ``ui`` extra.
     """
-    if (
-        importlib.util.find_spec("fastapi") is None
-        or importlib.util.find_spec("uvicorn") is None
-    ):
-        typer.echo(f"ui failed: the 'ui' extra is not installed.\n{UI_EXTRA_HINT}", err=True)
-        raise typer.Exit(code=1)
+    _require_ui_extra("ui")
     try:
         from ui.server import run_server
     except ImportError as exc:
@@ -908,6 +911,59 @@ def ui(
         run_server(workspace, port=port, open_browser=not no_browser)
     except ValueError as exc:
         typer.echo(f"ui failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def helper(
+    workspace: Path = typer.Option(
+        Path("."),
+        "--workspace",
+        help="Workspace root; all file access stays inside it.",
+    ),
+    log_dir: Path | None = typer.Option(
+        None,
+        "--log-dir",
+        help="Folder for helper.log (default <workspace>/logs).",
+    ),
+    port: int = typer.Option(
+        0,
+        "--port",
+        help="Port to serve (0 picks a free one and reports it).",
+    ),
+    parent_pid: int | None = typer.Option(
+        None,
+        "--parent-pid",
+        help="Parent process id for the watchdog (omitted: no watchdog).",
+    ),
+) -> None:
+    """Start the headless helper for the v3 native app (HP1, no browser).
+
+    The token comes from AULOUD_HELPER_TOKEN (never argv). Prints one
+    ready JSON line, then serves on 127.0.0.1 until Ctrl-C or the parent
+    disappears. Models follow the <workspace>/models convention.
+    """
+    _require_ui_extra("helper")
+    try:
+        from ui.helper import HELPER_ENV_TOKEN, HelperError, run_helper
+    except ImportError as exc:
+        typer.echo(
+            f"helper failed: scribe install broken: cannot import ui.helper ({exc}); "
+            "reinstall it with `uv sync --reinstall-package auloud-scribe` "
+            "in scribe/, then re-run the command.",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        run_helper(
+            workspace=workspace,
+            log_dir=log_dir,
+            port=port,
+            parent_pid=parent_pid,
+            token=os.environ.get(HELPER_ENV_TOKEN),
+        )
+    except HelperError as exc:
+        typer.echo(f"helper failed: {exc}", err=True)
         raise typer.Exit(code=1)
 
 

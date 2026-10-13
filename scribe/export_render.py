@@ -388,6 +388,7 @@ def _write_json(path: Path, data: dict) -> None:
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
+        newline="\n",
     )
 
 
@@ -435,7 +436,7 @@ def _export_one(
     )
     written.append(manifest_path)
     readme_path = root / "README.md"
-    readme_path.write_text(readme, encoding="utf-8")
+    readme_path.write_text(readme, encoding="utf-8", newline="\n")
     written.append(readme_path)
     result = validate_bundle(root)
     if not result.ok:

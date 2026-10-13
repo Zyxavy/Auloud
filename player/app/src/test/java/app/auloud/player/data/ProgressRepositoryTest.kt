@@ -129,6 +129,39 @@ class ProgressRepositoryTest {
         assertNull(repo.load("never-saved").getOrThrow())
     }
 
+    @Test
+    fun loadAll_mapsEveryPositionByBookId() = runBlocking {
+        repo.save("book-1", 1, 1_000L).getOrThrow()
+        repo.save("book-2", 3, 2_000L).getOrThrow()
+
+        assertEquals(mapOf("book-1" to 1_000L, "book-2" to 2_000L), repo.loadAll().getOrThrow())
+    }
+
+    @Test
+    fun loadAll_empty_returnsEmptyMap() = runBlocking {
+        assertTrue(repo.loadAll().getOrThrow().isEmpty())
+    }
+
+    @Test
+    fun loadAll_daoFailure_surfacesAsDataErrorLocal() = runBlocking {
+        dao.fail = true
+
+        val result = repo.loadAll()
+
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull() is DataError.Local)
+    }
+
+    @Test
+    fun failingStore_everySaveFails() = runBlocking {
+        dao.fail = true
+
+        // FP2: a stuck store fails every write (nothing caches success),
+        // so the service throttle stays armed and keeps retrying.
+        assertTrue(repo.save("book-1", 1, 1_000L).isFailure)
+        assertTrue(repo.save("book-1", 1, 1_000L).isFailure)
+    }
+
     /** In-memory [ProgressDao] with an injectable failure for the error-boundary test. */
     private class FakeProgressDao : ProgressDao {
         private val rows = mutableMapOf<String, ProgressEntity>()
@@ -137,6 +170,11 @@ class ProgressRepositoryTest {
         override suspend fun load(bookId: String): ProgressEntity? {
             if (fail) throw IOException("fake db failure")
             return rows[bookId]
+        }
+
+        override suspend fun getAll(): List<ProgressEntity> {
+            if (fail) throw IOException("fake db failure")
+            return rows.values.toList()
         }
 
         override suspend fun upsert(progress: ProgressEntity) {

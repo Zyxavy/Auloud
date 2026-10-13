@@ -211,7 +211,7 @@ inside the 300 ms check window; the fixture value
 `encoder_offset_ms` 0 stands as provisional, the 50 ms AAC
 tolerance stands, and the D-109 spec question (nonzero
 offset vs first-start-0) stays open for lack of a nonzero
-measurement — nothing observed contradicts first-start-0,
+measurement: nothing observed contradicts first-start-0,
 so no spec amendment was needed.
 
 ## VC1 license implementation (agent, 2026-10-09, D-126 option A)
@@ -618,7 +618,7 @@ half-second median gaps the path fails sitting still.
 Verdict (D-137): NO-GO, including the single-voice reduced go (Live20
 single-voice also fails). Background rendering stays the listening
 path. The ST1-ST6 code stays behind `GATE_PASSED=false` as the
-faster-device head start, not deleted; `docs/streaming.md` is the
+faster-device head start, not deleted; `docs/archive/v2/streaming.md` is the
 retained design. Slice 13 ends here per plan section 6.
 
 2026-10-10 override (D-138): owner ordered the gate GO anyway ("good

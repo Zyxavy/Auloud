@@ -146,6 +146,13 @@ class PlaybackService : MediaSessionService() {
     private var chapterDurations: List<Long> = emptyList()
     private var lastSaveUptimeMs: Long = 0L
     /**
+     * FP2: back-to-back progress-write failures with no intervening success
+     * (see launchSave). At the [ProgressSavePolicy] threshold the service
+     * publishes [SAVE_FAILED_MESSAGE] through the notice channel and the
+     * streak resets, so a stuck store re-notifies instead of spamming.
+     */
+    private var consecutiveSaveFailures = 0
+    /**
      * ST4: the rendered player, kept across session switches (the session
      * attaches exactly one player at a time; the other idles detached).
      */
@@ -349,7 +356,6 @@ class PlaybackService : MediaSessionService() {
         ticker?.cancel()
         ticker = null
         if (streamSave != null) {
-            lastSaveUptimeMs = SystemClock.uptimeMillis()
             launchSave(
                 ProgressSavePolicy.SavePoint(streamSave.bookId, streamSave.chapterPos, 0L),
                 "destroy",
@@ -362,7 +368,6 @@ class PlaybackService : MediaSessionService() {
             // cannot kill it. Residual window: if the process itself is
             // killed mid-write the save is lost; the 5 s cadence bounds
             // that loss. Inherent to process kill, accepted for Slice 1.
-            lastSaveUptimeMs = SystemClock.uptimeMillis()
             launchSave(finalPoint, "destroy", NonCancellable)
         }
         // 4. Complete scope ownership; then release per the Slice 1 plan.
@@ -832,7 +837,6 @@ class PlaybackService : MediaSessionService() {
         // sid survives release: save by value, not via the player.
         if (bookId != null) {
             StreamRoute.streamSaveOrNull(bookId, chapterPos, sid)?.let { save ->
-                lastSaveUptimeMs = SystemClock.uptimeMillis()
                 launchSave(
                     ProgressSavePolicy.SavePoint(save.bookId, save.chapterPos, 0L),
                     "stream-stop",
@@ -965,7 +969,6 @@ class PlaybackService : MediaSessionService() {
             null
         } ?: return
         stopStreamPath(resumeRender = true)
-        lastSaveUptimeMs = SystemClock.uptimeMillis()
         launchSave(
             ProgressSavePolicy.SavePoint(bookId, count - 1, 0L),
             "end-of-book",
@@ -984,7 +987,6 @@ class PlaybackService : MediaSessionService() {
             val save = StreamRoute.streamSaveOrNull(
                 currentBookId, streamChapterPos, stream.currentSid.value
             ) ?: return
-            lastSaveUptimeMs = SystemClock.uptimeMillis()
             launchSave(
                 ProgressSavePolicy.SavePoint(save.bookId, save.chapterPos, 0L),
                 "stream-$reason",
@@ -1007,7 +1009,6 @@ class PlaybackService : MediaSessionService() {
             chapterPos,
             player.currentPosition.coerceAtLeast(0L)
         ) ?: return
-        lastSaveUptimeMs = SystemClock.uptimeMillis()
         launchSave(point, reason)
     }
 
@@ -1033,6 +1034,10 @@ class PlaybackService : MediaSessionService() {
         return serviceScope.launch(context) {
             val result = progressRepository.save(point.bookId, point.chapterIndex, point.positionMs, sentenceSid)
             if (result.isSuccess) {
+                // FP2: the throttle advances only on write success, so a
+                // failed save stays armed and the next tick retries it.
+                lastSaveUptimeMs = SystemClock.uptimeMillis()
+                consecutiveSaveFailures = 0
                 Log.i(
                     SAVE_TAG,
                     "progress saved reason=$reason book=${point.bookId} " +
@@ -1042,6 +1047,11 @@ class PlaybackService : MediaSessionService() {
                 )
             } else {
                 Log.w(SAVE_TAG, "progress save failed reason=$reason: ${result.exceptionOrNull()?.message}")
+                consecutiveSaveFailures += 1
+                if (ProgressSavePolicy.shouldNotifySaveFailure(consecutiveSaveFailures)) {
+                    consecutiveSaveFailures = 0
+                    SkipNoticeMonitor.publish(SAVE_FAILED_MESSAGE)
+                }
             }
         }
     }
@@ -1070,15 +1080,35 @@ class PlaybackService : MediaSessionService() {
             Log.i(TAG, "sleep timer: off")
             return
         }
+        // FP1: refuse End-of-chapter on streams (sentence index is not ms).
+        if (isStreamEndOfChapterRefused(option, isStreamActive())) {
+            sleepTimer.cancel()
+            SleepTimerMonitor.publish(active = false, remainingMs = null)
+            SkipNoticeMonitor.publish(SLEEP_END_OF_CHAPTER_ON_STREAM)
+            Log.i(TAG, "sleep timer: end of chapter refused on stream")
+            return
+        }
         sleepTimer.start(option, SystemClock.uptimeMillis())
         Log.i(TAG, "sleep timer: $name")
         sleepJob = serviceScope.launch {
             while (isActive) {
                 delay(1_000L)
                 val current = session?.player ?: break
+                val stream = streamPlayer?.takeIf { it.asPlayer() === current }
+                // FP1: a timer set on rendered audio that moves onto a
+                // stream refuses instead of fading on sentence counts.
+                if (isStreamEndOfChapterRefused(sleepTimer.option, stream != null)) {
+                    current.volume = 1f
+                    sleepTimer.cancel()
+                    SleepTimerMonitor.publish(active = false, remainingMs = null)
+                    SkipNoticeMonitor.publish(SLEEP_END_OF_CHAPTER_ON_STREAM)
+                    Log.i(TAG, "sleep timer: end of chapter refused on stream")
+                    break
+                }
                 // ST4: streamed chapters count sentences, not milliseconds;
                 // position is the sentence index by the same convention.
-                val stream = streamPlayer?.takeIf { it.asPlayer() === current }
+                // Minute options ignore both (wall-clock deadlines); only
+                // End-of-chapter reads them, and streams never reach it.
                 val chapter = stream?.let { streamChapterPos }
                     ?: current.currentMediaItemIndex
                 val duration = stream?.let { streamChapterSize.toLong() }
@@ -1134,7 +1164,6 @@ class PlaybackService : MediaSessionService() {
         val point = ProgressSavePolicy.finishedPoint(
             bookId, count, chapterDurations.lastOrNull() ?: 0L
         )
-        lastSaveUptimeMs = SystemClock.uptimeMillis()
         launchSave(point, "end-of-book", finished = true)
     }
 
@@ -1165,6 +1194,17 @@ class PlaybackService : MediaSessionService() {
 
         /** ST4: engine-failure notice (saves stand, rendered audio untouched). */
         const val STREAM_FAILED_MESSAGE = "live voice failed"
+
+        /**
+         * FP2: consecutive progress writes failed (stuck store: full disk,
+         * dead SD). Playback continues; the position is at risk until a
+         * write lands.
+         */
+        const val SAVE_FAILED_MESSAGE = "Progress not saving - storage unavailable"
+
+        /** FP1: End-of-chapter sleep refusal on the stream path. */
+        const val SLEEP_END_OF_CHAPTER_ON_STREAM =
+            "End-of-chapter sleep needs rendered audio."
 
         /** ST4: how long stream start waits for the TTS engine init. */
         private const val STREAM_TTS_READY_WAIT_MS = 5_000

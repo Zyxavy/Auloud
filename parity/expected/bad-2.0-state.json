@@ -1,0 +1,15 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "AUDIO-MISSING-2X",
+      "message": "manifest.json: missing required field 'audio' (render_state 'half' needs it for rendered chapters)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "RS-VALUE",
+      "message": "manifest.json: render_state 'half' must be one of ['none', 'partial', 'complete']"
+    }
+  ]
+}

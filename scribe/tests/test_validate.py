@@ -192,13 +192,30 @@ def _rewrite_chapter(root: Path, name: str, mutate: Any) -> dict[str, Any]:
 def test_shared_valid_bundle_passes(tmp_path: Path) -> None:
     root = tmp_path / "valid-bundle"
     shutil.copytree(FIXTURES / "valid-bundle", root)
-    (root / "source").mkdir()
+    (root / "source").mkdir(exist_ok=True)
     # The fixture manifest pins the sha256 of an empty file.
     (root / "source" / "book.epub").write_bytes(b"")
     probe = make_probe({"ch001.mp3": 1832400, "ch002.mp3": 1640100})
     result = validate_bundle(root, probe=probe)
     assert result.ok, result.errors
     assert isinstance(result, ValidationResult)
+
+
+def test_source_sha256_streams_without_read_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """FP6: the source hash streams in chunks, never loads the whole file."""
+    root = write_ok_bundle(tmp_path / "bundle")
+    _real_read_bytes = Path.read_bytes
+
+    def _boom(self: Path, *args: object, **kwargs: object) -> bytes:
+        if self.name == "book.epub":
+            raise AssertionError("source hash must stream, not Path.read_bytes()")
+        return _real_read_bytes(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_bytes", _boom)
+    result = validate_bundle(root, probe=make_probe())
+    assert result.ok, result.errors
 
 
 def test_shared_bad_json_fails_naming_manifest(tmp_path: Path) -> None:

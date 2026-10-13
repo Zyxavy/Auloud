@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-GAIN-OBJECT",
+      "message": "manifest.json: invalid field 'gain_db' (need object)"
+    }
+  ]
+}

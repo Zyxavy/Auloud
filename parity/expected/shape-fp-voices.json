@@ -1,0 +1,10 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "SHAPE-FP-VOICES-OBJECT",
+      "message": "manifest.json: invalid field 'render_fingerprint.voices' (need object)"
+    }
+  ]
+}

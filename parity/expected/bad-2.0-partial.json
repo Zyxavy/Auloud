@@ -1,0 +1,90 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "ENTRY-AUDIO-WITHOUT-DURATION",
+      "message": "manifest.json: chapter 3 has audio without duration_ms (rendered chapters need both; unrendered chapters omit both)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "ENTRY-DURATION-WITHOUT-AUDIO",
+      "message": "manifest.json: chapter 4 has duration_ms without audio (rendered chapters need both; unrendered chapters omit both)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "FORMAT-AGREEMENT",
+      "message": "manifest.json: audio.format 'm4a' matches no rendered chapter (chapters are mp3; per-chapter format comes from the audio file extension)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "FP-ENGINE-BLANK",
+      "message": "manifest.json: chapter 1 render_fingerprint.engine must be a non-empty string (namespaced engine id)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "FP-NO-DURATION",
+      "message": "manifest.json: chapter 5 carries render_fingerprint without duration_ms (fingerprints describe rendered chapters only)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "FP-SPEEDS-MISSING",
+      "message": "manifest.json: chapter 1 render_fingerprint.speeds missing or invalid speed for role 'dialogue' (need a number above 0)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "FP-SPEEDS-UNKNOWN",
+      "message": "manifest.json: chapter 1 render_fingerprint.speeds has unknown role \"Ana\" (need narrator and dialogue)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "FP-VERSIONS-BLANK",
+      "message": "manifest.json: chapter 1 render_fingerprint.engine_versions has a blank engine or version (need non-empty strings)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "FP-VERSIONS-EMPTY",
+      "message": "manifest.json: chapter 2 render_fingerprint.engine_versions present but empty (need one version string per engine used)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "FP-VOICES-MISSING",
+      "message": "manifest.json: chapter 1 render_fingerprint.voices missing or blank voice for role 'dialogue' (need narrator and dialogue)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "FP-VOICES-UNKNOWN",
+      "message": "manifest.json: chapter 1 render_fingerprint.voices has unknown role \"Ana\" (need narrator and dialogue)"
+    },
+    {
+      "file": "manifest.json",
+      "rule": "GAIN-UNKNOWN-ROLE",
+      "message": "manifest.json: gain_db has unknown role \"Ana\" (need narrator and/or dialogue)"
+    },
+    {
+      "file": "text/ch001.json",
+      "rule": "SPEAKER-2X-ONLY",
+      "message": "text/ch001.json: sentence 2 has speaker 'Ana' (2.0 books allow only ['narrator', 'dialogue'])"
+    },
+    {
+      "file": "text/ch005.json",
+      "rule": "PAGE-INVALID",
+      "message": "text/ch005.json: sentence 3 has invalid page 0 (need 1-based source page)"
+    },
+    {
+      "file": "text/ch005.json",
+      "rule": "SID-ORDER",
+      "message": "text/ch005.json: sentence sid out of order: expected 2, got 3"
+    },
+    {
+      "file": "text/ch005.json",
+      "rule": "TIMINGS-IN-UNRENDERED",
+      "message": "text/ch005.json: sentence 3 carries timings but the chapter has no duration_ms (unrendered chapters omit start_ms and end_ms everywhere)"
+    },
+    {
+      "file": "text/ch006.json",
+      "rule": "PAGES-NEED-TIMINGS",
+      "message": "text/ch006.json: pages marks need timings (unrendered chapters carry blocks without pages)"
+    }
+  ]
+}

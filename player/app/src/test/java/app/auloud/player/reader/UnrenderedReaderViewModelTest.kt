@@ -47,6 +47,8 @@ class UnrenderedReaderViewModelTest {
 
         override suspend fun load(bookId: String): ProgressEntity? = rows[bookId]
 
+        override suspend fun getAll(): List<ProgressEntity> = rows.values.toList()
+
         override suspend fun upsert(progress: ProgressEntity) {
             rows[progress.bookId] = progress
         }
@@ -216,6 +218,51 @@ class UnrenderedReaderViewModelTest {
         val loaded = repo.load("book-9").getOrThrow()
         assertEquals(1, loaded?.chapterIndex)
         assertEquals(1, loaded?.sentenceSid)
+    }
+
+    @Test
+    fun stepChapters_nextAndPreviousMoveAndSave() = runTest {
+        val dao = FakeProgressDao()
+        val repo = RoomProgressRepository(dao)
+        val vm = viewModel(files(), dao, StandardTestDispatcher(testScheduler))
+        vm.collectTest {
+            testScheduler.advanceUntilIdle()
+            var state = awaitItem()
+            while (state.chapter == null) state = awaitItem()
+            vm.nextChapter()
+            testScheduler.advanceUntilIdle()
+            state = awaitItem()
+            while (state.chapter?.title != "Ch 2") state = awaitItem()
+            assertEquals(1, state.chapterIndex)
+            vm.previousChapter()
+            testScheduler.advanceUntilIdle()
+            state = awaitItem()
+            while (state.chapter?.title != "Ch 1") state = awaitItem()
+            assertEquals(0, state.chapterIndex)
+            cancelAndIgnoreRemainingEvents()
+        }
+        val loaded = repo.load("book-9").getOrThrow()
+        assertEquals(0, loaded?.chapterIndex)
+    }
+
+    @Test
+    fun stepChapters_atEnds_noop() = runTest {
+        val dao = FakeProgressDao()
+        val vm = viewModel(files(), dao, StandardTestDispatcher(testScheduler))
+        vm.collectTest {
+            testScheduler.advanceUntilIdle()
+            var state = awaitItem()
+            while (state.chapter == null) state = awaitItem()
+            vm.previousChapter()
+            vm.jumpToChapter(1)
+            testScheduler.advanceUntilIdle()
+            state = awaitItem()
+            while (state.chapter?.title != "Ch 2") state = awaitItem()
+            vm.nextChapter()
+            testScheduler.advanceUntilIdle()
+            expectNoEvents()
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 
     @Test

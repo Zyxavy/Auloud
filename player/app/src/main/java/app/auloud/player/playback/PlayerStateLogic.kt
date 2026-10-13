@@ -34,6 +34,12 @@ data class ControllerSnapshot(
      */
     val streamSid: Int? = null,
     /**
+     * Live voice chapter position (null when no stream chapter is live).
+     * Copied from [StreamSidMonitor] beside the sid so the reader follows
+     * the voice across chapter ends instead of going stale behind it.
+     */
+    val streamChapterPos: Int? = null,
+    /**
      * CP4: fresh skip/storage notice from [SkipNoticeMonitor.consume].
      * Null means "no new notice" (the holder retains the displayed one
      * until the UI dismisses it); non-null replaces it.
@@ -65,6 +71,7 @@ fun ControllerSnapshot.toPlaybackState(): PlaybackState {
         lastSaveWallMs = lastSaveWallMs.coerceAtLeast(0L),
         sleepRemainingMs = sleepRemainingMs?.coerceAtLeast(0L),
         streamSid = streamSid?.takeIf { it >= 1 },
+        streamChapterPos = streamChapterPos?.takeIf { it >= 0 },
         skipNotice = skipNotice
     )
 }
@@ -167,6 +174,7 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
         val lastSave = snapshot.lastSaveWallMs.coerceAtLeast(0L)
         val sleepRemaining = snapshot.sleepRemainingMs?.coerceAtLeast(0L)
         val streamSid = snapshot.streamSid?.takeIf { it >= 1 }
+        val streamChapterPos = snapshot.streamChapterPos?.takeIf { it >= 0 }
         // CP4: null in a snapshot means "no new notice", never "clear".
         // The displayed notice survives idle ticks until the UI dismisses
         // it via clearSkipNotice() (tap or ~6 s timeout).
@@ -182,6 +190,7 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
             lastSave == cur.lastSaveWallMs &&
             sleepRemaining == cur.sleepRemainingMs &&
             streamSid == cur.streamSid &&
+            streamChapterPos == cur.streamChapterPos &&
             notice == cur.skipNotice
         ) {
             return
@@ -198,6 +207,7 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
             lastSaveWallMs = lastSave,
             sleepRemainingMs = sleepRemaining,
             streamSid = streamSid,
+            streamChapterPos = streamChapterPos,
             skipNotice = notice
         )
     }

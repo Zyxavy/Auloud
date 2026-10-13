@@ -258,6 +258,18 @@ def _cli_path() -> Path:
     return candidate
 
 
+def _child_argv(*args: str) -> list[str]:
+    """Detached-child argv (HP3 frozen support).
+
+    Normally ``[interpreter, cli.py, ...]``; inside a PyInstaller bundle
+    (``sys.frozen``) the entry point already is the CLI, so the executable
+    re-enters itself without a script path (no Python exists on the target).
+    """
+    if getattr(sys, "frozen", False):
+        return [sys.executable, *args]
+    return [sys.executable, str(_cli_path()), *args]
+
+
 def _detached_popen(cmd: list[str], log_path: Path) -> "subprocess.Popen[str]":
     """Spawn ``cmd`` detached (Windows flags; ``start_new_session`` on POSIX).
 
@@ -323,6 +335,34 @@ def _book_locked(workspace: Path, book_id: str) -> bool:
         return bool(is_rendering(_book_work_dir(workspace, book_id)))
     except Exception:
         return False
+
+
+def _checked_transfer_delete_target(job: dict[str, Any], src: Path) -> Path:
+    """Validated ``dest_bundle`` for a transfer job (raises ``bad-destination``).
+
+    Re-runs :func:`transfer.validate_destination` on the stored destination
+    (the drive may have moved since the job was queued) and requires the
+    stored ``dest_bundle`` to be exactly ``<destination>/<bundle-dirname>``.
+    Anything else — edited job, moved drive, renamed bundle — refuses with
+    ``ValueError`` shaped ``bad-destination`` so callers fail the job
+    instead of deleting an unchecked absolute path.
+    """
+    stored = Path(str(job.get("dest_bundle") or ""))
+    try:
+        from .transfer import validate_destination as _validate_dest
+    except ImportError as exc:
+        raise ValueError(f"{stored}: bad-destination: transfer helpers missing: {exc}")
+    try:
+        dest = _validate_dest(job.get("destination"))
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
+    expected = Path(str(dest)) / src.name
+    if os.path.normcase(str(expected)) != os.path.normcase(str(stored)):
+        raise ValueError(
+            f"{stored}: bad-destination: destination moved "
+            f"(expected {expected}; not deleting)"
+        )
+    return stored
 
 
 def _cleanup_partial_chapter(workspace: Path, book_id: str, chapter: int) -> list[str]:
@@ -892,14 +932,20 @@ class JobManager:
     def _spawn_detached(self, job: dict[str, Any], folder: Path) -> Any:
         """Production spawner: detached ``scribe build``/``draft``/``voices``."""
         from .books import BUNDLES_DIRNAME, WORK_DIRNAME
+        from .cast import resolve_models_dir
 
-        cli = _cli_path()
+        # Same rule the plan route uses (workspace/models wins, else CWD
+        # models): detached children inherit the helper's cwd, never the
+        # workspace, so an unwired default looks in the wrong place (every
+        # API build failed "model files missing" with models only under
+        # the workspace). Always explicit, never a bare default.
+        models_arg = ["--models-dir", str(resolve_models_dir(self.workspace))]
         work_root = self.workspace / WORK_DIRNAME
         log_path = folder / LOG_FILENAME
         if job.get("kind") == "draft":
             source_rel = str(job.get("source_file") or "")
             source_abs = safe_join(self.workspace, source_rel) if source_rel else Path(source_rel)
-            cmd = [sys.executable, str(cli), "draft", str(source_abs), "--work-dir", str(work_root)]
+            cmd = _child_argv("draft", str(source_abs), "--work-dir", str(work_root))
             return _detached_popen(cmd, log_path)
         if job.get("kind") == VOICES_KIND:
             from .cast import versioned_samples_dir
@@ -909,16 +955,15 @@ class JobManager:
                 str(job.get("engine_version") or ""),
                 str(job.get("text_hash") or ""),
             )
-            cmd = [
-                sys.executable,
-                str(cli),
+            cmd = _child_argv(
                 "voices",
                 "--sample",
                 "--engine",
                 str(job.get("engine") or "kokoro"),
                 "--out-dir",
                 str(out_dir),
-            ]
+                *models_arg,
+            )
             for voice in (job.get("voices") or []):
                 cmd += ["--voice", str(voice)]
             return _detached_popen(cmd, log_path)
@@ -928,27 +973,32 @@ class JobManager:
         # The CLI default out dir is cwd-relative ("bundles/<id>"), which is
         # the server's cwd, not the workspace — pass it explicitly so the
         # bundle lands where the Books scan looks (found in acceptance: the
-        # Validate step saw "nothing valid" for a finished job).
-        cmd = [
-            sys.executable,
-            str(cli),
+        # Validate step saw "nothing valid" for a finished job). The id part
+        # matters too: the scan only reads bundles/<child>/manifest.json, so
+        # a flat bundles/ root stays invisible (found recording API2
+        # fixtures: API build done, validate showed zero bundles). Every
+        # build job carries book_id (create_build requires it), so index it
+        # directly: a missing id must fail loudly here, never hide a bundle.
+        out_root = self.workspace / BUNDLES_DIRNAME
+        cmd = _child_argv(
             "build",
             str(source_abs),
             "--work-dir",
             str(work_root),
             "--out-dir",
-            str(self.workspace / BUNDLES_DIRNAME),
+            str(out_root / str(job["book_id"])),
             "--events-jsonl",
             str(events_path),
             "--stop-file",
             str(folder / STOP_FILENAME),
             "--no-progress",
-        ]
+        )
         if job.get("chapters"):
             cmd += ["--chapters", str(job["chapters"])]
         if job.get("pages"):
             cmd += ["--pages", str(job["pages"])]
         cmd += ["--device", str(job.get("device") or "cpu")]
+        cmd += models_arg
         return _detached_popen(cmd, log_path)
 
     # -- transfer runner (UI8, in-process thread) ---------------------------
@@ -993,8 +1043,25 @@ class JobManager:
             )
             self._pump_queue()
             return
-        # Explicit overwrite only: force deletes the one dest bundle dir.
+        # Explicit overwrite only: force deletes the one dest bundle dir,
+        # re-validated here (the drive may have moved between resume and
+        # this run). Any mismatch fails the job; nothing is deleted.
         if force and dest_bundle.exists():
+            try:
+                dest_bundle = _checked_transfer_delete_target(job, src)
+            except ValueError as exc:
+                self._finish_failed(
+                    {**job, "id": job_id},
+                    folder,
+                    exit_code=-1,
+                    error={
+                        "file": str(dest_bundle),
+                        "rule": "bad-destination",
+                        "message": str(exc),
+                    },
+                )
+                self._pump_queue()
+                return
             try:
                 if dest_bundle.is_file():
                     dest_bundle.unlink()
@@ -1467,6 +1534,13 @@ class JobManager:
         if job.get("kind") == TRANSFER_KIND:
             # Transfers take no book lock (read-only source, outside dest);
             # a retry overwrites the partial copy, so force the rerun.
+            # Re-validate first: a moved drive or edited job must refuse
+            # here, before anything is queued that could delete it.
+            try:
+                src = safe_join(self.workspace, str(job.get("bundle") or ""))
+            except ValueError as exc:
+                raise ValueError(str(exc)) from exc
+            _checked_transfer_delete_target(job, src)
             folder = job_dir(self.workspace, job_id)
             try:
                 (folder / STOP_FILENAME).unlink(missing_ok=True)

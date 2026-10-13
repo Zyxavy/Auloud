@@ -26,6 +26,15 @@ enum class SleepOption {
 /** Last seconds over which the volume fades to zero before pausing. */
 const val SLEEP_FADE_MS = 10_000L
 
+/**
+ * FP1: End-of-chapter is refused on the stream path (a stream reports a
+ * sentence index/count, not milliseconds; a few hundred "ms" would pin
+ * the fade near zero for the whole chapter). Minute options are
+ * wall-clock and work on both paths.
+ */
+fun isStreamEndOfChapterRefused(option: SleepOption, isStream: Boolean): Boolean =
+    isStream && option == SleepOption.EndOfChapter
+
 fun sleepMinutes(option: SleepOption): Long? = when (option) {
     SleepOption.Min15 -> 15L
     SleepOption.Min30 -> 30L
@@ -38,6 +47,32 @@ fun sleepMinutes(option: SleepOption): Long? = when (option) {
 fun cycleSleepOption(current: SleepOption): SleepOption {
     val values = SleepOption.entries
     return values[(values.indexOf(current) + 1) % values.size]
+}
+
+/**
+ * FP3: rotation-safe base for the sleep cycle cursor.
+ *
+ * The button's [SleepOption] cursor is UI-local `remember` state, so a
+ * rotation resets it to Off while the timer keeps running in the service.
+ * Cycling from a blind Off would send Min15 (re-arming instead of
+ * advancing). Deriving the base from the live [remainingMs] fixes both
+ * directions: a dead timer resets a stale cursor to Off, and an active
+ * timer with a lost cursor is treated as end-of-chapter, so the next tap
+ * lands on Off and cancels.
+ * shortcut: the exact minute option is unrecoverable from remaining alone, so the first tap after rotation cancels instead of advancing; upgrade by persisting the cursor when a settings store owns it.
+ */
+fun sleepCycleBase(local: SleepOption, remainingMs: Long?): SleepOption = when {
+    remainingMs == null -> SleepOption.Off
+    local != SleepOption.Off -> local
+    else -> SleepOption.EndOfChapter
+}
+
+/** mm:ss, API 24 safe (no java.time). Shared by the player, the sleep button and the debug overlay. */
+fun formatMmSs(ms: Long): String {
+    val totalSeconds = (ms.coerceAtLeast(0L) / 1_000L).coerceAtMost(599_999L)
+    val minutes = totalSeconds / 60L
+    val seconds = totalSeconds % 60L
+    return "$minutes:${if (seconds < 10L) "0$seconds" else "$seconds"}"
 }
 
 fun sleepOptionLabel(option: SleepOption): String = when (option) {

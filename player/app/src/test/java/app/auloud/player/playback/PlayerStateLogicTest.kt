@@ -27,7 +27,8 @@ class PlayerStateLogicTest {
         chapterCount: Int = 2,
         isConnected: Boolean = true,
         sleepRemainingMs: Long? = null,
-        streamSid: Int? = null
+        streamSid: Int? = null,
+        streamChapterPos: Int? = null
     ) = ControllerSnapshot(
         isPlaying = isPlaying,
         chapterIndex = chapterIndex,
@@ -38,7 +39,8 @@ class PlayerStateLogicTest {
         chapterCount = chapterCount,
         isConnected = isConnected,
         sleepRemainingMs = sleepRemainingMs,
-        streamSid = streamSid
+        streamSid = streamSid,
+        streamChapterPos = streamChapterPos
     )
 
     // Controller-state mapping.
@@ -333,6 +335,36 @@ class PlayerStateLogicTest {
             assertEquals(5, awaitItem().streamSid)
             holder.onSnapshot(snapshot(streamSid = null))
             assertEquals(null, awaitItem().streamSid)
+        }
+    }
+
+    // Live voice chapter (reader follows the voice across chapter ends).
+
+    @Test
+    fun mapping_carriesStreamChapterPos() {
+        val state = snapshot(streamChapterPos = 2).toPlaybackState()
+
+        assertEquals(2, state.streamChapterPos)
+    }
+
+    @Test
+    fun mapping_negativeStreamChapterPos_dropped() {
+        assertEquals(null, snapshot(streamChapterPos = -1).toPlaybackState().streamChapterPos)
+        assertEquals(null, snapshot().toPlaybackState().streamChapterPos)
+    }
+
+    @Test
+    fun holder_emitsStreamChapterChangesOnly() = runBlocking {
+        val holder = PlayerStateHolder()
+
+        holder.state.test {
+            assertEquals(PlaybackState(), awaitItem())
+            holder.onSnapshot(snapshot(streamChapterPos = 1))
+            assertEquals(1, awaitItem().streamChapterPos)
+            holder.onSnapshot(snapshot(streamChapterPos = 1))
+            expectNoEvents()
+            holder.onSnapshot(snapshot(streamChapterPos = 2))
+            assertEquals(2, awaitItem().streamChapterPos)
         }
     }
 }

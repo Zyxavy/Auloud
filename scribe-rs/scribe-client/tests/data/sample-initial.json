@@ -1,0 +1,11 @@
+{
+  "job_id": "job-b26821673734",
+  "state": "running",
+  "voices": [
+    "am_onyx"
+  ],
+  "engine": "kokoro",
+  "engine_version": "kokoro-onnx 0.6.1",
+  "text_hash": "c3719d3ac927",
+  "coalesced": false
+}

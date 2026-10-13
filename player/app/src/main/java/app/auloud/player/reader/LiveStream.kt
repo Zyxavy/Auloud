@@ -1,5 +1,6 @@
 package app.auloud.player.reader
 
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -17,6 +18,12 @@ import kotlinx.coroutines.flow.StateFlow
  */
 class LiveStream(
     val sid: StateFlow<Int?>,
+    /**
+     * Service stream chapter (null when no stream chapter is live): the
+     * reader follows the voice across chapter ends through this. Defaults
+     * to a forever-null flow (read-only use, exactly as before).
+     */
+    val chapterPos: StateFlow<Int?> = MutableStateFlow(null),
     val restartAt: (sentenceIndex: Int) -> Unit,
     val seekToChapter: (chapterPos: Int) -> Unit,
     val nextChapter: () -> Unit,

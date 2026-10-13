@@ -4,12 +4,11 @@
 
 | Component | Proposed license | Why |
 | --- | --- | --- |
-| Player (Android app) | Apache-2.0 (or MIT) | Permissive, patent grant, compatible with the AndroidX/Media3 libraries it uses |
+| Player (Android app) | Core flavor Apache-2.0; full flavor GPL-3.0 (decided D-126 option A, section 5) | Permissive core with patent grant, compatible with the AndroidX/Media3 libraries it uses; GPL only where espeak-ng forces it |
 | Scribe (PC tool) | AGPL-3.0-or-later | ebooklib is AGPL-3.0 (METADATA: GNU Affero General Public License, AGPLv3+), so Scribe which imports it is AGPL-3.0-or-later; also covers hosted-service use via the network clause (see D-024) |
 | Bundle spec (`03-BundleSpec.md`) | CC0 or Apache-2.0 | So anyone can write compatible tools |
 
-The Player `core` flavor only plays audio and shows text, so no GPL code
-ships in it. The `full` flavor bundles on-device TTS with
+The Player `core` flavor ships no GPL code. The `full` flavor bundles on-device TTS with
 Piper/espeak-ng and is distributed as a GPL-3.0 combined work (decided
 D-126 option A, see section 5).
 
@@ -167,7 +166,7 @@ screen lists what its build ships.
 
 - [x] `LICENSE` file in each component (Player: `player/LICENSE` Apache-2.0; Scribe: `scribe/LICENSE` AGPL-3.0-or-later; root `LICENSE` MIT is the repo default) - decided D-015/D-050 on release/v1.0
 - [x] `NOTICE` and `THIRD_PARTY_LICENSES.md` generated (`player/NOTICE` + `player/THIRD_PARTY_LICENSES.md`, CP8)
-- [ ] All "Verified" boxes above ticked (Player section 2 + 2b v2 engine rows + voices done; Scribe section 3 rows for bs4/lxml, pysbd, yaml/numpy/typer/rich/pytest, soundfile, pyrubberband, ffmpeg and section 4 Kokoro package/Piper still open; section 4 sideloaded-packs row open by design, it is per-pack; VC6 docs pass 2026-10-09 is prose only and changes no box; owner review of the NOTICE.full paragraphs plus the SOURCE_OFFER placeholders before any `full` distribution still open per D-128)
+- [ ] All "Verified" boxes above ticked (Player section 2 + 2b v2 engine rows + voices done; Scribe section 3 rows for bs4/lxml, pysbd, yaml/numpy/typer/rich/pytest, soundfile, pyrubberband, ffmpeg and section 4 Kokoro package/Piper still open; section 4 sideloaded-packs row open by design, it is per-pack; VC6 docs pass 2026-10-09 is prose only and changes no box; maintainer review of the NOTICE.full paragraphs plus the SOURCE_OFFER placeholders before any `full` distribution still open per D-128)
 - [x] Voice table complete, with per-voice licenses (section 4 palette: 9 Kokoro-82M voices, all Apache-2.0, CP8; 3 Piper proof voices with own licenses, SW1/SW4; sideload rule recorded)
 - [x] In-app licenses screen (Settings entry rendering the static list; legibility on the Tab E left for the user)
 - [x] Per-flavor license layout (VC1, D-126 option A): player/LICENSE (Apache-2.0 core) + player/LICENSE.full (GPL note); per-flavor NOTICE + THIRD_PARTY_LICENSES; full-only GPL text + source offer assets in the APK

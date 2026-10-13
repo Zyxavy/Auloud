@@ -313,6 +313,8 @@ class PlaybackController(
                 sleepRemainingMs = SleepTimerMonitor.remainingMs,
                 // ST5: live voice sid copied from the service snapshot.
                 streamSid = StreamSidMonitor.sid,
+                // Reader follows the voice across chapter ends.
+                streamChapterPos = StreamSidMonitor.chapterPos.takeIf { it >= 0 },
                 // WP9: the overlay's save time comes from the service's
                 // saver, never the UI clock. Gated so release behavior is
                 // unchanged (stays 0, overlay absent); a volatile read,

@@ -1,0 +1,15 @@
+{
+  "valid": false,
+  "errors": [
+    {
+      "file": "manifest.json",
+      "rule": "ENTRY-DURATION-ABSENT-1X",
+      "message": "manifest.json: chapter 1 missing required field 'duration_ms' (absent)"
+    },
+    {
+      "file": "text/ch001.json",
+      "rule": "CHAPTER-FILE-UNEXPECTED-DURATION",
+      "message": "text/ch001.json: chapter file has duration_ms 0 but the manifest entry omits it (both present or both absent)"
+    }
+  ]
+}

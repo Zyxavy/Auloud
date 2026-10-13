@@ -111,4 +111,26 @@ class ProgressSavePolicyTest {
             ProgressSavePolicy.finishedPoint("book-1", 0, -5L)
         )
     }
+
+    // FP2: consecutive save failures surface through the notice channel.
+
+    @Test
+    fun saveFailureNotice_silentBeforeThreshold() {
+        assertFalse(ProgressSavePolicy.shouldNotifySaveFailure(0))
+        assertFalse(ProgressSavePolicy.shouldNotifySaveFailure(1))
+        assertFalse(ProgressSavePolicy.shouldNotifySaveFailure(2))
+    }
+
+    @Test
+    fun saveFailureNotice_firesAtThreshold() {
+        assertTrue(ProgressSavePolicy.shouldNotifySaveFailure(3))
+        assertTrue(ProgressSavePolicy.shouldNotifySaveFailure(4))
+    }
+
+    @Test
+    fun failedSave_throttleStaysArmed() {
+        // FP2: a failed write must not advance `lastSaveUptimeMs`, so the
+        // periodic rule still fires and the next tick retries the save.
+        assertTrue(ProgressSavePolicy.shouldSavePeriodic(1_000L, 6_000L, isPlaying = true))
+    }
 }
