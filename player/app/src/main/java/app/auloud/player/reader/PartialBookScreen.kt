@@ -191,6 +191,21 @@ fun PartialBookScreen(
     }
     var listenAt by remember(book.id) { mutableStateOf<Int?>(null) }
     var readAt by remember(book.id) { mutableStateOf<Int?>(null) }
+    // Reader-first: unrendered books land in chapter text (saved spot,
+    // else chapter 1), not the render panel. Back dismisses back to the
+    // panel; the panel's Read button returns.
+    var readerDismissed by remember(book.id) { mutableStateOf(false) }
+    LaunchedEffect(book.id, chapters) {
+        val list = chapters
+        if (!readerDismissed && readAt == null && !list.isNullOrEmpty()) {
+            val saved = try {
+                withContext(Dispatchers.IO) { progress.load(book.id).getOrNull()?.chapterIndex }
+            } catch (_: Exception) {
+                null
+            }
+            readAt = (saved ?: 0).coerceIn(0, list.size - 1)
+        }
+    }
     // ST7-fix: "Listen now" opens the reader already playing the stream.
     var readAutoPlay by remember(book.id) { mutableStateOf(false) }
     var showChapters by remember(book.id) { mutableStateOf(false) }
@@ -242,9 +257,16 @@ fun PartialBookScreen(
             onBack = {
                 readAt = null
                 readAutoPlay = false
+                readerDismissed = true
                 panelVm.refresh()
             },
             modifier = modifier,
+            onOpenRender = {
+                readAt = null
+                readAutoPlay = false
+                readerDismissed = true
+                panelVm.refresh()
+            },
             autoPlayChapter = readAt?.takeIf { readAutoPlay }
         )
         return
@@ -379,6 +401,14 @@ fun PartialBookScreen(
                     onClick = { listenTarget?.let { openChapter(it, autoplay = listenLive) } },
                     enabled = listenTarget != null
                 ) { Text(if (listenLive) "Listen now" else "Listen") }
+                Button(
+                    onClick = {
+                        if (entries.isNotEmpty()) {
+                            readAutoPlay = false
+                            readAt = panelState.readingChapter.coerceIn(0, entries.size - 1)
+                        }
+                    }
+                ) { Text("Read") }
                 Button(onClick = { showChapters = true }) { Text("Chapters") }
                 OutlinedButton(onClick = { showBookVoices = true }) { Text("Voices") }
             }

@@ -11,10 +11,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -86,6 +95,14 @@ fun ReaderScreen(
     onConfirmTapJump: () -> Unit = {},
     onDismissTapJump: () -> Unit = {},
     /**
+     * Reader menu (unrendered books): the trailing top-right dropdown with
+     * Chapters, Render and Listen entries. Null hides the menu and keeps
+     * the left Chapters button, so existing callers render exactly as
+     * before (the timed reader passes neither).
+     */
+    onOpenRender: (() -> Unit)? = null,
+    onSpeak: (() -> Unit)? = null,
+    /**
      * Read-mode chapter stepping (null hides both buttons, so every
      * existing caller renders exactly as before). The flags disable the
      * buttons at the book ends; stepping itself stays a host decision
@@ -103,13 +120,16 @@ fun ReaderScreen(
     dialogueMarking: Boolean = true
 ) {
     Column(modifier = modifier.fillMaxSize()) {
+        val showMenu = onOpenRender != null || onSpeak != null
         Row(
             modifier = Modifier.fillMaxWidth().padding(8.dp),
             horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
             TextButton(onClick = onBack) { Text("Back") }
-            TextButton(onClick = onOpenChapters) { Text("Chapters") }
+            if (!showMenu) {
+                TextButton(onClick = onOpenChapters) { Text("Chapters") }
+            }
             if (onPreviousChapter != null) {
                 TextButton(onClick = onPreviousChapter, enabled = canGoPrevious) { Text("Previous") }
             }
@@ -119,8 +139,16 @@ fun ReaderScreen(
             Text(
                 text = state.chapter?.title ?: "",
                 style = MaterialTheme.typography.titleMedium,
-                maxLines = 1
+                maxLines = 1,
+                modifier = Modifier.weight(1f, fill = false)
             )
+            if (showMenu) {
+                ReaderMenu(
+                    onOpenChapters = onOpenChapters,
+                    onOpenRender = onOpenRender,
+                    onSpeak = onSpeak
+                )
+            }
         }
         when {
             state.isTextLoading || (state.chapter == null && state.textError == null) -> {
@@ -177,6 +205,55 @@ fun ReaderScreen(
                         text = pendingExcerpt?.let { { Text(it) } }
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Top-right reader menu (unrendered books): Chapters always, Render and
+ * Listen only where the host wires them. Thin UI over host callbacks;
+ * nothing to unit-test beyond the callers' wiring.
+ */
+@Composable
+private fun ReaderMenu(
+    onOpenChapters: () -> Unit,
+    onOpenRender: (() -> Unit)?,
+    onSpeak: (() -> Unit)?,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { expanded = true }) {
+            Icon(Icons.Filled.MoreVert, contentDescription = "Menu")
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("Chapters") },
+                leadingIcon = { Icon(Icons.Filled.List, contentDescription = null) },
+                onClick = {
+                    expanded = false
+                    onOpenChapters()
+                }
+            )
+            if (onOpenRender != null) {
+                DropdownMenuItem(
+                    text = { Text("Render") },
+                    leadingIcon = { Icon(Icons.Filled.Build, contentDescription = null) },
+                    onClick = {
+                        expanded = false
+                        onOpenRender()
+                    }
+                )
+            }
+            if (onSpeak != null) {
+                DropdownMenuItem(
+                    text = { Text("Listen") },
+                    leadingIcon = { Icon(Icons.Filled.PlayArrow, contentDescription = null) },
+                    onClick = {
+                        expanded = false
+                        onSpeak()
+                    }
+                )
             }
         }
     }

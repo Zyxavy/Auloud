@@ -131,6 +131,7 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
+    implementation(libs.compose.icons.core)
     implementation(libs.activity.compose)
 
     // Slice 1 playback + storage stack (WP1 pins, WP6/WP3 use them later).
