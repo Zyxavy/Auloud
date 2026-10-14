@@ -10,6 +10,7 @@ pub mod progress;
 pub mod render;
 pub mod send;
 pub mod settings;
+pub mod validate;
 
 /// Design tokens from `scribe/ui/static/index.html` (light theme).
 pub mod theme {

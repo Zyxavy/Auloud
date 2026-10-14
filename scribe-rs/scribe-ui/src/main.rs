@@ -110,6 +110,8 @@ struct App {
     match_speaker: String,
     report_md: Option<String>,
     show_report: bool,
+    validation: Option<scribe_client::ValidateResult>,
+    validation_note: String,
     voices_engine: String,
     voices: Option<scribe_client::VoicesResponse>,
     voices_for: Option<String>,
@@ -180,6 +182,8 @@ impl App {
             match_speaker: String::new(),
             report_md: None,
             show_report: false,
+            validation: None,
+            validation_note: String::new(),
             voices_engine: "kokoro".to_owned(),
             voices: None,
             voices_for: None,
@@ -341,6 +345,17 @@ impl App {
                     if self.selected.as_deref() == Some(&book_id) {
                         self.report_md = Some(markdown);
                         self.show_report = true;
+                    }
+                }
+                WorkerEvent::Validated { book_id, result } => {
+                    if self.selected.as_deref() == Some(&book_id) {
+                        self.validation = Some(*result);
+                        self.validation_note.clear();
+                    }
+                }
+                WorkerEvent::ValidateFailed { book_id, message } => {
+                    if self.selected.as_deref() == Some(&book_id) {
+                        self.validation_note = message;
                     }
                 }
                 WorkerEvent::Voices { engine, response } => {
@@ -819,6 +834,8 @@ impl App {
             self.match_speaker.clear();
             self.report_md = None;
             self.show_report = false;
+            self.validation = None;
+            self.validation_note.clear();
             self.worker_tx
                 .send(WorkerCmd::SelectBook {
                     book_id: id.clone(),
@@ -873,6 +890,57 @@ impl App {
         self.render_ui(ui);
         self.cast_ui(ui);
         self.send_ui(ui);
+        self.validate_ui(ui);
+    }
+
+    /// Validate section (VT1): per-bundle ticks plus file/rule/message
+    /// lines from the last run. One button re-runs it inline (read-only,
+    /// no job); no bundles yet names the next action instead.
+    fn validate_ui(&mut self, ui: &mut egui::Ui) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        ui.separator();
+        ui.heading(egui::RichText::new("Validate").color(rgb(theme::OXBLOOD)));
+        if !self.validation_note.is_empty() {
+            ui.label(&self.validation_note);
+        }
+        match self
+            .validation
+            .as_ref()
+            .filter(|result| result.book_id == id)
+        {
+            Some(result) => {
+                for line in scribe_ui::validate::lines(result) {
+                    ui.label(line);
+                }
+                if ui.button("Re-validate").clicked() {
+                    self.worker_tx
+                        .send(WorkerCmd::Validate {
+                            book_id: id.clone(),
+                        })
+                        .ok();
+                }
+            }
+            None => {
+                let has_bundles = self
+                    .detail
+                    .as_ref()
+                    .filter(|detail| detail.id == id)
+                    .is_some_and(|detail| !detail.bundles.is_empty());
+                if !has_bundles {
+                    ui.label("Render a bundle first, then validate it.");
+                    return;
+                }
+                if ui.button("Validate").clicked() {
+                    self.worker_tx
+                        .send(WorkerCmd::Validate {
+                            book_id: id.clone(),
+                        })
+                        .ok();
+                }
+            }
+        }
     }
 
     /// Send section (TR1): tablet IP plus pairing code, push the newest

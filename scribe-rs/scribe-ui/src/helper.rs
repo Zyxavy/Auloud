@@ -251,6 +251,11 @@ pub enum WorkerCmd {
         /// UUIDv5 book id.
         book_id: String,
     },
+    /// Run bundle validation inline (read-only, no job).
+    Validate {
+        /// UUIDv5 book id.
+        book_id: String,
+    },
     /// Load the voice list for an engine (dropdowns + voices screen).
     RefreshVoices {
         /// Engine id (`kokoro | piper`).
@@ -432,6 +437,20 @@ pub enum WorkerEvent {
         book_id: String,
         /// Raw `cast_report.md`.
         markdown: String,
+    },
+    /// Bundle validation document.
+    Validated {
+        /// Book the validation covers.
+        book_id: String,
+        /// Full `POST validate` document.
+        result: Box<scribe_client::ValidateResult>,
+    },
+    /// Validation refused (shaped when the helper sent one).
+    ValidateFailed {
+        /// Book the attempt covered.
+        book_id: String,
+        /// Human reason.
+        message: String,
     },
     /// Voice list for the voices screen.
     Voices {
@@ -815,6 +834,29 @@ fn worker_loop(
                     }
                 } else {
                     let _ = events.send(WorkerEvent::CastFailed {
+                        book_id,
+                        message: "helper not connected".to_owned(),
+                    });
+                }
+            }
+            Ok(WorkerCmd::Validate { book_id }) => {
+                if let Some(client) = &client {
+                    match client.validate(&book_id) {
+                        Ok(result) => {
+                            let _ = events.send(WorkerEvent::Validated {
+                                book_id,
+                                result: Box::new(result),
+                            });
+                        }
+                        Err(err) => {
+                            let _ = events.send(WorkerEvent::ValidateFailed {
+                                book_id: book_id.clone(),
+                                message: err.to_string(),
+                            });
+                        }
+                    }
+                } else {
+                    let _ = events.send(WorkerEvent::ValidateFailed {
                         book_id,
                         message: "helper not connected".to_owned(),
                     });
