@@ -337,6 +337,10 @@ fn push_zip(url: &str, code: &str, hex: &str, zip_path: &Path) -> SendOutcome {
     let config = ureq::config::Config::builder()
         .http_status_as_error(false)
         .max_idle_age(std::time::Duration::from_secs(2))
+        // No per-byte progress exists, so a stalled connection would hang
+        // the send thread (and the Send button) forever. Generous ceiling:
+        // slow hotspots still finish, true stalls fail loudly instead.
+        .timeout_global(Some(std::time::Duration::from_secs(30 * 60)))
         .build();
     let response = ureq::Agent::new_with_config(config)
         .post(url)

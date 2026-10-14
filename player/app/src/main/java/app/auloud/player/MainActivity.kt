@@ -161,13 +161,16 @@ class MainActivity : ComponentActivity() {
 
     // Slice 20 TR1: Wi-Fi receive driver (plain class, cleared in
     // onDestroy). The server lives only while the Receive screen is open;
-    // a finished import rescans so the library picks the new row up.
+    // a settled receive (import or duplicate) rescans so the library picks
+    // the new row up. The duplicate rescan matters: a kill between the
+    // folder move and the insert leaves a valid folder with no row, and
+    // the rescan is what heals it.
     private val receiveVmDelegate = lazy {
         ReceiveViewModel(
             booksRoot = BooksRootResolver.defaultBooksRoot(applicationContext),
             storage = routingStorage,
             library = libraryRepository,
-            onImported = {
+            onSettled = {
                 if (::libraryViewModel.isInitialized) libraryViewModel.rescan()
             }
         )

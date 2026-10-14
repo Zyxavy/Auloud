@@ -29,7 +29,7 @@ class ReceiveViewModel(
     private val booksRoot: String,
     private val storage: BundleStorage,
     private val library: LibraryRepository,
-    private val onImported: () -> Unit = {}
+    private val onSettled: () -> Unit = {}
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _state = MutableStateFlow(ReceiveUiState())
@@ -49,7 +49,9 @@ class ReceiveViewModel(
             onReceiveStarted = { _state.update { it.copy(busy = true) } },
             onReceiveFinished = { outcome ->
                 _state.update { it.copy(busy = false, lastResult = describe(outcome)) }
-                if (outcome is ReceiveOutcome.Imported) onImported()
+                if (outcome is ReceiveOutcome.Imported || outcome is ReceiveOutcome.Duplicate) {
+                    onSettled()
+                }
             }
         )
         try {

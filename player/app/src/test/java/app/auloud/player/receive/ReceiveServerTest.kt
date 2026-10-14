@@ -319,6 +319,53 @@ class ReceiveServerTest {
     }
 
     @Test
+    fun badBundleIdIsRejected() {
+        val root = booksRoot()
+        val body = zipBytes(validEntries(id = "../evil"))
+        val server = ReceiveServer(0, code, root, storage, library)
+        server.start()
+        try {
+            val (status, text) = post(server.listeningPort, code, sha256Hex(body), body)
+            assertEquals(400, status)
+            assertTrue(text.contains("bad-id"))
+            assertTrue(strayTemps(root).isEmpty())
+            assertTrue(library.imported.isEmpty())
+            assertTrue(!java.io.File(root, "../evil").canonicalFile.exists())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun updatedBundleReplacesInsteadOfDuplicating() {
+        val root = booksRoot()
+        val first = zipBytes(validEntries())
+        val server = ReceiveServer(0, code, root, storage, library)
+        server.start()
+        try {
+            val (one, _) = post(server.listeningPort, code, sha256Hex(first), first)
+            assertEquals(200, one)
+            assertEquals(1, library.imported.size)
+            // Same id, new bytes (retitled re-render): second send
+            // replaces instead of reporting a duplicate.
+            val entries = validEntries().toMutableMap()
+            entries["manifest.json"] = String(entries.getValue("manifest.json"), Charsets.UTF_8)
+                .replace("Wi-Fi Book", "Wi-Fi Book v2")
+                .toByteArray(Charsets.UTF_8)
+            val second = zipBytes(entries)
+            val (two, twoBody) = post(server.listeningPort, code, sha256Hex(second), second)
+            assertEquals(200, two)
+            assertTrue(!twoBody.contains("\"duplicate\":true"))
+            assertEquals(2, library.imported.size)
+            val installed = java.io.File(root, "wifi-book-1/manifest.json").readText()
+            assertTrue(installed.contains("Wi-Fi Book v2"))
+            assertTrue(strayTemps(root).isEmpty())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
     fun folderWrappedZipImports() {
         val root = booksRoot()
         val wrapped = validEntries().mapKeys { "SomeBook/${it.key}" }

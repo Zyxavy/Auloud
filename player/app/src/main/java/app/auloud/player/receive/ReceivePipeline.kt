@@ -37,6 +37,10 @@ sealed interface ReceiveOutcome {
 
 object ReceivePipeline {
 
+    /** Bundle ids are UUID hex in every real build (full and range
+     * alike); anything else (slashes, `..`) must never become a folder. */
+    internal val BUNDLE_ID_SHAPE = Regex("[A-Za-z0-9][A-Za-z0-9._-]*")
+
     /** More entries than any real bundle; a zip bomb trips here first. */
     const val MAX_ZIP_ENTRIES = 2000
 
@@ -98,6 +102,15 @@ object ReceivePipeline {
                 listOf(cause.message ?: "manifest.json: invalid manifest")
             )
         }
+        if (!BUNDLE_ID_SHAPE.matches(manifest.id)) {
+            storage.deleteRecursively(tempDir.path)
+            return ReceiveOutcome.Failed(
+                listOf(
+                    "manifest.json: bad-id: bundle id must be letters, " +
+                        "digits, dot, dash or underscore"
+                )
+            )
+        }
         val problems = BundleValidator.validate(bundleDir, manifest)
         if (problems.isNotEmpty()) {
             storage.deleteRecursively(tempDir.path)
@@ -105,8 +118,22 @@ object ReceivePipeline {
         }
         val finalDir = File(root, manifest.id)
         if (finalDir.exists()) {
-            storage.deleteRecursively(tempDir.path)
-            return ReceiveOutcome.Duplicate(manifest.id, manifest.title)
+            val installed = readManifestText(finalDir)
+            val incoming = readManifestText(bundleDir)
+            if (installed != null && installed == incoming) {
+                storage.deleteRecursively(tempDir.path)
+                return ReceiveOutcome.Duplicate(manifest.id, manifest.title)
+            }
+            // Updated bundle (same id, new bytes; already validated
+            // above): replace the old folder. A failure here is reported
+            // and the PC resends (the old bits are gone, never half-kept).
+            storage.deleteRecursively(finalDir.path)
+            if (finalDir.exists()) {
+                storage.deleteRecursively(tempDir.path)
+                return ReceiveOutcome.Failed(
+                    listOf("${manifest.id}: cannot replace old bundle (still on tablet)")
+                )
+            }
         }
         try {
             storage.movePath(bundleDir.path, finalDir.path)
@@ -148,6 +175,15 @@ object ReceivePipeline {
         val bytes = ByteArray(4)
         SecureRandom().nextBytes(bytes)
         return bytes.joinToString("") { "%02x".format(it) }
+    }
+
+    /** Installed manifest bytes, or null when unreadable (never throws). */
+    internal fun readManifestText(bundleDir: File): String? {
+        return try {
+            File(bundleDir, "manifest.json").takeIf { it.isFile }?.readText()
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /**

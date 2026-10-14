@@ -13,9 +13,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 
 /**
@@ -37,6 +39,14 @@ fun ReceiveScreen(
     modifier: Modifier = Modifier
 ) {
     LaunchedEffect(Unit) { onOpen() }
+    // Transfers run minutes: hold the screen on while receiving (same
+    // pattern as the reader; screen-off kills the server mid-transfer).
+    val view = LocalView.current
+    DisposableEffect(Unit) {
+        val previous = view.keepScreenOn
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = previous }
+    }
     Column(modifier = modifier.fillMaxSize().padding(24.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),

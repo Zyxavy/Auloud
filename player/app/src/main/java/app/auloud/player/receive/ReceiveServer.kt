@@ -54,6 +54,14 @@ class ReceiveServer(
             )
         }
         if (!constantTimeEquals(session.headers["x-pairing-code"], pairingCode)) {
+            // One-second brake on wrong guesses (each connection has its
+            // own thread): a 6-digit code with instant cheap rejects would
+            // brute-force in minutes to a same-Wi-Fi neighbor.
+            try {
+                Thread.sleep(1000)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
             return json(
                 Response.Status.FORBIDDEN,
                 ok = false,
