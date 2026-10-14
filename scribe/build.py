@@ -1645,9 +1645,40 @@ def _run_build_locked(
                 # sentence so the Rich bar and the JSONL tail see the same
                 # cumulative numbers (previous chapters + this chapter so far).
                 base_synth = _synth_fn(plan, chapter_stats, index)
+                chapter_skipped = 0
 
                 def _emit_synth(sentence: Sentence) -> np.ndarray:
-                    audio = base_synth(sentence)
+                    nonlocal chapter_skipped
+                    try:
+                        audio = base_synth(sentence)
+                        if np.asarray(audio).size == 0:
+                            raise ValueError(
+                                f"sentence {sentence.sid} synthesized to empty audio"
+                            )
+                    except BuildStoppedError:
+                        raise
+                    except BuildError:
+                        # Config errors (no engine for a voice) fail loud:
+                        # skipping those would ship chapters of silence.
+                        raise
+                    except Exception as exc:
+                        # One bad sentence (no phonemes, empty audio) must
+                        # not kill its chapter: brief silence keeps sids and
+                        # timings contiguous. Strict mode keeps aborting.
+                        if strict:
+                            raise
+                        chapter_skipped += 1
+                        log_lines.append(
+                            f"chapter {index} {chapter.title}: sentence "
+                            f"{sentence.sid} skipped "
+                            f"({type(exc).__name__}: {exc})"
+                        )
+                        audio = np.zeros(
+                            assemble_mod.samples_for_ms(
+                                assemble_mod.PAUSE_SENTENCE_MS
+                            ),
+                            dtype=np.float32,
+                        )
                     _emit(
                         make_event(
                             "sentence",
@@ -1705,11 +1736,12 @@ def _run_build_locked(
                     }
                 )
                 sentences = len(timed_chapter.sentences_in_order())
+                skip_note = f", {chapter_skipped} skipped" if chapter_skipped else ""
                 log_lines.append(
                     f"chapter {index} {chapter.title}: rendered "
                     f"({assembled.duration_ms} ms, {sentences} sentences; "
                     f"audio {chapter_stats.hits} cached, "
-                    f"{chapter_stats.misses} rendered)"
+                    f"{chapter_stats.misses} rendered{skip_note})"
                 )
                 _emit(
                     make_event(

@@ -34,6 +34,7 @@ from ebooklib import epub
 from typer.testing import CliRunner
 
 import cli
+import build as build_module
 from build import (
     CAST_FILENAME,
     BuildError,
@@ -97,6 +98,19 @@ class FailingEngine(FakeEngine):
         if self.marker in text:
             raise RuntimeError(f"synth boom on purpose: {text[:24]}")
         return super().synth(text, voice, speed)
+
+
+class FlakyEncode:
+    """Wraps the real chapter encoder; blows up on one chapter's MP3."""
+
+    def __init__(self, real, marker: str) -> None:
+        self.real = real
+        self.marker = marker
+
+    def __call__(self, to_encode, mp3_path, chapter_label: str = "") -> None:
+        if self.marker in str(mp3_path):
+            raise RuntimeError(f"encode boom on purpose: {mp3_path.name}")
+        return self.real(to_encode, mp3_path, chapter_label=chapter_label)
 
 
 def _make_epub(
@@ -256,7 +270,9 @@ def test_strict_aborts_on_first_error(tmp_path: Path) -> None:
     assert "chapter 2" in log and "FAILED" in log and "aborted (strict)" in log
 
 
-def test_nonstrict_continues_then_reports(tmp_path: Path) -> None:
+def test_nonstrict_skips_bad_sentence_and_writes_bundle(tmp_path: Path) -> None:
+    """One bad sentence no longer kills its chapter: brief silence keeps
+    sids/timings contiguous, the bundle ships, the skip is logged."""
     _needs_ffmpeg()
     epub_path = _make_epub(
         tmp_path / "book.epub",
@@ -264,12 +280,49 @@ def test_nonstrict_continues_then_reports(tmp_path: Path) -> None:
         marker_chapter=2,
     )
     out = tmp_path / "out"
+    result = run_build(
+        epub_path,
+        work_root=tmp_path / "work",
+        out_dir=out,
+        engine=FailingEngine(),
+        strict=False,
+        show_progress=False,
+    )
+    assert isinstance(result, BuildResult)
+    assert result.failed == []
+    assert (out / "manifest.json").is_file()  # gaps never ship; skips do
+    assert validate_bundle(out).ok
+    book_id, _ = book_id_for_file(epub_path)
+    render = tmp_path / "work" / book_id / "render"
+    assert (render / "audio" / "ch002.mp3").is_file()
+    log = (tmp_path / "work" / book_id / "scribe.log").read_text(encoding="utf-8")
+    assert "sentence" in log and "skipped" in log
+    assert "1 skipped" in log
+
+
+def test_nonstrict_continues_past_chapter_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A chapter-level failure (encode blows up) still fails the chapter:
+    chapter 3 renders despite chapter 2, then the build reports instead
+    of shipping."""
+    _needs_ffmpeg()
+    epub_path = _make_epub(
+        tmp_path / "book.epub",
+        ["Chapter One", "Chapter Two", "Chapter Three"],
+    )
+    out = tmp_path / "out"
+    monkeypatch.setattr(
+        build_module,
+        "encode_assembled_chapter",
+        FlakyEncode(build_module.encode_assembled_chapter, "ch002"),
+    )
     with pytest.raises(BuildError, match="chapter 2"):
         run_build(
             epub_path,
             work_root=tmp_path / "work",
             out_dir=out,
-            engine=FailingEngine(),
+            engine=FakeEngine(),
             strict=False,
             show_progress=False,
         )
