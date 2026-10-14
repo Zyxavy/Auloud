@@ -268,6 +268,8 @@ impl App {
                         self.render_note = format!("render queued ({job_id}): watch the tray");
                         self.preflight = None;
                         self.preflight_for = None;
+                        self.validation = None;
+                        self.validation_note.clear();
                     }
                     self.worker_tx.send(WorkerCmd::RefreshBooks).ok();
                 }
@@ -896,6 +898,14 @@ impl App {
     /// Validate section (VT1): per-bundle ticks plus file/rule/message
     /// lines from the last run. One button re-runs it inline (read-only,
     /// no job); no bundles yet names the next action instead.
+    fn request_validation(&self, book_id: &str) {
+        self.worker_tx
+            .send(WorkerCmd::Validate {
+                book_id: book_id.to_owned(),
+            })
+            .ok();
+    }
+
     fn validate_ui(&mut self, ui: &mut egui::Ui) {
         let Some(id) = self.selected.clone() else {
             return;
@@ -915,29 +925,24 @@ impl App {
                     ui.label(line);
                 }
                 if ui.button("Re-validate").clicked() {
-                    self.worker_tx
-                        .send(WorkerCmd::Validate {
-                            book_id: id.clone(),
-                        })
-                        .ok();
+                    self.validation = None;
+                    self.validation_note = "Validating…".to_owned();
+                    self.request_validation(&id);
                 }
             }
             None => {
-                let has_bundles = self
-                    .detail
-                    .as_ref()
-                    .filter(|detail| detail.id == id)
-                    .is_some_and(|detail| !detail.bundles.is_empty());
-                if !has_bundles {
+                let detail = self.detail.as_ref().filter(|detail| detail.id == id);
+                let Some(detail) = detail else {
+                    return;
+                };
+                if detail.bundles.is_empty() {
                     ui.label("Render a bundle first, then validate it.");
                     return;
                 }
                 if ui.button("Validate").clicked() {
-                    self.worker_tx
-                        .send(WorkerCmd::Validate {
-                            book_id: id.clone(),
-                        })
-                        .ok();
+                    self.validation = None;
+                    self.validation_note = "Validating…".to_owned();
+                    self.request_validation(&id);
                 }
             }
         }
