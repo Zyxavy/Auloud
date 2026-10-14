@@ -372,6 +372,29 @@ def write_transfer_record(
     return stored
 
 
+def delete_transfer_record(workspace: Path | str, book_id: str) -> bool:
+    """Drop one book's transfer record (atomic tmp+replace; never raises).
+
+    Returns True when a record existed.
+    """
+    root = Path(workspace).resolve()
+    path = root / TRANSFERS_FILENAME
+    try:
+        current = read_transfers(root)
+    except Exception:
+        return False
+    if not isinstance(current, dict) or str(book_id) not in current:
+        return False
+    del current[str(book_id)]
+    try:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(current, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        pass
+    return True
+
+
 def is_on_tablet(
     record: dict[str, Any] | None, mapped_bundle_ids: list[str]
 ) -> bool:

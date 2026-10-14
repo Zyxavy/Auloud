@@ -111,6 +111,10 @@ UI4 adds (thin operators over :mod:`ui.jobs`; no library behavior change):
   same FIFO, ``draft_start``/``draft_done``/``draft_failed`` lines in the
   UI1 key contract, mirrored to the work-dir seam for UI3 readers) instead
   of a bare daemon thread.
+- ``DELETE /api/books/{id}`` — remove every trace (sources, work dir,
+  bundles, job dirs, transfer record, in-memory draft entry); live jobs
+  cancel first. 200 ``{book_id, removed}``; 404 when nothing matched, so
+  an empty delete never reports success.
 """
 
 from __future__ import annotations
@@ -135,6 +139,7 @@ from fastapi.responses import (
 from starlette.exceptions import HTTPException as _HTTPException
 
 from .books import (
+    delete_book,
     find_source_files,
     get_book_detail,
     scan_books,
@@ -492,6 +497,32 @@ def create_app(
                 status_code=404,
             )
         return JSONResponse(detail)
+
+    @app.delete("/api/books/{book_id}")
+    async def _book_delete(book_id: str) -> JSONResponse:
+        """Remove every trace of a book (200 + removed list; 404 when empty)."""
+        try:
+            mem = app.state.draft_jobs
+            if not isinstance(mem, dict):
+                mem = None
+        except AttributeError:
+            mem = None
+        try:
+            result = delete_book(root, book_id, draft_jobs_mem=mem, manager=manager)
+        except ValueError as exc:
+            return JSONResponse(
+                _split_shaped(str(exc), book_id, "path-traversal"), status_code=400
+            )
+        except KeyError:
+            return JSONResponse(
+                _error_shape(
+                    book_id,
+                    "book-not-found",
+                    f"{book_id}: book-not-found: no source, work folder, bundle or job matches",
+                ),
+                status_code=404,
+            )
+        return JSONResponse(result)
 
     @app.post("/api/books/upload")
     async def _upload(file: UploadFile = File(...)) -> JSONResponse:

@@ -888,3 +888,118 @@ def get_book_detail(
         "on_tablet": on_tablet,
         "transfer": dict(record) if isinstance(record, dict) else None,
     }
+
+
+def delete_book(
+    workspace: Path | str,
+    book_id: str,
+    *,
+    draft_jobs_mem: dict[str, Any] | None = None,
+    manager: Any | None = None,
+) -> dict[str, Any]:
+    """Remove every trace of a book: sources, work dir, bundles, jobs.
+
+    Cancels live jobs first (best effort), then deletes all source files
+    mapping to ``book_id`` (real paths, nested folders included), the
+    ``.scribe/<book-id>`` work dir, bundle dirs whose manifest id matches
+    or whose ``source.sha256`` maps back, the book's job-store dirs, its
+    transfer record, and its in-memory draft entry.
+
+    Returns ``{"book_id", "removed"}`` (workspace-relative paths plus
+    ``job:<id>`` markers). Raises ``ValueError`` (``path-traversal``) for
+    bad ids and ``KeyError`` (``book-not-found``) when nothing matched:
+    an empty delete never reports success.
+    """
+    import shutil
+
+    check_book_id(book_id)
+    root = Path(workspace).resolve()
+    removed: list[str] = []
+
+    def _rel(path: Path) -> str:
+        try:
+            return path.relative_to(root).as_posix()
+        except ValueError:
+            return path.name
+
+    def _drop_dir(path: Path) -> bool:
+        try:
+            if path.is_symlink():
+                path.unlink()
+            elif path.is_dir():
+                shutil.rmtree(path)
+            else:
+                return False
+        except OSError:
+            return False
+        return not path.exists()
+
+    if manager is not None:
+        try:
+            for job_id in manager.delete_jobs_for_book(book_id):
+                removed.append(f"job:{job_id}")
+        except Exception:
+            pass
+
+    for source in find_source_files(root):
+        pair = _book_id_for_source(source)
+        if pair is None or pair[0] != book_id:
+            continue
+        try:
+            source.unlink()
+        except OSError:
+            continue
+        if not source.exists():
+            removed.append(_rel(source))
+
+    if _drop_dir(root / WORK_DIRNAME / book_id):
+        removed.append(f"{WORK_DIRNAME}/{book_id}")
+
+    try:
+        from draft import book_id_for_sha256
+    except ImportError:
+        book_id_for_sha256 = None  # type: ignore[assignment]
+    bundles = root / BUNDLES_DIRNAME
+    if bundles.is_dir():
+        for child in sorted(bundles.iterdir()):
+            if not child.is_dir():
+                continue
+            manifest = _read_json_file(child / "manifest.json")
+            if manifest is None:
+                continue
+            manifest_id = manifest.get("id")
+            match = isinstance(manifest_id, str) and manifest_id == book_id
+            if not match and book_id_for_sha256 is not None:
+                source = manifest.get("source")
+                sha = source.get("sha256") if isinstance(source, dict) else None
+                if isinstance(sha, str) and len(sha) == 64:
+                    try:
+                        match = book_id_for_sha256(sha) == book_id
+                    except Exception:
+                        match = False
+            if match and _drop_dir(child):
+                removed.append(_rel(child))
+
+    try:
+        from .transfer import delete_transfer_record
+    except ImportError:
+        delete_transfer_record = None  # type: ignore[assignment]
+    if delete_transfer_record is not None:
+        try:
+            if delete_transfer_record(root, book_id):
+                removed.append(".scribe-transfers.json")
+        except Exception:
+            pass
+
+    had_mem = False
+    if draft_jobs_mem is not None:
+        try:
+            had_mem = draft_jobs_mem.pop(book_id, None) is not None
+        except Exception:
+            had_mem = False
+
+    if not removed and not had_mem:
+        raise KeyError(
+            f"{book_id}: book-not-found: no source, work folder, bundle or job matches"
+        )
+    return {"book_id": book_id, "removed": removed}

@@ -504,3 +504,71 @@ def test_detail_reports_bundles_dir(tmp_path: Path) -> None:
     book_id, _sha = book_id_for_file(src)
     detail = get_book_detail(tmp_path, book_id)
     assert detail["bundles_dir"] == str(tmp_path / "bundles")
+
+
+# --- delete -------------------------------------------------------------------
+
+
+def _craft_deletable_workspace(ws: Path) -> str:
+    from draft import book_id_for_file
+    from ui.jobs import JOB_FILENAME
+
+    src = _make_epub(ws / "novel.epub", ["Chapter One"])
+    book_id, _sha = book_id_for_file(src)
+    work = ws / ".scribe" / book_id
+    work.mkdir(parents=True)
+    (work / "script.json").write_text('{"chapters": []}', encoding="utf-8")
+    bundle = ws / "bundles" / book_id
+    bundle.mkdir(parents=True)
+    (bundle / "manifest.json").write_text(json.dumps({"id": book_id}), encoding="utf-8")
+    jobdir = ws / "jobs" / "job-deadbeef01"
+    jobdir.mkdir(parents=True)
+    (jobdir / JOB_FILENAME).write_text(
+        json.dumps(
+            {"id": "job-deadbeef01", "kind": "draft", "state": "done", "book_id": book_id}
+        ),
+        encoding="utf-8",
+    )
+    return book_id
+
+
+def test_delete_book_removes_everything(tmp_path: Path) -> None:
+    from ui.books import delete_book
+    from ui.jobs import JobManager
+
+    book_id = _craft_deletable_workspace(tmp_path)
+    mem = {book_id: {"status": "drafting"}}
+    result = delete_book(
+        tmp_path, book_id, draft_jobs_mem=mem, manager=JobManager(tmp_path)
+    )
+    assert result["book_id"] == book_id
+    assert result["removed"]
+    assert not (tmp_path / "novel.epub").exists()
+    assert not (tmp_path / ".scribe" / book_id).exists()
+    assert not (tmp_path / "bundles" / book_id).exists()
+    assert not (tmp_path / "jobs" / "job-deadbeef01").exists()
+    assert mem == {}
+    with pytest.raises(KeyError):
+        delete_book(tmp_path, book_id, manager=JobManager(tmp_path))
+
+
+def test_delete_book_rejects_bad_id(tmp_path: Path) -> None:
+    from ui.books import delete_book
+
+    with pytest.raises(ValueError, match="path-traversal"):
+        delete_book(tmp_path, "../escape")
+
+
+def test_delete_route_round_trip(tmp_path: Path) -> None:
+    book_id = _craft_deletable_workspace(tmp_path)
+    client, token = _api_client(tmp_path)
+    headers = _auth(token)
+    resp = client.delete(f"/api/books/{book_id}", headers=headers)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["book_id"] == book_id
+    listed = client.get("/api/books", headers=headers)
+    assert listed.status_code == 200
+    assert all(b["id"] != book_id for b in listed.json()["books"])
+    again = client.delete(f"/api/books/{book_id}", headers=headers)
+    assert again.status_code == 404
+    assert again.json()["rule"] == "book-not-found"

@@ -83,6 +83,29 @@ pub fn to_selection(form: &Form, app_device: &str) -> scribe_client::Selection {
     }
 }
 
+/// Finished-bundle lines for the render section (unit-tested): one status
+/// line per bundle (id, chapters, validity, folder) plus the next step.
+/// Empty when the book has no bundles yet.
+pub fn finished_lines(bundles: &[scribe_client::BundleEntry]) -> Vec<String> {
+    if bundles.is_empty() {
+        return Vec::new();
+    }
+    let mut lines: Vec<String> = bundles
+        .iter()
+        .map(|bundle| {
+            format!(
+                "{}: {} chapters, {} ({})",
+                bundle.id,
+                bundle.chapters,
+                if bundle.valid { "valid" } else { "invalid" },
+                bundle.path,
+            )
+        })
+        .collect();
+    lines.push("Next: copy the bundle folder to the tablet".to_owned());
+    lines
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,6 +160,27 @@ mod tests {
         assert_eq!(selection.chapters, None);
         assert_eq!(selection.pages, None);
         assert_eq!(selection.device, Some("auto".to_owned()));
+    }
+
+    fn bundle(id: &str, chapters: u64, valid: bool) -> scribe_client::BundleEntry {
+        scribe_client::BundleEntry {
+            id: id.to_owned(),
+            path: format!("bundles/{id}"),
+            chapters,
+            duration_ms: 1000,
+            valid,
+            errors: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn finished_lines_name_bundles_and_next_step() {
+        assert!(finished_lines(&[]).is_empty());
+        let lines = finished_lines(&[bundle("b1", 3, true), bundle("b2", 1, false)]);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].contains("b1") && lines[0].contains("valid"));
+        assert!(lines[1].contains("b2") && lines[1].contains("invalid"));
+        assert!(lines[2].starts_with("Next:"));
     }
 
     #[test]

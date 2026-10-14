@@ -1374,3 +1374,19 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Every API-queued build and sample failed "model files missing" the instant it started: children inherit the helper's cwd (repo root in dev), never the workspace, so the bare default looked in the wrong place. Same class as D-158's out-dir fix, fixed at the same seam with spawner-argv tests.
 - Alternatives considered: copying models next to the helper cwd (rejected: scatters 350 MB per layout, breaks packaged hermeticity); changing the child cwd to the workspace (rejected: bigger blast radius, out-dir/work-dir are already absolute).
 - Consequences / revisit when: workspace/models stays the one models home for app runs; revisit if a layout ever needs per-book models.
+
+### D-164: Bad sentences skip with brief silence, bad chapters still fail
+- Date: 2026-10-14
+- Status: Accepted
+- Decision: A per-sentence synth failure (raise, or empty audio) renders 250 ms of silence and logs "sentence <sid> skipped" in non-strict builds; sids and timings stay contiguous so the bundle ships. Strict mode still aborts on the first bad sentence; config errors (no engine for a voice) and stops always fail loud. Corrupt audio downstream (non-finite buffer, encode failure) still fails the chapter, and any failed chapter still blocks the bundle.
+- Why: Owner run hit a divider line of underscores that phonemizes to nothing and killed a whole chapter; one unrenderable sentence must not cost its chapter. Silence (not a dropped sentence) keeps every sid timed, which the sync map and the player require.
+- Alternatives considered: dropping failed sentences from timings (rejected: text/timing sid mismatch); treating divider lines as breaks in cleaning (left as follow-up: the skip already covers them as silence).
+- Consequences / revisit when: skips are visible only in scribe.log plus the "N skipped" chapter line; revisit if owners want skipped sentences surfaced in the tray or report.
+
+### D-165: Book delete is a server endpoint; uploads skip client staging
+- Date: 2026-10-14
+- Status: Accepted
+- Decision: `DELETE /api/books/{id}` removes every trace server-side (live jobs cancel first, then sources by real path, work dir, id- or sha-matched bundles, job dirs, transfer record, in-memory draft entry) and 404s when nothing matched. The UI uploads the picked file directly; the helper places the one workspace copy. Client-side staging and file collection are deleted.
+- Why: Owner round found remove reporting success while the book reappeared (helper re-listed cancelled draft jobs and orphan bundles the client never touched) and every import landing twice (client staged a copy, then the helper stored a second one under a different dedupe number).
+- Alternatives considered: teaching the client the full file set (rejected: the helper owns the workspace and its listing rules; a second implementation would drift).
+- Consequences / revisit when: bundle-embedded `source/` copies stay by spec; revisit only if a layout ever splits the workspace across roots.

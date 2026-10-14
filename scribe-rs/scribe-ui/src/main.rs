@@ -5,7 +5,7 @@
 //! show which slice builds them.
 
 use eframe::egui;
-use scribe_ui::books::{book_status, stage_book};
+use scribe_ui::books::book_status;
 use scribe_ui::helper::{self, WorkerCmd, WorkerEvent};
 use scribe_ui::machine::{self, Action, Event, State};
 use scribe_ui::settings::{self, Settings};
@@ -769,24 +769,9 @@ impl App {
                         }
                         if self.pending_remove.as_deref() == Some(&book.id) {
                             if ui.button("Confirm remove").clicked() {
-                                // Hash from the detail document when it is
-                                // open (bundle matching); rows carry the
-                                // source filename themselves.
-                                let sha = self
-                                    .detail
-                                    .as_ref()
-                                    .filter(|detail| detail.id == book.id)
-                                    .and_then(|detail| detail.source_sha256.clone());
-                                let source = self
-                                    .books
-                                    .iter()
-                                    .find(|row| row.id == book.id)
-                                    .and_then(|row| row.source_file.clone());
                                 self.worker_tx
                                     .send(WorkerCmd::DeleteBook {
                                         book_id: book.id.clone(),
-                                        source_file: source,
-                                        source_sha: sha,
                                     })
                                     .ok();
                             }
@@ -886,8 +871,8 @@ impl App {
             return;
         };
         // Chapters only (the full detail document stays put: it is big).
-        let chapters = match self.detail.as_ref().filter(|detail| detail.id == id) {
-            Some(detail) => detail.chapters.clone(),
+        let (chapters, bundles) = match self.detail.as_ref().filter(|detail| detail.id == id) {
+            Some(detail) => (detail.chapters.clone(), detail.bundles.clone()),
             None => return,
         };
         let book_id = id;
@@ -901,6 +886,16 @@ impl App {
         ui.heading(egui::RichText::new("Render").color(rgb(theme::OXBLOOD)));
         if !self.render_note.is_empty() {
             ui.label(&self.render_note);
+        }
+        // Done state first: did the render succeed, where is the bundle,
+        // and what comes next. The picker below starts a new one.
+        let finished = scribe_ui::render::finished_lines(&bundles);
+        if !finished.is_empty() {
+            ui.group(|ui| {
+                for line in &finished {
+                    ui.label(line);
+                }
+            });
         }
         if chapters.is_empty() {
             ui.label("nothing to render (no chapters yet)");
@@ -1445,8 +1440,8 @@ impl App {
         }
     }
 
-    /// Native pick + stage + upload (the dialog is owner-tested; the
-    /// staging below it is unit-tested in `books.rs`).
+    /// Native pick + upload (the dialog is owner-tested; the helper owns
+    /// the one workspace copy and refuses non-ebooks with a shaped error).
     fn add_book(&mut self) {
         let Some(path) = rfd::FileDialog::new()
             .add_filter("Ebooks", &["epub", "pdf"])
@@ -1454,19 +1449,13 @@ impl App {
         else {
             return;
         };
-        match stage_book(&self.settings.workspace, &path) {
-            Ok(staged) => {
-                self.books_note = format!(
-                    "uploading {}…",
-                    staged
-                        .file_name()
-                        .map(|n| n.to_string_lossy())
-                        .unwrap_or_default()
-                );
-                self.worker_tx.send(WorkerCmd::Upload { path: staged }).ok();
-            }
-            Err(message) => self.books_note = message,
-        }
+        self.books_note = format!(
+            "uploading {}…",
+            path.file_name()
+                .map(|n| n.to_string_lossy())
+                .unwrap_or_default()
+        );
+        self.worker_tx.send(WorkerCmd::Upload { path }).ok();
     }
 
     /// Settings editor, reachable from any machine state (a bad helper path
