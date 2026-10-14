@@ -102,7 +102,11 @@ pub fn finished_lines(bundles: &[scribe_client::BundleEntry]) -> Vec<String> {
             )
         })
         .collect();
-    lines.push("Next: copy the bundle folder to the tablet".to_owned());
+    if bundles.iter().any(|bundle| bundle.valid) {
+        lines.push("Next: copy the bundle folder to the tablet".to_owned());
+    } else {
+        lines.push("Next: fix the errors and re-render".to_owned());
+    }
     lines
 }
 
@@ -177,10 +181,22 @@ mod tests {
     fn finished_lines_name_bundles_and_next_step() {
         assert!(finished_lines(&[]).is_empty());
         let lines = finished_lines(&[bundle("b1", 3, true), bundle("b2", 1, false)]);
-        assert_eq!(lines.len(), 3);
-        assert!(lines[0].contains("b1") && lines[0].contains("valid"));
-        assert!(lines[1].contains("b2") && lines[1].contains("invalid"));
-        assert!(lines[2].starts_with("Next:"));
+        assert_eq!(
+            lines,
+            vec![
+                "b1: 3 chapters, valid (bundles/b1)".to_owned(),
+                "b2: 1 chapters, invalid (bundles/b2)".to_owned(),
+                "Next: copy the bundle folder to the tablet".to_owned(),
+            ]
+        );
+        let lines = finished_lines(&[bundle("b9", 2, false)]);
+        assert_eq!(
+            lines,
+            vec![
+                "b9: 2 chapters, invalid (bundles/b9)".to_owned(),
+                "Next: fix the errors and re-render".to_owned(),
+            ]
+        );
     }
 
     #[test]

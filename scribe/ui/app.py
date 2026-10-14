@@ -499,8 +499,13 @@ def create_app(
         return JSONResponse(detail)
 
     @app.delete("/api/books/{book_id}")
-    async def _book_delete(book_id: str) -> JSONResponse:
-        """Remove every trace of a book (200 + removed list; 404 when empty)."""
+    def _book_delete(book_id: str) -> JSONResponse:
+        """Remove every trace of a book (200 + removed list; 404 when empty).
+
+        Plain ``def`` on purpose: the sweep blocks on job cancels, and a
+        sync route runs in FastAPI's thread pool instead of stalling the
+        event loop the tray polls on.
+        """
         try:
             mem = app.state.draft_jobs
             if not isinstance(mem, dict):

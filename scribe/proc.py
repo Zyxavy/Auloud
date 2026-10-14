@@ -34,7 +34,5 @@ def no_window_kwargs() -> dict[str, Any]:
     """``Popen`` kwargs hiding the console on Windows; ``{}`` elsewhere."""
     if os.name != "nt":
         return {}
-    flags = 0
-    for attr, fallback in (("CREATE_NO_WINDOW", 0x08000000),):
-        flags |= int(getattr(subprocess, attr, fallback))
-    return {"creationflags": flags}
+    flag = int(getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+    return {"creationflags": flag}

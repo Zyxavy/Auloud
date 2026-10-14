@@ -946,6 +946,12 @@ def delete_book(
         if pair is None or pair[0] != book_id:
             continue
         try:
+            confined = source.is_relative_to(root)
+        except Exception:
+            confined = False
+        if not confined:
+            continue  # symlink target outside the workspace: never touch it
+        try:
             source.unlink()
         except OSError:
             continue

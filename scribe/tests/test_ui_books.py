@@ -572,3 +572,27 @@ def test_delete_route_round_trip(tmp_path: Path) -> None:
     again = client.delete(f"/api/books/{book_id}", headers=headers)
     assert again.status_code == 404
     assert again.json()["rule"] == "book-not-found"
+
+
+def test_delete_keeps_symlinked_source_outside_workspace(tmp_path: Path) -> None:
+    from draft import book_id_for_file
+
+    from ui.books import delete_book
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    real = _make_epub(outside / "real.epub", ["Chapter One"])
+    link = ws / "linked.epub"
+    try:
+        link.symlink_to(real)
+    except OSError:
+        pytest.skip("symlinks need privileges on this machine")
+    book_id, _sha = book_id_for_file(real)
+    # Nothing inside the workspace may go: the delete refuses loudly
+    # instead of touching the outside original.
+    with pytest.raises(KeyError):
+        delete_book(ws, book_id)
+    assert real.is_file()
+    assert link.is_file()
