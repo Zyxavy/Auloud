@@ -8,6 +8,7 @@ pub mod helper;
 pub mod machine;
 pub mod progress;
 pub mod render;
+pub mod send;
 pub mod settings;
 
 /// Design tokens from `scribe/ui/static/index.html` (light theme).

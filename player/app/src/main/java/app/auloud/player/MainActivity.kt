@@ -35,6 +35,8 @@ import app.auloud.player.library.LibraryScreen
 import app.auloud.player.library.LibraryViewModel
 import app.auloud.player.reader.BookScreen
 import app.auloud.player.reader.ReaderPreviewScreen
+import app.auloud.player.receive.ReceiveScreen
+import app.auloud.player.receive.ReceiveViewModel
 import app.auloud.player.render.JavaFileRenderIo
 import app.auloud.player.render.RenderJobProgress
 import app.auloud.player.render.RenderStateStore
@@ -157,6 +159,21 @@ class MainActivity : ComponentActivity() {
         )
     }
 
+    // Slice 20 TR1: Wi-Fi receive driver (plain class, cleared in
+    // onDestroy). The server lives only while the Receive screen is open;
+    // a finished import rescans so the library picks the new row up.
+    private val receiveVmDelegate = lazy {
+        ReceiveViewModel(
+            booksRoot = BooksRootResolver.defaultBooksRoot(applicationContext),
+            storage = routingStorage,
+            library = libraryRepository,
+            onImported = {
+                if (::libraryViewModel.isInitialized) libraryViewModel.rescan()
+            }
+        )
+    }
+    private val receiveViewModel: ReceiveViewModel by receiveVmDelegate
+
     // IN8: system document picker for EPUBs (ACTION_OPEN_DOCUMENT needs no
     // new permission). A null URI is a picker cancel and stays silent.
     private val epubPicker = registerForActivityResult(
@@ -214,6 +231,9 @@ class MainActivity : ComponentActivity() {
                     // returns via Back. WP3/WP5 refinement: Settings also
                     // hosts the watch-folder list (add via picker, remove).
                     var showSettings by remember { mutableStateOf(false) }
+                    // Slice 20 TR1: Receive screen above the library (below
+                    // settings/import); leaving it stops the receiver.
+                    var showReceive by remember { mutableStateOf(false) }
                     // RA0 throwaway: spike screen above everything, deleted
                     // with the spike once the RA0 decision is logged.
                     var showSpike by remember { mutableStateOf(false) }
@@ -245,6 +265,18 @@ class MainActivity : ComponentActivity() {
                             onRemoveFolder = ::removeWatchFolder,
                             onOpenSpike = { showSpike = true }
                         )
+                    } else if (showReceive) {
+                        val receiveState by receiveViewModel.state.collectAsState()
+                        ReceiveScreen(
+                            state = receiveState,
+                            onOpen = receiveViewModel::start,
+                            onStop = receiveViewModel::stop,
+                            onRetry = receiveViewModel::start,
+                            onBack = {
+                                receiveViewModel.stop()
+                                showReceive = false
+                            }
+                        )
                     } else if (state.selectedBookId != null && selectedBook != null) {
                         // RA7: one book screen across all modes (Listen shows
                         // the Slice 1 player, Read/ReadListen the reader).
@@ -271,6 +303,7 @@ class MainActivity : ComponentActivity() {
                                 showSettings = true
                             },
                             onImportEpub = ::launchEpubPicker,
+                            onReceiveWifi = { showReceive = true },
                             onDeleteBook = libraryViewModel::deleteBook
                         )
                     }
@@ -523,6 +556,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         importViewModel.clear()
+        if (receiveVmDelegate.isInitialized()) receiveViewModel.clear()
         super.onDestroy()
     }
 

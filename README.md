@@ -2,7 +2,7 @@
 
 Turn your ebooks into multi-voice audiobooks, then read along or just listen.
 
-Everything runs offline. Nothing is uploaded.
+Everything runs on your own hardware: the PC renders, and the tablet receives bundles over your own Wi-Fi (LAN only). Nothing is uploaded to any cloud.
 
 ## Get the app
 
@@ -32,7 +32,7 @@ uv run scribe build ..\MyBook.epub
 uv run scribe validate bundles\<book-id>
 ```
 
-Then copy the bundle folder onto the tablet (`/Auloud/` on internal storage, or an `Auloud/` folder on the microSD card), add it as a watch folder in the library, and press play.
+Then copy the bundle folder onto the tablet (`/Auloud/` on internal storage, or an `Auloud/` folder on the microSD card), add it as a watch folder in the library, and press play. Or skip the cable: open Receive via Wi-Fi in the tablet library and push the bundle straight from the Scribe UI on the same network.
 
 Handy extras: `uv run scribe ui` (same flow in a browser, no CLI needed), `scribe voices --sample` (hear voices first), `scribe doctor` (checks your setup). PDFs work the same way; scanned PDFs with no text layer fail with a clear message. A 10-hour novel takes hours, so run builds detached and poll.
 
@@ -40,7 +40,7 @@ Details: [Scribe design](docs/05-ScribeDesign.md), [Web UI walkthrough](docs/arc
 
 ## Path B: render on the tablet
 
-1. Install offline voice data: tablet Settings -> Language and input -> Text-to-speech output, pick an engine and install its English voices. The Player has no `INTERNET` permission, so this step is what makes rendering work.
+1. Install offline voice data: tablet Settings -> Language and input -> Text-to-speech output, pick an engine and install its English voices. The Player uses the network for Wi-Fi bundle receive only (your own LAN, no cloud), so this step is what makes rendering work.
 2. In the library tap Import EPUB and pick the file. The book opens with readable text.
 3. Choose voices (narrator + dialogue) and audition each role.
 4. Start the render (works unplugged). You can listen to early chapters while later ones still render.

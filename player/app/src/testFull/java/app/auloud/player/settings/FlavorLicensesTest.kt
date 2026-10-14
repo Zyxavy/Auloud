@@ -18,6 +18,13 @@ class FlavorLicensesTest {
     }
 
     @Test
+    fun full_shipsNanoHttpdInBothFlavors() {
+        val nanohttpd = flavorLicenses.first { it.name == "NanoHTTPD" }
+        assertEquals("2.3.1", nanohttpd.version)
+        assertEquals("BSD-3-Clause", nanohttpd.license)
+    }
+
+    @Test
     fun full_listsBundledSpeechRuntime() {
         val sherpa = flavorLicenses.first { it.name == "sherpa-onnx" }
         assertTrue(sherpa.version.contains("1.13.8"))

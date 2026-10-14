@@ -19,6 +19,13 @@ class FlavorLicensesTest {
     }
 
     @Test
+    fun core_shipsNanoHttpd() {
+        val nanohttpd = flavorLicenses.first { it.name == "NanoHTTPD" }
+        assertEquals("2.3.1", nanohttpd.version)
+        assertEquals("BSD-3-Clause", nanohttpd.license)
+    }
+
+    @Test
     fun core_claimsNoBundledGpl() {
         assertTrue(
             "no full-only bundled rows in core",

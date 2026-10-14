@@ -21,6 +21,7 @@ cache on 2026-10-04. Test-only and build-only items never ship in the APK.
 | kotlinx-serialization-json | 1.7.3 | Apache-2.0 |
 | Coil (coil-compose) | 2.6.0 | Apache-2.0 |
 | jsoup | 1.23.2 | MIT |
+| NanoHTTPD | 2.3.1 | BSD-3-Clause |
 
 ## Test only (never shipped)
 

@@ -8,6 +8,7 @@ use eframe::egui;
 use scribe_ui::books::book_status;
 use scribe_ui::helper::{self, WorkerCmd, WorkerEvent};
 use scribe_ui::machine::{self, Action, Event, State};
+use scribe_ui::send::SendOutcome;
 use scribe_ui::settings::{self, Settings};
 use scribe_ui::theme;
 
@@ -93,6 +94,7 @@ struct App {
     /// range-aware for partial renders, so it cannot key this).
     preflight_for: Option<String>,
     render_note: String,
+    send: scribe_ui::send::Sender,
     helper_keep_awake: Option<bool>,
     cast: Option<scribe_client::CastPayload>,
     cast_voices: Vec<String>,
@@ -162,6 +164,7 @@ impl App {
             preflight: None,
             preflight_for: None,
             render_note: String::new(),
+            send: scribe_ui::send::Sender::default(),
             helper_keep_awake: None,
             cast: None,
             cast_voices: Vec::new(),
@@ -189,6 +192,9 @@ impl App {
     /// Drain worker events: lifecycle ones through the state machine, book
     /// ones straight into view state (called every frame).
     fn pump(&mut self) {
+        // TR1: send-thread events drain here too (non-blocking); the worker
+        // feed below is untouched.
+        self.send.poll();
         while let Ok(event) = self.worker_rx.try_recv() {
             match event {
                 WorkerEvent::Books { books } => {
@@ -794,6 +800,11 @@ impl App {
             self.preflight = None;
             self.preflight_for = None;
             self.render_note.clear();
+            // TR1: a send belongs to the old book; drop its settled state
+            // (a running thread still lands, rare and harmless) but keep
+            // the remembered ip/code.
+            self.send.outcome = None;
+            self.send.phase = None;
             self.helper_keep_awake = None;
             self.cast = None;
             self.cast_voices.clear();
@@ -861,6 +872,68 @@ impl App {
         // mutates form state, so it re-reads what it needs itself.
         self.render_ui(ui);
         self.cast_ui(ui);
+        self.send_ui(ui);
+    }
+
+    /// Send section (TR1): tablet IP plus pairing code, push the newest
+    /// valid bundle over Wi-Fi. The stepper transfer row stays the
+    /// folder-copy record (the helper never learns about Wi-Fi sends);
+    /// this section reports its own outcome.
+    fn send_ui(&mut self, ui: &mut egui::Ui) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        let (bundles, workspace) = match self.detail.as_ref().filter(|detail| detail.id == id) {
+            Some(detail) => (detail.bundles.clone(), self.settings.workspace.clone()),
+            None => return,
+        };
+        ui.separator();
+        ui.heading(egui::RichText::new("Send to tablet").color(rgb(theme::OXBLOOD)));
+        let bundle = match bundles.iter().find(|entry| entry.valid).or(bundles.first()) {
+            Some(entry) => entry.clone(),
+            None => {
+                ui.label("Render a bundle first, then send it.");
+                return;
+            }
+        };
+        if !bundle.valid {
+            ui.label("No valid bundle (see Validate); the tablet will refuse it.");
+        }
+        ui.horizontal(|ui| {
+            ui.label("Tablet IP:");
+            ui.text_edit_singleline(&mut self.send.ip);
+            ui.label("Code:");
+            ui.text_edit_singleline(&mut self.send.code);
+            let busy = self.send.busy();
+            if ui.button("Send").clicked() && !busy {
+                let dir = workspace.join(&bundle.path);
+                let ip = self.send.ip.clone();
+                let code = self.send.code.clone();
+                self.send
+                    .begin(dir, ip, scribe_ui::send::DEFAULT_PORT, code);
+            }
+        });
+        if self.send.busy() {
+            ui.spinner();
+        }
+        if let Some(phase) = self.send.phase.clone() {
+            ui.label(phase);
+        }
+        match self.send.outcome.clone() {
+            Some(SendOutcome::Sent {
+                title, duplicate, ..
+            }) => {
+                ui.label(if duplicate {
+                    format!("Already on tablet: {title}")
+                } else {
+                    format!("Sent {title} (open it in the tablet library)")
+                });
+            }
+            Some(SendOutcome::Failed(message)) => {
+                ui.label(message);
+            }
+            None => {}
+        }
     }
 
     /// Render section (JP2): chapter boxes or a range string, PDF pages,

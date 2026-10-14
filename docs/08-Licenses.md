@@ -25,6 +25,7 @@ If you host Scribe as a network service for other people, check the AGPL points 
 | JUnit (test only) | EPL-1.0 | [x] |
 | MockK, Turbine (test only) | Apache-2.0 | [x] |
 | jsoup 1.23.2 | MIT | [x] |
+| NanoHTTPD 2.3.1 (`org.nanohttpd:nanohttpd`, Wi-Fi bundle receiver, LAN only) | BSD-3-Clause | [x] |
 
 In-app: add a "Licenses" screen listing these (a Gradle license plugin can generate it), and ship a `NOTICE` file.
 
