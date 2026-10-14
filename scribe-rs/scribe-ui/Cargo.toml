@@ -17,7 +17,11 @@ serde_json = "1"
 serde = { version = "1", features = ["derive"] }
 # Slice 20 TR1 (owner-approved): bundle zip (Stored) + tablet push + sha256.
 # ureq mirrors scribe-client (same version, same multipart feature).
-ureq = { version = "3", default-features = false, features = ["multipart"] }
+# MM1 (owner-approved 2026-10-15): `native-tls-no-default` for model
+# downloads over HTTPS (Windows system TLS + OS cert store, no bundled
+# roots; the `rustls` bundle failed the deny gate on webpki-roots
+# CDLA-Permissive-2.0, and Linux builds will need OpenSSL headers).
+ureq = { version = "3", default-features = false, features = ["multipart", "native-tls-no-default"] }
 zip = "2"
 sha2 = "0.10"
 # CS3: audition playback (owner-approved D-162; MIT OR Apache-2.0, deny green).

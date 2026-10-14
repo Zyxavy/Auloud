@@ -27,6 +27,7 @@ enum Screen {
     Jobs,
     Cast,
     Voices,
+    Models,
     Validate,
     Settings,
 }
@@ -38,6 +39,7 @@ impl Screen {
             Self::Jobs => "Jobs",
             Self::Cast => "Cast",
             Self::Voices => "Voices",
+            Self::Models => "Models",
             Self::Validate => "Validate",
             Self::Settings => "Settings",
         }
@@ -50,17 +52,19 @@ impl Screen {
             Self::Jobs => "live jobs + history (same tray as below, expanded)",
             Self::Cast => "per-book Cast section (below the detail stepper)",
             Self::Voices => "audition voices (list below)",
-            Self::Validate => "Slice 20: validate list, transfer, models",
+            Self::Models => "Kokoro model files (status, download, sideload)",
+            Self::Validate => "Slice 20: validate list, transfer",
             Self::Settings => "here: workspace, device, helper path",
         }
     }
 
-    fn all() -> [Self; 6] {
+    fn all() -> [Self; 7] {
         [
             Self::Books,
             Self::Jobs,
             Self::Cast,
             Self::Voices,
+            Self::Models,
             Self::Validate,
             Self::Settings,
         ]
@@ -95,6 +99,8 @@ struct App {
     preflight_for: Option<String>,
     render_note: String,
     send: scribe_ui::send::Sender,
+    models: scribe_ui::models::Manager,
+    models_dir: Option<std::path::PathBuf>,
     helper_keep_awake: Option<bool>,
     cast: Option<scribe_client::CastPayload>,
     cast_voices: Vec<String>,
@@ -167,6 +173,8 @@ impl App {
             preflight_for: None,
             render_note: String::new(),
             send: scribe_ui::send::Sender::default(),
+            models: scribe_ui::models::Manager::fresh(),
+            models_dir: None,
             helper_keep_awake: None,
             cast: None,
             cast_voices: Vec::new(),
@@ -199,6 +207,8 @@ impl App {
         // TR1: send-thread events drain here too (non-blocking); the worker
         // feed below is untouched.
         self.send.poll();
+        // MM1: model-thread events drain the same way.
+        self.models.poll();
         while let Ok(event) = self.worker_rx.try_recv() {
             match event {
                 WorkerEvent::Books { books } => {
@@ -483,6 +493,10 @@ impl App {
         }
         if self.screen == Screen::Voices {
             self.voices_ui(ui);
+            return;
+        }
+        if self.screen == Screen::Models {
+            self.models_ui(ui);
             return;
         }
         ui.heading(egui::RichText::new(self.screen.title()).color(rgb(theme::OXBLOOD)));
@@ -893,6 +907,100 @@ impl App {
         self.cast_ui(ui);
         self.send_ui(ui);
         self.validate_ui(ui);
+    }
+
+    /// Models screen (MM1): Kokoro pair status, download with byte
+    /// progress plus checksum, sideload, delete. Same PC as the helper,
+    /// so files land directly in `<workspace>/models` (the D-163 home).
+    fn models_ui(&mut self, ui: &mut egui::Ui) {
+        let dir = scribe_ui::models::models_dir(&self.settings.workspace);
+        // First arrival (or workspace switch) checks the pair; hashing
+        // hundreds of megabytes stays on the manager thread.
+        if self.models_dir.as_ref() != Some(&dir) {
+            self.models_dir = Some(dir.clone());
+            self.models
+                .begin(scribe_ui::models::ModelOp::Refresh, dir.clone());
+        }
+        ui.heading(egui::RichText::new("Models").color(rgb(theme::OXBLOOD)));
+        ui.label(format!("Folder: {}", dir.display()));
+        ui.label(scribe_ui::models::LICENSE_LINE);
+        ui.separator();
+        let busy = self.models.busy();
+        for (index, pinned) in scribe_ui::models::PAIR.iter().enumerate() {
+            let state = self
+                .models
+                .states
+                .get(index)
+                .cloned()
+                .unwrap_or(scribe_ui::models::FileState::Missing);
+            ui.horizontal(|ui| {
+                ui.label(pinned.name);
+                match state {
+                    scribe_ui::models::FileState::Missing => {
+                        ui.label("missing");
+                    }
+                    scribe_ui::models::FileState::Pinned => {
+                        ui.label(format!(
+                            "ready (pinned, {})",
+                            scribe_ui::send::human_bytes(pinned.size)
+                        ));
+                    }
+                    scribe_ui::models::FileState::Unpinned { size } => {
+                        ui.label(format!(
+                            "present, not pinned ({}; works today)",
+                            scribe_ui::send::human_bytes(size)
+                        ));
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                let present = !matches!(state, scribe_ui::models::FileState::Missing);
+                if ui.button("Download").clicked() && !busy {
+                    self.models
+                        .begin(scribe_ui::models::ModelOp::Download(index), dir.clone());
+                }
+                if !present {
+                    if ui.button("Sideload…").clicked() && !busy {
+                        if let Some(picked) = rfd::FileDialog::new()
+                            .add_filter("Models", &["onnx", "bin"])
+                            .pick_file()
+                        {
+                            self.models.begin(
+                                scribe_ui::models::ModelOp::Sideload(index, picked),
+                                dir.clone(),
+                            );
+                        }
+                    }
+                } else if ui.button("Delete").clicked() && !busy {
+                    self.models
+                        .begin(scribe_ui::models::ModelOp::Delete(index), dir.clone());
+                }
+            });
+        }
+        if busy {
+            ui.spinner();
+        }
+        if let Some(phase) = self.models.phase.clone() {
+            ui.label(phase);
+        }
+        if let Some((downloaded, total)) = self.models.progress {
+            let line = match total {
+                Some(total) => format!(
+                    "{} / {}",
+                    scribe_ui::send::human_bytes(downloaded),
+                    scribe_ui::send::human_bytes(total)
+                ),
+                None => format!("{}…", scribe_ui::send::human_bytes(downloaded)),
+            };
+            ui.label(line);
+        }
+        if let Some(outcome) = self.models.outcome.clone() {
+            if let Some(error) = outcome.error {
+                ui.label(error);
+            } else if !outcome.note.is_empty() {
+                ui.label(outcome.note);
+            }
+        }
     }
 
     /// Validate section (VT1): per-bundle ticks plus file/rule/message

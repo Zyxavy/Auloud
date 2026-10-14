@@ -334,15 +334,7 @@ fn push_zip(url: &str, code: &str, hex: &str, zip_path: &Path) -> SendOutcome {
         Ok(form) => form,
         Err(err) => return SendOutcome::Failed(format!("cannot stage upload: {err}")),
     };
-    let config = ureq::config::Config::builder()
-        .http_status_as_error(false)
-        .max_idle_age(std::time::Duration::from_secs(2))
-        // No per-byte progress exists, so a stalled connection would hang
-        // the send thread (and the Send button) forever. Generous ceiling:
-        // slow hotspots still finish, true stalls fail loudly instead.
-        .timeout_global(Some(std::time::Duration::from_secs(30 * 60)))
-        .build();
-    let response = ureq::Agent::new_with_config(config)
+    let response = http_agent()
         .post(url)
         .header("X-Pairing-Code", code)
         .header("X-Sha256", hex)
@@ -355,6 +347,21 @@ fn push_zip(url: &str, code: &str, hex: &str, zip_path: &Path) -> SendOutcome {
         }
         Err(err) => SendOutcome::Failed(format!("cannot reach tablet: {err}")),
     }
+}
+
+/// Shared HTTP agent (long transfers need a ceiling, never infinity:
+/// thirty generous minutes, so true stalls fail loudly instead of
+/// hanging the worker thread — and its UI button — forever).
+pub fn http_agent() -> ureq::Agent {
+    let config = ureq::config::Config::builder()
+        .http_status_as_error(false)
+        .max_idle_age(std::time::Duration::from_secs(2))
+        // No per-byte progress exists, so a stalled connection would hang
+        // the send thread (and the Send button) forever. Generous ceiling:
+        // slow hotspots still finish, true stalls fail loudly instead.
+        .timeout_global(Some(std::time::Duration::from_secs(30 * 60)))
+        .build();
+    ureq::Agent::new_with_config(config)
 }
 
 /// `128 MB` style sizes for the sending phase (one decimal, no fake percent).

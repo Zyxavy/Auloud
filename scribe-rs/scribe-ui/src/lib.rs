@@ -6,6 +6,7 @@ pub mod books;
 pub mod cast;
 pub mod helper;
 pub mod machine;
+pub mod models;
 pub mod progress;
 pub mod render;
 pub mod send;
