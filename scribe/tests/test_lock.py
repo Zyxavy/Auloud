@@ -78,6 +78,39 @@ def test_reaped_child_reads_dead() -> None:
     assert _pid_alive(dead, started_at=_now_iso()) is False
 
 
+def _unreaped_pid() -> "subprocess.Popen[bytes]":
+    """A dead child whose handle stays open (queryable with its original
+    start time, like the pid-468 incident). Caller must close the handle."""
+    probe = subprocess.Popen(
+        [sys.executable, "-c", "pass"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    probe.wait()
+    assert probe.pid is not None
+    return probe
+
+
+def _close_handle(probe: "subprocess.Popen[bytes]") -> None:
+    import ctypes
+
+    handle = getattr(probe, "_handle", None)
+    if handle:
+        ctypes.windll.kernel32.CloseHandle(handle)  # type: ignore[attr-defined]
+        probe._handle = None  # type: ignore[attr-defined]
+
+
+def test_unreaped_dead_child_reads_dead() -> None:
+    # The pid-468 incident: OpenProcess succeeds and the start time
+    # matches, but the exit code reports gone.
+    probe = _unreaped_pid()
+    try:
+        assert _pid_alive(probe.pid) is False
+        assert _pid_alive(probe.pid, started_at=_now_iso()) is False
+    finally:
+        _close_handle(probe)
+
+
 def test_legacy_call_without_timestamp_keeps_working() -> None:
     assert _pid_alive(os.getpid()) is True
     assert _pid_alive(0) is False
@@ -111,6 +144,23 @@ def test_forged_lock_with_dead_pid_clears(tmp_path: Path) -> None:
     )
     with acquire_ui_lock(folder, cmd="ui"):
         pass
+
+
+def test_forged_lock_with_unreaped_dead_pid_clears(tmp_path: Path) -> None:
+    from ui.server import UI_LOCK_FILENAME, acquire_ui_lock
+
+    probe = _unreaped_pid()
+    try:
+        folder = tmp_path / "ws"
+        folder.mkdir()
+        (folder / UI_LOCK_FILENAME).write_text(
+            json.dumps({"pid": probe.pid, "started_at": _now_iso(), "cmd": "ui"}),
+            encoding="utf-8",
+        )
+        with acquire_ui_lock(folder, cmd="ui"):
+            pass
+    finally:
+        _close_handle(probe)
 
 
 def test_live_holder_still_refuses(tmp_path: Path) -> None:

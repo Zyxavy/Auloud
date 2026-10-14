@@ -33,9 +33,12 @@ whose PID got recycled). PIDs alone cannot prove identity (Windows reuses
 them, and a held handle keeps a dead object queryable), so acquirers also
 compare the holder's process start time against the lock timestamp
 (:func:`_pid_start_time`, ±``PID_IDENTITY_WINDOW_S``); a recycled PID
-fails the match and the lock clears. No heartbeat thread: Windows file
-lifetimes plus a second concurrent run failing fast matter more than
-sub-minute staleness for a localhost UI plus CLI.
+fails the match and the lock clears. A dead PID kept queryable by a
+lingering handle reports its original start time (passing that match), so
+the exit code is checked as well (anything but ``STILL_ACTIVE`` means
+gone). No heartbeat thread: Windows file lifetimes plus a second
+concurrent run failing fast matter more than sub-minute staleness for a
+localhost UI plus CLI.
 
 Second concurrent runs raise :class:`WorkLockError` naming the file and
 the rule (``{file, rule, message}`` shape, no traceback at the CLI).
@@ -114,17 +117,31 @@ def _pid_alive(pid: int, *, started_at: str | float | None = None) -> bool:
     ``PID_IDENTITY_WINDOW_S`` of it (see :func:`_pid_start_time`); a
     recycled PID fails the match. Unknowable start times fall back to plain
     existence (legacy behavior).
+
+    A dead process with an open handle elsewhere still answers existence
+    probes with its original start time (passing the identity match), so on
+    Windows the exit code is checked too: anything but ``STILL_ACTIVE``
+    means gone, however queryable the handle is.
     """
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return False
     try:
         if os.name == "nt":
+            import ctypes.wintypes
+
             kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
             handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if not handle:
                 return False
-            kernel32.CloseHandle(handle)
+            try:
+                code = ctypes.wintypes.DWORD()
+                if kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                    if code.value != STILL_ACTIVE:
+                        return False
+            finally:
+                kernel32.CloseHandle(handle)
             exists = True
         else:
             os.kill(pid, 0)

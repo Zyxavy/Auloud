@@ -1390,3 +1390,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Owner round found remove reporting success while the book reappeared (helper re-listed cancelled draft jobs and orphan bundles the client never touched) and every import landing twice (client staged a copy, then the helper stored a second one under a different dedupe number).
 - Alternatives considered: teaching the client the full file set (rejected: the helper owns the workspace and its listing rules; a second implementation would drift).
 - Consequences / revisit when: bundle-embedded `source/` copies stay by spec; revisit only if a layout ever splits the workspace across roots.
+
+### D-166: Lock liveness checks the process exit code on Windows
+- Date: 2026-10-14
+- Status: Accepted
+- Decision: `_pid_alive` calls GetExitCodeProcess after OpenProcess succeeds; anything but STILL_ACTIVE means gone. One shared fix covers work locks and the UI lock (both call the same function).
+- Why: Owner blocked every launch by a `.scribe-ui.lock` naming dead pid 468: tasklist showed nothing, but an open handle elsewhere kept the object queryable with its original start time, so OpenProcess plus the start-time match read "alive" forever. The start-time guard only catches recycled PIDs, never this zombie case.
+- Alternatives considered: telling owners to delete the file by hand each time (rejected: the same phantom recurs); matching the image name (rejected: needs more rights than the query handle grants).
+- Consequences / revisit when: phantom locks now clear on next launch like any stale lock; revisit if a live holder ever reads dead (would mean exit-code query failing open, currently falls back to alive).
