@@ -75,16 +75,16 @@ full-row cast table is actually slow at novel scale.
 
 ## 5. Work packages
 
-### DS1: Contrast + dark theme (S)
+### DS1: Contrast (S)
 
-- Pure `theme::contrast(a, b)` (WCAG relative-luminance ratio) plus a
-  `DARK` set (paper/ink swapped, sage/oxblood re-checked); unit
-  tests assert every text pair ≥ 4.5:1 in both themes.
-- Theme switch in Settings (light/dark); headings/notes read the
-  active set (one lookup site, not per-screen branches).
+- Pure `theme::contrast(a, b)` (WCAG relative-luminance ratio);
+  unit tests assert every text pair ≥ 4.5:1 over the light table
+  (dark theme deferred by owner decision, 2026-10-15).
+- Failing pairs get darkened/lightened on the failing side first;
+  hue changes come back to the owner.
 - Tests: ratio math against known vectors (black/white = 21:1) plus
-  the AA assertions over both tables.
-- **Verify:** switch themes live, both readable; suite green.
+  the AA assertions over the table.
+- **Verify:** suite green; owner reads the adjusted pairs.
 
 ### DS2: Serif display face (S, needs a font decision)
 
@@ -101,11 +101,11 @@ full-row cast table is actually slow at novel scale.
 
 - Unify the five named components across screens (table, stepper,
   tray, audition player row, chips): one spacing, one type scale,
-  one chip shape, both themes. No new widgets, no layout redesign.
+  one chip shape. No new widgets, no layout redesign.
 - Tests: pure spacing/type constants if any are extracted; the pass
   itself is owner-judged screenshots before/after.
-- **Verify:** owner compares the five components screen to screen on
-  both themes; suite green.
+- **Verify:** owner compares the five components screen to screen;
+  suite green.
 
 ### AX1: Keyboard walk + focus (S)
 
@@ -117,7 +117,7 @@ full-row cast table is actually slow at novel scale.
   against each background; adjust theme, not widgets).
 - Tests: focus order is owner-run (no harness asserts pixels);
   record the walk in the acceptance sheet.
-- **Verify:** full walk on light and dark, no mouse; suite green.
+- **Verify:** full walk without a mouse; suite green.
 
 ### PF1: Cast-table perf probe (S)
 
@@ -176,10 +176,10 @@ approval only if the probe fails. Everything else is approval-free.
 
 ## 8. Definition of done
 
-- [ ] Contrast unit tests green over both themes; theme switch live
+- [ ] Contrast unit tests green over the light table
 - [ ] Title face decided (ship or recorded no)
-- [ ] Five components unified on both themes
-- [ ] Keyboard-only walk clean on both themes
+- [ ] Five components unified (dark deferred)
+- [ ] Keyboard-only walk clean (dark deferred)
 - [ ] Table verdict recorded (fast as-is or virtualized)
 - [ ] Runbook written, Windows pass done, Linux lines attributed
 - [ ] Owner acceptance logged; suite + clippy + deny green; tagged `slice-21`
