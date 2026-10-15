@@ -234,6 +234,32 @@ class RenderPanelViewModelTest {
 
     @Test
     @OptIn(ExperimentalCoroutinesApi::class)
+    fun refreshKeepsWordCountsWithoutRereads() = runTest {
+        val harness = Harness(partialFiles(), StandardTestDispatcher(testScheduler))
+        val vm = harness.viewModel()
+        try {
+            testScheduler.advanceUntilIdle()
+            vm.ensureWordCounts()
+            testScheduler.advanceUntilIdle()
+            assertEquals(0, vm.state.value.estimate.unknownChapters)
+            val unrenderedReads = harness.textReads.filterNot { it.endsWith("ch001.json") }
+            assertEquals(2, unrenderedReads.size)
+            // A refresh (back-navigation) reloads the manifest but must
+            // not re-read unrendered chapters: text is immutable, so the
+            // cached counts stay true and the estimate stays refined.
+            vm.refresh()
+            testScheduler.advanceUntilIdle()
+            vm.ensureWordCounts()
+            testScheduler.advanceUntilIdle()
+            assertEquals(0, vm.state.value.estimate.unknownChapters)
+            assertEquals(2, harness.textReads.filterNot { it.endsWith("ch001.json") }.size)
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
     fun unreadableChapterJson_countsUnknownButLoads() = runTest {
         val files = partialFiles()
         files.remove("$bundleDir/text/ch003.json")

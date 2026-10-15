@@ -84,6 +84,8 @@ class RenderPanelViewModel(
 
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private var audioMsByChapter = HashMap<Int, Long?>()
+    /** Manifest identity behind the cached word counts (cleared on change). */
+    private var cachedManifestId: String? = null
     /** Words-pass job (cancelled on reload; the scope owns the rest). */
     private var fillJob: Job? = null
     private var noSleep: (Long) -> Unit = {}
@@ -423,15 +425,22 @@ class RenderPanelViewModel(
             (saved?.chapterIndex ?: 0).coerceIn(0, sorted.size - 1)
         }
         val audioMs = HashMap<Int, Long?>()
+        if (cachedManifestId != manifest.id) {
+            // New manifest identity (re-import under the same book):
+            // cached words may describe different text.
+            audioMsByChapter.clear()
+            cachedManifestId = manifest.id
+        }
         for ((pos, chapter) in sorted.withIndex()) {
             if (pos in rendered) {
                 audioMs[pos] = chapter.durationMs
                 continue
             }
-            // Unrendered chapters start unknown; the words pass fills
-            // them after first paint (an 1800-chapter book reads every
-            // chapter JSON otherwise, all before anything shows).
-            audioMs[pos] = null
+            // Unrendered chapters keep cached words across reloads
+            // (text is immutable, so a cached count stays true) and
+            // start unknown otherwise; the words pass fills the gaps
+            // after first paint.
+            audioMs[pos] = audioMsByChapter[pos]
         }
         audioMsByChapter = audioMs
         val job = loadJob()
@@ -519,7 +528,9 @@ class RenderPanelViewModel(
             filled[pos] = if (pos in rendered) {
                 chapter.durationMs
             } else {
-                wordsFor(chapter.text)?.let(::audioMsForWords)
+                // Cached words survive reloads; only true gaps pay for
+                // a read (refresh-after-read would re-read everything).
+                audioMsByChapter[pos] ?: wordsFor(chapter.text)?.let(::audioMsForWords)
             }
         }
         audioMsByChapter = filled
