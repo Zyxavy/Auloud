@@ -49,7 +49,9 @@ import kotlinx.coroutines.launch
  * The ViewModel owns its coroutines (a [SupervisorJob] over [dispatcher]);
  * call [clear] when the screen is disposed, like `ViewModel.onCleared`.
  *
- * API 24 safe: coroutines only.
+ * API 24 safe: coroutines only. No Android classes: plain JVM tests
+ * construct this directly, and any `android.*` import breaks them
+ * (framework stubs throw), so timing logs live in the screens instead.
  */
 class UnrenderedReaderViewModel(
     private val bookId: String,

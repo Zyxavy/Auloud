@@ -114,6 +114,7 @@ fun PartialBookScreen(
     val panelSherpaHolder = remember(book.id) { arrayOfNulls<SherpaPiperEngine>(1) }
     val panelKittenHolder = remember(book.id) { arrayOfNulls<SherpaKittenEngine>(1) }
     val panelVm = remember(book.id) {
+        val started = android.os.SystemClock.uptimeMillis()
         val scratch = File(appContext.cacheDir, "panel-tts-probe")
         val driver = AndroidSystemTtsDriver(appContext)
         val adapter = SystemTtsAdapter(driver, scratch)
@@ -174,7 +175,9 @@ fun PartialBookScreen(
                     0L
                 }
             }
-        )
+        ).also {
+            Log.d(TAG, "open engines+panel took ${android.os.SystemClock.uptimeMillis() - started}ms")
+        }
     }
     DisposableEffect(book.id) {
         onDispose {
@@ -296,7 +299,8 @@ fun PartialBookScreen(
         ReaderScreen(
             state = ReaderState(isTextLoading = true),
             onBack = onBack,
-            modifier = modifier
+            modifier = modifier,
+            loadingText = if (entries == null) "Loading book…" else "Preparing…"
         )
         return
     }

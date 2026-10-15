@@ -278,6 +278,7 @@ private fun UnrenderedContent(
             onNextChapter = viewModel::nextChapter,
             canGoPrevious = unrendered.chapterIndex > 0,
             canGoNext = unrendered.chapterIndex < entries.size - 1,
+            loadingText = "Loading chapter ${unrendered.chapterIndex + 1}…",
             dialogueMarking = marking,
             modifier = Modifier.weight(1f).fillMaxWidth()
         )
@@ -299,11 +300,16 @@ private fun UnrenderedContent(
 }
 
 @Composable
-private fun UnrenderedLoading(onBack: () -> Unit, modifier: Modifier = Modifier) {
+private fun UnrenderedLoading(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    message: String = "Loading book…"
+) {
     ReaderScreen(
         state = ReaderState(isTextLoading = true),
         onBack = onBack,
-        modifier = modifier
+        modifier = modifier,
+        loadingText = message
     )
 }
 

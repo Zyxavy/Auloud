@@ -5,8 +5,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -113,6 +115,12 @@ fun ReaderScreen(
     canGoPrevious: Boolean = true,
     canGoNext: Boolean = true,
     /**
+     * Loading phase line under the spinner (null shows the spinner
+     * alone). Names where a stuck open waits, so a frozen screen still
+     * tells which step never finished.
+     */
+    loadingText: String? = null,
+    /**
      * IN9: dialogue marking (dialogue sentences in the tertiary accent).
      * Defaults to on; 1.x books carry no `dialogue` speakers so they render
      * exactly as before either way.
@@ -152,8 +160,16 @@ fun ReaderScreen(
         }
         when {
             state.isTextLoading || (state.chapter == null && state.textError == null) -> {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     CircularProgressIndicator()
+                    if (loadingText != null) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(text = loadingText, style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
             }
             state.textError != null -> {
