@@ -104,6 +104,17 @@ class RenderPanelViewModel(
         reload()
     }
 
+    /**
+     * Starts the word-count fill when the estimate needs it (the hub
+     * calls this when the render panel shows; never at book open, so
+     * reading stays contention-free). No-op while a fill runs or when
+     * every unrendered chapter already has audioMs.
+     */
+    fun ensureWordCounts() {
+        if (fillJob?.isActive == true) return
+        fillJob = scope.launch { fillWordCounts() }
+    }
+
     /** Panel option (whole book, next N, from here); the estimate recomputes. */
     fun selectOption(option: RenderOption) {
         val current = _state.value
@@ -360,10 +371,6 @@ class RenderPanelViewModel(
             )
             carriedError = null
             recomputeEstimate()
-            // Words fill runs separately (never inline): first paint is
-            // committed before any chapter JSON is touched, and tests
-            // observe the two phases through the scheduler.
-            fillJob = scope.launch { fillWordCounts() }
         }
     }
 
@@ -503,6 +510,7 @@ class RenderPanelViewModel(
         val manifest = current.manifest ?: return
         val rendered = current.renderedPositions.toSet()
         val sorted = manifest.chapters.sortedBy { it.index }
+        if (sorted.indices.all { pos -> pos in rendered || audioMsByChapter[pos] != null }) return
         val filled = HashMap<Int, Long?>()
         for ((pos, chapter) in sorted.withIndex()) {
             // Cancellation point (also the scheduler seam the phasing

@@ -355,6 +355,10 @@ fun PartialBookScreen(
             }
         )
     } else {
+        // Estimate word counts fill only while the panel shows: book
+        // open (reader-first) never pays for them, and every manifest
+        // reload refires the effect for a fresh fill.
+        LaunchedEffect(map) { panelVm.ensureWordCounts() }
         Column(
             modifier = modifier
                 .fillMaxSize()

@@ -10,6 +10,9 @@ import app.auloud.player.tts.TtsRole
 import java.io.IOException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
@@ -122,16 +125,9 @@ class RenderPanelViewModelTest {
     ) {
         val sharedFiles: HashMap<String, String> = files
         val textReads = mutableListOf<String>()
-        val gate = java.util.concurrent.atomic.AtomicBoolean(true)
         val storage = object : BundleStorage by FakeStorage(sharedFiles) {
             override fun readText(path: String): String {
-                // The stale scan's rendered-chapter read (ch001) stays
-                // open: only the words pass over unrendered chapters is
-                // gated, which is exactly the phased behavior under test.
-                if ("/text/" in path && !path.endsWith("ch001.json")) {
-                    while (!gate.get()) Thread.sleep(5)
-                    textReads.add(path)
-                }
+                if ("/text/" in path) textReads.add(path)
                 return sharedFiles[path] ?: throw IOException("missing: $path")
             }
         }
@@ -178,10 +174,14 @@ class RenderPanelViewModelTest {
     }
 
     @Test
-    fun loads_titleCountsEstimateAndVoices() {
-        val harness = Harness(partialFiles())
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun loads_titleCountsEstimateAndVoices() = runTest {
+        val harness = Harness(partialFiles(), StandardTestDispatcher(testScheduler))
         val vm = harness.viewModel()
         try {
+            testScheduler.advanceUntilIdle()
+            vm.ensureWordCounts()
+            testScheduler.advanceUntilIdle()
             val state = vm.state.value
             assertEquals(false, state.isLoading)
             assertNull(state.manifestError)
@@ -205,51 +205,44 @@ class RenderPanelViewModelTest {
     }
 
     @Test
-    fun openShowsManifestBeforeChapterReads() {
-        // Gated chapter files: the fill cannot read until the test
-        // opens the gate, so whatever paints first provably precedes
-        // every chapter read. (On the old inline loop the gate would
-        // wedge the load itself and first paint would never come.)
-        val harness = Harness(partialFiles(), Dispatchers.Default)
-        harness.gate.set(false)
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun openShowsManifestBeforeChapterReads() = runTest {
+        val harness = Harness(partialFiles(), StandardTestDispatcher(testScheduler))
         val vm = harness.viewModel()
         try {
-            val early = awaitState(vm, 15_000L) { !it.isLoading }
+            // First paint is manifest-only: no fill runs until the hub
+            // asks, so no chapter JSON is touched.
+            testScheduler.advanceUntilIdle()
+            val early = vm.state.value
+            assertEquals(false, early.isLoading)
             assertEquals("Partial", early.title)
             assertEquals(2, early.estimate.unknownChapters)
-            assertTrue(harness.textReads.isEmpty())
-            harness.gate.set(true)
-            val late = awaitState(vm, 15_000L) { it.estimate.unknownChapters == 0 }
+            // Only the stale scan's rendered-chapter read ran; the
+            // unrendered words pass waits for the panel trigger.
+            assertEquals(listOf("$bundleDir/text/ch001.json"), harness.textReads)
+            // The panel-visible fill refines to the eager-load values.
+            vm.ensureWordCounts()
+            testScheduler.advanceUntilIdle()
+            val late = vm.state.value
             assertEquals(1_600L + 800L, late.estimate.audioMs)
-            assertEquals(2, harness.textReads.size)
+            assertEquals(0, late.estimate.unknownChapters)
+            assertEquals(3, harness.textReads.size)
         } finally {
             vm.clear()
         }
     }
 
-    private fun awaitState(
-        vm: RenderPanelViewModel,
-        timeoutMs: Long,
-        cond: (RenderPanelState) -> Boolean
-    ): RenderPanelState {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (true) {
-            val state = vm.state.value
-            if (cond(state)) return state
-            if (System.currentTimeMillis() > deadline) {
-                throw AssertionError("timed out waiting for panel state")
-            }
-            Thread.sleep(20)
-        }
-    }
-
     @Test
-    fun unreadableChapterJson_countsUnknownButLoads() {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun unreadableChapterJson_countsUnknownButLoads() = runTest {
         val files = partialFiles()
         files.remove("$bundleDir/text/ch003.json")
-        val harness = Harness(files)
+        val harness = Harness(files, StandardTestDispatcher(testScheduler))
         val vm = harness.viewModel()
         try {
+            testScheduler.advanceUntilIdle()
+            vm.ensureWordCounts()
+            testScheduler.advanceUntilIdle()
             val state = vm.state.value
             assertEquals(1, state.estimate.unknownChapters)
             assertEquals(1_600L + RenderEstimates.DEFAULT_CHAPTER_AUDIO_MS, state.estimate.audioMs)
@@ -259,10 +252,14 @@ class RenderPanelViewModelTest {
     }
 
     @Test
-    fun selectOption_nextN_recomputesEstimate() {
-        val harness = Harness(partialFiles())
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun selectOption_nextN_recomputesEstimate() = runTest {
+        val harness = Harness(partialFiles(), StandardTestDispatcher(testScheduler))
         val vm = harness.viewModel()
         try {
+            testScheduler.advanceUntilIdle()
+            vm.ensureWordCounts()
+            testScheduler.advanceUntilIdle()
             vm.selectOption(RenderOption.NEXT_N)
             vm.setNextN(1)
             val state = vm.state.value
