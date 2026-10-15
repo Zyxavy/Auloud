@@ -244,7 +244,8 @@ class IngestPipelineTest {
         storage: MemStorage = MemStorage(),
         library: MemLibrary = MemLibrary(),
         clock: () -> Long = System::currentTimeMillis,
-        onProgress: suspend (ImportProgress) -> Unit = {}
+        onProgress: suspend (ImportProgress) -> Unit = {},
+        onPrepareProgress: suspend (ImportProgress) -> Unit = {}
     ): Pair<IngestOutcome, Pair<MemStorage, MemLibrary>> = runBlocking {
         val outcome = IngestPipeline.importEpub(
             epubFile = epub,
@@ -252,7 +253,8 @@ class IngestPipelineTest {
             storage = storage,
             library = library,
             clock = clock,
-            onProgress = onProgress
+            onProgress = onProgress,
+            onPrepareProgress = onPrepareProgress
         )
         Pair(outcome, Pair(storage, library))
     }
@@ -537,6 +539,27 @@ class IngestPipelineTest {
             listOf("First", "Second"),
             events.map { it.chapterTitle }
         )
+    }
+
+    @Test
+    fun prepareProgress_coversSplitAndValidatePhases() {
+        val epub = temp.newFile("progress-phases.epub")
+        twoChapterEpub(epub, "First Heading")
+        val writes = ArrayList<ImportProgress>()
+        val prepared = ArrayList<ImportProgress>()
+        val (outcome, _) = runImport(
+            epub,
+            onProgress = { writes.add(it) },
+            onPrepareProgress = { prepared.add(it) }
+        )
+        if (outcome !is IngestOutcome.Imported) failNow("want Imported, got $outcome")
+        // Split pass (2 chapters) plus self-check pass (2 chapters):
+        // every chapter announced before any chapter file lands.
+        assertEquals(4, prepared.size)
+        assertEquals(listOf(1, 2, 1, 2), prepared.map { it.chapterIndex })
+        assertEquals(listOf(1, 2, 1, 2), prepared.map { it.chaptersDone })
+        assertTrue(prepared.all { it.totalChapters == 2 })
+        assertEquals(2, writes.size)
     }
 
     @Test

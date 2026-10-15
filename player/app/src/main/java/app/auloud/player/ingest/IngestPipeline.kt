@@ -20,10 +20,14 @@ import kotlinx.coroutines.withContext
 /**
  * IN7: per-chapter import progress for the EPUB import pipeline.
  *
- * Emitted after each chapter file lands in the temp folder, in chapter
- * order. [chaptersDone] runs 1..[totalChapters]; [chapterIndex] is the
- * 1-based chapter just finished, [chapterTitle] its title. Callbacks run
- * on the import dispatcher thread (IO); IN8 forwards them to Main.
+ * Emitted per chapter in chapter order; [chaptersDone] runs
+ * 1..[totalChapters] within each phase, [chapterIndex] is the 1-based
+ * chapter just finished, [chapterTitle] its title. Callbacks run on the
+ * import dispatcher thread (IO); IN8 forwards them to Main. [onProgress]
+ * fires while chapter files land (write phase); [onPrepareProgress]
+ * fires while chapters split/tag and while they self-check, so the
+ * screen moves from the first chapter instead of going silent for the
+ * whole upfront pass on big books.
  */
 data class ImportProgress(
     val chapterIndex: Int,
@@ -110,7 +114,11 @@ object IngestPipeline {
      * @param clock epoch millis source for [ImportReport.elapsedMs] and
      * the manifest `created_at` (injectable, so tests never assert on
      * the wall clock).
-     * @param onProgress per-chapter completion callback (IO thread).
+     * @param onProgress per-chapter completion callback (IO thread,
+     * write phase only).
+     * @param onPrepareProgress per-chapter callback (IO thread) for the
+     * split/tag pass and the self-check pass (default silent, so the
+     * write-phase event counts asserted in tests never change).
      * @param readBook container-read seam (default IN3, injectable).
      * @param readSpine spine-bytes seam (default IN3, injectable).
      */
@@ -122,6 +130,7 @@ object IngestPipeline {
         clock: () -> Long = System::currentTimeMillis,
         ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
         onProgress: suspend (ImportProgress) -> Unit = {},
+        onPrepareProgress: suspend (ImportProgress) -> Unit = {},
         readBook: (File) -> Result<EpubBook> = EpubContainerReader::read,
         readSpine: (File, String) -> Result<ByteArray> = EpubContainerReader::readSpineBytes
     ): IngestOutcome = withContext(ioDispatcher) {
@@ -170,13 +179,22 @@ object IngestPipeline {
 
                 val warnings = ArrayList<String>()
                 val dialogues = LinkedHashMap<Int, ChapterDialogue>()
+                val total = structure.chapters.size
+                var prepared = 0
                 for (chapter in structure.chapters) {
                     ensureActive()
                     val split = SentenceSplitter.splitChapter(chapter, warnings)
                     dialogues[chapter.index] = DialogueTagger.tagChapter(chapter, split, warnings)
+                    prepared++
+                    onPrepareProgress(
+                        ImportProgress(
+                            chapterIndex = chapter.index,
+                            chaptersDone = prepared,
+                            totalChapters = total,
+                            chapterTitle = chapter.title
+                        )
+                    )
                 }
-
-                val total = structure.chapters.size
                 val coverBytes = EpubContainerReader.readCoverBytes(epubFile, book)
                 val manifestInput = IngestWriter.ManifestInput(
                     bookId = bookId,
@@ -230,7 +248,7 @@ object IngestPipeline {
             }
 
             ensureActive()
-            val problems = selfValidate(storage, temp, manifest)
+            val problems = selfValidate(storage, temp, manifest, onPrepareProgress)
             if (problems.isNotEmpty()) {
                 return@withBookLock failAndClean(storage, temp, problems)
             }
@@ -328,13 +346,36 @@ object IngestPipeline {
      * conforming books ever reach the rename. Returns the error list
      * (empty means valid).
      */
-    private fun selfValidate(
+    private suspend fun selfValidate(
         storage: BundleStorage,
         tempDir: String,
-        manifest: Manifest
+        manifest: Manifest,
+        onChapterChecked: suspend (ImportProgress) -> Unit = {}
     ): List<String> {
         return try {
-            BundleValidator.validate(tempDir, manifest, storage::exists, storage::readText, storage::sizeBytes)
+            // The validator hook is plain (shared with rescan callers);
+            // record the order here, then emit on the suspend channel.
+            val order = ArrayList<Int>()
+            val problems = BundleValidator.validate(
+                tempDir,
+                manifest,
+                storage::exists,
+                storage::readText,
+                storage::sizeBytes,
+                onChapter = { order.add(it) }
+            )
+            val titles = manifest.chapters.associate { it.index to it.title }
+            for ((pos, index) in order.withIndex()) {
+                onChapterChecked(
+                    ImportProgress(
+                        chapterIndex = index,
+                        chaptersDone = pos + 1,
+                        totalChapters = manifest.chapters.size,
+                        chapterTitle = titles[index] ?: ""
+                    )
+                )
+            }
+            problems
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

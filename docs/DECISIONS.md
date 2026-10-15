@@ -1422,3 +1422,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Owner report of an 1800-chapter book stuck on a blank spinner at open. Root cause: the load read plus parsed one chapter JSON per unrendered chapter before anything showed (about 13 ms each on desktop, so many minutes on the Tab E with zero progress). The reader itself already loads one chapter at a time; no sliding window was needed there.
 - Alternatives considered: a sliding window in the reader (rejected: the reader, chapter list, and manifest load were all verified cheap); folding validation into the write loop (left as follow-up: import completed for the reporter).
 - Consequences / revisit when: estimates stay rough until the fill lands (mid-fill option changes already recompute rough); the same read-everything shape still exists in import self-validation and the stale scan of fully-rendered books, both follow-ups.
+
+### D-170: Import progress covers split and self-check phases
+- Date: 2026-10-15
+- Status: Accepted
+- Decision: A separate `onPrepareProgress` channel (same `ImportProgress` shape) fires per chapter during split/tag and self-check; the write-phase `onProgress` contract is unchanged. A plain per-chapter hook on the shared validator feeds the self-check events.
+- Why: Import showed nothing until the write phase, so big books looked dead for minutes; the counter now moves from the first chapter. Separate channel because the write-phase exact counts are asserted in tests.
+- Alternatives considered: reusing one channel (rejected: non-monotonic counters and broken test counts); folding validation into the write loop (left alone: the validator stays shared with rescan flows).
+- Consequences / revisit when: total import time is unchanged, only visibility; validate-cost reduction is the next lever if owners want it faster.

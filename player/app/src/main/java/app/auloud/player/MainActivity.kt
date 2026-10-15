@@ -153,7 +153,8 @@ class MainActivity : ComponentActivity() {
                     booksRoot = BooksRootResolver.defaultBooksRoot(applicationContext),
                     storage = routingStorage,
                     library = libraryRepository,
-                    onProgress = onProgress
+                    onProgress = onProgress,
+                    onPrepareProgress = onProgress
                 )
             }
         )
