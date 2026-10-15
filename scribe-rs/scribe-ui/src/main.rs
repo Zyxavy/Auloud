@@ -71,6 +71,15 @@ impl Screen {
     }
 }
 
+/// First-run wizard steps (WZ1): welcome, models, device. Skippable on
+/// every step; re-runnable from Settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WizardStep {
+    Welcome,
+    Models,
+    Device,
+}
+
 struct App {
     settings: Settings,
     machine: State,
@@ -101,6 +110,7 @@ struct App {
     send: scribe_ui::send::Sender,
     models: scribe_ui::models::Manager,
     models_dir: Option<std::path::PathBuf>,
+    wizard: Option<WizardStep>,
     helper_keep_awake: Option<bool>,
     cast: Option<scribe_client::CastPayload>,
     cast_voices: Vec<String>,
@@ -143,6 +153,15 @@ impl App {
         worker_tx
             .send(WorkerCmd::Spawn)
             .expect("worker takes commands");
+        // First-run gate (cheap metadata check): models missing means a
+        // fresh install that cannot render yet.
+        let wizard =
+            if scribe_ui::models::setup_needed(&scribe_ui::models::models_dir(&settings.workspace))
+            {
+                Some(WizardStep::Welcome)
+            } else {
+                None
+            };
         Self {
             workspace_edit: settings.workspace.display().to_string(),
             device_edit: settings.device.clone(),
@@ -175,6 +194,7 @@ impl App {
             send: scribe_ui::send::Sender::default(),
             models: scribe_ui::models::Manager::fresh(),
             models_dir: None,
+            wizard,
             helper_keep_awake: None,
             cast: None,
             cast_voices: Vec::new(),
@@ -907,6 +927,69 @@ impl App {
         self.cast_ui(ui);
         self.send_ui(ui);
         self.validate_ui(ui);
+    }
+
+    /// First-run wizard (WZ1): welcome, models, device. Every step
+    /// skips straight to Books; the models step reuses the Models
+    /// screen, the device step reuses the settings editor state.
+    fn wizard_ui(&mut self, ui: &mut egui::Ui) {
+        let Some(step) = self.wizard else {
+            return;
+        };
+        ui.heading(egui::RichText::new("Welcome to Auloud Scribe").color(rgb(theme::OXBLOOD)));
+        match step {
+            WizardStep::Welcome => {
+                ui.label("Turn ebooks into audiobooks: add a book, draft it, render it, send it to the tablet.");
+                ui.horizontal(|ui| {
+                    if ui.button("Continue").clicked() {
+                        self.wizard = Some(WizardStep::Models);
+                    }
+                    if ui.button("Skip").clicked() {
+                        self.wizard = None;
+                    }
+                });
+            }
+            WizardStep::Models => {
+                self.models_ui(ui);
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Back").clicked() {
+                        self.wizard = Some(WizardStep::Welcome);
+                    }
+                    if ui.button("Next").clicked() {
+                        self.wizard = Some(WizardStep::Device);
+                    }
+                    if ui.button("Skip").clicked() {
+                        self.wizard = None;
+                    }
+                });
+            }
+            WizardStep::Device => {
+                ui.label("Which machine renders?");
+                ui.horizontal(|ui| {
+                    ui.label("Device:");
+                    for device in settings::DEVICES {
+                        ui.radio_value(&mut self.device_edit, device.to_owned(), device);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("Back").clicked() {
+                        self.wizard = Some(WizardStep::Models);
+                    }
+                    if ui.button("Finish").clicked() {
+                        self.save_settings();
+                        self.wizard = None;
+                        self.screen = Screen::Books;
+                    }
+                    if ui.button("Skip").clicked() {
+                        self.wizard = None;
+                    }
+                });
+                if !self.notice.is_empty() {
+                    ui.label(&self.notice);
+                }
+            }
+        }
     }
 
     /// Models screen (MM1): Kokoro pair status, download with byte
@@ -1739,6 +1822,9 @@ impl App {
         if ui.button("Save").clicked() {
             self.save_settings();
         }
+        if ui.button("First-run wizard").clicked() {
+            self.wizard = Some(WizardStep::Welcome);
+        }
         if !self.notice.is_empty() {
             ui.label(&self.notice);
         }
@@ -1776,7 +1862,11 @@ impl eframe::App for App {
         // the same refusal).
         match self.machine.clone() {
             State::Running { .. } => {
-                self.screen_ui(ui);
+                if self.wizard.is_some() {
+                    self.wizard_ui(ui);
+                } else {
+                    self.screen_ui(ui);
+                }
                 self.tray_ui(ui);
                 self.quit_intercept(ui);
             }

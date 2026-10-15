@@ -74,6 +74,16 @@ pub fn file_state(models_dir: &Path, pinned: &PinnedFile) -> FileState {
     }
 }
 
+/// First-run gate (pure, metadata only): true when any pair file is
+/// absent. Unpinned files do NOT gate: they render today, and forcing a
+/// 325 MB re-download on working setups would be hostile.
+pub fn setup_needed(models_dir: &Path) -> bool {
+    PAIR.iter().any(|pinned| {
+        let path = models_dir.join(pinned.name);
+        !path.is_file()
+    })
+}
+
 /// Fresh states for the whole pair.
 pub fn refresh_states(models_dir: &Path) -> Vec<FileState> {
     PAIR.iter()
@@ -505,6 +515,17 @@ mod tests {
         )
         .expect_err("refused");
         assert!(err.contains("cannot reach server"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn gate_trips_on_any_missing_file() {
+        let dir = sandbox("gate");
+        assert!(setup_needed(&dir));
+        std::fs::write(dir.join("kokoro-v1.0.onnx"), b"x").unwrap();
+        assert!(setup_needed(&dir));
+        std::fs::write(dir.join("voices-v1.0.bin"), b"x").unwrap();
+        assert!(!setup_needed(&dir));
         std::fs::remove_dir_all(&dir).ok();
     }
 }
