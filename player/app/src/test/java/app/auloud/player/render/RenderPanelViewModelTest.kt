@@ -8,6 +8,7 @@ import app.auloud.player.storage.FakeSharedPreferences
 import app.auloud.player.tts.PrefsTtsStore
 import app.auloud.player.tts.TtsRole
 import java.io.IOException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -115,9 +116,25 @@ class RenderPanelViewModelTest {
         "$bundleDir/audio/ch001.m4a" to "fake-audio"
     )
 
-    private inner class Harness(files: HashMap<String, String> = HashMap()) {
+    private inner class Harness(
+        files: HashMap<String, String> = HashMap(),
+        private val vmDispatcher: CoroutineDispatcher = Dispatchers.Unconfined
+    ) {
         val sharedFiles: HashMap<String, String> = files
-        val storage = FakeStorage(sharedFiles)
+        val textReads = mutableListOf<String>()
+        val gate = java.util.concurrent.atomic.AtomicBoolean(true)
+        val storage = object : BundleStorage by FakeStorage(sharedFiles) {
+            override fun readText(path: String): String {
+                // The stale scan's rendered-chapter read (ch001) stays
+                // open: only the words pass over unrendered chapters is
+                // gated, which is exactly the phased behavior under test.
+                if ("/text/" in path && !path.endsWith("ch001.json")) {
+                    while (!gate.get()) Thread.sleep(5)
+                    textReads.add(path)
+                }
+                return sharedFiles[path] ?: throw IOException("missing: $path")
+            }
+        }
         val io = FakeIo(sharedFiles)
         val progress = FakeProgress(
             mutableMapOf("b1" to ProgressEntity("b1", 1, 0L, 0L))
@@ -155,7 +172,7 @@ class RenderPanelViewModelTest {
                 onStartRerender = { chapter, mode ->
                     rerenderStarts.add(chapter to mode)
                 },
-                dispatcher = Dispatchers.Unconfined
+                dispatcher = vmDispatcher
             )
         }
     }
@@ -184,6 +201,45 @@ class RenderPanelViewModelTest {
             assertEquals(ChapterRenderState.UNRENDERED, state.chapterStates[1])
         } finally {
             vm.clear()
+        }
+    }
+
+    @Test
+    fun openShowsManifestBeforeChapterReads() {
+        // Gated chapter files: the fill cannot read until the test
+        // opens the gate, so whatever paints first provably precedes
+        // every chapter read. (On the old inline loop the gate would
+        // wedge the load itself and first paint would never come.)
+        val harness = Harness(partialFiles(), Dispatchers.Default)
+        harness.gate.set(false)
+        val vm = harness.viewModel()
+        try {
+            val early = awaitState(vm, 15_000L) { !it.isLoading }
+            assertEquals("Partial", early.title)
+            assertEquals(2, early.estimate.unknownChapters)
+            assertTrue(harness.textReads.isEmpty())
+            harness.gate.set(true)
+            val late = awaitState(vm, 15_000L) { it.estimate.unknownChapters == 0 }
+            assertEquals(1_600L + 800L, late.estimate.audioMs)
+            assertEquals(2, harness.textReads.size)
+        } finally {
+            vm.clear()
+        }
+    }
+
+    private fun awaitState(
+        vm: RenderPanelViewModel,
+        timeoutMs: Long,
+        cond: (RenderPanelState) -> Boolean
+    ): RenderPanelState {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (true) {
+            val state = vm.state.value
+            if (cond(state)) return state
+            if (System.currentTimeMillis() > deadline) {
+                throw AssertionError("timed out waiting for panel state")
+            }
+            Thread.sleep(20)
         }
     }
 

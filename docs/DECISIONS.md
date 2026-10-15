@@ -1414,3 +1414,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: The first pick (`rustls` bundle) failed the deny gate: webpki-roots 1.0.9 carries CDLA-Permissive-2.0, which is not allow-listed. The native stack needs no new root data and passed deny unchanged.
 - Alternatives considered: allowing CDLA-Permissive-2.0 for the roots data (rejected: license-policy change for one file); `platform-verifier` plus ring (rejected: needs a private `_ring` feature to name the crypto provider).
 - Consequences / revisit when: Linux builds need OpenSSL headers installed; revisit if a platform ever lacks system TLS (then the roots-data question returns with evidence).
+
+### D-169: Book opens paint from the manifest; chapter word counts fill after
+- Date: 2026-10-15
+- Status: Accepted
+- Decision: `RenderPanelViewModel` loads the manifest first (rendered chapters keep manifest durations, unrendered start unknown with a rough estimate) and fills word counts in a background pass with cooperative cancellation. A separately launched fill keeps first paint ahead of every chapter read.
+- Why: Owner report of an 1800-chapter book stuck on a blank spinner at open. Root cause: the load read plus parsed one chapter JSON per unrendered chapter before anything showed (about 13 ms each on desktop, so many minutes on the Tab E with zero progress). The reader itself already loads one chapter at a time; no sliding window was needed there.
+- Alternatives considered: a sliding window in the reader (rejected: the reader, chapter list, and manifest load were all verified cheap); folding validation into the write loop (left as follow-up: import completed for the reporter).
+- Consequences / revisit when: estimates stay rough until the fill lands (mid-fill option changes already recompute rough); the same read-everything shape still exists in import self-validation and the stale scan of fully-rendered books, both follow-ups.

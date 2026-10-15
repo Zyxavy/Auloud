@@ -14,9 +14,11 @@ import app.auloud.player.tts.TtsVoiceStore
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 
 /**
  * RN9: render panel state for one book (Slice 10).
@@ -27,12 +29,15 @@ import kotlinx.coroutines.launch
  * arrives as callbacks, so the option mapping, estimate ranges, error
  * mapping and delete flow are plain-JVM-testable with fakes.
  *
- * Loading reads the manifest plus one chapter JSON per unrendered
- * chapter (sequential, counts only, never held: the one-chapter memory
- * rule counts held chapters, not a counting pass). Measured manifest
- * durations always win; word counts size the rest at [EST_MS_PER_WORD];
- * unreadable chapters fall back to the [RenderEstimates] default and are
- * counted as unknown (the panel says the estimate is rough).
+ * Loading reads the manifest first and paints from it (rendered
+ * chapters carry manifest durations; unrendered chapters start unknown
+ * and the estimate says rough). A words pass then fills unrendered
+ * chapters one at a time with cooperative cancellation: opening an
+ * 1800-chapter book no longer reads every chapter JSON before anything
+ * shows. Measured manifest durations always win; word counts size the
+ * rest at [EST_MS_PER_WORD]; unreadable chapters fall back to the
+ * [RenderEstimates] default and are counted as unknown (the panel says
+ * the estimate is rough).
  *
  * VS5: the same load classifies every chapter through [StaleBookScan]
  * (one rendered-chapter JSON at a time, flags only) into [staleStates]
@@ -78,7 +83,9 @@ class RenderPanelViewModel(
     val state: kotlinx.coroutines.flow.StateFlow<RenderPanelState> = _state
 
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
-    private var audioMsByChapter: Map<Int, Long?> = emptyMap()
+    private var audioMsByChapter = HashMap<Int, Long?>()
+    /** Words-pass job (cancelled on reload; the scope owns the rest). */
+    private var fillJob: Job? = null
     private var noSleep: (Long) -> Unit = {}
     /** VS5: error a bulk delete carries across the reload (reload freshens states first). */
     private var carriedError: String? = null
@@ -340,6 +347,7 @@ class RenderPanelViewModel(
     }
 
     private fun reload() {
+        fillJob?.cancel()
         val kept = _state.value
         _state.value = kept.copy(isLoading = true)
         scope.launch {
@@ -352,6 +360,10 @@ class RenderPanelViewModel(
             )
             carriedError = null
             recomputeEstimate()
+            // Words fill runs separately (never inline): first paint is
+            // committed before any chapter JSON is touched, and tests
+            // observe the two phases through the scheduler.
+            fillJob = scope.launch { fillWordCounts() }
         }
     }
 
@@ -409,7 +421,10 @@ class RenderPanelViewModel(
                 audioMs[pos] = chapter.durationMs
                 continue
             }
-            audioMs[pos] = wordsFor(chapter.text)?.let(::audioMsForWords)
+            // Unrendered chapters start unknown; the words pass fills
+            // them after first paint (an 1800-chapter book reads every
+            // chapter JSON otherwise, all before anything shows).
+            audioMs[pos] = null
         }
         audioMsByChapter = audioMs
         val job = loadJob()
@@ -473,6 +488,34 @@ class RenderPanelViewModel(
         } catch (_: Exception) {
             null
         }
+    }
+
+    /**
+     * Words pass over unrendered chapters (background fill after first
+     * paint). Same reads as the old load-time loop, one chapter at a
+     * time. Each pass builds its own map and swaps it in once, so
+     * overlapping fills can only repeat identical work, never corrupt
+     * shared state. The estimate recomputes once at the end (mid-fill
+     * option changes already recompute rough).
+     */
+    private suspend fun fillWordCounts() {
+        val current = _state.value
+        val manifest = current.manifest ?: return
+        val rendered = current.renderedPositions.toSet()
+        val sorted = manifest.chapters.sortedBy { it.index }
+        val filled = HashMap<Int, Long?>()
+        for ((pos, chapter) in sorted.withIndex()) {
+            // Cancellation point (also the scheduler seam the phasing
+            // test observes: no chapter is touched before this yields).
+            yield()
+            filled[pos] = if (pos in rendered) {
+                chapter.durationMs
+            } else {
+                wordsFor(chapter.text)?.let(::audioMsForWords)
+            }
+        }
+        audioMsByChapter = filled
+        recomputeEstimate()
     }
 
     private fun loadJob(): RenderJob? {
