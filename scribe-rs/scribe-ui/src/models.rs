@@ -261,6 +261,20 @@ fn temp_path(dir: &Path) -> PathBuf {
     ))
 }
 
+/// Delete orphaned download temps (killed runs leave them; the screen
+/// never shows them, so no settle would clean them).
+fn sweep_parts(dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with(".auloud-dl-") && name.ends_with(".part") {
+            std::fs::remove_file(entry.path()).ok();
+        }
+    }
+}
+
 fn run_op(dir: PathBuf, op: ModelOp, tx: std::sync::mpsc::Sender<ModelEvent>) {
     let send = |event: ModelEvent| tx.send(event).ok();
     // Every arm ends here: fresh states plus one human note.
@@ -269,6 +283,26 @@ fn run_op(dir: PathBuf, op: ModelOp, tx: std::sync::mpsc::Sender<ModelEvent>) {
             note,
             error,
             states: refresh_states(&dir),
+        }));
+    };
+    let settle_installed = |index: usize, note: String| {
+        // The installed file just passed its hash: mark it without
+        // paying for a second pass, refresh only the rest.
+        let states = PAIR
+            .iter()
+            .enumerate()
+            .map(|(i, pinned)| {
+                if i == index {
+                    FileState::Pinned
+                } else {
+                    file_state(&dir, pinned)
+                }
+            })
+            .collect();
+        send(ModelEvent::Done(Settlement {
+            note,
+            error: None,
+            states,
         }));
     };
     let fail = |detail: String| {
@@ -287,6 +321,7 @@ fn run_op(dir: PathBuf, op: ModelOp, tx: std::sync::mpsc::Sender<ModelEvent>) {
                 fail(format!("cannot create models dir: {err}"));
                 return;
             }
+            sweep_parts(&dir);
             let temp = temp_path(&dir);
             let mut progress = |downloaded: u64, total: Option<u64>| {
                 send(ModelEvent::Progress { downloaded, total });
@@ -298,7 +333,7 @@ fn run_op(dir: PathBuf, op: ModelOp, tx: std::sync::mpsc::Sender<ModelEvent>) {
             }
             let dest = dir.join(pinned.name);
             match verify_and_place(&temp, &dest, pinned) {
-                Ok(note) => settle(note, None),
+                Ok(note) => settle_installed(index, note),
                 Err(detail) => fail(detail),
             }
         }
@@ -311,6 +346,7 @@ fn run_op(dir: PathBuf, op: ModelOp, tx: std::sync::mpsc::Sender<ModelEvent>) {
                 fail(format!("cannot create models dir: {err}"));
                 return;
             }
+            sweep_parts(&dir);
             let temp = temp_path(&dir);
             if let Err(err) = std::fs::copy(&picked, &temp) {
                 fail(format!("cannot copy picked file: {err}"));
@@ -318,7 +354,7 @@ fn run_op(dir: PathBuf, op: ModelOp, tx: std::sync::mpsc::Sender<ModelEvent>) {
             }
             let dest = dir.join(pinned.name);
             match verify_and_place(&temp, &dest, pinned) {
-                Ok(note) => settle(note, None),
+                Ok(note) => settle_installed(index, note),
                 Err(detail) => fail(detail),
             }
         }
@@ -392,6 +428,19 @@ mod tests {
         let err = verify_and_place(&temp, &dir.join("tiny.bin"), &pin).expect_err("bad hash");
         assert!(err.contains("checksum mismatch"));
         assert!(!temp.exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn sweep_removes_only_orphaned_parts() {
+        let dir = sandbox("sweep");
+        std::fs::write(dir.join(".auloud-dl-1.part"), b"orphan").unwrap();
+        std::fs::write(dir.join("kokoro-v1.0.onnx"), b"keep").unwrap();
+        std::fs::write(dir.join(".auloud-dl-keep.txt"), b"keep").unwrap();
+        sweep_parts(&dir);
+        assert!(!dir.join(".auloud-dl-1.part").exists());
+        assert!(dir.join("kokoro-v1.0.onnx").is_file());
+        assert!(dir.join(".auloud-dl-keep.txt").is_file());
         std::fs::remove_dir_all(&dir).ok();
     }
 

@@ -915,8 +915,10 @@ impl App {
     fn models_ui(&mut self, ui: &mut egui::Ui) {
         let dir = scribe_ui::models::models_dir(&self.settings.workspace);
         // First arrival (or workspace switch) checks the pair; hashing
-        // hundreds of megabytes stays on the manager thread.
-        if self.models_dir.as_ref() != Some(&dir) {
+        // hundreds of megabytes stays on the manager thread. A switch
+        // waits for idle: the running op targets the old folder, and its
+        // settle relabels nothing until it lands.
+        if self.models_dir.as_ref() != Some(&dir) && !self.models.busy() {
             self.models_dir = Some(dir.clone());
             self.models
                 .begin(scribe_ui::models::ModelOp::Refresh, dir.clone());
@@ -947,7 +949,7 @@ impl App {
                     }
                     scribe_ui::models::FileState::Unpinned { size } => {
                         ui.label(format!(
-                            "present, not pinned ({}; works today)",
+                            "present, not pinned ({})",
                             scribe_ui::send::human_bytes(size)
                         ));
                     }
@@ -1000,6 +1002,10 @@ impl App {
             } else if !outcome.note.is_empty() {
                 ui.label(outcome.note);
             }
+        }
+        if ui.button("Check again").clicked() && !busy {
+            self.models
+                .begin(scribe_ui::models::ModelOp::Refresh, dir.clone());
         }
     }
 
