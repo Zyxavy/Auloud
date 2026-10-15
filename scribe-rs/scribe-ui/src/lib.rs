@@ -24,6 +24,25 @@ pub mod theme {
     /// Sage accent (progress, ok states).
     pub const SAGE: (u8, u8, u8) = (0x5F, 0x71, 0x66);
 
+    /// Serif display family for titles (DS2: Source Serif 4, OFL-1.1,
+    /// vendored under `scribe-ui/fonts/`).
+    pub const SERIF_FAMILY: &str = "serif-display";
+
+    /// Point titles at the serif family, keeping their sizes (pure over
+    /// the style, so every `ui.heading` follows from one call site).
+    pub fn serif_titles(style: &mut egui::Style) {
+        if let Some(size) = style
+            .text_styles
+            .get(&egui::TextStyle::Heading)
+            .map(|font| font.size)
+        {
+            style.text_styles.insert(
+                egui::TextStyle::Heading,
+                egui::FontId::new(size, egui::FontFamily::Name(SERIF_FAMILY.into())),
+            );
+        }
+    }
+
     /// WCAG relative luminance of one sRGB triple.
     pub fn luminance(rgb: (u8, u8, u8)) -> f64 {
         fn channel(value: u8) -> f64 {
@@ -65,6 +84,22 @@ pub mod theme {
             assert!(contrast(INK, PAPER) >= 4.5);
             assert!(contrast(OXBLOOD, PAPER) >= 4.5);
             assert!(contrast(SAGE, PAPER) >= 4.5);
+        }
+
+        #[test]
+        fn serif_titles_keep_size_and_change_family() {
+            let mut style = egui::Style::default();
+            let size = style.text_styles[&egui::TextStyle::Heading].size;
+            serif_titles(&mut style);
+            assert_eq!(
+                style.text_styles[&egui::TextStyle::Heading],
+                egui::FontId::new(size, egui::FontFamily::Name(SERIF_FAMILY.into()))
+            );
+            // Body text untouched.
+            assert_eq!(
+                style.text_styles[&egui::TextStyle::Body].family,
+                egui::FontFamily::Proportional
+            );
         }
     }
 }

@@ -134,6 +134,12 @@ lines fall back to the generic female/male voices.**
 - Generated audio: check each model's terms about using the output, especially if you ever share audiobooks.
 - No voice cloning of real people without their permission (not in v1 scope).
 
+### 4b. v3 UI fonts (DS2)
+
+| Item | License | Notes | Verified |
+| --- | --- | --- | --- |
+| Source Serif 4 regular (titles only) | OFL-1.1 | Vendored latin-subset TTF (`scribe-rs/scribe-ui/fonts/source-serif-4-latin-400-normal.ttf`, 54 KB) plus the Adobe OFL text (`fonts/OFL-source-serif.txt`); file keeps its name per the Reserved Font Name rule. No new crate (egui reads the bytes directly). Alternative on hand: Merriweather (same license, one swap away). | [x] |
+
 ## 5. v2 on-device TTS: decided as two flavors (D-126 option A)
 
 `core` stays Apache-2.0 and is the main release; it ships no GPL code.

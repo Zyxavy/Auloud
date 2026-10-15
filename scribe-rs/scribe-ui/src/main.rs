@@ -1908,7 +1908,24 @@ fn main() {
     eframe::run_native(
         "Auloud Scribe",
         eframe::NativeOptions::default(),
-        Box::new(|_cc| Ok(Box::new(App::new()))),
+        Box::new(|cc| {
+            // DS2: serif display face for titles (Source Serif 4, OFL-1.1
+            // vendored in `fonts/`; Merriweather stays one swap away).
+            let mut fonts = egui::FontDefinitions::default();
+            fonts.font_data.insert(
+                scribe_ui::theme::SERIF_FAMILY.to_owned(),
+                std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+                    "../fonts/source-serif-4-latin-400-normal.ttf"
+                ))),
+            );
+            fonts.families.insert(
+                egui::FontFamily::Name(scribe_ui::theme::SERIF_FAMILY.into()),
+                vec![scribe_ui::theme::SERIF_FAMILY.to_owned()],
+            );
+            cc.egui_ctx.set_fonts(fonts);
+            cc.egui_ctx.all_styles_mut(scribe_ui::theme::serif_titles);
+            Ok(Box::new(App::new()))
+        }),
     )
     .expect("auloud scribe runs");
 }
