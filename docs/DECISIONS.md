@@ -1406,3 +1406,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Owner chose in-app Wi-Fi receive over browser download and folder copy (Slice 20 planning).
 - Alternatives considered: tablet browser download into a folder plus existing import (rejected: no in-app progress or verification); folder copy only (rejected by the same choice); PC-hosted LAN server (rejected: reopens the D8/UI2 localhost decision).
 - Consequences / revisit when: D-016's no-network posture ends at LAN-only (no cloud; README and releaseManifestCheck updated in TR1); core stays Apache-2.0 (BSD-3-Clause is allow-listed); revisit if a network sniff ever shows traffic past the LAN or the permission is asked to cover more.
+
+### D-168: Model downloads use the Windows system TLS stack
+- Date: 2026-10-15
+- Status: Accepted
+- Decision: The UI downloads models with ureq plus `native-tls-no-default` (Windows SChannel plus the OS cert store, no bundled roots).
+- Why: The first pick (`rustls` bundle) failed the deny gate: webpki-roots 1.0.9 carries CDLA-Permissive-2.0, which is not allow-listed. The native stack needs no new root data and passed deny unchanged.
+- Alternatives considered: allowing CDLA-Permissive-2.0 for the roots data (rejected: license-policy change for one file); `platform-verifier` plus ring (rejected: needs a private `_ring` feature to name the crypto provider).
+- Consequences / revisit when: Linux builds need OpenSSL headers installed; revisit if a platform ever lacks system TLS (then the roots-data question returns with evidence).
