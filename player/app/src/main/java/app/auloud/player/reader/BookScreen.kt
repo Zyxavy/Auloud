@@ -59,8 +59,10 @@ import app.auloud.player.storage.BundleStorage
 import app.auloud.player.tts.PrefsTtsStore
 import app.auloud.player.tts.bookVoiceVersionOf
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 /**
  * RA7: one book's screen across all three modes.
@@ -113,6 +115,12 @@ fun BookScreen(
     // now-complete book read-only).
     var manifestRenderState by remember(book.id) { mutableStateOf<String?>(null) }
     var manifestLoaded by remember(book.id) { mutableStateOf(false) }
+    // OPEN1: the chapter list must never spin forever (a stuck read left
+    // owners on "Loading book…" with no way forward). [chapterError]
+    // surfaces the failure in the hub with a retry; [loadTick] re-runs
+    // the load below.
+    var chapterError by remember(book.id) { mutableStateOf<String?>(null) }
+    var loadTick by remember(book.id) { mutableIntStateOf(0) }
     var showChapters by remember(book.id) { mutableStateOf(false) }
     // VS5: staleness for complete books (null = not loaded yet, or no
     // stale UI: read-only, legacy, or nothing rendered). Reloaded with
@@ -144,16 +152,30 @@ fun BookScreen(
             Log.w(TAG, "re-render start failed: ${e.message}")
         }
     }
-    LaunchedEffect(book.id, staleTick) {
-        val parsed = withContext(Dispatchers.IO) {
-            try {
-                val root = book.bundleDir.trimEnd('/')
-                val raw = storage.readText("$root/manifest.json")
-                BundleParser.parseText(raw).getOrThrow()
-            } catch (_: Exception) {
-                null
+    LaunchedEffect(book.id, staleTick, loadTick) {
+        Log.d(TAG, "chapter load start id=${book.id} dir=${book.bundleDir}")
+        val started = android.os.SystemClock.uptimeMillis()
+        val parsed = try {
+            withTimeout(20_000L) {
+                withContext(Dispatchers.IO) {
+                    try {
+                        val root = book.bundleDir.trimEnd('/')
+                        val raw = storage.readText("$root/manifest.json")
+                        BundleParser.parseText(raw).getOrThrow()
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
             }
+        } catch (e: TimeoutCancellationException) {
+            Log.w(TAG, "chapter load timed out id=${book.id} after 20s")
+            chapterError = "Could not read the chapter list in time. Check storage, then retry."
+            chapters = emptyList()
+            manifestLoaded = true
+            return@LaunchedEffect
         }
+        Log.d(TAG, "chapter load done id=${book.id} in ${android.os.SystemClock.uptimeMillis() - started}ms")
+        chapterError = null
         chapters = parsed?.chapters?.let(::toChapterEntries) ?: emptyList()
         manifestRenderState = parsed?.renderState
         manifestLoaded = true
@@ -199,6 +221,8 @@ fun BookScreen(
             onBack = onBack,
             modifier = modifier,
             chapters = chapters,
+            loadingError = chapterError,
+            onRetryLoading = { loadTick++ },
             onBookChanged = onBookChanged
         )
         return

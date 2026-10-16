@@ -1446,3 +1446,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Owner asked for PDF import on the app; PDFs used to go through the PC only.
 - Alternatives considered: skipping tablet PDF import (rejected: owner asked for it).
 - Consequences / revisit when: scanned PDFs without a text layer import as a named failure (no OCR); the thin PdfBox adapter needs a real Android context, so JVM tests use a fake and device acceptance proves the real path; big-PDF behavior on the Tab E is untested.
+
+### D-173: Stuck book opens fail visibly with a retry (OPEN1)
+- Date: 2026-10-16
+- Status: Accepted
+- Decision: The chapter-list load gets a 20-second timeout plus a named error with retry in the hub (it used to spin forever on `Loading book…`); a rogue throw in the panel loader lands in the existing manifest-error field instead of killing the loader silently; milestone logs go under `AuloudChapters`. On timeout the list falls back to empty so the panel (which reads the manifest independently) still gets its chance, further naming the broken layer.
+- Why: Owner report: a fresh small EPUB import opens fine but tapping the book spins `Loading book…` past 450s, while the same book opens in seconds after rendering one chapter. Reading without rendering is the design (D-171), so this jumps the queue.
+- Alternatives considered: guessing at the storage layer blind (rejected: every read in this path is guarded in this tree, and the owner build differs from it).
+- Consequences / revisit when: if the clean-tree build still sticks, the timeout error names the layer on the next repro; revisit the timeout length if slow devices false-positive it.

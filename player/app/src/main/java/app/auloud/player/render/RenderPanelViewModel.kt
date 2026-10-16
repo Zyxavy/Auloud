@@ -11,6 +11,7 @@ import app.auloud.player.tts.BookVoices
 import app.auloud.player.tts.EngineRegistry
 import app.auloud.player.tts.TtsRole
 import app.auloud.player.tts.TtsVoiceStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -364,7 +365,20 @@ class RenderPanelViewModel(
         val kept = _state.value
         _state.value = kept.copy(isLoading = true)
         scope.launch {
-            val loaded = loadBlocking()
+            // OPEN1: a rogue throw used to kill this coroutine silently,
+            // leaving the hub on an eternal spinner (manifest stays null).
+            // Surface it as a panel error instead; cancellation still
+            // propagates so screen dispose stays clean.
+            val loaded = try {
+                loadBlocking()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                RenderPanelState(
+                    isLoading = false,
+                    manifestError = renderErrorText("panel load failed (${e.message})")
+                )
+            }
             _state.value = loaded.copy(
                 option = _state.value.option,
                 nextN = _state.value.nextN,

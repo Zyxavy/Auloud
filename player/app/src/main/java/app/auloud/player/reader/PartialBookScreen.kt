@@ -26,6 +26,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -106,6 +107,12 @@ fun PartialBookScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     chapters: List<ChapterEntry>? = null,
+    /**
+     * OPEN1: chapter-list failure from [BookScreen] (load timed out).
+     * Shown with a retry instead of the eternal spinner.
+     */
+    loadingError: String? = null,
+    onRetryLoading: () -> Unit = {},
     onBookChanged: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -191,6 +198,19 @@ fun PartialBookScreen(
     val panelState by panelVm.state.collectAsState()
     val map = remember(panelState.manifest) {
         panelState.manifest?.let(::buildChapterMediaMap)
+    }
+    // Loading stopwatch: the phase line below carries live seconds, so a
+    // stuck open names both where it waits and for how long (climbing
+    // seconds means Main is free and a background load is stuck; a
+    // frozen number means Main itself is blocked).
+    val hubLoading = chapters == null || map == null
+    var loadingSecs by remember(book.id) { mutableIntStateOf(0) }
+    LaunchedEffect(book.id, hubLoading) {
+        loadingSecs = 0
+        while (hubLoading) {
+            delay(1_000L)
+            loadingSecs++
+        }
     }
     var listenAt by remember(book.id) { mutableStateOf<Int?>(null) }
     var readAt by remember(book.id) { mutableStateOf<Int?>(null) }
@@ -296,11 +316,52 @@ fun PartialBookScreen(
     }
     val entries = chapters
     if (entries == null || map == null) {
+        // OPEN1: either gate may now carry a named failure (chapter-list
+        // timeout from the host, panel manifest error from its own load).
+        // A named failure shows text plus a way forward; only a clean
+        // load with neither gate ready keeps the spinner.
+        val chapterGateError = if (entries == null) loadingError else null
+        val panelGateError = if (entries != null && map == null) {
+            panelState.manifestError
+        } else {
+            null
+        }
+        val gateError = chapterGateError ?: panelGateError
+        if (gateError != null) {
+            Column(
+                modifier = modifier.fillMaxSize().padding(16.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = gateError,
+                    style = MaterialTheme.typography.bodyLarge
+                )
+                Spacer(Modifier.height(8.dp))
+                TextButton(
+                    onClick = {
+                        if (chapterGateError != null) {
+                            onRetryLoading()
+                        } else {
+                            panelVm.refresh()
+                        }
+                    }
+                ) {
+                    Text("Retry")
+                }
+                TextButton(onClick = onBack) { Text("Back") }
+            }
+            return
+        }
         ReaderScreen(
             state = ReaderState(isTextLoading = true),
             onBack = onBack,
             modifier = modifier,
-            loadingText = if (entries == null) "Loading book…" else "Preparing…"
+            loadingText = if (entries == null) {
+                "Loading book… ${loadingSecs}s"
+            } else {
+                "Preparing… ${loadingSecs}s"
+            }
         )
         return
     }

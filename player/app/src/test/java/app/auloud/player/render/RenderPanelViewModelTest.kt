@@ -7,6 +7,7 @@ import app.auloud.player.storage.BundleStorage
 import app.auloud.player.storage.FakeSharedPreferences
 import app.auloud.player.tts.PrefsTtsStore
 import app.auloud.player.tts.TtsRole
+import app.auloud.player.tts.TtsVoiceStore
 import java.io.IOException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -658,6 +659,38 @@ class RenderPanelViewModelTest {
             assertEquals(true, state.staleReadOnly)
             vm.rerenderStale()
             assertTrue(harness.rerenderStarts.isEmpty())
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun rogueThrow_surfacesPanelErrorInsteadOfSpinningForever() = runTest {
+        // OPEN1: a throw escaping the panel load used to kill the loader
+        // silently, leaving the hub on an eternal spinner (manifest stays
+        // null). It must surface as a panel error instead.
+        val harness = Harness(partialFiles(), StandardTestDispatcher(testScheduler))
+        val wedgedVoices = object : TtsVoiceStore by harness.voiceStore {
+            override fun voiceId(role: TtsRole): String = throw RuntimeException("prefs wedged")
+        }
+        val vm = RenderPanelViewModel(
+            bookId = "b1",
+            bundleDir = bundleDir,
+            storage = harness.storage,
+            progress = harness.progress,
+            voices = wedgedVoices,
+            fileIo = harness.io,
+            dispatcher = StandardTestDispatcher(testScheduler)
+        )
+        try {
+            testScheduler.advanceUntilIdle()
+            val state = vm.state.value
+            assertEquals(false, state.isLoading)
+            assertTrue(
+                "panel error must name the failure, got: ${state.manifestError}",
+                state.manifestError != null
+            )
         } finally {
             vm.clear()
         }
