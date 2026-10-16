@@ -21,6 +21,9 @@ object PdfStructure {
     /** Pages per chapter (Scribe's fallback number). */
     const val PAGES_PER_CHAPTER = 20
 
+    private val paraBreak = Regex("\\R\\s*\\R")
+    private val whitespace = Regex("\\s+")
+
     fun chapters(book: PdfBook): List<IngestChapter> {
         val raw = ArrayList<RawIngestChapter>()
         var first = 1
@@ -48,8 +51,8 @@ object PdfStructure {
 
     internal fun paragraphs(pageText: String): List<String> {
         return pageText
-            .split(Regex("\\R\\s*\\R"))
-            .map { it.replace(Regex("\\s+"), " ").trim() }
+            .split(paraBreak)
+            .map { it.replace(whitespace, " ").trim() }
             .filter { it.isNotEmpty() }
     }
 }

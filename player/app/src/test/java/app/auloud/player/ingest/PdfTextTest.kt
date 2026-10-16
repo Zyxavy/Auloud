@@ -14,22 +14,6 @@ import org.junit.Test
  */
 class PdfTextTest {
 
-    private class FakePdfBook(
-        private val pages: List<String>,
-        override val title: String? = "Tiny PDF",
-        override val author: String? = null
-    ) : PdfBook {
-        override val pageCount: Int = pages.size
-
-        override fun pageText(page: Int): String {
-            require(page in 1..pageCount) { "page $page out of $pageCount" }
-            return pages[page - 1]
-        }
-
-        override fun close() {
-        }
-    }
-
     @Test
     fun pagesReadSeparately() {
         FakePdfBook(listOf("First page words.", "Second page words.")).use { book ->

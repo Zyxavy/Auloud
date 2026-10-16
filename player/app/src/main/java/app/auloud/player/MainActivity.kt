@@ -485,7 +485,11 @@ class MainActivity : ComponentActivity() {
      * importer shapes it into the copy-failure message.
      */
     private suspend fun copyUriToCache(uri: Uri, displayName: String): File {
-        val target = File(cacheDir, "import-${System.currentTimeMillis()}.epub")
+        // The importer routes PDF vs EPUB on the cache file extension,
+        // so the scratch copy must keep the picked type (a PDF named
+        // *.epub would take the EPUB path and fail).
+        val suffix = if (displayName.endsWith(".pdf", ignoreCase = true)) ".pdf" else ".epub"
+        val target = File(cacheDir, "import-${System.currentTimeMillis()}$suffix")
         try {
             val input = contentResolver.openInputStream(uri)
                 ?: throw java.io.IOException("$displayName: picked document cannot be opened")

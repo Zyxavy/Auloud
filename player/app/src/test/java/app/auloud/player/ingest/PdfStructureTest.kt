@@ -11,24 +11,10 @@ import org.junit.Test
  */
 class PdfStructureTest {
 
-    private class FakePdfBook(private val pages: List<String>) : PdfBook {
-        override val pageCount: Int = pages.size
-        override val title: String? = null
-        override val author: String? = null
-
-        override fun pageText(page: Int): String {
-            require(page in 1..pageCount) { "page $page out of $pageCount" }
-            return pages[page - 1]
-        }
-
-        override fun close() {
-        }
-    }
-
     @Test
     fun pagesChunkIntoTwentyPageRanges() {
         val pages = (1..45).map { n -> "Words of page $n.\n\nSecond para of $n." }
-        val chapters = PdfStructure.chapters(FakePdfBook(pages))
+        val chapters = PdfStructure.chapters(FakePdfBook(pages, title = null))
 
         assertEquals(3, chapters.size)
         assertEquals("Pages 1–20", chapters[0].title)

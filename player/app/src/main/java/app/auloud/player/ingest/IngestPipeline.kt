@@ -212,6 +212,8 @@ object IngestPipeline {
             prepareHead = {
                 val book = try {
                     openBook(pdfFile)
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     return@importStructured HeadResult.Failed(
                         listOf("${pdfFile.name}: cannot read PDF (${e.message})")
