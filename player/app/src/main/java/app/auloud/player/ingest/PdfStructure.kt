@@ -1,5 +1,7 @@
 package app.auloud.player.ingest
 
+import kotlinx.coroutines.yield
+
 /**
  * PDF1: PDF pages into chapters for the shared import tail.
  *
@@ -24,17 +26,30 @@ object PdfStructure {
     private val paraBreak = Regex("\\R\\s*\\R")
     private val whitespace = Regex("\\s+")
 
-    fun chapters(book: PdfBook): List<IngestChapter> {
+    /**
+     * Pages into 20-page chapters. Suspends cooperatively ([yield] per
+     * page, so import cancel lands promptly instead of after the whole
+     * book) and reports each finished range through [onRange] (the
+     * import screen moves during extraction instead of freezing).
+     */
+    suspend fun chapters(
+        book: PdfBook,
+        onRange: suspend (ImportProgress) -> Unit = {}
+    ): List<IngestChapter> {
+        val totalRanges = (book.pageCount + PAGES_PER_CHAPTER - 1) / PAGES_PER_CHAPTER
         val raw = ArrayList<RawIngestChapter>()
         var first = 1
+        var done = 0
         while (first <= book.pageCount) {
             val last = minOf(first + PAGES_PER_CHAPTER - 1, book.pageCount)
             val blocks = ArrayList<IngestBlock>()
             for (page in first..last) {
+                yield()
                 for (para in paragraphs(book.pageText(page))) {
                     blocks.add(IngestBlock(kind = BLOCK_PARA, text = para))
                 }
             }
+            done++
             if (blocks.isNotEmpty()) {
                 raw.add(
                     RawIngestChapter(
@@ -44,6 +59,14 @@ object PdfStructure {
                     )
                 )
             }
+            onRange(
+                ImportProgress(
+                    chapterIndex = done,
+                    chaptersDone = done,
+                    totalChapters = totalRanges,
+                    chapterTitle = "Pages $first–$last"
+                )
+            )
             first = last + 1
         }
         return StructureCleaner.assemble(raw)

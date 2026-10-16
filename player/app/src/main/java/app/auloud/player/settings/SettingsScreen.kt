@@ -170,6 +170,13 @@ fun SettingsScreen(
             onClick = { showLicenses = true },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
         )
+        // PDF2: visible build identity, so a device report can name the
+        // exact build under test (wrong-build confusion cost us a cycle).
+        Text(
+            text = "Auloud ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})",
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+        )
     }
 
     if (showBatteryDialog) {

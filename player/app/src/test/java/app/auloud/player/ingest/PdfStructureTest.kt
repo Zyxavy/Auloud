@@ -1,5 +1,6 @@
 package app.auloud.player.ingest
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -12,7 +13,7 @@ import org.junit.Test
 class PdfStructureTest {
 
     @Test
-    fun pagesChunkIntoTwentyPageRanges() {
+    fun pagesChunkIntoTwentyPageRanges() = runBlocking {
         val pages = (1..45).map { n -> "Words of page $n.\n\nSecond para of $n." }
         val chapters = PdfStructure.chapters(FakePdfBook(pages, title = null))
 
@@ -26,7 +27,7 @@ class PdfStructureTest {
     }
 
     @Test
-    fun emptyPagesAndRangesFallOut() {
+    fun emptyPagesAndRangesFallOut() = runBlocking {
         val chapters = PdfStructure.chapters(FakePdfBook(listOf("", "   ", "Kept words here.")))
 
         assertEquals(1, chapters.size)
@@ -35,7 +36,19 @@ class PdfStructureTest {
     }
 
     @Test
-    fun emptyBookYieldsNoChapters() {
+    fun emptyBookYieldsNoChapters() = runBlocking {
         assertTrue(PdfStructure.chapters(FakePdfBook(emptyList())).isEmpty())
+    }
+
+    @Test
+    fun extraction_reportsEachFinishedRange() = runBlocking {
+        val events = mutableListOf<ImportProgress>()
+        val pages = (1..45).map { n -> "Words of page $n." }
+        val chapters = PdfStructure.chapters(FakePdfBook(pages)) { events.add(it) }
+
+        assertEquals(3, chapters.size)
+        assertEquals(listOf(1, 2, 3), events.map { it.chaptersDone })
+        assertTrue(events.all { it.totalChapters == 3 })
+        assertEquals("Pages 41–45", events.last().chapterTitle)
     }
 }

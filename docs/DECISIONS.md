@@ -1454,3 +1454,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Owner report: a fresh small EPUB import opens fine but tapping the book spins `Loading book…` past 450s, while the same book opens in seconds after rendering one chapter. Reading without rendering is the design (D-171), so this jumps the queue.
 - Alternatives considered: guessing at the storage layer blind (rejected: every read in this path is guarded in this tree, and the owner build differs from it).
 - Consequences / revisit when: if the clean-tree build still sticks, the timeout error names the layer on the next repro; revisit the timeout length if slow devices false-positive it.
+
+### D-174: Cancellable PDF import with extraction progress, visible build version
+- Date: 2026-10-16
+- Status: Accepted
+- Decision: PDF page extraction yields per page (cancel lands promptly) and reports each finished 20-page range, so the import bar moves during extraction. Settings shows `Auloud versionName (versionCode)` and the code went 3 to 4, so device reports can name the exact build.
+- Why: Owner report: PDF import sat frozen on `importing` and Cancel did nothing (no suspension point in the extraction loop, no progress until split/tag); plus wrong-build confusion during OPEN1 diagnosis.
+- Alternatives considered: leaving extraction uninterruptible (rejected: Cancel must work).
+- Consequences / revisit when: progress during extraction counts page ranges, then split/tag counts chapters; revisit if the two counters confuse.

@@ -152,7 +152,7 @@ object IngestPipeline {
         return@withContext importStructured(
             sourceFile = epubFile,
             sha = sha,
-            prepareHead = {
+            prepareHead = { _ ->
                 val book = readBook(epubFile).getOrElse { cause ->
                     return@importStructured HeadResult.Failed(
                         listOf(cause.message ?: "${epubFile.name}: cannot read EPUB (unknown error)")
@@ -209,7 +209,7 @@ object IngestPipeline {
         return@withContext importStructured(
             sourceFile = pdfFile,
             sha = sha,
-            prepareHead = {
+            prepareHead = { reportRange ->
                 val book = try {
                     openBook(pdfFile)
                 } catch (e: CancellationException) {
@@ -220,7 +220,7 @@ object IngestPipeline {
                     )
                 }
                 try {
-                    val chapters = PdfStructure.chapters(book)
+                    val chapters = PdfStructure.chapters(book, reportRange)
                     val title = book.title?.takeIf { it.isNotBlank() }
                         ?: pdfFile.nameWithoutExtension.ifBlank { pdfFile.name }
                     HeadResult.Ready(
@@ -281,7 +281,7 @@ object IngestPipeline {
     private suspend fun CoroutineScope.importStructured(
         sourceFile: File,
         sha: String,
-        prepareHead: suspend () -> HeadResult,
+        prepareHead: suspend (suspend (ImportProgress) -> Unit) -> HeadResult,
         emptyMessage: String,
         sourceFileName: String,
         bundleType: String,
@@ -306,7 +306,7 @@ object IngestPipeline {
                     return@withBookLock IngestOutcome.Duplicate(existing.first, existing.second)
                 }
 
-                val head = when (val resolved = prepareHead()) {
+                val head = when (val resolved = prepareHead(onPrepareProgress)) {
                     is HeadResult.Failed -> return@withBookLock IngestOutcome.Failed(resolved.errors)
                     is HeadResult.Ready -> resolved.head
                 }
