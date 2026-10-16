@@ -1462,3 +1462,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Owner report: PDF import sat frozen on `importing` and Cancel did nothing (no suspension point in the extraction loop, no progress until split/tag); plus wrong-build confusion during OPEN1 diagnosis.
 - Alternatives considered: leaving extraction uninterruptible (rejected: Cancel must work).
 - Consequences / revisit when: progress during extraction counts page ranges, then split/tag counts chapters; revisit if the two counters confuse.
+
+### D-175: Chapter load catches silent loader death and names it (OPEN2)
+- Date: 2026-10-16
+- Status: Accepted
+- Decision: The chapter-list load moved into `loadChapterList` (JVM-tested: ready, timeout, corrupt, missing, rogue `Throwable`), catching any `Throwable` into a hub error that names its class; genuine cancellation still propagates. Version code 5 marks the build.
+- Why: Owner confirmed the stuck build has PDF import (post-OPEN1 code), so the 20s timeout should have fired: the loader is dying silently, not hanging, and an `Exception`-only catch cannot see a `Throwable` death.
+- Alternatives considered: blaming the install (rejected by the owner evidence: PDF import present).
+- Consequences / revisit when: the next report carries the throwable class name; revisit if it names something the JVM suite can reproduce.

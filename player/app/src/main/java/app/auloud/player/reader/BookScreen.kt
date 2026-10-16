@@ -59,10 +59,8 @@ import app.auloud.player.storage.BundleStorage
 import app.auloud.player.tts.PrefsTtsStore
 import app.auloud.player.tts.bookVoiceVersionOf
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 
 /**
  * RA7: one book's screen across all three modes.
@@ -155,35 +153,23 @@ fun BookScreen(
     LaunchedEffect(book.id, staleTick, loadTick) {
         Log.d(TAG, "chapter load start id=${book.id} dir=${book.bundleDir}")
         val started = android.os.SystemClock.uptimeMillis()
-        val parsed = try {
-            withTimeout(20_000L) {
-                withContext(Dispatchers.IO) {
-                    try {
-                        val root = book.bundleDir.trimEnd('/')
-                        val raw = storage.readText("$root/manifest.json")
-                        BundleParser.parseText(raw).getOrThrow()
-                    } catch (_: Exception) {
-                        null
-                    }
-                }
-            }
-        } catch (e: TimeoutCancellationException) {
-            Log.w(TAG, "chapter load timed out id=${book.id} after 20s")
-            chapterError = "Could not read the chapter list in time. Check storage, then retry."
+        val result = loadChapterList(storage, book.bundleDir)
+        if (result is ChapterLoadResult.Failed) {
+            Log.w(TAG, "chapter load failed id=${book.id} timedOut=${result.timedOut}")
+            chapterError = result.message
             chapters = emptyList()
-            // manifestLoaded stays false on purpose: routing falls back
-            // to the library hint (a `none` book reaches the hub, where
-            // the error below shows with its retry).
             return@LaunchedEffect
         }
+        result as ChapterLoadResult.Ready
+        val parsed = result.manifest
         Log.d(TAG, "chapter load done id=${book.id} in ${android.os.SystemClock.uptimeMillis() - started}ms")
         chapterError = null
-        chapters = parsed?.chapters?.let(::toChapterEntries) ?: emptyList()
-        manifestRenderState = parsed?.renderState
+        chapters = result.chapters
+        manifestRenderState = result.renderState
         manifestLoaded = true
         // VS5: stale scan for complete books only (the same effect keeps
         // one manifest read; hub books own their scan in the panel VM).
-        staleData = if (parsed?.renderState == "complete") {
+        staleData = if (parsed != null && parsed.renderState == "complete") {
             withContext(Dispatchers.IO) {
                 try {
                     val root = book.bundleDir.trimEnd('/')
