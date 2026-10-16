@@ -171,7 +171,9 @@ fun BookScreen(
             Log.w(TAG, "chapter load timed out id=${book.id} after 20s")
             chapterError = "Could not read the chapter list in time. Check storage, then retry."
             chapters = emptyList()
-            manifestLoaded = true
+            // manifestLoaded stays false on purpose: routing falls back
+            // to the library hint (a `none` book reaches the hub, where
+            // the error below shows with its retry).
             return@LaunchedEffect
         }
         Log.d(TAG, "chapter load done id=${book.id} in ${android.os.SystemClock.uptimeMillis() - started}ms")

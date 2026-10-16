@@ -315,12 +315,18 @@ fun PartialBookScreen(
         return
     }
     val entries = chapters
-    if (entries == null || map == null) {
+    // An empty list WITH a load error is still a loading failure (the
+    // timeout reports emptyList, never null); without this the gate
+    // below would open an empty hub with no explanation.
+    if (entries == null || map == null || (entries.isEmpty() && loadingError != null)) {
         // OPEN1: either gate may now carry a named failure (chapter-list
         // timeout from the host, panel manifest error from its own load).
         // A named failure shows text plus a way forward; only a clean
         // load with neither gate ready keeps the spinner.
-        val chapterGateError = if (entries == null) loadingError else null
+        // The error shows whenever the list is missing OR came back
+        // empty from a failed load (timeout reports emptyList, never
+        // null, so a null check alone would swallow it).
+        val chapterGateError = if (entries.isNullOrEmpty()) loadingError else null
         val panelGateError = if (entries != null && map == null) {
             panelState.manifestError
         } else {
