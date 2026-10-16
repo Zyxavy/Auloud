@@ -151,8 +151,27 @@ object StaleImportSweep {
             }
             if (!marked) continue
             storage.deleteRecursively(dir)
+            if (stillPresent(storage, dir)) {
+                // The dir survived: drop just the marker so the book
+                // surfaces through normal validation with honest errors
+                // instead of vanishing silently behind a stuck marker.
+                storage.deleteRecursively(
+                    dir.trimEnd('/') + '/' + IngestPipeline.IMPORTING_FILENAME
+                )
+                continue
+            }
             deleted.add(dir)
         }
         return deleted
+    }
+
+    private fun stillPresent(storage: BundleStorage, dir: String): Boolean {
+        return try {
+            storage.exists(dir.trimEnd('/') + '/' + IngestPipeline.IMPORTING_FILENAME)
+        } catch (_: Exception) {
+            // Unreadable counts as gone: the rescan loop skips what it
+            // cannot read, same as an absent marker.
+            false
+        }
     }
 }

@@ -88,8 +88,9 @@ class StrayTempSweepTest {
         assertFalse(StrayTempSweep.isStrayDir("/books"))
     }
 
-    private class MarkedStorage(val marked: Set<String>) : BundleStorage {
+    private class MarkedStorage(val marked: Set<String>, var failDirDelete: Boolean = false) : BundleStorage {
         val deleted = mutableListOf<String>()
+        private val wiped = mutableSetOf<String>()
 
         override fun listBundleDirs(root: String): List<String> =
             (marked + "$root/done-book").distinct().sorted()
@@ -98,7 +99,8 @@ class StrayTempSweepTest {
             throw UnsupportedOperationException("not used by the sweep")
 
         override fun exists(path: String): Boolean =
-            marked.any { path == "$it/.importing" }
+            marked.any { path == "$it/.importing" } &&
+                wiped.none { path == it || path.startsWith("$it/") }
 
         override fun audioUri(bundleDir: String, relPath: String): Uri =
             throw UnsupportedOperationException("not used by the sweep")
@@ -107,6 +109,11 @@ class StrayTempSweepTest {
 
         override fun deleteRecursively(path: String) {
             deleted.add(path)
+            if (path.endsWith("/.importing")) {
+                wiped.add(path)
+            } else if (!failDirDelete) {
+                wiped.add(path)
+            }
         }
     }
 
@@ -126,5 +133,20 @@ class StrayTempSweepTest {
 
         assertTrue(StaleImportSweep.sweep("/books", storage).isEmpty())
         assertTrue(storage.deleted.isEmpty())
+    }
+
+    @Test
+    fun staleImportSweep_failedDirDelete_dropsMarkerInstead() {
+        val storage = MarkedStorage(setOf("/books/dying-book"), failDirDelete = true)
+
+        val deleted = StaleImportSweep.sweep("/books", storage)
+
+        // The dir survived, so it is NOT reported gone; the marker is,
+        // so the next rescan validates the book with honest errors
+        // instead of skipping it silently.
+        assertTrue(deleted.isEmpty())
+        assertTrue(storage.deleted.contains("/books/dying-book"))
+        assertTrue(storage.deleted.contains("/books/dying-book/.importing"))
+        assertTrue(!storage.exists("/books/dying-book/.importing"))
     }
 }

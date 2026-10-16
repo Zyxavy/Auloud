@@ -254,45 +254,6 @@ object IngestWriter {
         )
     }
 
-    /**
-     * Writes one full book into [tempDir] through [storage]: chapter files
-     * first, then the source EPUB copy, then the cover, then the manifest
-     * last. [onChapterWritten] runs after each chapter file lands, so the
-     * caller ([IngestPipeline]) can emit per-chapter progress and honor
-     * cooperative cancellation between chapters. Returns the manifest
-     * model plus its file form. Throws [IOException] naming the file and
-     * the rule on any write failure; the caller deletes the temp residue.
-     */
-    suspend fun writeBook(
-        storage: app.auloud.player.storage.BundleStorage,
-        tempDir: String,
-        manifestInput: ManifestInput,
-        chapters: List<IngestChapter>,
-        dialogues: Map<Int, ChapterDialogue>,
-        sourcePath: String,
-        coverBytes: ByteArray?,
-        onChapterWritten: suspend (IngestChapter) -> Unit = {}
-    ): Manifest {
-        val manifest = buildManifestModel(manifestInput)
-        val total = chapters.size
-        for (chapter in chapters) {
-            val dialogue = dialogues[chapter.index]
-                ?: throw IOException(
-                    "text/${chapterRel(chapter.index, total)}: " +
-                        "missing dialogue tags for chapter ${chapter.index} (internal error)"
-                )
-            val rel = chapterRel(chapter.index, total)
-            storage.writeText(join(tempDir, rel), renderChapterJson(chapter, dialogue))
-            onChapterWritten(chapter)
-        }
-        storage.copySourceFile(sourcePath, join(tempDir, SOURCE_REL))
-        if (coverBytes != null) {
-            storage.writeBytes(join(tempDir, COVER_REL), coverBytes)
-        }
-        storage.writeText(join(tempDir, MANIFEST_REL), renderManifestJson(manifestInput))
-        return manifest
-    }
-
     private fun join(dir: String, rel: String): String =
         dir.trimEnd('/') + '/' + rel.trimStart('/')
 }

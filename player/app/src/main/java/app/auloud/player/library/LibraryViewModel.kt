@@ -340,7 +340,14 @@ class LibraryViewModel(
                         // import, no error). Stale markers die at startup
                         // (see the sweep below), so a skip here always
                         // means a live import in this process.
-                        if (storage.exists(join(dir, IngestPipeline.IMPORTING_FILENAME))) continue
+                        val importing = try {
+                            storage.exists(join(dir, IngestPipeline.IMPORTING_FILENAME))
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            false
+                        }
+                        if (importing) continue
                         // Bundle label: SAF tokens collapse to the bundle
                         // name; file paths pass through.
                         val dirLabel = WatchFolders.displayPath(dir)
