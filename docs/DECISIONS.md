@@ -1438,3 +1438,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Owner asked to read from chapter one without waiting out a full 1800-chapter import (ReadEra-style fast open); text must show whether or not voices ever render, and no screen gates text on render.
 - Alternatives considered: on-demand chapter parsing from the source EPUB (rejected: chapter-to-spine mapping needs hrefs the manifest does not carry, a format change); parallelized import (deferred to later, owner-approved order).
 - Consequences / revisit when: the row appears before content finishes (import screen still owns progress to the end); the same read-everything shape remains in import self-check cost, only visibility improved.
+
+### D-172: On-device PDF import with PdfBox-Android
+- Date: 2026-10-16
+- Status: Accepted
+- Decision: The tablet imports PDFs itself with PdfBox-Android 2.0.27.0 (Apache-2.0, API 19+, text extraction only, no JPX module). Pages become fixed 20-page chapters (Scribe fallback number); outline and heading splits stay a follow-up. The picker takes `application/pdf`, bundles carry `type: pdf` plus `source/book.pdf`, and the shared staged import tail serves both formats (container read runs inside the per-book lock after the duplicate check, as before).
+- Why: Owner asked for PDF import on the app; PDFs used to go through the PC only.
+- Alternatives considered: skipping tablet PDF import (rejected: owner asked for it).
+- Consequences / revisit when: scanned PDFs without a text layer import as a named failure (no OCR); the thin PdfBox adapter needs a real Android context, so JVM tests use a fake and device acceptance proves the real path; big-PDF behavior on the Tab E is untested.

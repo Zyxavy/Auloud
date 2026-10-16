@@ -22,6 +22,7 @@ cache on 2026-10-04. Test-only and build-only items never ship in the APK.
 | Coil (coil-compose) | 2.6.0 | Apache-2.0 |
 | jsoup | 1.23.2 | MIT |
 | NanoHTTPD | 2.3.1 | BSD-3-Clause |
+| PdfBox-Android | 2.0.27.0 | Apache-2.0 |
 
 ## Test only (never shipped)
 

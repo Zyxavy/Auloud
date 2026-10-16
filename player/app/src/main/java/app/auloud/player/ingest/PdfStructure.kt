@@ -1,0 +1,55 @@
+package app.auloud.player.ingest
+
+/**
+ * PDF1: PDF pages into chapters for the shared import tail.
+ *
+ * Fixed 20-page ranges, mirroring Scribe's fallback (`extract/pdf.py`
+ * `FIXED_CHAPTER_PAGES`; outline and heading splits stay a follow-up).
+ * Each range becomes one [RawIngestChapter] titled `Pages X–Y`; page
+ * text splits into paragraphs on blank lines (no spans on device).
+ * Fully empty ranges are skipped. Output feeds
+ * [StructureCleaner.assemble] directly (20-page chunks are never tiny,
+ * so no merge pass); sentence split plus dialogue tagging stay in the
+ * pipeline's shared per-chapter loop.
+ *
+ * Page sync marks (`pages`) are Scribe-only for now: on-device chapters
+ * are plain text chapters, so read plus TTS work and page numbers wait
+ * for a later slice. Pure Kotlin, JVM-tested with a fake [PdfBook].
+ */
+object PdfStructure {
+
+    /** Pages per chapter (Scribe's fallback number). */
+    const val PAGES_PER_CHAPTER = 20
+
+    fun chapters(book: PdfBook): List<IngestChapter> {
+        val raw = ArrayList<RawIngestChapter>()
+        var first = 1
+        while (first <= book.pageCount) {
+            val last = minOf(first + PAGES_PER_CHAPTER - 1, book.pageCount)
+            val blocks = ArrayList<IngestBlock>()
+            for (page in first..last) {
+                for (para in paragraphs(book.pageText(page))) {
+                    blocks.add(IngestBlock(kind = BLOCK_PARA, text = para))
+                }
+            }
+            if (blocks.isNotEmpty()) {
+                raw.add(
+                    RawIngestChapter(
+                        href = "pages-$first-$last",
+                        title = "Pages $first–$last",
+                        blocks = blocks
+                    )
+                )
+            }
+            first = last + 1
+        }
+        return StructureCleaner.assemble(raw)
+    }
+
+    internal fun paragraphs(pageText: String): List<String> {
+        return pageText
+            .split(Regex("\\R\\s*\\R"))
+            .map { it.replace(Regex("\\s+"), " ").trim() }
+            .filter { it.isNotEmpty() }
+    }
+}

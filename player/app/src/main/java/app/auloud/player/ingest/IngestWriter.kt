@@ -46,6 +46,9 @@ object IngestWriter {
     /** Source path inside every imported book folder. */
     const val SOURCE_REL = "source/book.epub"
 
+    /** Source path for PDF imports (PDF1). */
+    const val SOURCE_PDF_REL = "source/book.pdf"
+
     /** Cover path inside the book folder (only when a cover exists). */
     const val COVER_REL = "cover.jpg"
 
@@ -77,7 +80,10 @@ object IngestWriter {
         val sha256Hex: String,
         val coverRel: String?,
         val chapters: List<ChapterEntry>,
-        val createdAt: String
+        val createdAt: String,
+        /** Bundle source file plus manifest type (`book.epub`/`epub`, `book.pdf`/`pdf`). */
+        val sourceFile: String = SOURCE_REL,
+        val type: String = "epub"
     )
 
     /** One manifest chapter entry (unrendered: title plus text path only). */
@@ -97,7 +103,7 @@ object IngestWriter {
             specVersion = "2.0",
             id = input.bookId,
             title = input.title,
-            type = "epub",
+            type = input.type,
             chapters = input.chapters.map { entry ->
                 ChapterInfo(index = entry.index, title = entry.title, text = entry.textRel)
             },
@@ -105,7 +111,7 @@ object IngestWriter {
             renderState = "none",
             author = input.author,
             language = input.language,
-            source = SourceInfo(file = SOURCE_REL, sha256 = input.sha256Hex),
+            source = SourceInfo(file = input.sourceFile, sha256 = input.sha256Hex),
             cover = input.coverRel,
             voices = defaultVoices(),
             createdAt = input.createdAt,
@@ -146,9 +152,9 @@ object IngestWriter {
             put("title", input.title)
             if (input.author != null) put("author", input.author)
             if (input.language != null) put("language", input.language)
-            put("type", "epub")
+            put("type", input.type)
             putJsonObject("source") {
-                put("file", SOURCE_REL)
+                put("file", input.sourceFile)
                 put("sha256", input.sha256Hex)
             }
             if (input.coverRel != null) put("cover", input.coverRel)

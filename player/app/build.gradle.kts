@@ -151,6 +151,12 @@ dependencies {
     // allow-listed); licenseScan's sherpa/onnx/espeak markers are
     // unaffected.
     implementation(libs.nanohttpd)
+    // PDF1 (user-approved dependency 2026-10-16): PdfBox-Android for
+    // on-device PDF text extraction (Apache-2.0, API 19+ per its readme
+    // so minSdk 24 is above the baseline; Maven Central 2.0.27.0 checked
+    // 2026-10-16). Text extraction only (no JPX module). Ships in both
+    // flavors (core stays Apache-2.0).
+    implementation(libs.pdfbox.android)
     // Build-time only: desugared Java 8 + NIO classes for the jsoup pin
     // (D-085). Never referenced from source; AGP bundles what is needed.
     coreLibraryDesugaring(libs.desugar.nio)

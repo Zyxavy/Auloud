@@ -148,14 +148,27 @@ class MainActivity : ComponentActivity() {
     private val importViewModel: ImportViewModel by lazy {
         ImportViewModel(
             runImport = { file, onProgress ->
-                IngestPipeline.importEpub(
-                    epubFile = file,
-                    booksRoot = BooksRootResolver.defaultBooksRoot(applicationContext),
-                    storage = routingStorage,
-                    library = libraryRepository,
-                    onProgress = onProgress,
-                    onPrepareProgress = onProgress
-                )
+                val booksRoot = BooksRootResolver.defaultBooksRoot(applicationContext)
+                if (file.extension.lowercase() == "pdf") {
+                    IngestPipeline.importPdf(
+                        pdfFile = file,
+                        booksRoot = booksRoot,
+                        storage = routingStorage,
+                        library = libraryRepository,
+                        onProgress = onProgress,
+                        onPrepareProgress = onProgress,
+                        appContext = applicationContext
+                    )
+                } else {
+                    IngestPipeline.importEpub(
+                        epubFile = file,
+                        booksRoot = booksRoot,
+                        storage = routingStorage,
+                        library = libraryRepository,
+                        onProgress = onProgress,
+                        onPrepareProgress = onProgress
+                    )
+                }
             }
         )
     }
@@ -404,13 +417,13 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * IN8: launches the system EPUB picker (no permission needed; the
+     * IN8: launches the system document picker (no permission needed; the
      * picked bytes are copied to cache by [copyUriToCache] and imported
-     * from there).
+     * from there). PDF1 adds the PDF type (on-device text extraction).
      */
     private fun launchEpubPicker() {
         try {
-            epubPicker.launch(arrayOf("application/epub+zip"))
+            epubPicker.launch(arrayOf("application/epub+zip", "application/pdf"))
         } catch (e: Exception) {
             Log.w(TAG, "epub picker unavailable: ${e.message}")
             notice("Import", "The file picker is unavailable on this device.")

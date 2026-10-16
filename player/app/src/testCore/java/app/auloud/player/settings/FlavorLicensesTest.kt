@@ -26,6 +26,13 @@ class FlavorLicensesTest {
     }
 
     @Test
+    fun core_shipsPdfBoxAndroid() {
+        val pdfbox = flavorLicenses.first { it.name == "PdfBox-Android" }
+        assertEquals("2.0.27.0", pdfbox.version)
+        assertEquals("Apache-2.0", pdfbox.license)
+    }
+
+    @Test
     fun core_claimsNoBundledGpl() {
         assertTrue(
             "no full-only bundled rows in core",

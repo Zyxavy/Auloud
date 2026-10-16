@@ -706,6 +706,89 @@ class IngestPipelineTest {
         }
     }
 
+    // PDF1: on-device PDF import over a fake PdfBook (the PdfBox adapter
+    // needs a real Android context, so the JVM suite never touches it).
+
+    private class FakePdfBook(
+        private val pages: List<String>,
+        override val title: String? = "Tiny PDF",
+        override val author: String? = null
+    ) : PdfBook {
+        override val pageCount: Int = pages.size
+
+        override fun pageText(page: Int): String {
+            require(page in 1..pageCount) { "page $page out of $pageCount" }
+            return pages[page - 1]
+        }
+
+        override fun close() {
+        }
+    }
+
+    private fun runPdfImport(
+        pdf: File,
+        book: PdfBook,
+        storage: MemStorage = MemStorage(),
+        library: MemLibrary = MemLibrary()
+    ): Pair<IngestOutcome, Pair<MemStorage, MemLibrary>> = runBlocking {
+        val outcome = IngestPipeline.importPdf(
+            pdfFile = pdf,
+            booksRoot = temp.root.absolutePath.replace('\\', '/') + "/Auloud",
+            storage = storage,
+            library = library,
+            openBook = { book }
+        )
+        Pair(outcome, Pair(storage, library))
+    }
+
+    @Test
+    fun pdfImport_writesPdfBundleAndRoundTrips() {
+        val pdf = File(temp.root, "tiny.pdf")
+        pdf.writeBytes(byteArrayOf(37, 80, 68, 70, 45))
+        val (outcome, pair) = runPdfImport(
+            pdf,
+            FakePdfBook(listOf("First page words.\n\nSecond para.", "Third page words."))
+        )
+        val (storage, library) = pair
+        val imported = outcome as? IngestOutcome.Imported
+            ?: failNow("want Imported, got $outcome")
+        val report = imported.report
+        assertEquals(1, report.chapters)
+        assertEquals("Tiny PDF", report.title)
+
+        val manifestRaw = storage.files[report.bundleDir + "/manifest.json"]?.toString(Charsets.UTF_8)
+            ?: failNow("manifest missing in storage")
+        assertTrue("manifest must be pdf type", "\"type\": \"pdf\"" in manifestRaw)
+        assertTrue(
+            "manifest must point at the pdf source",
+            "\"file\": \"source/book.pdf\"" in manifestRaw
+        )
+
+        val manifest = BundleParser.parseText(manifestRaw).getOrThrow()
+        assertEquals("pdf", manifest.type)
+        val problems = BundleValidator.validate(
+            report.bundleDir, manifest, storage::exists, storage::readText
+        )
+        assertTrue("written book must validate, got: $problems", problems.isEmpty())
+
+        val sourceBytes = storage.files[report.bundleDir + "/source/book.pdf"]
+            ?: failNow("source copy missing")
+        assertEquals(shaHex(pdf.readBytes()), shaHex(sourceBytes))
+
+        val row = library.books[report.bookId] ?: failNow("library row missing")
+        assertEquals(report.bundleDir, row.bundlePath)
+    }
+
+    @Test
+    fun pdfImport_emptyPagesFailNamingTheFile() {
+        val pdf = File(temp.root, "blank.pdf")
+        pdf.writeBytes(byteArrayOf(37, 80, 68, 70, 45))
+        val (outcome, _) = runPdfImport(pdf, FakePdfBook(listOf("", "   ")))
+        val failed = outcome as? IngestOutcome.Failed
+            ?: failNow("want Failed, got $outcome")
+        assertTrue("names the file, got: ${failed.errors}", "blank.pdf" in failed.errors.single())
+    }
+
     @Test
     fun elapsedTime_comesFromInjectedClock() {
         val epub = fixtureEpub("multivoice-golden")
