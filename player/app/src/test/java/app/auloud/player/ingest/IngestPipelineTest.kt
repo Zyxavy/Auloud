@@ -7,24 +7,32 @@ import app.auloud.player.bundle.ChapterTextLoader
 import app.auloud.player.bundle.Manifest
 import app.auloud.player.data.BookEntity
 import app.auloud.player.data.LibraryRepository
+import app.auloud.player.data.ProgressEntity
+import app.auloud.player.data.ProgressRepository
+import app.auloud.player.reader.UnrenderedReaderViewModel
 import app.auloud.player.storage.BundleStorage
+import app.cash.turbine.test
 import java.io.File
 import java.io.IOException
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -560,6 +568,70 @@ class IngestPipelineTest {
         assertEquals(listOf(1, 2, 1, 2), prepared.map { it.chaptersDone })
         assertTrue(prepared.all { it.totalChapters == 2 })
         assertEquals(2, writes.size)
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun importedBook_readsFirstChapterText() = runTest {
+        val epub = temp.newFile("read.epub")
+        twoChapterEpub(epub, "First Heading")
+        val storage = MemStorage()
+        val library = MemLibrary()
+        val root = temp.root.absolutePath.replace('\\', '/') + "/Auloud"
+        val outcome = IngestPipeline.importEpub(
+            epubFile = epub,
+            booksRoot = root,
+            storage = storage,
+            library = library
+        )
+        val imported = outcome as? IngestOutcome.Imported
+            ?: failNow("want Imported, got $outcome")
+        // Open path in production order: manifest, text paths, one chapter.
+        val manifestRaw = storage.readText(imported.report.bundleDir + "/manifest.json")
+        val manifest = BundleParser.parseText(manifestRaw).getOrThrow()
+        val textPaths = manifest.chapters.sortedBy { it.index }
+            .map { "${imported.report.bundleDir}/${it.text}" }
+        val progress = object : ProgressRepository {
+            override suspend fun save(
+                bookId: String,
+                chapterIndex: Int,
+                positionMs: Long,
+                sentenceSid: Int?
+            ): Result<Unit> = Result.success(Unit)
+            override suspend fun load(bookId: String): Result<ProgressEntity?> =
+                Result.success(null)
+            override suspend fun loadAll(): Result<Map<String, Long>> =
+                Result.success(emptyMap())
+            override suspend fun delete(bookId: String): Result<Unit> =
+                Result.success(Unit)
+        }
+        val vm = UnrenderedReaderViewModel(
+            bookId = imported.report.bookId,
+            storage = storage,
+            textPathForChapter = { textPaths.getOrNull(it) },
+            chapterCount = textPaths.size,
+            progress = progress,
+            dispatcher = StandardTestDispatcher(testScheduler)
+        )
+        try {
+            vm.state.test {
+                // The chapter load hops through Dispatchers.IO (real
+                // threads, like production), so wait for it instead of
+                // trusting the virtual clock past the hop.
+                var state = awaitItem()
+                while (state.chapter == null && state.textError == null) {
+                    state = awaitItem()
+                }
+                assertNull("load error: ${state.textError}", state.textError)
+                val chapter = state.chapter ?: failNow("chapter 1 text must load")
+                val sentences = chapter.sentencesInOrder()
+                assertTrue(sentences.isNotEmpty())
+                assertTrue(sentences.first().text.isNotBlank())
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            vm.clear()
+        }
     }
 
     @Test

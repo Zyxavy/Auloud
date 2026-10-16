@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +35,7 @@ import app.auloud.player.playback.StreamRoute
 import app.auloud.player.settings.PrefsReaderModeStore
 import app.auloud.player.storage.BundleStorage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -305,11 +307,18 @@ private fun UnrenderedLoading(
     modifier: Modifier = Modifier,
     message: String = "Loading book…"
 ) {
+    var secs by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000L)
+            secs++
+        }
+    }
     ReaderScreen(
         state = ReaderState(isTextLoading = true),
         onBack = onBack,
         modifier = modifier,
-        loadingText = message
+        loadingText = "$message ${secs}s"
     )
 }
 
