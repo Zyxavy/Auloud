@@ -121,6 +121,11 @@ fun ReaderScreen(
      */
     loadingText: String? = null,
     /**
+     * Retry a failed chapter load (shown only for chapters still
+     * importing; every other failure is terminal for the chapter).
+     */
+    onRetryChapter: (() -> Unit)? = null,
+    /**
      * IN9: dialogue marking (dialogue sentences in the tertiary accent).
      * Defaults to on; 1.x books carry no `dialogue` speakers so they render
      * exactly as before either way.
@@ -173,15 +178,32 @@ fun ReaderScreen(
                 }
             }
             state.textError != null -> {
-                Text(
-                    text = if (state.textKind == TextKind.PdfForm) {
-                        "Page-only chapter - listening still works"
-                    } else {
-                        "Text unavailable for this chapter"
-                    },
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.padding(16.dp)
-                )
+                if (state.textKind == TextKind.Preparing && onRetryChapter != null) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Preparing chapter… (import still running)",
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.padding(16.dp)
+                        )
+                        TextButton(onClick = onRetryChapter) {
+                            Text("Retry")
+                        }
+                    }
+                } else {
+                    Text(
+                        text = if (state.textKind == TextKind.PdfForm) {
+                            "Page-only chapter - listening still works"
+                        } else {
+                            "Text unavailable for this chapter"
+                        },
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
             }
             else -> {
                 // Fresh list state per chapter (scroll, results, visibility).

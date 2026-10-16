@@ -67,6 +67,12 @@ class UnrenderedReaderViewModel(
      * taps and chapter jumps drive the stream through it.
      */
     private val live: LiveStream? = null,
+    /**
+     * True while this book may still be importing (the hub wires the
+     * import marker here): a missing chapter then reads as preparing
+     * with a retry, never as a dead end.
+     */
+    private val isImporting: () -> Boolean = { false },
 ) {
 
     private val _state = MutableStateFlow(
@@ -248,17 +254,19 @@ class UnrenderedReaderViewModel(
                     if (sid != null) saveReadingPosition(chapterIndex, sid)
                 },
                 onFailure = { error ->
+                    val kind = when (error) {
+                        is ChapterTextPdfForm -> TextKind.PdfForm
+                        is ChapterTextUnavailable ->
+                            if (isImporting()) TextKind.Preparing else TextKind.Missing
+                        else -> TextKind.Corrupt
+                    }
                     _state.value = _state.value.copy(
                         chapterIndex = chapterIndex,
                         chapter = null,
                         currentSid = null,
                         isTextLoading = false,
                         textError = error.message ?: "text unavailable",
-                        textKind = when (error) {
-                            is ChapterTextPdfForm -> TextKind.PdfForm
-                            is ChapterTextUnavailable -> TextKind.Missing
-                            else -> TextKind.Corrupt
-                        }
+                        textKind = kind
                     )
                 }
             )

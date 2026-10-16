@@ -1430,3 +1430,11 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Import showed nothing until the write phase, so big books looked dead for minutes; the counter now moves from the first chapter. Separate channel because the write-phase exact counts are asserted in tests.
 - Alternatives considered: reusing one channel (rejected: non-monotonic counters and broken test counts); folding validation into the write loop (left alone: the validator stays shared with rescan flows).
 - Consequences / revisit when: total import time is unchanged, only visibility; validate-cost reduction is the next lever if owners want it faster.
+
+### D-171: Staged import opens after chapter one
+- Date: 2026-10-15
+- Status: Accepted
+- Decision: Import writes the marker, manifest, source, cover and chapter one, then moves, upserts the row and streams the rest behind with the existing per-chapter progress. A `.importing` marker names in-progress books: rescan skips them quietly, the reader reports preparing chapters with a retry, startup sweeps stale markers (failed imports leave nothing, as before), and validate/marker failures delete the partial book plus its row.
+- Why: Owner asked to read from chapter one without waiting out a full 1800-chapter import (ReadEra-style fast open); text must show whether or not voices ever render, and no screen gates text on render.
+- Alternatives considered: on-demand chapter parsing from the source EPUB (rejected: chapter-to-spine mapping needs hrefs the manifest does not carry, a format change); parallelized import (deferred to later, owner-approved order).
+- Consequences / revisit when: the row appears before content finishes (import screen still owns progress to the end); the same read-everything shape remains in import self-check cost, only visibility improved.

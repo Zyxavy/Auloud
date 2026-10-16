@@ -109,6 +109,15 @@ sealed interface IngestOutcome {
 object IngestPipeline {
 
     /**
+     * In-progress marker inside a staged book dir (written before the
+     * move, removed after self-check). Rescan skips marked dirs quietly
+     * and the reader reports preparing chapters; a marker at startup
+     * means a dead import and the book goes (same promise as the temp
+     * sweep: failed imports leave nothing).
+     */
+    const val IMPORTING_FILENAME = ".importing"
+
+    /**
      * Imports [epubFile] into [booksRoot].
      *
      * @param clock epoch millis source for [ImportReport.elapsedMs] and
@@ -137,6 +146,7 @@ object IngestPipeline {
         val startMs = clock()
         var tempDir: String? = null
         var movedDir: String? = null
+        var rowBookId: String? = null
         try {
             val sha = hashSource(epubFile)
                 ?: return@withContext IngestOutcome.Failed(
@@ -214,29 +224,50 @@ object IngestPipeline {
                 )
 
             var done = 0
-            val manifest: Manifest
-            try {
-                manifest = IngestWriter.writeBook(
-                    storage = storage,
-                    tempDir = temp,
-                    manifestInput = manifestInput,
-                    chapters = structure.chapters,
-                    dialogues = dialogues,
-                    sourcePath = epubFile.absolutePath,
-                    coverBytes = coverBytes,
-                    onChapterWritten = { chapter ->
-                        ensureActive()
-                        done++
-                        onProgress(
-                            ImportProgress(
-                                chapterIndex = chapter.index,
-                                chaptersDone = done,
-                                totalChapters = total,
-                                chapterTitle = chapter.title
-                            )
-                        )
-                    }
+            val manifest: Manifest = IngestWriter.buildManifestModel(manifestInput)
+            suspend fun emitWritten(chapter: IngestChapter) {
+                ensureActive()
+                done++
+                onProgress(
+                    ImportProgress(
+                        chapterIndex = chapter.index,
+                        chaptersDone = done,
+                        totalChapters = total,
+                        chapterTitle = chapter.title
+                    )
                 )
+            }
+            fun writeChapterTo(dir: String, chapter: IngestChapter) {
+                val dialogue = dialogues[chapter.index]
+                    ?: throw IOException(
+                        "text/${IngestWriter.chapterRel(chapter.index, total)}: " +
+                            "missing dialogue tags for chapter ${chapter.index} (internal error)"
+                    )
+                val rel = IngestWriter.chapterRel(chapter.index, total)
+                storage.writeText(
+                    join(dir, rel),
+                    IngestWriter.renderChapterJson(chapter, dialogue)
+                )
+            }
+            try {
+                // Staged import (fast open): the marker names the
+                // in-progress book for rescan; the manifest, source and
+                // first chapter land before the move, so the book opens
+                // while the rest streams behind. Same files as the old
+                // order, only sooner.
+                storage.writeText(join(temp, IMPORTING_FILENAME), bookId)
+                storage.writeText(
+                    join(temp, IngestWriter.MANIFEST_REL),
+                    IngestWriter.renderManifestJson(manifestInput)
+                )
+                storage.copySourceFile(epubFile.absolutePath, join(temp, IngestWriter.SOURCE_REL))
+                if (coverBytes != null) {
+                    storage.writeBytes(join(temp, IngestWriter.COVER_REL), coverBytes)
+                }
+                val first = structure.chapters.firstOrNull()
+                    ?: return@withBookLock failAndClean(storage, temp, "no chapters to write")
+                writeChapterTo(temp, first)
+                emitWritten(first)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IOException) {
@@ -245,12 +276,6 @@ object IngestPipeline {
                 return@withBookLock failAndClean(
                     storage, temp, e.message ?: "cannot write book"
                 )
-            }
-
-            ensureActive()
-            val problems = selfValidate(storage, temp, manifest, onPrepareProgress)
-            if (problems.isNotEmpty()) {
-                return@withBookLock failAndClean(storage, temp, problems)
             }
 
             ensureActive()
@@ -273,6 +298,47 @@ object IngestPipeline {
                 movedDir = null
                 return@withBookLock IngestOutcome.Failed(listOf(reason))
             }
+            rowBookId = bookId
+
+            // The book is openable from here (manifest, source, chapter
+            // one); the remaining chapters stream into the final dir
+            // with the same per-chapter progress as before.
+            try {
+                for (chapter in structure.chapters.drop(1)) {
+                    ensureActive()
+                    writeChapterTo(finalDir, chapter)
+                    emitWritten(chapter)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                return@withBookLock failAndCleanFinal(
+                    storage, library, bookId, finalDir,
+                    e.message ?: "cannot write book"
+                )
+            } catch (e: Exception) {
+                return@withBookLock failAndCleanFinal(
+                    storage, library, bookId, finalDir,
+                    e.message ?: "cannot write book"
+                )
+            }
+
+            ensureActive()
+            val problems = selfValidate(storage, finalDir, manifest, onPrepareProgress)
+            if (problems.isNotEmpty()) {
+                return@withBookLock failAndCleanFinal(
+                    storage, library, bookId, finalDir, problems
+                )
+            }
+            storage.deleteRecursively(join(finalDir, IMPORTING_FILENAME))
+            if (storage.exists(join(finalDir, IMPORTING_FILENAME))) {
+                // A stuck marker would hide the book from rescan and the
+                // reader forever; fail loud instead of shipping that.
+                return@withBookLock failAndCleanFinal(
+                    storage, library, bookId, finalDir,
+                    "cannot clear the import marker (still importing)"
+                )
+            }
 
             IngestOutcome.Imported(
                 ImportReport(
@@ -294,6 +360,13 @@ object IngestPipeline {
             // closure, so no smart cast applies here.
             val moved = movedDir
             if (moved != null) storage.deleteRecursively(moved)
+            val row = rowBookId
+            if (row != null) {
+                try {
+                    library.deleteBook(row)
+                } catch (_: Exception) {
+                }
+            }
             throw e
         }
     }
@@ -400,6 +473,36 @@ object IngestPipeline {
         errors: List<String>
     ): IngestOutcome.Failed {
         storage.deleteRecursively(tempDir)
+        return IngestOutcome.Failed(errors)
+    }
+
+    /**
+     * Failure after the early move: removes the partial book dir and,
+     * best-effort, the library row the staged import already upserted,
+     * so a failed import leaves neither files nor a row (the atomic
+     * promise, kept across the staging).
+     */
+    private suspend fun failAndCleanFinal(
+        storage: BundleStorage,
+        library: LibraryRepository,
+        bookId: String,
+        finalDir: String,
+        error: String
+    ): IngestOutcome.Failed =
+        failAndCleanFinal(storage, library, bookId, finalDir, listOf(error))
+
+    private suspend fun failAndCleanFinal(
+        storage: BundleStorage,
+        library: LibraryRepository,
+        bookId: String,
+        finalDir: String,
+        errors: List<String>
+    ): IngestOutcome.Failed {
+        storage.deleteRecursively(finalDir)
+        try {
+            library.deleteBook(bookId)
+        } catch (_: Exception) {
+        }
         return IngestOutcome.Failed(errors)
     }
 

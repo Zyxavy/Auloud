@@ -87,4 +87,44 @@ class StrayTempSweepTest {
         assertFalse(StrayTempSweep.isStrayDir("/books/.tmp-abc/manifest.json"))
         assertFalse(StrayTempSweep.isStrayDir("/books"))
     }
+
+    private class MarkedStorage(val marked: Set<String>) : BundleStorage {
+        val deleted = mutableListOf<String>()
+
+        override fun listBundleDirs(root: String): List<String> =
+            (marked + "$root/done-book").distinct().sorted()
+
+        override fun readText(path: String): String =
+            throw UnsupportedOperationException("not used by the sweep")
+
+        override fun exists(path: String): Boolean =
+            marked.any { path == "$it/.importing" }
+
+        override fun audioUri(bundleDir: String, relPath: String): Uri =
+            throw UnsupportedOperationException("not used by the sweep")
+
+        override fun coverUri(bundleDirPath: String, coverRel: String): String? = null
+
+        override fun deleteRecursively(path: String) {
+            deleted.add(path)
+        }
+    }
+
+    @Test
+    fun staleImportSweep_deletesOnlyMarkedDirs() {
+        val storage = MarkedStorage(setOf("/books/dying-book"))
+
+        val deleted = StaleImportSweep.sweep("/books", storage)
+
+        assertEquals(listOf("/books/dying-book"), deleted)
+        assertEquals(listOf("/books/dying-book"), storage.deleted)
+    }
+
+    @Test
+    fun staleImportSweep_noMarkers_deletesNothing() {
+        val storage = MarkedStorage(emptySet())
+
+        assertTrue(StaleImportSweep.sweep("/books", storage).isEmpty())
+        assertTrue(storage.deleted.isEmpty())
+    }
 }

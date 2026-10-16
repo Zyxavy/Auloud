@@ -59,11 +59,13 @@ data class ReaderState(
     val textKind: TextKind? = null
 )
 
-/** Missing file, corrupt content, or a page-only PDF chapter (listening still works). */
+/** Missing file, corrupt content, a page-only PDF chapter (listening still works),
+ * or a chapter whose import is still writing it (retry once it lands). */
 enum class TextKind {
     Missing,
     Corrupt,
-    PdfForm
+    PdfForm,
+    Preparing
 }
 
 /** Follow-state machine inputs (RA5 owns the scroll source; RA6 the jump). */

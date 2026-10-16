@@ -17,6 +17,7 @@ import java.io.IOException
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -26,6 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -631,6 +633,76 @@ class IngestPipelineTest {
             }
         } finally {
             vm.clear()
+        }
+    }
+
+    @Test
+    fun stagedImport_opensAfterFirstChapter() {
+        // Gated second-chapter write: the book must open (row, manifest,
+        // chapter one, marker) while the rest still streams behind.
+        val epub = temp.newFile("staged.epub")
+        twoChapterEpub(epub, "First Heading")
+        val inner = MemStorage()
+        val gate = java.util.concurrent.atomic.AtomicBoolean(false)
+        val storage = object : BundleStorage by inner {
+            override fun writeText(path: String, text: String) {
+                if (path.endsWith("ch002.json")) {
+                    while (!gate.get()) Thread.sleep(5)
+                }
+                inner.writeText(path, text)
+            }
+        }
+        val library = MemLibrary()
+        val root = temp.root.absolutePath.replace('\\', '/') + "/Auloud"
+        var outcome: IngestOutcome? = null
+        runBlocking {
+            val job = launch(Dispatchers.Default) {
+                outcome = IngestPipeline.importEpub(
+                    epubFile = epub,
+                    booksRoot = root,
+                    storage = storage,
+                    library = library
+                )
+            }
+            val dir = waitUntil(15_000L) {
+                library.books.values.singleOrNull()?.bundlePath
+            } ?: throw AssertionError("library row must land before chapter two")
+            awaitTrue(15_000L) { storage.exists("$dir/text/ch001.json") }
+            assertTrue("marker present mid-flight", storage.exists("$dir/.importing"))
+            assertTrue(
+                "chapter two still streaming",
+                !storage.exists("$dir/text/ch002.json")
+            )
+            val manifest = BundleParser.parseText(
+                storage.readText("$dir/manifest.json")
+            ).getOrThrow()
+            assertEquals(2, manifest.chapters.size)
+            gate.set(true)
+            withTimeout(30_000L) { job.join() }
+            if (outcome !is IngestOutcome.Imported) {
+                throw AssertionError("want Imported, got $outcome")
+            }
+            assertTrue(
+                "marker cleared at the end",
+                !storage.exists("$dir/.importing")
+            )
+            assertTrue(storage.exists("$dir/text/ch002.json"))
+        }
+    }
+
+    private fun <T> waitUntil(timeoutMs: Long, cond: () -> T?): T? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (true) {
+            val value = cond()
+            if (value != null) return value
+            if (System.currentTimeMillis() > deadline) return null
+            Thread.sleep(20)
+        }
+    }
+
+    private fun awaitTrue(timeoutMs: Long, cond: () -> Boolean) {
+        if (waitUntil(timeoutMs) { if (cond()) Unit else null } == null) {
+            throw AssertionError("timed out waiting for import state")
         }
     }
 

@@ -28,6 +28,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import app.auloud.player.bundle.BundleParser
 import app.auloud.player.data.ProgressRepository
+import app.auloud.player.ingest.IngestPipeline
 import app.auloud.player.library.BookUiModel
 import app.auloud.player.playback.PlaybackController
 import app.auloud.player.playback.PlaybackIntents
@@ -176,7 +177,16 @@ private fun UnrenderedContent(
             textPathForChapter = { index -> textPaths.getOrNull(index) },
             chapterCount = entries.size,
             progress = progress,
-            live = live
+            live = live,
+            isImporting = {
+                try {
+                    storage.exists(
+                        "${book.bundleDir.trimEnd('/')}/${IngestPipeline.IMPORTING_FILENAME}"
+                    )
+                } catch (_: Exception) {
+                    false
+                }
+            }
         )
     }
     DisposableEffect(book.id) {
@@ -280,6 +290,7 @@ private fun UnrenderedContent(
             onNextChapter = viewModel::nextChapter,
             canGoPrevious = unrendered.chapterIndex > 0,
             canGoNext = unrendered.chapterIndex < entries.size - 1,
+            onRetryChapter = { viewModel.jumpToChapter(unrendered.chapterIndex) },
             loadingText = "Loading chapter ${unrendered.chapterIndex + 1}…",
             dialogueMarking = marking,
             modifier = Modifier.weight(1f).fillMaxWidth()

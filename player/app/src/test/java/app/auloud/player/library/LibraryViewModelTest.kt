@@ -84,6 +84,41 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun rescan_markedImportDir_skippedQuietly() = runBlocking {
+        storage.dirs = listOf(novelDir)
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting() + "$novelDir/.importing"
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertTrue(state.books.isEmpty())
+            assertTrue(state.errors.isEmpty())
+        }
+        assertEquals(0, libraryRepo.importCalls)
+    }
+
+    @Test
+    fun rescanStartup_sweepsStaleMarkedDir() = runBlocking {
+        storage.dirs = listOf(novelDir)
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting() + "$novelDir/.importing"
+
+        val vm = viewModel()
+        vm.rescan(sweepStaleImports = true)
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertTrue(state.books.isEmpty())
+            assertTrue(state.errors.isEmpty())
+        }
+        // Init already swept once (startup path); the explicit sweep
+        // re-runs over the fake's static listing, so assert presence.
+        assertTrue(storage.deletedPaths.contains(novelDir))
+    }
+
+    @Test
     fun rescan_invalidBundle_yieldsErrorWithReason_notCrash() = runBlocking {
         storage.dirs = listOf(novelDir)
         storage.texts = validTexts(manifestJson())

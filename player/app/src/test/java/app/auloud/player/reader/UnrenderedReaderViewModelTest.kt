@@ -85,7 +85,8 @@ class UnrenderedReaderViewModelTest {
         dispatcher: CoroutineDispatcher,
         chapterCount: Int = 2,
         pathFor: (Int) -> String? = { "text/ch00${it + 1}.json" },
-        debounceMs: Long = 25L
+        debounceMs: Long = 25L,
+        isImporting: () -> Boolean = { false }
     ): UnrenderedReaderViewModel {
         return UnrenderedReaderViewModel(
             bookId = "book-9",
@@ -94,7 +95,8 @@ class UnrenderedReaderViewModelTest {
             chapterCount = chapterCount,
             progress = RoomProgressRepository(dao),
             dispatcher = dispatcher,
-            debounceMs = debounceMs
+            debounceMs = debounceMs,
+            isImporting = isImporting
         )
     }
 
@@ -377,6 +379,23 @@ class UnrenderedReaderViewModelTest {
             assertNull(state.currentSid)
             assertEquals(TextKind.Missing, state.textKind)
             assertTrue(state.textError?.contains("ch001") == true)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun loadFailure_missingFileDuringImport_setsPreparingError() = runTest {
+        val dao = FakeProgressDao()
+        val vm = viewModel(
+            emptyMap(), dao, StandardTestDispatcher(testScheduler),
+            isImporting = { true }
+        )
+        vm.collectTest {
+            testScheduler.advanceUntilIdle()
+            var state = awaitItem()
+            while (state.textError == null) state = awaitItem()
+            assertNull(state.chapter)
+            assertEquals(TextKind.Preparing, state.textKind)
             cancelAndIgnoreRemainingEvents()
         }
     }
