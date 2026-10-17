@@ -70,8 +70,15 @@ _DIVIDER_MUST_CONTAIN = ("*", "⁂", "•", "◦", "·")
 
 
 def normalize_text(text: str) -> str:
-    """NFC-normalize and collapse whitespace; keep curly quotes."""
-    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text)).strip()
+    """NFC-normalize, drop U+FFFD, and collapse whitespace; keep curly quotes.
+
+    U+FFFD is the replacement character a broken EPUB encoding leaves where
+    punctuation used to be (it shows up as a leading ``�`` on dialogue lines
+    and as whole ``�`` paragraphs). Left in place it makes sentence splitting
+    emit standalone ``�`` fragments that no TTS engine can phonemize, which
+    fails the whole chapter render.
+    """
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text.replace("\ufffd", ""))).strip()
 
 
 def is_boilerplate(text: str) -> bool:
@@ -88,6 +95,20 @@ def is_break_text(text: str) -> bool:
     if not _DIVIDER_RE.match(stripped):
         return False
     return any(mark in stripped for mark in _DIVIDER_MUST_CONTAIN)
+
+
+def is_unspeakable(text: str) -> bool:
+    """True when a non-empty block has no letters or digits at all.
+
+    Broken EPUB encodings leave paragraphs holding only U+FFFD
+    replacement characters (or stray punctuation). They survive the empty
+    and boilerplate rules, but sentence splitting turns them into sentences
+    the TTS engine cannot phonemize: espeak returns no phonemes and
+    synthesis raises, failing the whole chapter. Dropping them at cleaning
+    time keeps the reader text clean too. Digits count as speakable, so
+    numeric-only blocks (table rows) are kept.
+    """
+    return not any(ch.isalnum() for ch in text)
 
 
 def count_words(text: str) -> int:
@@ -148,6 +169,9 @@ def _clean_document(doc: SpineDocument, drops: list[str]) -> RawChapter | None:
             if not text:
                 _record(drops, f"{label}: dropped empty heading")
                 continue
+            if is_unspeakable(text):
+                _record(drops, f"{label}: dropped unspeakable heading (no letters or digits)")
+                continue
             if first_heading is None:
                 first_heading = text
             kept.append(
@@ -160,6 +184,9 @@ def _clean_document(doc: SpineDocument, drops: list[str]) -> RawChapter | None:
             continue
         if block.kind == "para" and is_break_text(text):
             kept.append(ParsedBlock(kind="break", page=block.page))
+            continue
+        if is_unspeakable(text):
+            _record(drops, f"{label}: dropped unspeakable {block.kind} (no letters or digits)")
             continue
         if is_boilerplate(text):
             preview = text[:60] + ("…" if len(text) > 60 else "")

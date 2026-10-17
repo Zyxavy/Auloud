@@ -34,6 +34,7 @@ from extract.clean import (
     extract_epub_chapters,
     is_boilerplate,
     is_break_text,
+    is_unspeakable,
     normalize_text,
 )
 
@@ -227,7 +228,15 @@ def test_drops_include_footnote_strips(tmp_path: Path) -> None:
 def test_normalize_keeps_curly_quotes() -> None:
     assert normalize_text("  “Hello”   world \n") == "“Hello” world"
     # NFC: e + combining acute becomes é (single code point).
-    assert normalize_text("café") == "café"
+    assert normalize_text("cafe\u0301") == "caf\u00e9"
+
+
+def test_normalize_strips_replacement_chars() -> None:
+    # A broken encoding leaves U+FFFD where punctuation was; it must not
+    # survive into sentences (unspeakable fragments fail the render).
+    assert normalize_text("�He said no.") == "He said no."
+    assert normalize_text("�") == ""
+    assert normalize_text("� �") == ""
 
 
 def test_boilerplate_and_break_and_words() -> None:
@@ -240,3 +249,45 @@ def test_boilerplate_and_break_and_words() -> None:
     assert not is_break_text("She left early.")
     assert count_words("") == 0
     assert count_words("  a  b c ") == 3
+
+
+def test_unspeakable_blocks_are_dropped_not_kept(tmp_path: Path) -> None:
+    """Blocks with nothing speakable never reach a sentence.
+
+    espeak returns no phonemes for them, so a kept block fails the whole
+    chapter render. U+FFFD-only paragraphs normalize to empty and drop as
+    empty; other punctuation-only junk drops as unspeakable.
+    """
+    # Unit rule: punctuation-only is unspeakable, digits and letters are
+    # not (numeric-only blocks survive).
+    assert is_unspeakable("�")
+    assert is_unspeakable("…")
+    assert is_unspeakable("— —")
+    assert not is_unspeakable("42")
+    assert not is_unspeakable("He said no.")
+
+    book = epub.EpubBook()
+    book.set_identifier("test-unspeakable-book")
+    book.set_title("Test Unspeakable Book")
+    book.set_language("en")
+    ch1 = epub.EpubHtml(title="Chapter One", file_name="ch1.xhtml", lang="en")
+    ch1.content = (
+        "<h1>Chapter One</h1>"
+        f"<p>{_long_para('alder', 25)}</p>"
+        "<p>�</p>"
+        "<p>…</p>"
+        "<p>She left early and ran fast home.</p>"
+    )
+    book.add_item(ch1)
+    book.toc = (ch1,)
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    book.spine = ["nav", ch1]
+    path = tmp_path / "unspeakable.epub"
+    epub.write_epub(str(path), book)
+
+    result = extract_epub_chapters(path)
+    assert result.chapters, "chapter must survive (real text is present)"
+    texts = [s.text for b in result.chapters[0].blocks or [] for s in b.sentences]
+    assert not [t for t in texts if not any(ch.isalnum() for ch in t)]
+    assert any("unspeakable" in d for d in result.drops)
