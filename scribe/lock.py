@@ -49,7 +49,6 @@ the rule (``{file, rule, message}`` shape, no traceback at the CLI).
 
 from __future__ import annotations
 
-import ctypes
 import json
 import os
 from dataclasses import dataclass
