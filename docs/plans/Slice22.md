@@ -1,0 +1,265 @@
+# Slice 22 Implementation Plan: Installers and v3.0 release
+
+Follows `docs/10-V3Roadmap.md` Slice 22 (section 4) and the release
+criteria (section 7). This is the last v3 slice: it makes the app
+installable, carries the licenses, proves the whole path once, and tags
+`v3.0.0`. Owner-heavy: the packaging choice, every clean-machine run and
+the release verdict are yours. Code work stays small, and the one new
+feature here is the render-speed picker.
+
+## 1. Goal
+
+**Done when:**
+
+- A Windows machine with no Python runs the installed or unzipped app
+  and completes a build; the Linux artifact is documented and, if a Linux
+  machine or VM is available, tested
+- `--render-speed slow|balanced|fast` is reachable from the app, not only
+  the CLI
+- NOTICE, SBOM, in-app licenses and the source offer are complete for
+  both licenses in play (AGPL-3.0-or-later Scribe, GPL-3.0 and
+  Apache-2.0 Player notices where they ship)
+- One soak on a clean machine covers add-book to transferred bundle, a
+  mid-render kill and resume, pause and resume, and a range re-render,
+  and the resulting bundle validates and matches the Python workflow's
+  (text identical, durations within tolerance)
+- README and the first-run guide match what ships; the missing slice tags
+  are cut; the release criteria list is verified item by item; tagged
+  `v3.0.0`
+
+## 2. Inputs and what is known
+
+- The helper ships in one of two layouts from the Slice 15 gate: embedded
+  (`helper\embedded\python\python.exe`) or frozen
+  (`helper\frozen\scribe-helper\scribe-helper.exe`). Discovery already
+  looks for both next to the exe (`scribe-ui/src/helper.rs`,
+  `resolve_command`), so an installer only has to place files.
+- D-157 took the packaging stop-loss: v3 ships with a documented one-time
+  setup rather than a proven nothing-to-install bundle, and nothing
+  clean-machine is marked verified without a run. Slice 22 owns that
+  one-time-setup UX.
+- D-156 named the clean-machine route if you want one run: a VirtualBox
+  Windows 11 VM on this PC, no network, 4-6 GB RAM, three shared folders.
+- The render-speed tiers exist and are measured (D-178): `slow` = 1
+  worker, `balanced` = 4, `fast` = 8, ceiling 12. Only the CLI has the
+  flag today; D-178 deliberately made no API or UI change, so surfacing
+  it needs a decision plus one contract line.
+- `cargo deny check` is green on the trimmed `zip` 9 tree (D-182). Its
+  consequence 3 asks Slice 22 to re-run deny rather than assume the
+  transitive tree is covered.
+- The Rust UI has no licenses view; the roadmap asks for in-app licenses.
+- Slice 14's Kitten result is a Player-side item and its plan boxes were
+  never ticked; the v3 release criterion that names it has to be
+  established from `docs/test-log.md` and the Player repo, not from
+  plan checkboxes.
+
+**Unknowns this slice resolves:** which packaging artifact actually ships
+(portable zip or installer), whether a clean machine is available for the
+soak, and whether the release criteria list has any item that is still
+open.
+
+## 3. Scope
+
+| In | Out (later) |
+| --- | --- |
+| Portable zip and/or Windows installer with the helper bundled | Code signing, store listing, auto-update |
+| Linux tarball, AppImage only if a Linux build machine appears | Guaranteed Linux support beyond one mainstream distro |
+| NOTICE, SBOM, in-app licenses view, source offer text | Legal review, per-file copyright headers |
+| Render-speed picker: helper API field, `jobs.py` flag, UI radios | A second speed knob per role, per-chapter speed, auto-tuning |
+| Soak checklist and its recorded results | New render features found during the soak |
+| README, first-run guide, stale v3 wording, missing tags | v4 Android work, the v1.1 backlog |
+
+## 4. Key decisions (proposed; log on acceptance)
+
+1. **Portable zip first, installer second.** The zip proves the file
+   layout and the one-time setup with no new tool and no SmartScreen
+   story; an installer (Inno Setup or similar) is a second artifact with
+   an uninstaller, and it is only worth it if you want the Start menu
+   entry. The owner picks; both need the same bundled layout.
+2. **One contract line for the render speed.** `selection.render_speed`
+   (optional, `slow|balanced|fast`, missing means `balanced`) so old
+   clients keep working and the default matches the CLI. This amends
+   D-178's "no API change" and gets its own DECISIONS entry.
+3. **The tier is a request field, not a job field.** The UI shows the
+   tier it is about to use; the job echo stays as it is, because the
+   chapter fingerprint already excludes the tier (D-178) and jobs are
+   read by chapter, not by configuration.
+4. **Licenses are generated, not typed.** The NOTICE and SBOM come from
+   the locked dependency sets (`Cargo.lock`, the helper's pinned wheels),
+   with a script that fails when a dependency is missing from the list,
+   so a later dependency cannot silently ship unnoticed.
+5. **Nothing is marked verified without a run.** Where no clean machine
+   exists, the gap is named in the acceptance sheet exactly as D-157
+   names it, and the release still ships with the documented setup.
+
+## 5. Work packages
+
+### RP1: Render-speed picker (S, needs the contract decision)
+
+- Helper: `docs/api.md` selection gains `render_speed`; `scribe/ui/jobs.py`
+  passes `--render-speed <tier>` to the render child beside `--device`
+  (jobs.py:1000), and a test asserts the argv for each tier plus the
+  missing-field default.
+- Rust: `scribe_client::Selection` gains the optional field
+  (`scribe-client/src/client.rs:30`); `render::Form` gains it with the
+  same "unset means app default" shape as the device override; a radio
+  row (`App default (balanced)`, `slow`, `balanced`, `fast`) sits next to
+  the Device row (`scribe-ui/src/main.rs:1297-1311`).
+- Resume must keep the tier a job started with: pause and resume rebuild
+  the child argv, so the stored selection has to carry it (test).
+- Tests: `render.rs` unit tests for the radio state and the serialized
+  selection; a helper test for the argv; the live client test only if the
+  helper is up.
+- **Verify:** a render started at `fast` runs 8 workers on a 20-CPU
+  machine, `slow` runs 1; suite green; clippy and deny clean.
+
+### IN1: Windows artifact and one-time setup (M)
+
+- Bundled layout: `scribe-ui.exe` plus `helper\embedded\...` (the default
+  candidate) into one folder, then a zip; an installer only if you choose
+  one (start menu entry plus uninstall that keeps the workspace).
+- First-run gate: the app's discovery order already finds the bundled
+  helper; the runbook's step 3 path is the thing to make true, not to
+  rewrite.
+- Uninstall or delete must keep the workspace, and say so.
+- **Verify:** on a Windows machine with no Python and no repo, unzip,
+  start, add a book, draft it, render one chapter, and transfer. Record
+  what was installed or already present, and every gap.
+
+### IN2: Linux artifact (M, best effort)
+
+- Same layout as a tarball, with the Unix names discovery already looks
+  for (`python3`, `bin`, `scribe-helper`); document the prerequisites
+  from `docs/ui-runbook.md` section 3 (ffmpeg, ALSA, X11 or Wayland, a GL
+  or Vulkan driver, OpenSSL headers only for building).
+- AppImage only if a Linux build machine or WSL2 appears; otherwise the
+  tarball is the artifact and the gap is stated.
+- **Verify:** the runbook's Linux lines are run and marked by whoever ran
+  them, or the lines stay unverified and say so.
+
+### LG1: NOTICE, SBOM, licenses, source offer (S)
+
+- Generate from the locked sets: Rust crates (`Cargo.lock`, driven by the
+  `deny.toml` allow-list), Python wheels for the helper, and ffmpeg and
+  espeak-ng as separate programs; record the exact versions. This extends
+  `docs/08-Licenses.md` (which already carries the Player inventory and
+  the own-code table) rather than starting a second list.
+- SBOM in a standard shape (SPDX or CycloneDX JSON) for both sets.
+- In-app licenses: one read-only view or screen showing the NOTICE and
+  the third-party list, reachable without a browser.
+- Source offer: AGPL-3.0-or-later and GPL-3.0 both need the written
+  offer and the license texts beside the binary.
+- **Verify:** the generator fails on a dependency missing from the list;
+  the NOTICE matches the lock files; every license file is present in the
+  artifact.
+
+### SO1: Clean-machine soak (M, owner-run)
+
+- The roadmap's path: a full multi-voice novel from add-book to
+  transferred bundle, a mid-render app kill and resume by relaunch, pause
+  and resume, and a range re-render.
+- Compare the bundle with the Python workflow's: `scribe validate` clean,
+  text identical, durations within tolerance (the RT4 jitter floor, not
+  byte equality).
+- If no clean machine exists, the fallback is the documented approach: a
+  dev-machine soak plus a named list of what a clean machine would have
+  proven, and no verified claim.
+- **Verify:** results in `docs/test-log.md` with the machine named, and
+  the acceptance sheet says who ran what.
+
+### DC1: Docs, wording and tags (S)
+
+- README: install and first-run instructions for the shipped artifact(s),
+  and what to do without a GPU. `docs/ui-runbook.md` is the first-run
+  guide; it gets the artifact paths and a line saying who ran what, and
+  the README links to it instead of repeating it.
+- `docs/04-Roadmap.md`: remove the stale Tauri-port wording that D-147
+  cancelled, and point the v3 section at the shipped design.
+- Cut the missing tags (`slice-14`, `slice-15`, `slice-17`, `slice-20`,
+  `slice-21`) on the commits that closed them, and tick roadmap boxes only
+  for verified items.
+- **Verify:** every link and path in the README resolves in the artifact;
+  `git tag` list matches the tagged slices.
+
+### AC: Acceptance and `v3.0.0` (S)
+
+- Acceptance sheet (`docs/acceptance-slice22.md`): the artifact checks,
+  the soak result, the licenses checklist, and one row per release
+  criterion from `docs/10-V3Roadmap.md` section 7 with its evidence.
+- **Verify:** owner acceptance logged; suite, clippy and deny green on
+  the tagged commit; tag `v3.0.0`.
+
+## 6. Order and check-ins
+
+| Step | Work packages | You can then... |
+| --- | --- | --- |
+| 1 | RP1 | choose a render speed in the app |
+| 2 | IN1 | install or unzip the app on Windows |
+| 3 | LG1 | read every license and the source offer |
+| 4 | SO1 | trust one end-to-end run on a clean machine |
+| 5 | IN2 | know the Linux story and its gaps |
+| 6 | DC1 | hand the docs to someone else |
+| 7 | AC | tag v3.0.0 |
+
+RP1 needs the contract decision first; IN1 needs the packaging choice
+(zip or installer). Everything else is approval-free.
+
+## 7. Fallback paths (decided at AC)
+
+| Result | Decision |
+| --- | --- |
+| No clean machine available | Dev-machine soak plus a named set of unproven items; no verified claim (D-157) |
+| No Linux machine or WSL2 | Tarball built and documented here, Linux lines stay unverified |
+| Installer tool judged not worth it | Portable zip is the artifact; the repo says so |
+| The render-speed picker needs more than one contract line | Keep the request field, drop the job echo (decision 3) |
+| A dependency has no license allow-list entry | Owner decision before it ships, never a silent addition |
+| Soak finds a defect | Fix it in this slice if it is small, otherwise a named blocker on the tag |
+
+## 8. Definition of done
+
+- [ ] Render speed selectable in the app; tiers verified on a real render
+- [ ] Windows artifact built, placed and started on a machine without Python
+- [ ] Linux artifact built and documented, with its unverified lines named
+- [ ] NOTICE, SBOM, in-app licenses and the source offer complete and generated
+- [ ] Soak done and recorded, or its gaps named in place of results
+- [ ] README, first-run guide, stale v3 wording and missing tags fixed
+- [ ] Release criteria list verified item by item; tagged `v3.0.0`
+
+## 9. Risks and mitigations
+
+| Risk | Mitigation |
+| --- | --- |
+| Helper packaging (native wheels, size, antivirus flags) fails on the target | Slice 15 gate evidence plus the embedded layout default; name the gap, do not fake it |
+| Unsigned binary triggers SmartScreen or antivirus | Document for personal use; signing stays a later decision |
+| The license list rots after a dependency bump | Generated from the lock files, with a failing check |
+| Soak expands into new features | Findings are fixed only when small; otherwise named as blockers |
+| The picker's default surprises an existing workflow | Missing field means `balanced`, exactly today's behavior |
+| Tagging v3.0.0 on an unverified criterion | One acceptance row per criterion; any gap delays the tag |
+
+## 10. Prerequisites for you
+
+- [ ] Packaging choice: portable zip, Windows installer, or both
+- [ ] Clean machine for the soak: a VirtualBox Windows 11 VM (D-156) or an explicit "documented setup only"
+- [ ] A Linux machine or WSL2 if the Linux artifact is to be tested rather than documented
+- [ ] Approval for the one contract line (`selection.render_speed`), which amends D-178
+- [ ] Decide whether the app should remember a default tier in Settings, or keep the per-render choice only
+- [ ] The Slice 21 acceptance rows, if they are not done yet: the `slice-21` tag is a prerequisite for this slice's `v3.0.0`
+
+## 11. Working with the agent
+
+- One work package per session; the agent writes the code, the generator,
+  the plan and the tests, and **you** pick packaging, run the clean-machine
+  soak, listen, and judge the release
+- It must not claim a machine, an OS or an artifact it did not run
+- No new dependency without a license check; a new packaging tool is a
+  dependency question too
+- Commit per work package (`RP1:`/`IN1:`/`IN2:`/`LG1:`/`SO1:`/`DC1:`);
+  tag `v3.0.0` after AC
+- Bundle format is untouched here; the helper contract changes once, for
+  the render speed, with the spec line and the decision entry together
+
+## 12. Next
+
+After `v3.0.0`: the v1.1 backlog and v4 (Android platform work), per
+`docs/10-V3Roadmap.md` section 10. Any backend port to Rust stays
+piece-by-piece and only on profiling evidence (D-147).
