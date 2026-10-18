@@ -1,9 +1,10 @@
 # Plan: Scribe render throughput (speed tiers + parallel chapters)
 
-Status: decisions accepted 2026-10-18; RT1 and the RT5 gate probe are done
-and their numbers are below. Not yet a roadmap slice (`10-V3Roadmap.md`
-stops at Slice 22, Installers). No bundle-format change, no spec change,
-no new dependency. The book's cast is not part of this work.
+Status: decisions accepted 2026-10-18; RT1, RT2 and the RT5 gate probe are
+done, with their numbers and as-built corrections below. Not yet a roadmap
+slice (`10-V3Roadmap.md` stops at Slice 22, Installers). No bundle-format
+change, no spec change, no new dependency. The book's cast is not part of
+this work.
 
 ## 1. Goal
 
@@ -18,9 +19,10 @@ give the owner one knob for how greedy a render may be.
   synthesis path; RT4 measures the real build)
 - `slow` is exactly today's behavior (one worker, one sentence in flight)
 - Tests prove the parallel plumbing matches the serial one exactly with a
-  deterministic fake engine, that a stop leaves no partial chapter and no
-  bundle, and that a failing chapter still records (non-strict) or aborts
-  (strict)
+  deterministic fake engine (byte-identical bundles when chapters do not
+  share sentence text; see the RT2 correction), that a stop leaves no
+  partial chapter and no bundle, and that a failing chapter still records
+  (non-strict) or aborts (strict)
 - The A/B numbers, the worker counts and the measured CUDA drift floor
   are in `docs/DECISIONS.md`
 
@@ -99,10 +101,13 @@ Code facts (verified):
   `apply_loudness_gain`, `encode_assembled_chapter` (ffmpeg subprocess),
   `_write_json`.
 - Per-sentence audio goes through `tts/cache.get_or_synth` (line 165):
-  content-keyed FLAC, written atomically (temp file plus `os.replace`,
-  per-PID temp name). Concurrent writers are already safe; two writers
-  of the same key just duplicate the work. `CacheStats` is a plain
-  per-chapter counter object.
+  content-keyed FLAC, written atomically (temp file plus `os.replace`).
+  **Corrected by RT2:** concurrent writers were NOT already safe, because
+  the temp name was per-PID only and the rename itself races a reader on
+  Windows. Both are fixed (`_IO_LOCK` serializes cache-file reads and
+  stores; the temp name adds the thread id). Duplicate synthesis of the
+  same key by two workers is still allowed and still just wastes work.
+  `CacheStats` is a plain per-chapter counter object.
 - The engine is built once (`create_engine`, build.py line 289,
   `(models_dir, *, device="auto") -> TTSEngine`) and shared by every
   `_synth` call.
@@ -170,34 +175,50 @@ Code facts (verified):
 - Follow-up left open: a second look at why one `session.run` costs
   0.67 s of fixed time would be its own spike, not this plan's work.
 
-### RT2: Chapter worker pool (M)
+### RT2: Chapter worker pool (M) - DONE 2026-10-18
 
-- Extract the per-chapter body of the loop (lines 1608 to 1756) into
-  `_render_one_chapter(chapter, *, cast, engines, narrator, render_audio,
-  render_text, strict, emit_sentence) -> ChapterOutcome`, calling the
-  same functions in the same order. `ChapterOutcome` (dataclass) carries
-  `index, title, hit, timed, plan, audio_path, audio_ms, stats,
-  sentences, skipped, wall_s, error, stopped`.
-- The parent keeps its loop shape but submits to a
-  `ThreadPoolExecutor(max_workers=n)` and folds each outcome in as it
-  completes into `timed`, `audio_paths`, `plans`, `chapter_audio_ms`,
-  the cumulative counters, `stats_entries` and `log_lines`. Counters,
-  `_emit` and the Rich progress updates go under one `threading.Lock`.
-- Stop: `stopped_fn()` is already checked per sentence inside the
-  worker's emit wrapper; on stop the worker unlinks its own partial
-  `mp3_path` and `json_path` and returns `stopped=True`. The parent
-  cancels pending futures and raises `BuildStoppedError` exactly as
-  today. A `strict` chapter error cancels pending futures and raises.
-- Tests (deterministic fake engine with a controlled sleep, injected via
-  `run_build(engine=...)`):
-  (a) four fake chapters at n=4 finish well under n=1 wall time;
-  (b) every rendered MP3 and text JSON is byte-identical to a serial run
-  (exact, because the engine is fake: see decision 6);
-  (c) a stop mid-run leaves no partial chapter file and no bundle;
-  (d) a failing chapter in non-strict mode is recorded and the rest
-  still render, with no bundle.
+- Built as nested closures inside `_run_build_locked` (`_render_chapter`,
+  `_fold`, `_check_hook`, `_emit_sentence`, `_emit_chapter`, `_log_now`)
+  instead of a module-level function with a dozen keyword arguments: the
+  per-chapter body needs `cast`, `engines`, the narrator, the render dirs
+  and the stop predicate, all of which the enclosing function already has.
+  `ChapterOutcome` is module level (dataclass, the plan's field list).
+- `workers <= 1` keeps the loop inline on the calling thread, so `slow` is
+  literally the old code path (Ctrl-C and exception flow included) rather
+  than a one-worker pool that only looks the same. `workers > 1` submits
+  every selected chapter and folds outcomes with `as_completed`.
+- Cumulative event counters moved into an `emit_lock`-guarded ledger
+  (`totals`), fed per sentence by a hits/misses delta: the same numbers
+  the old `cum_* + chapter_stats` arithmetic produced, but they add up
+  when several workers emit out of chapter order. `scribe.log` appends go
+  through `log_lock`.
+- Stop: the worker checks `stopped_fn()` both before its chapter and per
+  sentence (unchanged), unlinks its own partials, logs, and raises; the
+  parent cancels the queued futures and re-raises. A strict chapter error
+  propagates the same way (in-flight chapters finish first: the pool's exit
+  waits for them, so a strict abort is not instantaneous in parallel mode).
+- Tests (`tests/test_build.py`, section (e)): a probe engine reports how
+  many synths overlapped (4 workers reach 4, 1 worker reaches 1) so the
+  overlap check cannot flake on a loaded machine; the parallel bundle is
+  byte-compared to the serial one; a mid-run stop leaves no torn chapter
+  and no bundle and the resume finishes; a chapter failure under 4 workers
+  is still recorded and the rest render; `workers=0` is rejected.
+- **Corrections found while building it:**
+  1. Byte identity holds only when chapters do not share sentence text.
+     With a repeated fixture sentence, all four workers synthesize the
+     same key at once; the writer keeps its raw float32, the others read
+     the PCM_24 store (about 1e-8 apart, the documented cache
+     quantization), so a cold parallel chapter can differ in bytes from a
+     warm serial one. Inaudible, but it means "identical bytes" is a
+     claim about independent chapters only. The test fixture generates
+     distinct sentences per chapter to make the claim testable.
+  2. The sentence cache was not thread-safe (see the corrected code fact
+     above): same-process writers shared one temp path and the rename
+     collided with concurrent readers on Windows, both surfacing as
+     chapter failures (`PermissionError: Access is denied`). Fixed in
+     `tts/cache.py`, with a concurrency test in `tests/test_tts_cache.py`.
 - **Verify:** pytest green; one real 4-chapter A/B (n=1 versus n=4) on
-  the same book recorded.
+  the same book recorded. (Real A/B rolls into RT4.)
 
 ### RT3: `--render-speed` (S)
 
@@ -222,6 +243,10 @@ Code facts (verified):
   `docs/DECISIONS.md`, and add the one `docs/api.md` line about parallel
   event ordering. RT1 predicts about 29 min becoming about 8 to 9 min
   for this range; the log line proves it.
+- Expect the two bundles to differ in bytes wherever a cold chapter met
+  a warm one (cache quantization, RT2 correction 1). Compare chapter
+  lists, sentence counts and durations, and check PCM against the
+  measured drift floor rather than demanding byte equality.
 - **Verify:** numbers in `docs/DECISIONS.md`; tablet copy, import and
   read-along stay listed as needs device test.
 

@@ -106,9 +106,12 @@ No network access; ffmpeg/ffprobe run as subprocesses only.
 from __future__ import annotations
 
 import json
+import os
 import re
+import threading
 import time
 from collections.abc import Callable, Collection, Mapping
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -258,6 +261,30 @@ class BuildResult:
     selected_chapters: list[int] = field(default_factory=list)
     page_resolution: str = ""
     is_range: bool = False
+
+
+@dataclass
+class ChapterOutcome:
+    """One chapter's render result (the unit of work for the worker pool).
+
+    :func:`_run_build_locked` builds these one per chapter and folds them
+    into run state in completion order, so the fold logic is identical
+    whether one chapter renders at a time or several do (RT2). Nothing but
+    the returned outcome is shared between a chapter render and the run.
+    """
+
+    index: int
+    title: str
+    hit: bool = False  # up-to-date chapter: nothing rendered
+    timed: ChapterFile | None = None
+    plan: dict[int, ResolvedVoice] | None = None
+    audio_path: Path | None = None
+    audio_ms: int = 0
+    stats: CacheStats | None = None
+    sentences: int = 0
+    skipped_sentences: int = 0
+    wall_s: float = 0.0
+    error: str | None = None  # chapter-level failure reason (non-strict)
 
 
 @dataclass
@@ -1275,6 +1302,31 @@ def plan_build(
     )
 
 
+#: Chapters rendered at once per ``--render-speed`` tier. ``fast`` is the
+#: RT1 measured knee: 8 workers gave 3.9x where 12 gave 3.3x and took 4.4 of
+#: 6 GB VRAM, so its cap is 8 rather than the 12 the tier ceiling allows.
+RENDER_SPEED_WORKERS = {"slow": 1, "balanced": 4}
+
+
+def workers_for_speed(speed: str) -> int:
+    """Chapter worker count for a ``--render-speed`` tier.
+
+    ``slow`` = 1 (today's serial render), ``balanced`` = 4, ``fast`` = the
+    RT1 knee, at most 8 and at least 2. The CLI owns the tier names; the
+    library only ever sees the resolved count on ``run_build(workers=...)``.
+    """
+    tier = str(speed or "").strip().lower()
+    if tier == "fast":
+        return min(8, max(2, (os.cpu_count() or 2) - 1))
+    try:
+        return RENDER_SPEED_WORKERS[tier]
+    except KeyError:
+        raise BuildError(
+            f"render-speed: bad-speed: {speed!r} must be one of "
+            f"['slow', 'balanced', 'fast']"
+        ) from None
+
+
 def run_build(
     source: Path | str,
     *,
@@ -1285,6 +1337,7 @@ def run_build(
     models_dir: Path | str = Path("models"),
     strict: bool = False,
     fail_after: int | None = None,
+    workers: int = 1,
     show_progress: bool = True,
     chapters: str | None = None,
     pages: str | None = None,
@@ -1326,6 +1379,11 @@ def run_build(
         :class:`BuildError` after this many chapters render in this run
         (``None``/``<1`` disables). A real SIGKILL writes nothing; this
         hook logs its abort line, so it is louder, not quieter.
+    :param workers: chapters to render at once (``>1`` renders chapters in
+        parallel threads that share one engine; sentence order inside a
+        chapter is unchanged, so timings, sentence cache reuse and bundle
+        bytes do not move). ``1`` is the serial path. The CLI maps
+        ``--render-speed`` onto this; see ``workers_for_speed``.
     :param show_progress: ``rich`` chapter bar with ETA (off in tests).
         Implemented as a :class:`progress.RichProgressListener` (same
         columns/wording as before); combined with ``progress_listener``
@@ -1399,6 +1457,7 @@ def run_build(
             models_dir=models_dir,
             strict=strict,
             fail_after=fail_after,
+            workers=workers,
             show_progress=show_progress,
             chapters=chapters,
             pages=pages,
@@ -1426,6 +1485,7 @@ def _run_build_locked(
     models_dir: Path | str,
     strict: bool,
     fail_after: int | None,
+    workers: int,
     show_progress: bool,
     chapters: str | None,
     pages: str | None,
@@ -1448,6 +1508,8 @@ def _run_build_locked(
         raise BuildError(
             f"device: bad-device: {device!r} must be one of ['auto', 'cpu', 'cuda']"
         )
+    if workers < 1:
+        raise BuildError(f"workers: bad-workers: {workers!r} must be >= 1")
     selected, page_resolution = _resolve_selection(
         all_chapters, chapters_spec=chapters, pages_spec=pages
     )
@@ -1530,8 +1592,58 @@ def _run_build_locked(
         if listener is not rich_bar and show_progress is False and rich_bar.enabled is False:
             rich_bar.events.append(dict(event))
 
-    cum_cached = cum_rendered = 0
-    cum_audio_ms = 0
+    # One lock guards the cumulative event counters plus the listener, and
+    # one guards scribe.log: workers emit and log concurrently, and the Rich
+    # bar plus the JSONL tail must still see monotonic totals.
+    emit_lock = threading.Lock()
+    log_lock = threading.Lock()
+    totals = {"cached": 0, "rendered": 0, "audio_ms": 0}
+
+    def _log_now() -> None:
+        """Append this run's log lines now (workers may call this at once)."""
+        with log_lock:
+            _append_log(work_dir, log_lines)
+
+    def _emit_sentence(
+        chapter_index: int, sentence: Sentence, stats: CacheStats, hits0: int, misses0: int
+    ) -> None:
+        """Cumulative sentence event (counted as the sentence completes).
+
+        The deltas against the pre-synth counters are the chapter's live
+        hits/misses, so the totals are identical to the old ``cum_* +
+        chapter_stats`` arithmetic, only counted per sentence instead of per
+        chapter (which is what makes several workers' events add up).
+        """
+        with emit_lock:
+            totals["cached"] += stats.hits - hits0
+            totals["rendered"] += stats.misses - misses0
+            _emit(
+                make_event(
+                    "sentence",
+                    chapter=chapter_index,
+                    sid=sentence.sid,
+                    cached=totals["cached"],
+                    rendered=totals["rendered"],
+                    audio_ms=totals["audio_ms"],
+                    wall_s=time.monotonic() - wall_start,
+                )
+            )
+
+    def _emit_chapter(name: str, chapter_index: int, title: str, audio_ms: int) -> None:
+        """Chapter event; ``audio_ms`` is this chapter's own duration."""
+        with emit_lock:
+            totals["audio_ms"] += audio_ms
+            _emit(
+                make_event(
+                    name,
+                    chapter=chapter_index,
+                    cached=totals["cached"],
+                    rendered=totals["rendered"],
+                    audio_ms=audio_ms,
+                    wall_s=time.monotonic() - wall_start,
+                )
+                | {"title": title, "chapters_total": len(render_chapters)}
+            )
 
     def _synth_fn(
         plan: dict[int, ResolvedVoice],
@@ -1570,7 +1682,7 @@ def _run_build_locked(
     )
     log_lines = [
         f"build start: book {script.book_id} source {Path(source).name} "
-        f"strict={strict} chapters={len(all_chapters)} "
+        f"strict={strict} workers={workers} chapters={len(all_chapters)} "
         f"selected={(format_range_compact(selected) if is_range else 'all')} "
         f"bundle_id={bundle_id} device={device}",
         f"script: {'redrafted' if script.redrafted else 'fresh'} ({len(all_chapters)} chapters)",
@@ -1591,218 +1703,245 @@ def _run_build_locked(
     stats_entries: list[dict[str, Any]] = []
 
     hook = fail_after if fail_after is not None and fail_after >= 1 else None
+
+    def _render_chapter(chapter: ChapterFile) -> ChapterOutcome:
+        """Render one chapter (one unit of work) without touching run state.
+
+        Returns an outcome for :func:`_fold` to apply. A cooperative stop
+        cleans this chapter's partial files and raises
+        :class:`BuildStoppedError`; a chapter-level error comes back as
+        ``error`` (non-strict) or raises :class:`BuildError` (strict).
+        """
+        index = chapter.chapter
+        if stopped_fn():
+            log_lines.append(
+                "build stopped: cooperative stop before chapter "
+                f"{index} (no bundle written)"
+            )
+            _log_now()
+            raise BuildStoppedError(
+                f"build: stopped: cooperative stop before chapter {index} "
+                "(no bundle written; resume re-renders uncached)"
+            )
+        stem = f"ch{index:0{width}d}"
+        mp3_path = render_audio / f"{stem}.mp3"
+        json_path = render_text / f"{stem}.json"
+        plan = resolve_chapter(
+            cast,
+            chapter,
+            narrator_voice=voice,
+            narrator_speed=speed,
+            narrator_engine=narrator_engine,
+        )
+        fingerprint = _fingerprint(cast, engines, chapter)
+        hit = chapter_up_to_date(chapter, json_path, mp3_path, fingerprint)
+        if hit is not None:
+            return ChapterOutcome(
+                index=index,
+                title=chapter.title,
+                hit=True,
+                timed=hit,
+                plan=plan,
+                audio_path=mp3_path,
+                audio_ms=hit.duration_ms,
+            )
+        chapter_stats = CacheStats()
+        chapter_wall = time.monotonic()
+        chapter_skipped = 0
+        try:
+            # Sentence-level stop + progress: wrap synth to emit per
+            # sentence so the Rich bar and the JSONL tail see the same
+            # cumulative numbers (previous chapters + this chapter so far).
+            base_synth = _synth_fn(plan, chapter_stats, index)
+
+            def _emit_synth(sentence: Sentence) -> np.ndarray:
+                nonlocal chapter_skipped
+                hits0, misses0 = chapter_stats.hits, chapter_stats.misses
+                try:
+                    audio = base_synth(sentence)
+                    if np.asarray(audio).size == 0:
+                        raise ValueError(
+                            f"sentence {sentence.sid} synthesized to empty audio"
+                        )
+                except BuildStoppedError:
+                    raise
+                except BuildError:
+                    # Config errors (no engine for a voice) fail loud:
+                    # skipping those would ship chapters of silence.
+                    raise
+                except Exception as exc:
+                    # One bad sentence (no phonemes, empty audio) must
+                    # not kill its chapter: brief silence keeps sids and
+                    # timings contiguous. Strict mode keeps aborting.
+                    if strict:
+                        raise
+                    chapter_skipped += 1
+                    log_lines.append(
+                        f"chapter {index} {chapter.title}: sentence "
+                        f"{sentence.sid} skipped "
+                        f"({type(exc).__name__}: {exc})"
+                    )
+                    audio = np.zeros(
+                        assemble_mod.samples_for_ms(
+                            assemble_mod.PAUSE_SENTENCE_MS
+                        ),
+                        dtype=np.float32,
+                    )
+                _emit_sentence(index, sentence, chapter_stats, hits0, misses0)
+                return audio
+
+            assembled = assemble_chapter(
+                chapter,
+                _emit_synth,
+                voice_of=lambda sentence: plan[sentence.sid].voice,
+            )
+            loud = apply_loudness_gain(assembled.pcm)
+            to_encode = AssembledChapter(
+                pcm=loud,
+                timings=assembled.timings,
+                duration_ms=assembled.duration_ms,
+                sample_count=assembled.sample_count,
+                sample_rate=assembled.sample_rate,
+            )
+            try:
+                encode_assembled_chapter(to_encode, mp3_path, chapter_label=stem)
+            except Exception:
+                mp3_path.unlink(missing_ok=True)
+                raise
+            timed_chapter = _with_timings(chapter, assembled.timings, assembled.duration_ms)
+            payload = dict(timed_chapter.to_dict())
+            payload[RENDER_FINGERPRINT_KEY] = fingerprint
+            _write_json(json_path, payload)
+            chapter_wall_s = time.monotonic() - chapter_wall
+        except BuildStoppedError:
+            # Atomicity: partial chapter output removed so resume
+            # re-renders it fully (render files are only complete after
+            # a successful encode; a stop mid-sentences leaves nothing,
+            # a stop mid-encode leaves a torn MP3 — both deleted).
+            mp3_path.unlink(missing_ok=True)
+            json_path.unlink(missing_ok=True)
+            log_lines.append(
+                f"chapter {index} {chapter.title}: stopped (partial cleaned)"
+            )
+            _log_now()
+            raise
+        except Exception as exc:  # chapter-level: strict aborts, else record
+            # A stop checked late (e.g. encode took long) still cleans.
+            if stopped_fn():
+                mp3_path.unlink(missing_ok=True)
+                json_path.unlink(missing_ok=True)
+                log_lines.append(
+                    f"chapter {index} {chapter.title}: stopped (partial cleaned)"
+                )
+                _log_now()
+                raise BuildStoppedError(
+                    f"build: stopped: cooperative stop at chapter {index} "
+                    "(partial chapter cleaned; resume re-renders)"
+                ) from exc
+            reason = f"{type(exc).__name__}: {exc}"
+            if strict:
+                log_lines.append(f"chapter {index} {chapter.title}: FAILED {reason}")
+                log_lines.append(f"build aborted (strict): chapter {index} failed")
+                _log_now()
+                raise BuildError(f"chapter {index} failed: {exc}") from exc
+            return ChapterOutcome(index=index, title=chapter.title, error=reason)
+        return ChapterOutcome(
+            index=index,
+            title=chapter.title,
+            timed=timed_chapter,
+            plan=plan,
+            audio_path=mp3_path,
+            audio_ms=assembled.duration_ms,
+            stats=chapter_stats,
+            sentences=len(timed_chapter.sentences_in_order()),
+            skipped_sentences=chapter_skipped,
+            wall_s=chapter_wall_s,
+        )
+
+    def _fold(outcome: ChapterOutcome) -> None:
+        """Apply a finished chapter to the run state (parent thread only)."""
+        nonlocal rendered, skipped, rendered_this_run, cache_hits, cache_misses
+        index = outcome.index
+        if outcome.error is not None:
+            failed.append(index)
+            failure_reasons[index] = outcome.error
+            log_lines.append(f"chapter {index} {outcome.title}: FAILED {outcome.error}")
+            return
+        assert outcome.timed is not None
+        assert outcome.plan is not None
+        assert outcome.audio_path is not None
+        timed[index] = outcome.timed
+        audio_paths[index] = outcome.audio_path
+        plans[index] = outcome.plan
+        chapter_audio_ms[index] = outcome.audio_ms
+        if outcome.hit:
+            skipped += 1
+            log_lines.append(f"chapter {index} {outcome.title}: skipped (up-to-date)")
+            _emit_chapter("chapter_skipped", index, outcome.title, outcome.audio_ms)
+            return
+        assert outcome.stats is not None
+        rendered += 1
+        rendered_this_run += 1
+        cache_hits += outcome.stats.hits
+        cache_misses += outcome.stats.misses
+        stats_entries.append(
+            {
+                "audio_ms": outcome.audio_ms,
+                "wall_s": round(outcome.wall_s, 3),
+                "chapter": index,
+                "sentences": outcome.sentences,
+            }
+        )
+        skip_note = (
+            f", {outcome.skipped_sentences} skipped" if outcome.skipped_sentences else ""
+        )
+        log_lines.append(
+            f"chapter {index} {outcome.title}: rendered "
+            f"({outcome.audio_ms} ms, {outcome.sentences} sentences; "
+            f"audio {outcome.stats.hits} cached, "
+            f"{outcome.stats.misses} rendered{skip_note})"
+        )
+        _emit_chapter("chapter_done", index, outcome.title, outcome.audio_ms)
+
+    def _check_hook() -> None:
+        """Test-only kill simulation: abort once ``hook`` chapters rendered."""
+        if hook is not None and rendered_this_run >= hook:
+            log_lines.append(
+                f"build aborted: simulated failure after {hook} "
+                "chapter(s) (test hook; rerun resumes)"
+            )
+            _log_now()
+            raise BuildError(
+                f"simulated failure after {hook} chapter(s) (test hook; rerun resumes)"
+            )
+
     rich_ctx = rich_bar if show_progress else None
     # Enter Rich context manually so events flow even when disabled.
     if rich_ctx is not None:
         rich_ctx.__enter__()
     try:
-        for chapter in render_chapters:
-            if stopped_fn():
-                log_lines.append("build stopped: cooperative stop before chapter "
-                                 f"{chapter.chapter} (no bundle written)")
-                _append_log(work_dir, log_lines)
-                raise BuildStoppedError(
-                    f"build: stopped: cooperative stop before chapter {chapter.chapter} "
-                    "(no bundle written; resume re-renders uncached)"
-                )
-            index = chapter.chapter
-            stem = f"ch{index:0{width}d}"
-            mp3_path = render_audio / f"{stem}.mp3"
-            json_path = render_text / f"{stem}.json"
-            plan = resolve_chapter(
-                cast,
-                chapter,
-                narrator_voice=voice,
-                narrator_speed=speed,
-                narrator_engine=narrator_engine,
-            )
-            fingerprint = _fingerprint(cast, engines, chapter)
-            hit = chapter_up_to_date(chapter, json_path, mp3_path, fingerprint)
-            if hit is not None:
-                timed[index] = hit
-                audio_paths[index] = mp3_path
-                plans[index] = plan
-                chapter_audio_ms[index] = hit.duration_ms
-                skipped += 1
-                cum_audio_ms += hit.duration_ms
-                log_lines.append(f"chapter {index} {chapter.title}: skipped (up-to-date)")
-                _emit(
-                    make_event(
-                        "chapter_skipped",
-                        chapter=index,
-                        cached=cum_cached,
-                        rendered=cum_rendered,
-                        audio_ms=hit.duration_ms,
-                        wall_s=time.monotonic() - wall_start,
-                    )
-                    | {"title": chapter.title, "chapters_total": len(render_chapters)}
-                )
-                continue
-            chapter_stats = CacheStats()
-            chapter_wall = time.monotonic()
-            try:
-                # Sentence-level stop + progress: wrap synth to emit per
-                # sentence so the Rich bar and the JSONL tail see the same
-                # cumulative numbers (previous chapters + this chapter so far).
-                base_synth = _synth_fn(plan, chapter_stats, index)
-                chapter_skipped = 0
-
-                def _emit_synth(sentence: Sentence) -> np.ndarray:
-                    nonlocal chapter_skipped
-                    try:
-                        audio = base_synth(sentence)
-                        if np.asarray(audio).size == 0:
-                            raise ValueError(
-                                f"sentence {sentence.sid} synthesized to empty audio"
-                            )
-                    except BuildStoppedError:
-                        raise
-                    except BuildError:
-                        # Config errors (no engine for a voice) fail loud:
-                        # skipping those would ship chapters of silence.
-                        raise
-                    except Exception as exc:
-                        # One bad sentence (no phonemes, empty audio) must
-                        # not kill its chapter: brief silence keeps sids and
-                        # timings contiguous. Strict mode keeps aborting.
-                        if strict:
-                            raise
-                        chapter_skipped += 1
-                        log_lines.append(
-                            f"chapter {index} {chapter.title}: sentence "
-                            f"{sentence.sid} skipped "
-                            f"({type(exc).__name__}: {exc})"
-                        )
-                        audio = np.zeros(
-                            assemble_mod.samples_for_ms(
-                                assemble_mod.PAUSE_SENTENCE_MS
-                            ),
-                            dtype=np.float32,
-                        )
-                    _emit(
-                        make_event(
-                            "sentence",
-                            chapter=index,
-                            sid=sentence.sid,
-                            cached=cum_cached + chapter_stats.hits,
-                            rendered=cum_rendered + chapter_stats.misses,
-                            audio_ms=cum_audio_ms,
-                            wall_s=time.monotonic() - wall_start,
-                        )
-                    )
-                    return audio
-
-                assembled = assemble_chapter(
-                    chapter,
-                    _emit_synth,
-                    voice_of=lambda sentence: plan[sentence.sid].voice,
-                )
-                loud = apply_loudness_gain(assembled.pcm)
-                to_encode = AssembledChapter(
-                    pcm=loud,
-                    timings=assembled.timings,
-                    duration_ms=assembled.duration_ms,
-                    sample_count=assembled.sample_count,
-                    sample_rate=assembled.sample_rate,
-                )
+        if workers <= 1:
+            # Serial path stays inline on the calling thread, so Ctrl-C and
+            # exception flow at n=1 behave exactly as before the pool.
+            for chapter in render_chapters:
+                _fold(_render_chapter(chapter))
+                _check_hook()
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [
+                    pool.submit(_render_chapter, chapter) for chapter in render_chapters
+                ]
                 try:
-                    encode_assembled_chapter(to_encode, mp3_path, chapter_label=stem)
-                except Exception:
-                    mp3_path.unlink(missing_ok=True)
+                    for future in as_completed(futures):
+                        _fold(future.result())
+                        _check_hook()
+                except BaseException:
+                    # Stop/strict abort: drop the queued chapters; in-flight
+                    # ones clean up and return at their next sentence boundary
+                    # (the pool's exit waits for them).
+                    for future in futures:
+                        future.cancel()
                     raise
-                timed_chapter = _with_timings(chapter, assembled.timings, assembled.duration_ms)
-                payload = dict(timed_chapter.to_dict())
-                payload[RENDER_FINGERPRINT_KEY] = fingerprint
-                _write_json(json_path, payload)
-                timed[index] = timed_chapter
-                audio_paths[index] = mp3_path
-                plans[index] = plan
-                chapter_audio_ms[index] = assembled.duration_ms
-                rendered += 1
-                rendered_this_run += 1
-                # Cumulative sentence-audio counts (same numbers the Rich
-                # bar and JSONL tail report).
-                cum_cached += chapter_stats.hits
-                cum_rendered += chapter_stats.misses
-                cum_audio_ms += assembled.duration_ms
-                cache_hits += chapter_stats.hits
-                cache_misses += chapter_stats.misses
-                stats_entries.append(
-                    {
-                        "audio_ms": assembled.duration_ms,
-                        "wall_s": round(time.monotonic() - chapter_wall, 3),
-                        "chapter": index,
-                        "sentences": len(timed_chapter.sentences_in_order()),
-                    }
-                )
-                sentences = len(timed_chapter.sentences_in_order())
-                skip_note = f", {chapter_skipped} skipped" if chapter_skipped else ""
-                log_lines.append(
-                    f"chapter {index} {chapter.title}: rendered "
-                    f"({assembled.duration_ms} ms, {sentences} sentences; "
-                    f"audio {chapter_stats.hits} cached, "
-                    f"{chapter_stats.misses} rendered{skip_note})"
-                )
-                _emit(
-                    make_event(
-                        "chapter_done",
-                        chapter=index,
-                        cached=cum_cached,
-                        rendered=cum_rendered,
-                        audio_ms=assembled.duration_ms,
-                        wall_s=time.monotonic() - wall_start,
-                    )
-                    | {"title": chapter.title, "chapters_total": len(render_chapters)}
-                )
-            except BuildStoppedError:
-                # Atomicity: partial chapter output removed so resume
-                # re-renders it fully (render files are only complete after
-                # a successful encode; a stop mid-sentences leaves nothing,
-                # a stop mid-encode leaves a torn MP3 — both deleted).
-                mp3_path.unlink(missing_ok=True)
-                json_path.unlink(missing_ok=True)
-                timed.pop(index, None)
-                audio_paths.pop(index, None)
-                plans.pop(index, None)
-                log_lines.append(
-                    f"chapter {index} {chapter.title}: stopped (partial cleaned)"
-                )
-                _append_log(work_dir, log_lines)
-                raise
-            except Exception as exc:  # chapter-level: strict aborts, else record
-                # A stop checked late (e.g. encode took long) still cleans.
-                if stopped_fn():
-                    mp3_path.unlink(missing_ok=True)
-                    json_path.unlink(missing_ok=True)
-                    timed.pop(index, None)
-                    audio_paths.pop(index, None)
-                    plans.pop(index, None)
-                    log_lines.append(
-                        f"chapter {index} {chapter.title}: stopped (partial cleaned)"
-                    )
-                    _append_log(work_dir, log_lines)
-                    raise BuildStoppedError(
-                        f"build: stopped: cooperative stop at chapter {index} "
-                        "(partial chapter cleaned; resume re-renders)"
-                    ) from exc
-                reason = f"{type(exc).__name__}: {exc}"
-                if strict:
-                    log_lines.append(f"chapter {index} {chapter.title}: FAILED {reason}")
-                    log_lines.append(f"build aborted (strict): chapter {index} failed")
-                    _append_log(work_dir, log_lines)
-                    raise BuildError(f"chapter {index} failed: {exc}") from exc
-                failed.append(index)
-                failure_reasons[index] = reason
-                log_lines.append(f"chapter {index} {chapter.title}: FAILED {reason}")
-            if hook is not None and rendered_this_run >= hook:
-                log_lines.append(
-                    f"build aborted: simulated failure after {hook} "
-                    "chapter(s) (test hook; rerun resumes)"
-                )
-                _append_log(work_dir, log_lines)
-                raise BuildError(
-                    f"simulated failure after {hook} chapter(s) (test hook; rerun resumes)"
-                )
     finally:
         if rich_ctx is not None:
             rich_ctx.__exit__(None, None, None)
@@ -1898,8 +2037,8 @@ def _run_build_locked(
         make_event(
             "build_done",
             chapter=0,
-            cached=cum_cached,
-            rendered=cum_rendered,
+            cached=totals["cached"],
+            rendered=totals["rendered"],
             audio_ms=total_audio_ms,
             wall_s=wall_seconds,
         )

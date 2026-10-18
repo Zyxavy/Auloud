@@ -582,6 +582,12 @@ def build(
         help="TTS device: auto (CUDA when onnxruntime reports it, else CPU), "
         "cpu, or cuda.",
     ),
+    render_speed: str = typer.Option(
+        "balanced",
+        "--render-speed",
+        help="How many chapters render at once: slow (1), balanced (4), "
+        "fast (up to 8; the measured GPU knee). One render owns the machine.",
+    ),
     plan: bool = typer.Option(
         False,
         "--plan",
@@ -603,7 +609,14 @@ def build(
     ),
 ) -> None:
     """Render audio chapter by chapter (resumable) and write the bundle."""
-    from build import BuildError, format_plan, format_summary, plan_build, run_build
+    from build import (
+        BuildError,
+        format_plan,
+        format_summary,
+        plan_build,
+        run_build,
+        workers_for_speed,
+    )
     from bundle.writer import BundleWriteError
     from draft import DraftError
 
@@ -638,6 +651,7 @@ def build(
             chapters=chapters,
             pages=pages,
             device=device,
+            workers=workers_for_speed(render_speed),
             progress_listener=jsonl_writer,
             stop_file=stop_file,
         )

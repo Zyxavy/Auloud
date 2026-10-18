@@ -126,7 +126,11 @@ one of the two is wrong (contract-first rule, Slice16 decision 1).
   interrupted. Event bodies carry `{event, chapter, sid, cached, rendered,
   audio_ms, wall_s}` plus phase markers (`draft_start`, `draft_done`,
   `draft_failed` with the error shape, `build_done`). `400 bad-job-id` /
-  `404 job-not-found` come back as JSON, not SSE.
+  `404 job-not-found` come back as JSON, not SSE. A build renders chapters in
+  parallel (`--render-speed`), so events arrive in completion order: `chapter`
+  numbers can go up and down, the cumulative `cached`/`rendered`/`audio_ms`
+  totals only ever grow, and a chapter's own events stay in order. Key jobs
+  and progress by chapter number, never by arrival order.
 
 ## 5. Settings
 

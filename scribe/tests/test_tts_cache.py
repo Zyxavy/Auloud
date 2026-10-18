@@ -25,6 +25,8 @@ SKIPS loudly when they are absent — it never fails for missing models.
 from __future__ import annotations
 
 import os
+import threading
+import time
 from pathlib import Path
 
 import numpy as np
@@ -192,6 +194,50 @@ def test_hit_output_deterministic_on_realistic_data(tmp_path: Path) -> None:
     assert len(engine.calls) == 1
     assert np.array_equal(hit1, hit2)  # resume determinism: hits never differ
     assert float(np.max(np.abs(original - hit1))) < 1e-6  # PCM_24, not PCM_16
+
+
+def test_concurrent_miss_same_sentence_stays_intact(tmp_path: Path) -> None:
+    """Threads synthesizing the SAME sentence at once (RT2 chapters share
+    lines) must each get complete audio, leave no temp files behind, and
+    store a file that later decodes to the same samples."""
+
+    class SlowSineEngine(SineEngine):
+        """SineEngine with a sleep in synth, so the writers overlap."""
+
+        def synth(self, text: str, voice: str, speed: float) -> np.ndarray:
+            time.sleep(0.05)
+            return super().synth(text, voice, speed)
+
+    engine = SlowSineEngine()
+    results: list[np.ndarray] = []
+    errors: list[BaseException] = []
+    started = threading.Barrier(8)
+
+    def worker() -> None:
+        try:
+            started.wait(timeout=10)
+            results.append(
+                get_or_synth(engine, "Hello world.", "af_heart", 1.0, 1.0, tmp_path)
+            )
+        except BaseException as exc:  # noqa: BLE001 - recorded for the assert
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+
+    assert errors == []
+    assert len(results) == 8
+    reference = results[0]
+    assert all(np.array_equal(reference, r) for r in results)
+    assert len(_cached_files(tmp_path)) == 1
+    assert list(tmp_path.glob(".*tmp*")) == []  # no temp left behind
+    hit = get_or_synth(engine, "Hello world.", "af_heart", 1.0, 1.0, tmp_path)
+    # The hit is the PCM_24 store, the reference the raw float32 synth: the
+    # documented ~1e-6 quantization gap, not a torn read.
+    assert float(np.max(np.abs(reference - hit))) < 1e-6
 
 
 @pytest.mark.parametrize(
