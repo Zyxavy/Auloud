@@ -176,9 +176,9 @@ approval only if the probe fails. Everything else is approval-free.
 
 ## 8. Definition of done
 
-- [ ] Contrast unit tests green over the light table
+- [x] Contrast unit tests green over the light table
 - [ ] Title face decided (ship or recorded no)
-- [ ] Five components unified (dark deferred)
+- [x] Five components unified (dark deferred)
 - [ ] Keyboard-only walk clean (dark deferred)
 - [x] Table verdict recorded (fast as-is or virtualized)
 - [ ] Runbook written, Windows pass done, Linux lines attributed
