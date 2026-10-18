@@ -37,6 +37,10 @@ pub mod theme {
     /// DS3: the one button padding (x, y); egui's default is (4.0, 1.0).
     pub const BUTTON_PAD: (f32, f32) = (8.0, 4.0);
 
+    /// AX1: focus ring weight in points (WCAG 1.4.11 wants the indicator
+    /// visually distinguishable, not just present).
+    pub const FOCUS_RING_WIDTH: f32 = 1.5;
+
     /// DS3: the one chip shape (fill for the neutral tone, its edge, and
     /// the shared corner and padding). Tone colours live in `components`.
     pub const CHIP_NEUTRAL: (u8, u8, u8) = (0xE8, 0xE2, 0xD8);
@@ -52,8 +56,9 @@ pub mod theme {
         egui::Color32::from_rgb(rgb.0, rgb.1, rgb.2)
     }
 
-    /// The one style entry point (DS3): spacing, type scale, serif
-    /// titles. Called once from `main`, so every screen inherits it.
+    /// The one style entry point (DS3, AX1): spacing, type scale, focus
+    /// ring, serif titles. Called once from `main`, so every screen
+    /// inherits it.
     pub fn apply(style: &mut egui::Style) {
         style.spacing.item_spacing = egui::vec2(SPACE_ROW.0, SPACE_ROW.1);
         style.spacing.button_padding = egui::vec2(BUTTON_PAD.0, BUTTON_PAD.1);
@@ -61,6 +66,12 @@ pub mod theme {
             egui::TextStyle::Small,
             egui::FontId::new(TYPE_SMALL, egui::FontFamily::Proportional),
         );
+        // AX1: egui shows keyboard focus through the `active` widget
+        // visuals (`Response::widget_state`), which are almost the same
+        // grey as an unfocused widget here. An oxblood ring makes focus
+        // visible on paper; the text-selection stroke follows it.
+        style.visuals.widgets.active.bg_stroke = egui::Stroke::new(FOCUS_RING_WIDTH, color(OXBLOOD));
+        style.visuals.selection.stroke = egui::Stroke::new(FOCUS_RING_WIDTH, color(OXBLOOD));
         serif_titles(style);
     }
 
@@ -161,6 +172,19 @@ pub mod theme {
             // edge stroke carries the rest, so this guards the fill.
             assert!(contrast(CHIP_NEUTRAL, PAPER) >= 1.2);
             assert!(contrast(CHIP_EDGE, PAPER) > contrast(CHIP_NEUTRAL, PAPER));
+        }
+
+        #[test]
+        fn focus_ring_is_visible_on_paper() {
+            let mut style = egui::Style::default();
+            apply(&mut style);
+            let ring = style.visuals.widgets.active.bg_stroke;
+            assert_eq!(ring.width, FOCUS_RING_WIDTH);
+            assert_eq!(ring.color, color(OXBLOOD));
+            // WCAG 1.4.11: 3:1 against the background it sits on.
+            assert!(contrast(OXBLOOD, PAPER) >= 3.0);
+            // And it is a change from egui's plain focused look.
+            assert_ne!(ring, style.visuals.widgets.inactive.bg_stroke);
         }
     }
 }

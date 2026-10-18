@@ -1391,6 +1391,12 @@ impl App {
         if !self.quit_confirm {
             return;
         }
+        // AX1: Esc takes the safe choice (Stay), so the dialog cannot
+        // become a keyboard trap for a keyboard-only user.
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.quit_confirm = false;
+            return;
+        }
         ui.separator();
         ui.heading(egui::RichText::new("Quit with running jobs?").color(theme::color(theme::OXBLOOD)));
         if live.is_empty() {
