@@ -1,7 +1,8 @@
 # Plan: Scribe render throughput (speed tiers + parallel chapters)
 
-Status: decisions accepted 2026-10-18; RT1 to RT4 and the RT5 gate probe
-are done, with their numbers and as-built corrections below. RT5 itself
+Status: decisions accepted 2026-10-18; RT1 to RT4, the RT5 gate probe and
+the production append (RT6) are done, with their numbers and as-built
+corrections below. RT5 itself
 stays gated on a model export that reports durations. Not yet a roadmap
 slice (`10-V3Roadmap.md` stops at Slice 22, Installers). No bundle-format
 change, no spec change, no new dependency. The book's cast is not part of
@@ -285,6 +286,31 @@ Code facts (verified):
   `scripts/export.py`, which changes the audio of every chapter, breaks
   the sentence cache and needs its own parity pass against the CPU path.
 - Do not start this without RT4's numbers and the owner's go-ahead.
+
+### RT6: Production bundle for source 94-131 (DONE 2026-10-18)
+
+- The shipped artifact is one contiguous range bundle:
+  `scribe/bundles/501afcd4-a3e8-51b9-92a0-43f026ef73d0`, spec 1.2, 38
+  chapters renumbering source 94-131 to bundle 1..38, 4:44:21 audio,
+  135.5 MB, `scribe validate` clean.
+- Built by **widening the range**, not by merging two bundles:
+  `scribe build Strongest_Hammer_God.epub --chapters 94-131 --device cuda
+  --render-speed fast`. Every chapter was already up to date in the book
+  work root (`.scribe/937ed66f-...`), so it reported `rendered: 0,
+  skipped: 38, failed: 0` and finished in **19.1 s** (RTF 894.79x):
+  assembly and copy only, no synthesis, no re-encode of rendered audio.
+  The append of 284 minutes of audio cost less than one chapter render.
+- The partial bundles it supersedes stay on disk but are not for the
+  tablet: `ea8411a9` (94-112, 70.9 MB, rendered at `slow`, RTF 4.95x) and
+  `90688267` (113-131, 68.6 MB, rendered at `fast`, RTF 14.81x).
+- Range ids were recomputed from the epub's sha256 before the run
+  (`draft.book_id_for_range`) and matched the work root and both existing
+  bundles; that is how the wide rebuild is proven to reuse the same work
+  root and render output rather than draft the book afresh.
+- **Verify:** `validate` clean; tablet copy, import, read-along and
+  screen-off playback stay listed as needs device test.
+- Numbers, the cost of later appends and the open cast item are in
+  `docs/DECISIONS.md` (D-179).
 
 ## 6. GPU utilization in fast mode (measured)
 
