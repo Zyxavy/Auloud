@@ -97,6 +97,10 @@ TAIL_POLL_S = 0.5
 
 _VALID_DEVICES = frozenset({"auto", "cpu", "cuda"})
 
+#: Render-speed tiers (RP1). Mirrors ``build.workers_for_speed``; the CLI
+#: owns the names, this only rejects a typo before a child spawns.
+_VALID_RENDER_SPEEDS = frozenset({"slow", "balanced", "fast"})
+
 #: Slice 6 UI7: audition-clip generation jobs (detached ``scribe voices``).
 VOICES_KIND = "voices-sample"
 #: Sentinel book id for global voices jobs (no per-book lock, no work dir).
@@ -549,12 +553,19 @@ class JobManager:
         chapters: str | None = None,
         pages: str | None = None,
         device: str = "cpu",
+        render_speed: str = "balanced",
     ) -> dict[str, Any]:
         """Queue a build job (202 shape via the API; raises ``ValueError``)."""
         normalized_device = str(device or "cpu").strip().lower()
         if normalized_device not in _VALID_DEVICES:
             raise ValueError(
                 f"{source_file}: bad-device: {device!r} must be one of ['auto', 'cpu', 'cuda']"
+            )
+        normalized_speed = str(render_speed or "balanced").strip().lower()
+        if normalized_speed not in _VALID_RENDER_SPEEDS:
+            raise ValueError(
+                f"render-speed: bad-speed: {render_speed!r} must be one of "
+                f"['slow', 'balanced', 'fast']"
             )
         if chapters and pages:
             raise ValueError(
@@ -578,6 +589,7 @@ class JobManager:
             "chapters": chapters,
             "pages": pages,
             "device": normalized_device,
+            "render_speed": normalized_speed,
             "source_file": source_file,
         }
         folder = job_dir(self.workspace, job_id)
@@ -998,6 +1010,7 @@ class JobManager:
         if job.get("pages"):
             cmd += ["--pages", str(job["pages"])]
         cmd += ["--device", str(job.get("device") or "cpu")]
+        cmd += ["--render-speed", str(job.get("render_speed") or "balanced")]
         cmd += models_arg
         return _detached_popen(cmd, log_path)
 

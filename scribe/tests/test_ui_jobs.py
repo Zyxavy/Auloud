@@ -866,6 +866,47 @@ def test_spawn_voices_sample_passes_engine(tmp_path: Path, monkeypatch: pytest.M
     assert "--models-dir" in seen[1]
 
 
+def test_spawn_build_passes_render_speed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """RP1: the detached build child gets the job's --render-speed tier."""
+    from ui import jobs as _jobs
+    from ui.jobs import JobManager
+
+    seen: list[list[str]] = []
+
+    class _DummyProc:
+        pass
+
+    def _fake_popen(cmd: list[str], log_path: Path) -> _DummyProc:
+        seen.append(list(cmd))
+        return _DummyProc()
+
+    monkeypatch.setattr(_jobs, "_detached_popen", _fake_popen)
+    (tmp_path / "alice.epub").write_bytes(b"")
+    manager = JobManager(tmp_path, pid_alive_fn=lambda _pid: False)
+    for tier in ("slow", "balanced", "fast"):
+        manager._spawn_detached(
+            {
+                "kind": "build",
+                "book_id": "book-1",
+                "source_file": "alice.epub",
+                "device": "cpu",
+                "render_speed": tier,
+            },
+            tmp_path / "jobs" / f"job-{tier}",
+        )
+    # A job written before RP1 (no field) spawns the CLI default.
+    manager._spawn_detached(
+        {"kind": "build", "book_id": "book-1", "source_file": "alice.epub", "device": "cpu"},
+        tmp_path / "jobs" / "job-old",
+    )
+    assert [cmd[cmd.index("--render-speed") + 1] for cmd in seen] == [
+        "slow",
+        "balanced",
+        "fast",
+        "balanced",
+    ]
+
+
 def test_child_argv_frozen_reenters_exe(monkeypatch: pytest.MonkeyPatch) -> None:
     """HP3: frozen children re-enter the exe (no script path, no Python)."""
     from ui.jobs import _child_argv

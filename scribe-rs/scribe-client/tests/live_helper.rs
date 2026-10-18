@@ -159,6 +159,7 @@ fn live_helper_end_to_end() {
         chapters: Some("1".to_owned()),
         pages: None,
         device: Some("cpu".to_owned()),
+        render_speed: Some("slow".to_owned()),
     };
     let plan = client
         .plan_build(&upload.book_id, &selection)

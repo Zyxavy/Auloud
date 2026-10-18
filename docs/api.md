@@ -84,8 +84,11 @@ one of the two is wrong (contract-first rule, Slice16 decision 1).
   `400 bad-extension | path-traversal | empty-file | draft-failed`,
   `409 name-taken` past 1000 copies, `413 too-large`.
 - `POST /api/books/{book_id}/build` (token required; optional JSON
-  `{chapters?, pages?, device?}`, present fields must be strings) ->
-  `202 {job_id, book_id, state}`. `409 work-lock-held` when the book is busy;
+  `{chapters?, pages?, device?, render_speed?}`, present fields must be
+  strings) -> `202 {job_id, book_id, state}`. `render_speed` is
+  `slow|balanced|fast` and paces the build's parallel chapter workers;
+  missing means `balanced` (the CLI default), and an unknown tier is
+  `400 bad-speed`. `409 work-lock-held` when the book is busy;
   `404 book-not-found`.
 - `DELETE /api/books/{book_id}` (token required; cancels live jobs first,
   then removes sources, work dir, bundles, job dirs, transfer record, and

@@ -210,11 +210,12 @@ def _job_error_response(exc: Exception, fallback_file: str) -> JSONResponse:
     if rule in ("bad-state", "work-lock-held", "cannot-pause", "name-taken",
                 "exists", "no-valid-bundle"):
         return JSONResponse(shaped, status_code=409)
-    if rule in ("path-traversal", "bad-job-id", "bad-device", "bad-request",
-                "bad-extension", "chapters-pages-exclusive", "bad-range",
-                "pages-need-pdf", "pages-no-cover", "cuda-unavailable",
-                "plan-failed", "draft-failed", "bad-destination",
-                "open-unsupported", "unwritable", "verify-failed"):
+    if rule in ("path-traversal", "bad-job-id", "bad-device", "bad-speed",
+                "bad-request", "bad-extension", "chapters-pages-exclusive",
+                "bad-range", "pages-need-pdf", "pages-no-cover",
+                "cuda-unavailable", "plan-failed", "draft-failed",
+                "bad-destination", "open-unsupported", "unwritable",
+                "verify-failed"):
         return JSONResponse(shaped, status_code=400)
     # Unknown ValueErrors from the manager are conflicts when they name a
     # busy book, else bad requests.
@@ -747,6 +748,7 @@ def create_app(
         chapters = body.get("chapters")
         pages = body.get("pages")
         device = body.get("device")
+        render_speed = body.get("render_speed")
         if device is None:
             try:
                 from . import keepawake as _keepawake
@@ -754,7 +756,7 @@ def create_app(
                 device = _keepawake.get_device(root)
             except Exception:
                 device = "auto"
-        for key in ("chapters", "pages", "device"):
+        for key in ("chapters", "pages", "device", "render_speed"):
             value = body.get(key)
             if value is not None and not isinstance(value, str):
                 return JSONResponse(
@@ -775,7 +777,12 @@ def create_app(
             )
         try:
             job = manager.create_build(
-                book_id, source_rel, chapters=chapters, pages=pages, device=device
+                book_id,
+                source_rel,
+                chapters=chapters,
+                pages=pages,
+                device=device,
+                render_speed=render_speed or "balanced",
             )
         except ValueError as exc:
             return _job_error_response(exc, book_id)

@@ -1309,6 +1309,17 @@ impl App {
                 );
             }
         });
+        ui.horizontal(|ui| {
+            ui.label("Render speed:");
+            ui.radio_value(&mut self.render_form.speed_override, None, "App default (balanced)");
+            for speed in scribe_ui::render::SPEEDS {
+                ui.radio_value(
+                    &mut self.render_form.speed_override,
+                    Some(speed.to_owned()),
+                    speed,
+                );
+            }
+        });
         match self.helper_keep_awake {
             Some(awake) => {
                 let mut next = awake;

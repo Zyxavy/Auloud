@@ -37,6 +37,10 @@ pub struct Selection {
     /// `auto | cpu | cuda` (build only; plan ignores it).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub device: Option<String>,
+    /// `slow | balanced | fast` (build only; omitted means the helper's
+    /// `balanced` default). Paces the build's parallel chapter workers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub render_speed: Option<String>,
 }
 
 /// One `set_voice` PATCH op (shape per the `scribe/ui/cast.py` docs).

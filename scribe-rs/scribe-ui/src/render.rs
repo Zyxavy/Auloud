@@ -8,6 +8,9 @@
 
 use std::collections::BTreeSet;
 
+/// Render-speed tiers (mirrors the helper's `slow|balanced|fast`).
+pub const SPEEDS: [&str; 3] = ["slow", "balanced", "fast"];
+
 /// Render picker state for one book (reset on book switch).
 #[derive(Debug, Clone, Default)]
 pub struct Form {
@@ -19,6 +22,8 @@ pub struct Form {
     pub pages_text: String,
     /// Device override (`None` means the app setting).
     pub device_override: Option<String>,
+    /// Render-speed override (`None` means the app default, `balanced`).
+    pub speed_override: Option<String>,
 }
 
 /// Check/uncheck one chapter box (checkbox form wins: texts clear).
@@ -64,7 +69,8 @@ pub fn chapters_arg(form: &Form) -> Option<String> {
 
 /// Worker selection: pages win over chapters (only one is ever set), and
 /// the device falls back to the app setting (always sent: the helper has
-/// no other way to learn it per render).
+/// no other way to learn it per render). The speed override is forwarded
+/// as-is; unset means the helper's own `balanced` default.
 pub fn to_selection(form: &Form, app_device: &str) -> scribe_client::Selection {
     let pages = form.pages_text.trim();
     let chapters = if pages.is_empty() {
@@ -80,6 +86,7 @@ pub fn to_selection(form: &Form, app_device: &str) -> scribe_client::Selection {
                 .clone()
                 .unwrap_or_else(|| app_device.to_owned()),
         ),
+        render_speed: form.speed_override.clone(),
     }
 }
 
@@ -213,6 +220,20 @@ mod tests {
             to_selection(&Form::default(), "auto").device,
             Some("auto".to_owned())
         );
+    }
+
+    #[test]
+    fn speed_override_serializes_only_when_set() {
+        // Unset means "app default": the key is omitted, so the helper's own
+        // `balanced` default applies (and an older helper ignores nothing new).
+        let text = serde_json::to_string(&to_selection(&Form::default(), "auto")).expect("json");
+        assert!(!text.contains("render_speed"), "{text}");
+        let fast = Form {
+            speed_override: Some("fast".to_owned()),
+            ..Default::default()
+        };
+        let text = serde_json::to_string(&to_selection(&fast, "auto")).expect("json");
+        assert!(text.contains(r#""render_speed":"fast""#), "{text}");
     }
 
     #[test]
