@@ -411,6 +411,93 @@ def test_device_invalid_and_cuda_unavailable_are_clean_errors() -> None:
             resolve_device_providers("cuda")
 
 
+def _fake_onnxruntime(monkeypatch: pytest.MonkeyPatch, providers: list[str]) -> None:
+    """Point ``device`` at a fake runtime whose session lands on ``providers``."""
+    import sys
+    import types
+
+    runtime = types.ModuleType("onnxruntime")
+    runtime.get_available_providers = lambda: [
+        "CUDAExecutionProvider",
+        "CPUExecutionProvider",
+    ]
+    runtime.InferenceSession = lambda *a, **k: _FakeSession(providers)
+    monkeypatch.setitem(sys.modules, "onnxruntime", runtime)
+    kokoro = types.ModuleType("kokoro_onnx")
+
+    class _Kokoro:
+        @staticmethod
+        def from_session(session: object, voices: str) -> str:
+            return "fake-backend"
+
+    kokoro.Kokoro = _Kokoro
+    monkeypatch.setitem(sys.modules, "kokoro_onnx", kokoro)
+
+
+class _FakeSession:
+    def __init__(self, providers: list[str]) -> None:
+        self._providers = providers
+
+    def get_providers(self) -> list[str]:
+        return list(self._providers)
+
+
+def _models_dir(tmp_path: Path) -> Path:
+    models = tmp_path / "models"
+    models.mkdir()
+    for name in ("kokoro-v1.0.onnx", "voices-v1.0.bin"):
+        (models / name).write_bytes(b"")
+    return models
+
+
+def test_device_explicit_cuda_that_lands_on_cpu_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-177: the session's own provider list decides, not the availability flag."""
+    import sys
+
+    import device as _device
+
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))  # no nvidia wheels: no PATH edit
+    _fake_onnxruntime(monkeypatch, ["CPUExecutionProvider"])
+
+    with pytest.raises(ValueError, match="cuda-unavailable"):
+        _device.create_engine_with_device(_models_dir(tmp_path), device="cuda")
+
+
+def test_device_auto_that_lands_on_cpu_warns_and_renders(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import sys
+
+    import device as _device
+
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    _fake_onnxruntime(monkeypatch, ["CPUExecutionProvider"])
+
+    engine = _device.create_engine_with_device(_models_dir(tmp_path), device="auto")
+
+    err = capsys.readouterr().err
+    assert "cuda-unavailable" in err and "CUDAExecutionProvider" in err
+    assert engine.sample_rate == 24000
+
+
+def test_device_cuda_session_that_gets_the_provider_is_quiet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import sys
+
+    import device as _device
+
+    monkeypatch.setattr(sys, "prefix", str(tmp_path))
+    _fake_onnxruntime(monkeypatch, ["CUDAExecutionProvider", "CPUExecutionProvider"])
+
+    engine = _device.create_engine_with_device(_models_dir(tmp_path), device="cuda")
+
+    assert capsys.readouterr().err == ""
+    assert engine.sample_rate == 24000
+
+
 def test_nvidia_dll_dirs_empty_without_wheels(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

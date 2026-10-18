@@ -126,6 +126,21 @@ def ensure_cuda_dlls() -> list[str]:
     return dirs
 
 
+def _cuda_fallback_reason(obtained: list[str]) -> str:
+    """Why a session that asked for CUDA is running somewhere else (D-177).
+
+    ONNX Runtime checks the provider only while building the session, logs,
+    and carries on with CPU, so the request is verifiable after the fact via
+    :meth:`onnxruntime.InferenceSession.get_providers` and nowhere else.
+    """
+    running = ", ".join(obtained) or "CPUExecutionProvider"
+    return (
+        "device: cuda-unavailable: onnxruntime is running on "
+        f"{running}, not CUDAExecutionProvider; it falls back to CPU when the "
+        "provider fails to load (usually the CUDA/cuDNN DLLs, see `scribe doctor`)"
+    )
+
+
 def create_engine_with_device(
     models_dir: Path | str = Path("models"), *, device: str = "auto"
 ) -> Any:
@@ -167,6 +182,14 @@ def create_engine_with_device(
             "(use --device auto or cpu)"
         ) from exc
     session = rt.InferenceSession(str(model_path), providers=providers)
+    obtained = list(session.get_providers())
+    if "CUDAExecutionProvider" not in obtained:
+        # D-177: an explicit cuda request that ends up on CPU is a failure,
+        # an auto request that does so is only worth a warning.
+        reason = _cuda_fallback_reason(obtained)
+        if str(device or "").strip().lower() == "cuda":
+            raise ValueError(f"{reason} (use --device cpu to render on the CPU on purpose)")
+        print(f"warning: {reason}; continuing on CPU", file=sys.stderr)
     backend = Kokoro.from_session(session, str(voices_path))
     from tts.kokoro import KokoroEngine as _KokoroEngine
 
