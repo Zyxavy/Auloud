@@ -180,7 +180,7 @@ approval only if the probe fails. Everything else is approval-free.
 - [ ] Title face decided (ship or recorded no)
 - [ ] Five components unified (dark deferred)
 - [ ] Keyboard-only walk clean (dark deferred)
-- [ ] Table verdict recorded (fast as-is or virtualized)
+- [x] Table verdict recorded (fast as-is or virtualized)
 - [ ] Runbook written, Windows pass done, Linux lines attributed
 - [ ] Owner acceptance logged; suite + clippy + deny green; tagged `slice-21`
 
