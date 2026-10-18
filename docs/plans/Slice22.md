@@ -125,6 +125,13 @@ open.
 - **Verify:** on a Windows machine with no Python and no repo, unzip,
   start, add a book, draft it, render one chapter, and transfer. Record
   what was installed or already present, and every gap.
+- **State (2026-10-18):** `scribe/dev/pack_portable.ps1` plus the staged
+  zip exist (`logs\portable\Auloud-Scribe-3.0.0.zip`, 284 MB, 11,250
+  entries). Smoked on the dev machine only: helper ready in 0.6 s from the
+  staged folder, `/api/health` ok, the app spawned the bundled helper.
+  The Verify line above is unrun, because this machine has Python and the
+  repo, and the owner chose documented setup only (D-157). Layout and
+  numbers: D-184.
 
 ### IN2: Linux artifact (M, best effort)
 
@@ -201,8 +208,8 @@ open.
 | 6 | DC1 | hand the docs to someone else |
 | 7 | AC | tag v3.0.0 |
 
-RP1 needs the contract decision first; IN1 needs the packaging choice
-(zip or installer). Everything else is approval-free.
+Both decisions are in: the contract line (D-183) and the portable zip
+(D-184). Everything else is approval-free.
 
 ## 7. Fallback paths (decided at AC)
 
@@ -238,11 +245,11 @@ RP1 needs the contract decision first; IN1 needs the packaging choice
 
 ## 10. Prerequisites for you
 
-- [ ] Packaging choice: portable zip, Windows installer, or both
-- [ ] Clean machine for the soak: a VirtualBox Windows 11 VM (D-156) or an explicit "documented setup only"
+- [x] Packaging choice: portable zip (D-184)
+- [x] Clean machine for the soak: documented setup only, so no verified clean-machine claim (D-157)
 - [ ] A Linux machine or WSL2 if the Linux artifact is to be tested rather than documented
-- [ ] Approval for the one contract line (`selection.render_speed`), which amends D-178
-- [ ] Decide whether the app should remember a default tier in Settings, or keep the per-render choice only
+- [x] Approval for the one contract line (`selection.render_speed`), which amends D-178 (D-183)
+- [x] Per-render choice only, kept out of Settings (D-183)
 - [ ] The Slice 21 acceptance rows, if they are not done yet: the `slice-21` tag is a prerequisite for this slice's `v3.0.0`
 
 ## 11. Working with the agent
