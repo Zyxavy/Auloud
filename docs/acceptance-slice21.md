@@ -9,7 +9,7 @@ table at acceptance; the tag `slice-21` lands only after those rows pass.
 | --- | --- | --- |
 | Suite | `cargo test --workspace` | green (no failures in any target) |
 | Clippy | `cargo clippy --workspace --all-targets -- -D warnings` | clean |
-| Deny | `cargo deny check` | advisories FAILED: `zip v2.4.2` GHSA-4684-h2q9-2vcp, fixed in `>= 9.0.0`. The vulnerable API is `ZipStreamReader::extract`, which this workspace does not use (bundles are written with `ZipWriter`; `ZipArchive::new` appears in one test). The gate is still red and blocking the slice: owner call, bump `zip` or ignore the advisory. See D-182. |
+| Deny | `cargo deny check` | green (advisories, bans, licenses, sources) after the owner-approved `zip` bump to 9.0.5 with its codec features off. The first run failed advisories on `zip v2.4.2` (GHSA-4684-h2q9-2vcp), which is what triggered the bump. See D-182. |
 | PF1 probe | `cargo test -p scribe-ui --test cast_table_probe -- --ignored --nocapture` | numbers and verdict in D-181 |
 
 ## Owner acceptance (pending)
