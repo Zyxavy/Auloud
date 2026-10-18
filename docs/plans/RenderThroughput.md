@@ -250,6 +250,16 @@ Code facts (verified):
   of 20 logical cores in the render process; `fast` about 2219 MiB VRAM,
   RSS 1.45 to 1.5 GB, about 38 percent system CPU (7.6 of 20 logical
   CPUs). The fast workers mostly block on the GPU, which is the point.
+- **First production range at `fast`:** 113-131, 19 chapters, 139.7 min
+  audio, 2545 engine calls, 566.0 s wall, RTF **14.81x**, 0.222 s per
+  sentence, 0 failed, `validate` clean. The shipped `slow` run of
+  comparable size (94-112, 144.6 min) was 1751.6 s at 4.95x and 0.775 s
+  per sentence, so **3.49x**, better than both A/B pairs because 4 or 5
+  chapters leave 3 or 4 of the 8 workers idle and 19 chapters do not.
+  Live samples on that run: VRAM median 3323 MiB, peak 4347 MiB, RSS
+  median 1.6 GB peak 3.7 GB, 48 percent system CPU. So the working VRAM
+  figure for `fast` on a 6 GB card is 4.3 GB, not the 2.2 GB the
+  4-chapter pair suggested.
 - End to end is 2.8 to 3.3x against RT1's 3.9x synthesis-only probe. The
   gap is the serial remainder: 70 MB scope load, engine setup, bundle
   write. No worker count removes it.
