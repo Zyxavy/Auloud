@@ -620,6 +620,13 @@ def build(
     from bundle.writer import BundleWriteError
     from draft import DraftError
 
+    # Resolved before the plan branch so a typo'd tier fails there too.
+    try:
+        workers = workers_for_speed(render_speed)
+    except BuildError as exc:
+        typer.echo(f"build failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+
     if plan:
         try:
             preflight = plan_build(
@@ -651,7 +658,7 @@ def build(
             chapters=chapters,
             pages=pages,
             device=device,
-            workers=workers_for_speed(render_speed),
+            workers=workers,
             progress_listener=jsonl_writer,
             stop_file=stop_file,
         )

@@ -30,7 +30,6 @@ THREADS = (1, 2, 4, 8, 12)
 SENTENCE_COUNT = 40
 VOICE = "am_onyx"
 CHAPTERS = (97, 101)
-DEFAULT_WORK_DIR = Path(".scribe/937ed66f-4821-5c73-9636-eef370e16b9b")
 
 _infer_times: list[float] = []
 _lock = threading.Lock()
@@ -98,7 +97,9 @@ def compare(results: list[np.ndarray], baseline: dict[int, np.ndarray]) -> tuple
 
 
 def main() -> int:
-    work_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_WORK_DIR
+    if len(sys.argv) < 2:
+        raise SystemExit(f"usage: {Path(__file__).name} <work-dir>")
+    work_dir = Path(sys.argv[1])
     from build import create_engine
 
     engine = create_engine("models", device="cuda")

@@ -31,7 +31,6 @@ import kokoro_onnx  # noqa: E402
 VOICE = "am_onyx"
 CHAPTERS = (97, 101)
 COUNT = 8
-DEFAULT_WORK_DIR = Path(".scribe/937ed66f-4821-5c73-9636-eef370e16b9b")
 
 _runs = 0
 _lock = threading.Lock()
@@ -68,7 +67,9 @@ def load_sentences(work_dir: Path) -> list[str]:
 
 def main() -> int:
     global _runs
-    work_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_WORK_DIR
+    if len(sys.argv) < 2:
+        raise SystemExit(f"usage: {Path(__file__).name} <work-dir>")
+    work_dir = Path(sys.argv[1])
     from build import create_engine
 
     engine = create_engine("models", device="cuda")

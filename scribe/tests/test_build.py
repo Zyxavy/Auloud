@@ -1188,6 +1188,10 @@ def test_workers_stop_cleans_partials_and_resumes(tmp_path: Path) -> None:
     assert not (out / "manifest.json").exists()
     log = (work_root / book_id / "scribe.log").read_text(encoding="utf-8")
     assert "stopped (partial cleaned)" in log
+    # Every worker that sees the stop writes the log, so only the tail may go
+    # in per call: one header, one line per line, however many writers.
+    assert log.count("build start:") == 1
+    assert log.count("stopped (partial cleaned)") <= 4
     resumed = run_build(
         epub_path,
         work_root=work_root,
@@ -1265,6 +1269,24 @@ def test_workers_for_speed_tiers(monkeypatch: pytest.MonkeyPatch) -> None:
         workers_for_speed("nope")
 
 
+def test_recent_rtf_scales_by_run_workers(tmp_path: Path) -> None:
+    """RT3: a chapter's wall time is measured under contention, so each
+    entry counts for the workers of its own run (no key = serial = 1)."""
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "build_stats.json").write_text(
+        json.dumps(
+            [
+                {"chapter": 1, "audio_ms": 120_000, "wall_s": 30.0},  # 4x serial
+                {"chapter": 2, "audio_ms": 240_000, "wall_s": 120.0, "workers": 8},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    # (120/30 * 1 + 240/120 * 8) / 2 = (4 + 16) / 2
+    assert build_module._recent_rtf(work) == pytest.approx(10.0)
+
+
 def test_cli_rejects_unknown_render_speed(tmp_path: Path) -> None:
     epub_path = _make_epub(tmp_path / "book.epub", ["Chapter One"])
     outcome = CliRunner().invoke(
@@ -1283,3 +1305,19 @@ def test_cli_rejects_unknown_render_speed(tmp_path: Path) -> None:
     )
     assert outcome.exit_code == 1
     assert "bad-speed" in outcome.output
+    # The dry run resolves the tier too: a typo must not pass --plan.
+    planned = CliRunner().invoke(
+        cli.app,
+        [
+            "build",
+            str(epub_path),
+            "--work-dir",
+            str(tmp_path / "work"),
+            "--no-progress",
+            "--plan",
+            "--render-speed",
+            "nope",
+        ],
+    )
+    assert planned.exit_code == 1
+    assert "bad-speed" in planned.output

@@ -32,8 +32,11 @@ never legitimately holds the lock that long, so it must be a dead holder
 whose PID got recycled). PIDs alone cannot prove identity (Windows reuses
 them, and a held handle keeps a dead object queryable), so acquirers also
 compare the holder's process start time against the lock timestamp
-(:func:`_pid_start_time`, ±``PID_IDENTITY_WINDOW_S``); a recycled PID
-fails the match and the lock clears. A dead PID kept queryable by a
+(:func:`_pid_start_time`, one-sided within ``PID_IDENTITY_WINDOW_S``): a
+recycled PID is always younger than the lock that named the process it
+replaced, so it fails the match and the lock clears, while a holder that had
+already been running when it took the lock is honored however long it had
+been up. A dead PID kept queryable by a
 lingering handle reports its original start time (passing that match), so
 the exit code is checked as well (anything but ``STILL_ACTIVE`` means
 gone). No heartbeat thread: Windows file lifetimes plus a second
@@ -58,8 +61,9 @@ from typing import Any
 LOCK_FILENAME = ".scribe.lock"
 #: Locks older than this are stale even when the PID looks alive (PID reuse).
 STALE_AFTER_S = 24 * 3600
-#: A lock holder counts as the same process only when its start time is
-#: within this of the lock timestamp (recycled-PID guard for :func:`_pid_alive`).
+#: A lock holder counts as the same process unless it STARTED more than this
+#: after the lock timestamp (clock-skew slack; a recycled PID is younger than
+#: the lock, so it fails and the lock clears). See :func:`_pid_alive`.
 PID_IDENTITY_WINDOW_S = 120.0
 
 

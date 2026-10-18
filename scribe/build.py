@@ -474,17 +474,24 @@ def _record_build_stats(
 
 
 def _recent_rtf(work_dir: Path, *, window: int = PLAN_RTF_WINDOW) -> float | None:
-    """Mean RTF over the last ``window`` chapter timings, or ``None``."""
+    """Mean machine RTF over the last ``window`` chapter timings, or ``None``.
+
+    RT3: a chapter's ``wall_s`` is measured while up to ``workers - 1`` other
+    chapters render alongside it, so the raw ratio is the *contended* rate.
+    Scaling each entry by the workers of its own run recovers audio-seconds
+    per wall-second; older files have no key and stay serial (1).
+    """
     stats = _load_build_stats(work_dir)[-window:]
     ratios: list[float] = []
     for entry in stats:
         try:
             audio_ms = float(entry.get("audio_ms", 0))
             wall_s = float(entry.get("wall_s", 0))
+            workers = float(entry.get("workers", 1) or 1)
         except (TypeError, ValueError):
             continue
         if audio_ms > 0 and wall_s > 0:
-            ratios.append((audio_ms / 1000.0) / wall_s)
+            ratios.append((audio_ms / 1000.0) / wall_s * workers)
     if not ratios:
         return None
     return sum(ratios) / len(ratios)
@@ -1120,7 +1127,7 @@ def compare_bundles(first: Path | str, second: Path | str) -> list[str]:
 
 
 def _append_log(work_dir: Path, lines: list[str]) -> None:
-    """Append timestamped ``lines`` to ``scribe.log`` (one run = one block)."""
+    """Append timestamped ``lines`` to ``scribe.log`` (several blocks per run)."""
     stamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     text = "".join(f"[{stamp}] {line}\n" for line in lines)
     with open(work_dir / LOG_FILENAME, "a", encoding="utf-8") as handle:
@@ -1599,10 +1606,21 @@ def _run_build_locked(
     log_lock = threading.Lock()
     totals = {"cached": 0, "rendered": 0, "audio_ms": 0}
 
+    written = 0
+
     def _log_now() -> None:
-        """Append this run's log lines now (workers may call this at once)."""
+        """Append the log lines not written yet (workers may call this at once).
+
+        Every worker that notices a stop calls this on its way out; writing the
+        tail only keeps one copy of each line however many of them do.
+        """
+        nonlocal written
         with log_lock:
-            _append_log(work_dir, log_lines)
+            start = written
+            pending = log_lines[start:]
+            written = start + len(pending)
+            if pending:
+                _append_log(work_dir, pending)
 
     def _emit_sentence(
         chapter_index: int, sentence: Sentence, stats: CacheStats, hits0: int, misses0: int
@@ -1890,6 +1908,7 @@ def _run_build_locked(
                 "wall_s": round(outcome.wall_s, 3),
                 "chapter": index,
                 "sentences": outcome.sentences,
+                "workers": workers,
             }
         )
         skip_note = (
@@ -1949,7 +1968,7 @@ def _run_build_locked(
     if failed:
         details = ", ".join(f"chapter {i}: {failure_reasons[i]}" for i in failed)
         log_lines.append(f"build failed: {len(failed)} chapter(s) failed: {details}")
-        _append_log(work_dir, log_lines)
+        _log_now()
         raise BuildError(f"{len(failed)} chapter(s) failed, no bundle written: {details}")
     ordered_audio = [audio_paths[i] for i in selected]
     ordered_plans = [plans[i] for i in selected]
@@ -2027,7 +2046,7 @@ def _run_build_locked(
     if page_resolution:
         log_lines.append(page_resolution)
     try:
-        _append_log(work_dir, log_lines)
+        _log_now()
     except OSError as exc:
         raise BuildError(
             f"bundle written to {bundle_dir} but {LOG_FILENAME} unwritable: {exc}"
