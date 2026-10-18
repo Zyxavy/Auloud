@@ -10,6 +10,9 @@
 //! the screen uses (`max_height(240.0)`), scrolling from top to bottom,
 //! and times egui layout plus tessellation per frame. The GPU submit and
 //! the window are not measured, so this is the CPU side of the budget.
+//! The probe measures the table rows inside their `ScrollArea` only; the
+//! real screen also lays out the Overrides quote page and the footer
+//! below the table, so these numbers are a floor (D-181 consequence 2).
 //!
 //! Numbers (dev machine, Windows 11, 2026-10-18), 500 rows, content
 //! 10997 px, 240 px window:

@@ -151,8 +151,11 @@ Only the differences from section 2 are listed. Every line below is
 
 ## 4. Failure table
 
-The left column is the exact text on screen; the right is what to do.
-All lines were read from source, not observed.
+The left column quotes the fixed text on screen; the right is what to do.
+A startup failure then appends `: <the child's last 500 characters>`, or
+`; see helper.log in the workspace` when the child printed nothing, and
+the missing-helper reason continues past `no helper found`. All lines
+were read from source, not observed.
 
 | On screen | Cause and fix |
 | --- | --- |
@@ -165,7 +168,7 @@ All lines were read from source, not observed.
 | `Helper crashed.` | The helper died after startup. `Retry` restarts it; running renders are detached and reattach by job id. |
 | `helper died N times in a row; retry manually` | The restart loop gave up. Fix the cause from `helper.log` first. |
 | `Helper speaks a contract this app does not know.` plus `helper API X, app API Y: upgrade one side so both agree (docs/api.md), then Retry` | The app and the helper are different versions. Upgrade the side that is behind. |
-| `cannot bind http://127.0.0.1:PORT: <os error>` | The helper asked for a random port and could not bind it. Rare; retry, and check for a security tool that blocks localhost binds. |
+| `cannot bind http://127.0.0.1:PORT: <os error>` | The app refused the address it builds from the ready line's port (the client accepts a loopback origin only), so the ready line was malformed. A busy port has no message of its own: the helper asks for an ephemeral port (`--port 0`). Retry; if it repeats, `helper.log` holds the ready line. |
 | Models screen: a file reads `missing` | Kokoro is not installed where the helper looks. Use `Download` or `Sideload…` (step 4). A render that needs Kokoro will fail until then. |
 | Models screen: a file reads `present, not pinned (SIZE)` | The file is there but its digest is not the pinned one. It may still work; download replaces it if not. |
 | Send section: `No valid bundle (see Validate); the tablet will refuse it.` | Validation failed for this book. Fix the listed files and rules, then re-validate. |

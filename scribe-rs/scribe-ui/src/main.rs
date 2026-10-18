@@ -5,7 +5,7 @@
 //! show which slice builds them.
 
 use eframe::egui;
-use scribe_ui::books::book_status;
+use scribe_ui::books::{book_status, book_status_tone};
 use scribe_ui::components::{self, Tone};
 use scribe_ui::helper::{self, WorkerCmd, WorkerEvent};
 use scribe_ui::machine::{self, Action, Event, State};
@@ -793,7 +793,7 @@ impl App {
                         {
                             picked = Some(book.id.clone());
                         }
-                        components::chip(ui, book_status(book), Tone::Neutral);
+                        components::chip(ui, book_status(book), book_status_tone(book));
                         if let Some(progress) =
                             scribe_ui::books::draft_progress(&self.jobs, &book.id)
                         {
