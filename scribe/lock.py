@@ -113,10 +113,12 @@ def _pid_alive(pid: int, *, started_at: str | float | None = None) -> bool:
 
     Existence is not identity: PIDs get recycled, and a held handle keeps a
     dead object queryable. When ``started_at`` (lock timestamp, ISO string
-    or unix seconds) is given, the holder also has to have started within
-    ``PID_IDENTITY_WINDOW_S`` of it (see :func:`_pid_start_time`); a
-    recycled PID fails the match. Unknowable start times fall back to plain
-    existence (legacy behavior).
+    or unix seconds) is given, the holder must not have STARTED AFTER it
+    (plus ``PID_IDENTITY_WINDOW_S`` slack for clock skew): a recycled PID is
+    always younger than the lock that named the process it replaced, so it
+    fails the match, while a holder that had already been running when it
+    took the lock is honored however long it had been up. Unknowable start
+    times fall back to plain existence (legacy behavior).
 
     A dead process with an open handle elsewhere still answers existence
     probes with its original start time (passing the identity match), so on
@@ -170,7 +172,7 @@ def _pid_alive(pid: int, *, started_at: str | float | None = None) -> bool:
     start = _pid_start_time(pid)
     if start is None:
         return True
-    return abs(start - stamp) <= PID_IDENTITY_WINDOW_S
+    return start <= stamp + PID_IDENTITY_WINDOW_S
 
 
 def _pid_start_time(pid: int) -> float | None:

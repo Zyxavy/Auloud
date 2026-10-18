@@ -72,6 +72,24 @@ def test_self_with_ancient_timestamp_is_dead() -> None:
     assert _pid_alive(os.getpid(), started_at="2000-01-01T00:00:00Z") is False
 
 
+def test_lock_taken_long_after_the_holder_started_is_honored(monkeypatch) -> None:
+    """Long-lived holder, fresh lock: still the holder.
+
+    Regression (false clear, D-158 revisit evidence): the identity window was
+    symmetric, so a process that had been up for longer than
+    ``PID_IDENTITY_WINDOW_S`` when it wrote a lock (a server, or pytest late
+    in a full run) read as a recycled pid. Its own lock then cleared and a
+    second holder was let in. Only a process that STARTED AFTER the lock was
+    written can be a recycled pid.
+    """
+    now = datetime.now(timezone.utc).timestamp()
+    monkeypatch.setattr("lock._pid_start_time", lambda _pid: now - 600)
+    assert _pid_alive(os.getpid(), started_at=_now_iso()) is True
+    # A pid recycled after the lock was written is still refused.
+    monkeypatch.setattr("lock._pid_start_time", lambda _pid: now + 600)
+    assert _pid_alive(os.getpid(), started_at=_now_iso()) is False
+
+
 def test_reaped_child_reads_dead() -> None:
     dead = _reaped_pid()
     assert _pid_alive(dead) is False
