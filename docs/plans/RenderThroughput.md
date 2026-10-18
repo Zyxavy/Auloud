@@ -1,7 +1,8 @@
 # Plan: Scribe render throughput (speed tiers + parallel chapters)
 
-Status: decisions accepted 2026-10-18; RT1, RT2 and the RT5 gate probe are
-done, with their numbers and as-built corrections below. Not yet a roadmap
+Status: decisions accepted 2026-10-18; RT1 to RT4 and the RT5 gate probe
+are done, with their numbers and as-built corrections below. RT5 itself
+stays gated on a model export that reports durations. Not yet a roadmap
 slice (`10-V3Roadmap.md` stops at Slice 22, Installers). No bundle-format
 change, no spec change, no new dependency. The book's cast is not part of
 this work.
@@ -220,7 +221,7 @@ Code facts (verified):
 - **Verify:** pytest green; one real 4-chapter A/B (n=1 versus n=4) on
   the same book recorded. (Real A/B rolls into RT4.)
 
-### RT3: `--render-speed` (S)
+### RT3: `--render-speed` (S) - DONE 2026-10-18
 
 - One Typer option on `build`: `--render-speed` with values
   `slow|balanced|fast`, default `balanced`. Mapping in one place:
@@ -234,19 +235,33 @@ Code facts (verified):
   machine still gives a legal value); Typer rejects bad values.
 - **Verify:** `scribe build --help` shows the option; pytest green.
 
-### RT4: Measure the real build and record (S)
+### RT4: Measure the real build and record (S) - DONE 2026-10-18
 
-- A/B the real Hammer range at `slow` and at `fast`. Cheap to compare:
-  the sentence cache is content-keyed and shared by both modes, so warm
-  one mode first.
-- Record wall time, core utilization, RAM, VRAM and the scaling in
-  `docs/DECISIONS.md`, and add the one `docs/api.md` line about parallel
-  event ordering. RT1 predicts about 29 min becoming about 8 to 9 min
-  for this range; the log line proves it.
-- Expect the two bundles to differ in bytes wherever a cold chapter met
-  a warm one (cache quantization, RT2 correction 1). Compare chapter
-  lists, sentence counts and durations, and check PCM against the
-  measured drift floor rather than demanding byte equality.
+- As built, two independent pairs on the real book, both legs cold
+  (separate work roots, each holding the user's `cast.yaml` and the same
+  `script.json`), one render at a time, `--device cuda`:
+
+| pair (source chapters) | audio | sentence renders | `slow` wall | `slow` RTF | `fast` wall | `fast` RTF | speedup |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 77-81 | 35.6 min | 616 | 533.8 s | 4.00x | 164.0 s | 13.01x | 3.25x |
+| 85-88 | 29.7 min | 509 | 445.4 s | 4.00x | 157.7 s | 11.3x | 2.82x |
+
+- Live 15 s samples: `slow` about 1127 MiB VRAM, RSS 1.2 to 1.5 GB, 0.9
+  of 20 logical cores in the render process; `fast` about 2219 MiB VRAM,
+  RSS 1.45 to 1.5 GB, about 38 percent system CPU (7.6 of 20 logical
+  CPUs). The fast workers mostly block on the GPU, which is the point.
+- End to end is 2.8 to 3.3x against RT1's 3.9x synthesis-only probe. The
+  gap is the serial remainder: 70 MB scope load, engine setup, bundle
+  write. No worker count removes it.
+- All four bundles `scribe validate` clean, 4 or 5 chapters, 0 failed.
+- Bytes: compare against RT1's measured drift floor, not equality, as
+  the plan says. Text, order and speaker are identical everywhere;
+  per-sentence `start_ms`/`end_ms` shift by up to 22 ms from accumulated
+  trim jitter, and most shared cache entries differ by exactly 1 PCM_24
+  ulp (1.19e-7). Details and the numbers are in `docs/DECISIONS.md`
+  (D-178).
+- `docs/api.md` carries the parallel event-ordering line (committed with
+  RT2).
 - **Verify:** numbers in `docs/DECISIONS.md`; tablet copy, import and
   read-along stay listed as needs device test.
 
