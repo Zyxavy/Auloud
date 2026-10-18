@@ -25,7 +25,8 @@ pub const SUPPORTED_API_VERSION: u32 = 1;
 /// Per-run token header (never logged, never put on a command line).
 pub const TOKEN_HEADER: &str = "X-Auloud-Token";
 
-/// Chapter/page/device selection for plan and build (opaque range strings).
+/// Chapter/page/device/speed selection for plan and build (opaque range
+/// strings). The plan route reads only the range fields.
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct Selection {
     /// Chapter range (`"3-5,7"`); mutually exclusive with `pages`.

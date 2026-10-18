@@ -94,8 +94,9 @@ one of the two is wrong (contract-first rule, Slice16 decision 1).
   then removes sources, work dir, bundles, job dirs, transfer record, and
   the in-memory draft entry) -> `200 {book_id, removed}`. `400
   path-traversal` on a bad id; `404 book-not-found` when nothing matched.
-- `POST /api/books/{book_id}/plan` (token required; same selection fields;
-  pure, no lock, no writes) -> `200` preflight `{book_id (range-aware id when
+- `POST /api/books/{book_id}/plan` (token required; same `chapters`/`pages`
+  selection fields, and any `device`/`render_speed` is ignored: the estimate
+  does not depend on the tier; pure, no lock, no writes) -> `200` preflight `{book_id (range-aware id when
   chapters/pages select a range, else the book id), title,
   source_chapters_total: int, selected_chapters: [int], cached_chapters: int,
   to_render_chapters: int, cached_sentences: int, to_render_sentences: int,

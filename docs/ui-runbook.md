@@ -106,8 +106,10 @@ Legend: `[code]` means read from the named source, not observed.
    row per character: the character and kind, a voice dropdown, a speed
    field, and line and minute counts. The Render section takes a
    chapter range or a PDF page range (`Chapters (range):`, `Pages:`),
-   a device, then `Check plan` for the preflight counts and
-   `Start render` (`scribe-ui/src/main.rs`, `cast_ui`, `render_ui`).
+   a device and a render speed (`Render speed:`: `slow` renders 1
+   chapter at a time, `balanced` 4, `fast` up to 8), then `Check plan`
+   for the preflight counts and `Start render`
+   (`scribe-ui/src/main.rs`, `cast_ui`, `render_ui`).
    `[code]`
 
    The jobs tray at the bottom shows live jobs with `Pause`, `Resume`

@@ -549,6 +549,7 @@ def test_frontend_render_step_offline_tokens_and_empty_states() -> None:
         'id="render-start"',
         'id="render-live"',
         'id="render-device"',
+        'id="render-speed"',
         'renderLiveStep',
         'latestBuildJob',
         "whole covering chapters",

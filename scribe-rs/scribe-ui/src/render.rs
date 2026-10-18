@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 //! Render selection form (Slice 18 JP2): which chapters or pages a build
-//! covers, plus the device override. Pure state transitions (unit-tested);
+//! covers, plus the device and render-speed overrides. Pure state
+//! transitions (unit-tested);
 //! the worker sends the resulting [`scribe_client::Selection`] to plan and
 //! build. One form wins at a time: checking a box clears both text fields,
 //! typing in either field clears the boxes and the other field (the server

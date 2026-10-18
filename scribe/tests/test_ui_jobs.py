@@ -365,7 +365,11 @@ def test_pause_then_resume_completes(tmp_path: Path) -> None:
     src = _make_epub(tmp_path / "src.epub", ["Chapter One"])
     uploaded = _upload_epub(client, headers, src)
     _draft_done_client(client, headers, uploaded)
-    resp = client.post(f"/api/books/{uploaded['book_id']}/build", json={}, headers=headers)
+    resp = client.post(
+        f"/api/books/{uploaded['book_id']}/build",
+        json={"render_speed": "fast"},
+        headers=headers,
+    )
     job_id = resp.json()["job_id"]
     # Let it start (at least one event), then pause gracefully.
     deadline = time.monotonic() + 10.0
@@ -386,6 +390,9 @@ def test_pause_then_resume_completes(tmp_path: Path) -> None:
     assert final["state"] == "done"
     builds = [c for c in spawner.calls if c.get("kind") == "build"]
     assert len(builds) == 2  # resume is a new process
+    # RP1: resume rebuilds the argv from the stored record, so the tier
+    # a job started with survives pause and resume.
+    assert [c["render_speed"] for c in builds] == ["fast", "fast"]
 
 
 def test_cancel_running_cleans_partial_output(tmp_path: Path) -> None:
@@ -905,6 +912,22 @@ def test_spawn_build_passes_render_speed(tmp_path: Path, monkeypatch: pytest.Mon
         "fast",
         "balanced",
     ]
+
+
+def test_render_speed_tiers_stay_the_cli_list() -> None:
+    """RP1: the helper's tiers stay the CLI's, so an accepted tier renders.
+
+    ``_VALID_RENDER_SPEEDS`` is a deliberate copy of the CLI's names (the
+    manager must not import the numpy-heavy ``build`` module); this ties
+    the two lists together so adding a tier in one place cannot leave the
+    other rejecting it.
+    """
+    from build import RENDER_SPEED_WORKERS, workers_for_speed
+    from ui.jobs import _VALID_RENDER_SPEEDS
+
+    assert _VALID_RENDER_SPEEDS == set(RENDER_SPEED_WORKERS) | {"fast"}
+    for tier in _VALID_RENDER_SPEEDS:
+        assert workers_for_speed(tier) >= 1
 
 
 def test_child_argv_frozen_reenters_exe(monkeypatch: pytest.MonkeyPatch) -> None:

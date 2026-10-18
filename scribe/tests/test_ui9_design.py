@@ -241,6 +241,7 @@ def test_accessibility_basics() -> None:
         assert sel in text, f"{sel} missing"
     for label in ('aria-label="Pick an EPUB or PDF"', 'for="transfer-path"',
                     'id="render-chapters-sum"', 'for="render-device"',
+                    'for="render-speed"',
                    'aria-label="Voice for', 'aria-label="Speed for',
                    'for="cast-first-person"', 'aria-label="Override chapter"'):
         assert label in text, f"programmatic label missing: {label}"
