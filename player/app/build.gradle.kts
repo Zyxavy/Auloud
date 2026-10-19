@@ -19,8 +19,8 @@ android {
         applicationId = "app.auloud.player"
         minSdk = 24
         targetSdk = 36
-        versionCode = 7
-        versionName = "2.1.2"
+        versionCode = 8
+        versionName = "2.1.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

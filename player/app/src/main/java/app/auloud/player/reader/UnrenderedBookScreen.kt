@@ -54,8 +54,9 @@ import kotlinx.coroutines.flow.stateIn
  *
  * Chapter text paths resolve from the bundle manifest; a manifest read
  * failure means every chapter reports "text unavailable" (same RA10 rule as
- * the timed reader). [chapters] arrives from [BookScreen] (null = not
- * loaded yet); text paths load here once per book.
+ * the timed reader). [chapters] arrives from the host ([BookScreen], or the
+ * hub passing the same list through; null = not loaded yet); text paths load
+ * here once per book.
  *
  * API 24 safe: Compose + coroutines only.
  */
@@ -66,11 +67,13 @@ fun UnrenderedBookScreen(
     progress: ProgressRepository,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    chapters: List<ChapterEntry>? = null,
+    // OPEN6: required, not defaulted: a host that omits these leaves the
+    // gate waiting on a list nobody loads (the hub's reader route did).
+    chapters: List<ChapterEntry>?,
     /** OPEN5: chapter-load run counters for the gate diagnostic. */
-    loadSignals: LoadSignals = LoadSignals(),
-    /** OPEN5: retry for the chapter-list gate (the host's [BookScreen] load). */
-    onRetryLoading: () -> Unit = {},
+    loadSignals: LoadSignals,
+    /** OPEN5: retry for the chapter-list gate (the host's load). */
+    onRetryLoading: () -> Unit,
     showChapters: Boolean = false,
     onOpenChapters: () -> Unit = {},
     onDismissChapters: () -> Unit = {},

@@ -286,6 +286,11 @@ fun PartialBookScreen(
                 panelVm.refresh()
             },
             modifier = modifier,
+            // OPEN6: the reader's gate waits on this list; dropping it made
+            // every imported book wait forever on a load nobody started.
+            chapters = chapters,
+            loadSignals = loadSignals,
+            onRetryLoading = onRetryLoading,
             showChapters = showChapters,
             onOpenChapters = { showChapters = true },
             onDismissChapters = { showChapters = false },
