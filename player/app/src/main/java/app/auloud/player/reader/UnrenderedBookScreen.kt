@@ -14,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,6 +28,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import app.auloud.player.bundle.BundleParser
 import app.auloud.player.data.ProgressRepository
+import app.auloud.player.ingest.IngestPipeline
 import app.auloud.player.library.BookUiModel
 import app.auloud.player.playback.PlaybackController
 import app.auloud.player.playback.PlaybackIntents
@@ -34,6 +36,7 @@ import app.auloud.player.playback.StreamRoute
 import app.auloud.player.settings.PrefsReaderModeStore
 import app.auloud.player.storage.BundleStorage
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -174,7 +177,16 @@ private fun UnrenderedContent(
             textPathForChapter = { index -> textPaths.getOrNull(index) },
             chapterCount = entries.size,
             progress = progress,
-            live = live
+            live = live,
+            isImporting = {
+                try {
+                    storage.exists(
+                        "${book.bundleDir.trimEnd('/')}/${IngestPipeline.IMPORTING_FILENAME}"
+                    )
+                } catch (_: Exception) {
+                    false
+                }
+            }
         )
     }
     DisposableEffect(book.id) {
@@ -278,6 +290,8 @@ private fun UnrenderedContent(
             onNextChapter = viewModel::nextChapter,
             canGoPrevious = unrendered.chapterIndex > 0,
             canGoNext = unrendered.chapterIndex < entries.size - 1,
+            onRetryChapter = { viewModel.jumpToChapter(unrendered.chapterIndex) },
+            loadingText = "Loading chapter ${unrendered.chapterIndex + 1}…",
             dialogueMarking = marking,
             modifier = Modifier.weight(1f).fillMaxWidth()
         )
@@ -299,11 +313,23 @@ private fun UnrenderedContent(
 }
 
 @Composable
-private fun UnrenderedLoading(onBack: () -> Unit, modifier: Modifier = Modifier) {
+private fun UnrenderedLoading(
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    message: String = "Loading book…"
+) {
+    var secs by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000L)
+            secs++
+        }
+    }
     ReaderScreen(
         state = ReaderState(isTextLoading = true),
         onBack = onBack,
-        modifier = modifier
+        modifier = modifier,
+        loadingText = "$message ${secs}s"
     )
 }
 

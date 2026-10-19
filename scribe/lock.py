@@ -32,10 +32,16 @@ never legitimately holds the lock that long, so it must be a dead holder
 whose PID got recycled). PIDs alone cannot prove identity (Windows reuses
 them, and a held handle keeps a dead object queryable), so acquirers also
 compare the holder's process start time against the lock timestamp
-(:func:`_pid_start_time`, ±``PID_IDENTITY_WINDOW_S``); a recycled PID
-fails the match and the lock clears. No heartbeat thread: Windows file
-lifetimes plus a second concurrent run failing fast matter more than
-sub-minute staleness for a localhost UI plus CLI.
+(:func:`_pid_start_time`, one-sided within ``PID_IDENTITY_WINDOW_S``): a
+recycled PID is always younger than the lock that named the process it
+replaced, so it fails the match and the lock clears, while a holder that had
+already been running when it took the lock is honored however long it had
+been up. A dead PID kept queryable by a
+lingering handle reports its original start time (passing that match), so
+the exit code is checked as well (anything but ``STILL_ACTIVE`` means
+gone). No heartbeat thread: Windows file lifetimes plus a second
+concurrent run failing fast matter more than sub-minute staleness for a
+localhost UI plus CLI.
 
 Second concurrent runs raise :class:`WorkLockError` naming the file and
 the rule (``{file, rule, message}`` shape, no traceback at the CLI).
@@ -55,8 +61,9 @@ from typing import Any
 LOCK_FILENAME = ".scribe.lock"
 #: Locks older than this are stale even when the PID looks alive (PID reuse).
 STALE_AFTER_S = 24 * 3600
-#: A lock holder counts as the same process only when its start time is
-#: within this of the lock timestamp (recycled-PID guard for :func:`_pid_alive`).
+#: A lock holder counts as the same process unless it STARTED more than this
+#: after the lock timestamp (clock-skew slack; a recycled PID is younger than
+#: the lock, so it fails and the lock clears). See :func:`_pid_alive`.
 PID_IDENTITY_WINDOW_S = 120.0
 
 
@@ -110,21 +117,37 @@ def _pid_alive(pid: int, *, started_at: str | float | None = None) -> bool:
 
     Existence is not identity: PIDs get recycled, and a held handle keeps a
     dead object queryable. When ``started_at`` (lock timestamp, ISO string
-    or unix seconds) is given, the holder also has to have started within
-    ``PID_IDENTITY_WINDOW_S`` of it (see :func:`_pid_start_time`); a
-    recycled PID fails the match. Unknowable start times fall back to plain
-    existence (legacy behavior).
+    or unix seconds) is given, the holder must not have STARTED AFTER it
+    (plus ``PID_IDENTITY_WINDOW_S`` slack for clock skew): a recycled PID is
+    always younger than the lock that named the process it replaced, so it
+    fails the match, while a holder that had already been running when it
+    took the lock is honored however long it had been up. Unknowable start
+    times fall back to plain existence (legacy behavior).
+
+    A dead process with an open handle elsewhere still answers existence
+    probes with its original start time (passing the identity match), so on
+    Windows the exit code is checked too: anything but ``STILL_ACTIVE``
+    means gone, however queryable the handle is.
     """
     if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 0:
         return False
     try:
         if os.name == "nt":
+            import ctypes.wintypes
+
             kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
             PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            STILL_ACTIVE = 259
             handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
             if not handle:
                 return False
-            kernel32.CloseHandle(handle)
+            try:
+                code = ctypes.wintypes.DWORD()
+                if kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                    if code.value != STILL_ACTIVE:
+                        return False
+            finally:
+                kernel32.CloseHandle(handle)
             exists = True
         else:
             os.kill(pid, 0)
@@ -153,7 +176,7 @@ def _pid_alive(pid: int, *, started_at: str | float | None = None) -> bool:
     start = _pid_start_time(pid)
     if start is None:
         return True
-    return abs(start - stamp) <= PID_IDENTITY_WINDOW_S
+    return start <= stamp + PID_IDENTITY_WINDOW_S
 
 
 def _pid_start_time(pid: int) -> float | None:

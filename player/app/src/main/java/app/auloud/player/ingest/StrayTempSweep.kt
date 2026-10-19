@@ -125,3 +125,53 @@ object StrayTempSweep {
         return deleted
     }
 }
+
+/**
+ * Stale staged-import sweep (fast open): book dirs still carrying the
+ * import marker belonged to an import that died with the process (live
+ * imports hold no marker at startup because none can be running yet, so
+ * every marked dir here is abandoned). Deleted whole, matching the
+ * atomic promise failed imports keep: nothing half-imported ever
+ * surfaces. Never throws; returns the deleted dirs (sorted).
+ */
+object StaleImportSweep {
+
+    fun sweep(root: String, storage: BundleStorage): List<String> {
+        val dirs = try {
+            storage.listBundleDirs(root)
+        } catch (_: Exception) {
+            return emptyList()
+        }
+        val deleted = ArrayList<String>()
+        for (dir in dirs.sorted()) {
+            val marked = try {
+                storage.exists(dir.trimEnd('/') + '/' + IngestPipeline.IMPORTING_FILENAME)
+            } catch (_: Exception) {
+                false
+            }
+            if (!marked) continue
+            storage.deleteRecursively(dir)
+            if (stillPresent(storage, dir)) {
+                // The dir survived: drop just the marker so the book
+                // surfaces through normal validation with honest errors
+                // instead of vanishing silently behind a stuck marker.
+                storage.deleteRecursively(
+                    dir.trimEnd('/') + '/' + IngestPipeline.IMPORTING_FILENAME
+                )
+                continue
+            }
+            deleted.add(dir)
+        }
+        return deleted
+    }
+
+    private fun stillPresent(storage: BundleStorage, dir: String): Boolean {
+        return try {
+            storage.exists(dir.trimEnd('/') + '/' + IngestPipeline.IMPORTING_FILENAME)
+        } catch (_: Exception) {
+            // Unreadable counts as gone: the rescan loop skips what it
+            // cannot read, same as an absent marker.
+            false
+        }
+    }
+}

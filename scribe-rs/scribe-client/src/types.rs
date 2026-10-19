@@ -185,6 +185,17 @@ pub struct UploadResult {
     pub job_id: String,
 }
 
+/// `DELETE /api/books/{book_id}` answer.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeleteResult {
+    /// Echo of the book.
+    #[serde(default)]
+    pub book_id: String,
+    /// Workspace-relative paths plus `job:<id>` markers removed.
+    #[serde(default)]
+    pub removed: Vec<String>,
+}
+
 /// `POST /api/books/{book_id}/build` answer.
 #[derive(Debug, Clone, Deserialize)]
 pub struct BuildResult {

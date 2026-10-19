@@ -26,6 +26,8 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import threading
+import time
 from pathlib import Path
 
 import numpy as np
@@ -34,15 +36,18 @@ from ebooklib import epub
 from typer.testing import CliRunner
 
 import cli
+import build as build_module
 from build import (
     CAST_FILENAME,
     BuildError,
     BuildResult,
+    BuildStoppedError,
     compare_bundles,
     ensure_script,
     format_summary,
     remove_stale_chapter_files,
     run_build,
+    workers_for_speed,
 )
 from bundle.inspect import InspectError, format_inspect, inspect_bundle
 from bundle.models import ChapterFile
@@ -97,6 +102,19 @@ class FailingEngine(FakeEngine):
         if self.marker in text:
             raise RuntimeError(f"synth boom on purpose: {text[:24]}")
         return super().synth(text, voice, speed)
+
+
+class FlakyEncode:
+    """Wraps the real chapter encoder; blows up on one chapter's MP3."""
+
+    def __init__(self, real, marker: str) -> None:
+        self.real = real
+        self.marker = marker
+
+    def __call__(self, to_encode, mp3_path, chapter_label: str = "") -> None:
+        if self.marker in str(mp3_path):
+            raise RuntimeError(f"encode boom on purpose: {mp3_path.name}")
+        return self.real(to_encode, mp3_path, chapter_label=chapter_label)
 
 
 def _make_epub(
@@ -256,7 +274,9 @@ def test_strict_aborts_on_first_error(tmp_path: Path) -> None:
     assert "chapter 2" in log and "FAILED" in log and "aborted (strict)" in log
 
 
-def test_nonstrict_continues_then_reports(tmp_path: Path) -> None:
+def test_nonstrict_skips_bad_sentence_and_writes_bundle(tmp_path: Path) -> None:
+    """One bad sentence no longer kills its chapter: brief silence keeps
+    sids/timings contiguous, the bundle ships, the skip is logged."""
     _needs_ffmpeg()
     epub_path = _make_epub(
         tmp_path / "book.epub",
@@ -264,12 +284,49 @@ def test_nonstrict_continues_then_reports(tmp_path: Path) -> None:
         marker_chapter=2,
     )
     out = tmp_path / "out"
+    result = run_build(
+        epub_path,
+        work_root=tmp_path / "work",
+        out_dir=out,
+        engine=FailingEngine(),
+        strict=False,
+        show_progress=False,
+    )
+    assert isinstance(result, BuildResult)
+    assert result.failed == []
+    assert (out / "manifest.json").is_file()  # gaps never ship; skips do
+    assert validate_bundle(out).ok
+    book_id, _ = book_id_for_file(epub_path)
+    render = tmp_path / "work" / book_id / "render"
+    assert (render / "audio" / "ch002.mp3").is_file()
+    log = (tmp_path / "work" / book_id / "scribe.log").read_text(encoding="utf-8")
+    assert "sentence" in log and "skipped" in log
+    assert "1 skipped" in log
+
+
+def test_nonstrict_continues_past_chapter_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A chapter-level failure (encode blows up) still fails the chapter:
+    chapter 3 renders despite chapter 2, then the build reports instead
+    of shipping."""
+    _needs_ffmpeg()
+    epub_path = _make_epub(
+        tmp_path / "book.epub",
+        ["Chapter One", "Chapter Two", "Chapter Three"],
+    )
+    out = tmp_path / "out"
+    monkeypatch.setattr(
+        build_module,
+        "encode_assembled_chapter",
+        FlakyEncode(build_module.encode_assembled_chapter, "ch002"),
+    )
     with pytest.raises(BuildError, match="chapter 2"):
         run_build(
             epub_path,
             work_root=tmp_path / "work",
             out_dir=out,
-            engine=FailingEngine(),
+            engine=FakeEngine(),
             strict=False,
             show_progress=False,
         )
@@ -421,6 +478,10 @@ def test_build_cli_prints_totals(
     assert "total audio" in outcome.output
     assert "wall time" in outcome.output
     assert "real-time factor" in outcome.output
+    # RT3: the default tier reaches the render loop as a resolved worker count.
+    book_id, _ = book_id_for_file(epub_path)
+    log = (tmp_path / "work" / book_id / "scribe.log").read_text(encoding="utf-8")
+    assert "workers=4" in log
 
 
 def test_resolve_engines_genuine_typeerror_propagates(
@@ -962,3 +1023,301 @@ def test_missing_cbr_attribute_rerenders(
         script_chapter, json_path, mp3_path, fingerprint
     )
     assert hit is not None and hit.title == "Chapter One"
+
+
+# ---------------------------------------------------------------------------
+# (e) RT2: chapter worker pool — overlap, identical bytes, stop, failure
+# ---------------------------------------------------------------------------
+
+
+class CountingSleepyEngine(FakeEngine):
+    """FakeEngine that sleeps in synth and records how many synths overlap."""
+
+    def __init__(self, delay: float = 0.3) -> None:
+        super().__init__()
+        self.delay = delay
+        self.in_flight = 0
+        self.max_in_flight = 0
+        self._lock = threading.Lock()
+
+    def synth(self, text: str, voice: str, speed: float) -> np.ndarray:
+        with self._lock:
+            self.in_flight += 1
+            self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        try:
+            time.sleep(self.delay)
+            return super().synth(text, voice, speed)
+        finally:
+            with self._lock:
+                self.in_flight -= 1
+
+
+def test_workers_render_chapters_in_parallel(tmp_path: Path) -> None:
+    """Four chapters render at once with four workers, one at a time with one.
+
+    Overlap is read off the engine (how many synths were in flight
+    together), not off the wall clock, so a loaded machine cannot turn this
+    into a flaky timing test.
+    """
+    _needs_ffmpeg()
+    epub_path = _make_epub(tmp_path / "book.epub", ["One", "Two", "Three", "Four"])
+
+    def build(tag: str, workers: int) -> int:
+        engine = CountingSleepyEngine()
+        result = run_build(
+            epub_path,
+            work_root=tmp_path / f"work-{tag}",
+            out_dir=tmp_path / f"out-{tag}",
+            engine=engine,
+            workers=workers,
+            show_progress=False,
+        )
+        assert result.rendered == 4 and result.failed == []
+        return engine.max_in_flight
+
+    assert build("serial", 1) == 1
+    # All four workers reach their first sentence inside the sleep window.
+    assert build("parallel", 4) >= 3
+
+
+def _make_distinct_epub(path: Path, titles: list[str], per_chapter: int = 25) -> Path:
+    """EPUB whose chapters hold distinctly-worded sentences.
+
+    ``_make_epub`` repeats one sentence, so its chapters share sentence-cache
+    entries; a cache hit returns PCM_24-quantized audio while a miss returns
+    the engine's raw float32 (about 1e-8 apart), which makes byte comparison
+    between a cold and a warm chapter meaningless. Distinct words per chapter
+    keep each chapter's sentence audio its own.
+    """
+    book = epub.EpubBook()
+    book.set_identifier("test-build-book-distinct")
+    book.set_title("Distinct Sentences Book")
+    book.set_language("en")
+    book.add_author("Build Author")
+    items = []
+    for pos, title in enumerate(titles, start=1):
+        body = " ".join(
+            f"The quiet alder fox of chapter {pos} crosses mossy hill number {i} at dawn."
+            for i in range(per_chapter)
+        )
+        item = epub.EpubHtml(title=title, file_name=f"ch{pos}.xhtml", lang="en")
+        item.content = f"<h1>{title}</h1><p>{body}</p>"
+        book.add_item(item)
+        items.append(item)
+    book.toc = [
+        epub.Link(f"ch{pos}.xhtml", title, f"ch{pos}") for pos, title in enumerate(titles, 1)
+    ]
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+    book.spine = items
+    epub.write_epub(str(path), book)
+    return path
+
+
+def test_workers_produce_the_identical_bundle(tmp_path: Path) -> None:
+    """workers=4 writes the same bundle bytes as workers=1; only the event
+    order changes, and the cumulative event totals match the run totals."""
+    _needs_ffmpeg()
+    epub_path = _make_distinct_epub(
+        tmp_path / "book.epub", ["One", "Two", "Three", "Four"]
+    )
+    serial = run_build(
+        epub_path,
+        work_root=tmp_path / "work-1",
+        out_dir=tmp_path / "out-1",
+        engine=FakeEngine(),
+        workers=1,
+        show_progress=False,
+    )
+    events: list[dict] = []
+    parallel = run_build(
+        epub_path,
+        work_root=tmp_path / "work-4",
+        out_dir=tmp_path / "out-4",
+        engine=FakeEngine(),
+        workers=4,
+        show_progress=False,
+        progress_listener=events.append,
+    )
+    assert compare_bundles(serial.bundle_dir, parallel.bundle_dir) == []
+    assert validate_bundle(parallel.bundle_dir).ok
+    # build_done carries the same sentence totals the summary reports, and
+    # no sentence event ever reports a smaller total than the one before it
+    # (the emit lock's job: workers emit out of chapter order).
+    done = [e for e in events if e["event"] == "build_done"]
+    assert len(done) == 1
+    assert done[0]["cached"] == parallel.cache_hits
+    assert done[0]["rendered"] == parallel.cache_misses
+    counters = [e["cached"] + e["rendered"] for e in events if e["event"] == "sentence"]
+    assert counters == sorted(counters)
+    assert counters[-1] == parallel.cache_hits + parallel.cache_misses
+
+
+def test_workers_stop_cleans_partials_and_resumes(tmp_path: Path) -> None:
+    """A stop with four chapters in flight leaves no torn chapter, ships no
+    bundle, and the resume finishes the book."""
+    _needs_ffmpeg()
+    epub_path = _make_epub(tmp_path / "book.epub", ["One", "Two", "Three", "Four"])
+    work_root = tmp_path / "work"
+    out = tmp_path / "out"
+    stop = threading.Event()
+    seen = 0
+
+    def _watch(event: dict) -> None:
+        nonlocal seen
+        if event["event"] == "sentence":
+            seen += 1
+            if seen >= 30:  # four workers are mid-chapter here
+                stop.set()
+
+    with pytest.raises(BuildStoppedError, match="stopped"):
+        run_build(
+            epub_path,
+            work_root=work_root,
+            out_dir=out,
+            engine=FakeEngine(),
+            workers=4,
+            show_progress=False,
+            progress_listener=_watch,
+            stop_event=stop,
+        )
+    book_id, _ = book_id_for_file(epub_path)
+    render = work_root / book_id / "render"
+    for mp3 in sorted((render / "audio").glob("ch*.mp3")):
+        assert (render / "text" / f"{mp3.stem}.json").is_file(), f"torn {mp3.name}"
+    assert not (out / "manifest.json").exists()
+    log = (work_root / book_id / "scribe.log").read_text(encoding="utf-8")
+    assert "stopped (partial cleaned)" in log
+    # Every worker that sees the stop writes the log, so only the tail may go
+    # in per call: one header, one line per line, however many writers.
+    assert log.count("build start:") == 1
+    assert log.count("stopped (partial cleaned)") <= 4
+    resumed = run_build(
+        epub_path,
+        work_root=work_root,
+        out_dir=out,
+        engine=FakeEngine(),
+        workers=4,
+        show_progress=False,
+    )
+    assert resumed.failed == []
+    assert validate_bundle(out).ok
+
+
+def test_workers_nonstrict_failure_records_and_continues(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One chapter blowing up under workers=4 fails that chapter only: the
+    others still render, no bundle ships, and the log names the failure."""
+    _needs_ffmpeg()
+    epub_path = _make_epub(tmp_path / "book.epub", ["One", "Two", "Three", "Four"])
+    out = tmp_path / "out"
+    monkeypatch.setattr(
+        build_module,
+        "encode_assembled_chapter",
+        FlakyEncode(build_module.encode_assembled_chapter, "ch002"),
+    )
+    with pytest.raises(BuildError, match="chapter 2"):
+        run_build(
+            epub_path,
+            work_root=tmp_path / "work",
+            out_dir=out,
+            engine=FakeEngine(),
+            workers=4,
+            strict=False,
+            show_progress=False,
+        )
+    book_id, _ = book_id_for_file(epub_path)
+    render = tmp_path / "work" / book_id / "render"
+    assert (render / "audio" / "ch004.mp3").is_file()
+    assert not (out / "manifest.json").exists()
+    log = (tmp_path / "work" / book_id / "scribe.log").read_text(encoding="utf-8")
+    assert "chapter 2" in log and "FAILED" in log
+
+
+def test_workers_must_be_at_least_one(tmp_path: Path) -> None:
+    epub_path = _make_epub(tmp_path / "book.epub", ["One"])
+    with pytest.raises(BuildError, match="bad-workers"):
+        run_build(
+            epub_path,
+            work_root=tmp_path / "work",
+            out_dir=tmp_path / "out",
+            engine=FakeEngine(),
+            workers=0,
+            show_progress=False,
+        )
+
+
+# ---------------------------------------------------------------------------
+# (f) RT3: --render-speed tiers
+# ---------------------------------------------------------------------------
+
+
+def test_workers_for_speed_tiers(monkeypatch: pytest.MonkeyPatch) -> None:
+    assert workers_for_speed("slow") == 1
+    assert workers_for_speed("balanced") == 4
+    assert workers_for_speed(" Balanced ") == 4
+    monkeypatch.setattr(build_module.os, "cpu_count", lambda: 20)
+    assert workers_for_speed("fast") == 8
+    monkeypatch.setattr(build_module.os, "cpu_count", lambda: 4)
+    assert workers_for_speed("fast") == 3
+    monkeypatch.setattr(build_module.os, "cpu_count", lambda: 1)
+    assert workers_for_speed("fast") == 2  # floor: a render still overlaps
+    monkeypatch.setattr(build_module.os, "cpu_count", lambda: 64)
+    assert workers_for_speed("fast") == 8  # the measured knee, not the ceiling
+    with pytest.raises(BuildError, match="bad-speed"):
+        workers_for_speed("nope")
+
+
+def test_recent_rtf_scales_by_run_workers(tmp_path: Path) -> None:
+    """RT3: a chapter's wall time is measured under contention, so each
+    entry counts for the workers of its own run (no key = serial = 1)."""
+    work = tmp_path / "work"
+    work.mkdir()
+    (work / "build_stats.json").write_text(
+        json.dumps(
+            [
+                {"chapter": 1, "audio_ms": 120_000, "wall_s": 30.0},  # 4x serial
+                {"chapter": 2, "audio_ms": 240_000, "wall_s": 120.0, "workers": 8},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    # (120/30 * 1 + 240/120 * 8) / 2 = (4 + 16) / 2
+    assert build_module._recent_rtf(work) == pytest.approx(10.0)
+
+
+def test_cli_rejects_unknown_render_speed(tmp_path: Path) -> None:
+    epub_path = _make_epub(tmp_path / "book.epub", ["Chapter One"])
+    outcome = CliRunner().invoke(
+        cli.app,
+        [
+            "build",
+            str(epub_path),
+            "--work-dir",
+            str(tmp_path / "work"),
+            "--out-dir",
+            str(tmp_path / "out"),
+            "--no-progress",
+            "--render-speed",
+            "nope",
+        ],
+    )
+    assert outcome.exit_code == 1
+    assert "bad-speed" in outcome.output
+    # The dry run resolves the tier too: a typo must not pass --plan.
+    planned = CliRunner().invoke(
+        cli.app,
+        [
+            "build",
+            str(epub_path),
+            "--work-dir",
+            str(tmp_path / "work"),
+            "--no-progress",
+            "--plan",
+            "--render-speed",
+            "nope",
+        ],
+    )
+    assert planned.exit_code == 1
+    assert "bad-speed" in planned.output

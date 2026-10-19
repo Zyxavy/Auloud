@@ -51,6 +51,7 @@ from bundle.models import (
     Sentence,
 )
 from draft import sha256_of_file
+from proc import no_window_kwargs
 
 DURATION_TOLERANCE_MS = 50
 #: Spec 2.0 part 2 (RN1, D-102): M4A duration agreement. PROVISIONAL until
@@ -128,6 +129,7 @@ def _run_ffprobe(ffprobe: str, args: list[str], timeout_s: int) -> subprocess.Co
             text=True,
             timeout=timeout_s,
             check=False,
+            **no_window_kwargs(),  # console exes must not flash (per-spawn flag)
         )
     except subprocess.TimeoutExpired as exc:
         # TimeoutExpired is not an OSError, so it needs its own handler.

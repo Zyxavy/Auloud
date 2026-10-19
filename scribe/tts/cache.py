@@ -23,8 +23,8 @@ lines and crashed builds resume.
 
 Crash safety: writes go to a temp file in the same directory and are
 atomically renamed into place, so a kill mid-write (SW9 kills builds on
-purpose) can only ever leave a hidden ``.<key>.tmp-<pid>.flac`` behind —
-never a truncated ``<key>.flac``. And a hit that fails to decode (torn
+purpose) can only ever leave a hidden ``.<key>.tmp-<pid>-<tid>.flac``
+behind — never a truncated ``<key>.flac``. And a hit that fails to decode (torn
 file from an older version, foreign bytes, 0-byte file) is deleted and
 treated as a miss: re-synthesized, never returned partial.
 
@@ -47,7 +47,7 @@ Notes:
   re-run ``scribe doctor``.
 - Follow-up (not this slice): no size cap or eviction yet — a whole book
   is a few thousand small FLACs, fine for v1; add LRU pruning if the
-  cache dir ever matters on disk. Stale ``.tmp-*.flac`` files from killed
+  cache dir ever matters on disk. Stale ``.tmp-*`` files from killed
   builds are ignored by readers (only ``<key>.flac`` is ever read).
 """
 
@@ -57,6 +57,7 @@ import hashlib
 import math
 import os
 import re
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -134,6 +135,39 @@ def _read_flac(path: Path, sample_rate: int) -> np.ndarray:
     return mono
 
 
+#: Serializes cache-file reads and stores. Chapter worker threads (RT2) can
+#: reach the same key at once (identical lines recur across chapters), and on
+#: Windows renaming an entry over one another thread has open fails with a
+#: sharing violation. Synthesis stays outside this lock: it is the expensive
+#: part and the engine is thread-safe.
+_IO_LOCK = threading.Lock()
+
+
+def _read_cached(path: Path, sample_rate: int) -> np.ndarray | None:
+    """Decode a cache entry, or ``None`` when it is not a usable hit.
+
+    A present-but-undecodable file (torn write, foreign bytes, 0-byte) is
+    deleted and reported as a miss, never returned.
+    """
+    with _IO_LOCK:
+        if not path.is_file():
+            return None
+        try:
+            return _read_flac(path, sample_rate)
+        except Exception:
+            # Broad catch is deliberate — any decode failure means "not a
+            # valid hit".
+            path.unlink(missing_ok=True)
+            return None
+
+
+def _store_cached(path: Path, audio: np.ndarray, sample_rate: int) -> None:
+    """Store one cache entry (serialized with readers and other stores)."""
+    with _IO_LOCK:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_flac_atomic(path, audio, sample_rate)
+
+
 def _check_finite(name: str, value: float) -> None:
     """Reject NaN/inf at the cache boundary (they'd key but never synth)."""
     try:
@@ -150,10 +184,14 @@ def _write_flac_atomic(path: Path, audio: np.ndarray, sample_rate: int) -> None:
     ``os.replace`` within one directory is atomic, so readers only ever
     see the complete file or nothing. A failed write removes the temp
     file and re-raises; stale temps from killed builds are ignored.
+
+    The temp name carries the thread id as well as the pid so two stores can
+    never share a temp path; the rename itself is serialized with readers by
+    ``_IO_LOCK`` (see :func:`_store_cached`).
     """
     import soundfile as sf
 
-    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}.flac")
+    tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}-{threading.get_ident()}.flac")
     try:
         sf.write(str(tmp), audio, sample_rate, format="FLAC", subtype="PCM_24")
         os.replace(tmp, path)
@@ -201,24 +239,15 @@ def get_or_synth(
 
     key = cache_key(text, voice, speed, pitch, engine.engine_version)
     path = cache_path(cache_dir, key)
-    if path.is_file():
-        try:
-            audio = _read_flac(path, engine.sample_rate)
-        except Exception:
-            # Torn write, foreign bytes, 0-byte file: drop it and
-            # re-synthesize below. Broad catch is deliberate — any
-            # decode failure means "not a valid hit".
-            path.unlink(missing_ok=True)
-        else:
-            if stats is not None:
-                stats.hits += 1
-            return audio
+    cached = _read_cached(path, engine.sample_rate)
+    if cached is not None:
+        if stats is not None:
+            stats.hits += 1
+        return cached
 
     audio = np.asarray(engine.synth(text, voice, speed), dtype=np.float32).ravel()
     audio = audio.astype(np.float32, copy=False)
-    directory = Path(cache_dir)
-    directory.mkdir(parents=True, exist_ok=True)
-    _write_flac_atomic(path, audio, engine.sample_rate)
+    _store_cached(path, audio, engine.sample_rate)
     if stats is not None:
         stats.misses += 1
     return audio

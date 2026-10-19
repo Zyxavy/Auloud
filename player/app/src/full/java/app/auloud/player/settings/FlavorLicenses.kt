@@ -25,6 +25,8 @@ val flavorLicenses: List<LicenseEntry> = listOf(
     LicenseEntry("kotlinx-serialization (JSON)", "1.7.3", "Apache-2.0", "Bundle manifest and chapter parsing"),
     LicenseEntry("Coil (Compose)", "2.6.0", "Apache-2.0", "Cover art loading"),
     LicenseEntry("jsoup", "1.23.2", "MIT", "On-device EPUB HTML parsing"),
+    LicenseEntry("NanoHTTPD", "2.3.1", "BSD-3-Clause", "Wi-Fi bundle receiver (LAN only)"),
+    LicenseEntry("PdfBox-Android", "2.0.27.0", "Apache-2.0", "On-device PDF text extraction"),
     LicenseEntry("JUnit", "4.13.2", "EPL-1.0", "Unit tests only, not shipped in the app"),
     LicenseEntry("MockK", "1.13.12", "Apache-2.0", "Unit tests only, not shipped in the app"),
     LicenseEntry("Turbine", "1.2.1", "Apache-2.0", "Unit tests only, not shipped in the app"),

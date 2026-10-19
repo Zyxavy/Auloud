@@ -113,6 +113,12 @@ fun BookScreen(
     // now-complete book read-only).
     var manifestRenderState by remember(book.id) { mutableStateOf<String?>(null) }
     var manifestLoaded by remember(book.id) { mutableStateOf(false) }
+    // OPEN1: the chapter list must never spin forever (a stuck read left
+    // owners on "Loading book…" with no way forward). [chapterError]
+    // surfaces the failure in the hub with a retry; [loadTick] re-runs
+    // the load below.
+    var chapterError by remember(book.id) { mutableStateOf<String?>(null) }
+    var loadTick by remember(book.id) { mutableIntStateOf(0) }
     var showChapters by remember(book.id) { mutableStateOf(false) }
     // VS5: staleness for complete books (null = not loaded yet, or no
     // stale UI: read-only, legacy, or nothing rendered). Reloaded with
@@ -144,22 +150,26 @@ fun BookScreen(
             Log.w(TAG, "re-render start failed: ${e.message}")
         }
     }
-    LaunchedEffect(book.id, staleTick) {
-        val parsed = withContext(Dispatchers.IO) {
-            try {
-                val root = book.bundleDir.trimEnd('/')
-                val raw = storage.readText("$root/manifest.json")
-                BundleParser.parseText(raw).getOrThrow()
-            } catch (_: Exception) {
-                null
-            }
+    LaunchedEffect(book.id, staleTick, loadTick) {
+        Log.d(TAG, "chapter load start id=${book.id} dir=${book.bundleDir}")
+        val started = android.os.SystemClock.uptimeMillis()
+        val result = loadChapterList(storage, book.bundleDir)
+        if (result is ChapterLoadResult.Failed) {
+            Log.w(TAG, "chapter load failed id=${book.id} timedOut=${result.timedOut}")
+            chapterError = result.message
+            chapters = emptyList()
+            return@LaunchedEffect
         }
-        chapters = parsed?.chapters?.let(::toChapterEntries) ?: emptyList()
-        manifestRenderState = parsed?.renderState
+        result as ChapterLoadResult.Ready
+        val parsed = result.manifest
+        Log.d(TAG, "chapter load done id=${book.id} in ${android.os.SystemClock.uptimeMillis() - started}ms")
+        chapterError = null
+        chapters = result.chapters
+        manifestRenderState = result.renderState
         manifestLoaded = true
         // VS5: stale scan for complete books only (the same effect keeps
         // one manifest read; hub books own their scan in the panel VM).
-        staleData = if (parsed?.renderState == "complete") {
+        staleData = if (parsed != null && parsed.renderState == "complete") {
             withContext(Dispatchers.IO) {
                 try {
                     val root = book.bundleDir.trimEnd('/')
@@ -199,6 +209,8 @@ fun BookScreen(
             onBack = onBack,
             modifier = modifier,
             chapters = chapters,
+            loadingError = chapterError,
+            onRetryLoading = { loadTick++ },
             onBookChanged = onBookChanged
         )
         return

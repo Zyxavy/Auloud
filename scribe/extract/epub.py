@@ -104,11 +104,12 @@ class SpineDocument:
 
 
 def _collapse(text: str) -> str:
-    """NFC-normalize and collapse whitespace (mirrors clean.normalize_text).
+    """NFC-normalize and collapse whitespace (curly quotes preserved).
 
-    Canonical implementation lives in :mod:`clean` as ``normalize_text``;
-    this local copy avoids a circular import (clean imports this module).
-    Curly quotes are preserved.
+    The canonical implementation is :func:`clean.normalize_text`, which also
+    drops U+FFFD; this local copy avoids a circular import (clean imports
+    this module) so the replacement characters are removed later, when
+    ``clean`` normalizes every block again.
     """
     normalized = unicodedata.normalize("NFC", text)
     return re.sub(r"\s+", " ", normalized).strip()

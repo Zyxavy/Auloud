@@ -19,7 +19,7 @@ android {
         applicationId = "app.auloud.player"
         minSdk = 24
         targetSdk = 36
-        versionCode = 3
+        versionCode = 5
         versionName = "2.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -144,6 +144,19 @@ dependencies {
     implementation(libs.coroutines.android)
     // Slice 9 IN4: jsoup HTML walker for on-device EPUB ingestion (D-079).
     implementation(libs.jsoup)
+    // Slice 20 TR1 (user-approved dependency): NanoHTTPD core for the
+    // Wi-Fi bundle receiver (BSD-3-Clause, Java 6+ bytecode so minSdk 24
+    // is above the baseline; Maven Central latest 2.3.1 checked
+    // 2026-10-14). Ships in both flavors (core stays Apache-2.0: BSD is
+    // allow-listed); licenseScan's sherpa/onnx/espeak markers are
+    // unaffected.
+    implementation(libs.nanohttpd)
+    // PDF1 (user-approved dependency 2026-10-16): PdfBox-Android for
+    // on-device PDF text extraction (Apache-2.0, API 19+ per its readme
+    // so minSdk 24 is above the baseline; Maven Central 2.0.27.0 checked
+    // 2026-10-16). Text extraction only (no JPX module). Ships in both
+    // flavors (core stays Apache-2.0).
+    implementation(libs.pdfbox.android)
     // Build-time only: desugared Java 8 + NIO classes for the jsoup pin
     // (D-085). Never referenced from source; AGP bundles what is needed.
     coreLibraryDesugaring(libs.desugar.nio)
@@ -247,14 +260,16 @@ tasks.register("licenseScan") {
     }
 }
 
-// VC2 (D-129): merged-manifest INTERNET guard for the signed flavors.
-// The unit test (ReleaseManifestTest) only sees the manifest source;
-// this task reads the merged release manifests instead. Run after the
-// release assembles (from player/):
+// VC2 (D-129) plus Slice 20 TR1: merged-manifest network guard for the
+// signed flavors. TR1 inverts the old rule: the Wi-Fi bundle receiver
+// needs INTERNET (LAN only, no cloud), so this task now FAILS when a
+// merged release manifest LACKS it. The unit test (ReleaseManifestTest)
+// only sees the manifest source; this task reads the merged release
+// manifests instead. Run after the release assembles (from player/):
 // .\gradlew.bat --no-daemon :app:assembleCoreRelease :app:assembleFullRelease :app:releaseManifestCheck
 tasks.register("releaseManifestCheck") {
     group = "verification"
-    description = "VC2: fail when a merged release manifest requests INTERNET."
+    description = "VC2/TR1: fail when a merged release manifest lacks INTERNET (Wi-Fi receive needs it)."
     doLast {
         val merged = layout.buildDirectory.dir("intermediates/merged_manifest").get().asFile
         val manifests = if (merged.isDirectory) {
@@ -272,11 +287,11 @@ tasks.register("releaseManifestCheck") {
         }
         var failures = 0
         for (manifest in manifests) {
-            if (manifest.readText().contains("android.permission.INTERNET")) {
-                logger.error("releaseManifestCheck FAIL ${manifest.parentFile.name}: INTERNET present")
+            if (!manifest.readText().contains("android.permission.INTERNET")) {
+                logger.error("releaseManifestCheck FAIL ${manifest.parentFile.name}: INTERNET missing (TR1 Wi-Fi receive)")
                 failures++
             } else {
-                logger.lifecycle("releaseManifestCheck PASS ${manifest.parentFile.name} (no INTERNET)")
+                logger.lifecycle("releaseManifestCheck PASS ${manifest.parentFile.name} (INTERNET present for TR1)")
             }
         }
         if (failures > 0) throw GradleException("releaseManifestCheck: $failures failing manifest(s)")

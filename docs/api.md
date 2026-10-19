@@ -87,6 +87,10 @@ one of the two is wrong (contract-first rule, Slice16 decision 1).
   `{chapters?, pages?, device?}`, present fields must be strings) ->
   `202 {job_id, book_id, state}`. `409 work-lock-held` when the book is busy;
   `404 book-not-found`.
+- `DELETE /api/books/{book_id}` (token required; cancels live jobs first,
+  then removes sources, work dir, bundles, job dirs, transfer record, and
+  the in-memory draft entry) -> `200 {book_id, removed}`. `400
+  path-traversal` on a bad id; `404 book-not-found` when nothing matched.
 - `POST /api/books/{book_id}/plan` (token required; same selection fields;
   pure, no lock, no writes) -> `200` preflight `{book_id (range-aware id when
   chapters/pages select a range, else the book id), title,
@@ -122,7 +126,11 @@ one of the two is wrong (contract-first rule, Slice16 decision 1).
   interrupted. Event bodies carry `{event, chapter, sid, cached, rendered,
   audio_ms, wall_s}` plus phase markers (`draft_start`, `draft_done`,
   `draft_failed` with the error shape, `build_done`). `400 bad-job-id` /
-  `404 job-not-found` come back as JSON, not SSE.
+  `404 job-not-found` come back as JSON, not SSE. A build renders chapters in
+  parallel (`--render-speed`), so events arrive in completion order: `chapter`
+  numbers can go up and down, the cumulative `cached`/`rendered`/`audio_ms`
+  totals only ever grow, and a chapter's own events stay in order. Key jobs
+  and progress by chapter number, never by arrival order.
 
 ## 5. Settings
 

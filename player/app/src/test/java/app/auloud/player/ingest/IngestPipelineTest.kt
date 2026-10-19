@@ -7,24 +7,34 @@ import app.auloud.player.bundle.ChapterTextLoader
 import app.auloud.player.bundle.Manifest
 import app.auloud.player.data.BookEntity
 import app.auloud.player.data.LibraryRepository
+import app.auloud.player.data.ProgressEntity
+import app.auloud.player.data.ProgressRepository
+import app.auloud.player.reader.UnrenderedReaderViewModel
 import app.auloud.player.storage.BundleStorage
+import app.cash.turbine.test
 import java.io.File
 import java.io.IOException
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -244,7 +254,8 @@ class IngestPipelineTest {
         storage: MemStorage = MemStorage(),
         library: MemLibrary = MemLibrary(),
         clock: () -> Long = System::currentTimeMillis,
-        onProgress: suspend (ImportProgress) -> Unit = {}
+        onProgress: suspend (ImportProgress) -> Unit = {},
+        onPrepareProgress: suspend (ImportProgress) -> Unit = {}
     ): Pair<IngestOutcome, Pair<MemStorage, MemLibrary>> = runBlocking {
         val outcome = IngestPipeline.importEpub(
             epubFile = epub,
@@ -252,7 +263,8 @@ class IngestPipelineTest {
             storage = storage,
             library = library,
             clock = clock,
-            onProgress = onProgress
+            onProgress = onProgress,
+            onPrepareProgress = onPrepareProgress
         )
         Pair(outcome, Pair(storage, library))
     }
@@ -537,6 +549,228 @@ class IngestPipelineTest {
             listOf("First", "Second"),
             events.map { it.chapterTitle }
         )
+    }
+
+    @Test
+    fun prepareProgress_coversSplitAndValidatePhases() {
+        val epub = temp.newFile("progress-phases.epub")
+        twoChapterEpub(epub, "First Heading")
+        val writes = ArrayList<ImportProgress>()
+        val prepared = ArrayList<ImportProgress>()
+        val (outcome, _) = runImport(
+            epub,
+            onProgress = { writes.add(it) },
+            onPrepareProgress = { prepared.add(it) }
+        )
+        if (outcome !is IngestOutcome.Imported) failNow("want Imported, got $outcome")
+        // Split pass (2 chapters) plus self-check pass (2 chapters):
+        // every chapter announced before any chapter file lands.
+        assertEquals(4, prepared.size)
+        assertEquals(listOf(1, 2, 1, 2), prepared.map { it.chapterIndex })
+        assertEquals(listOf(1, 2, 1, 2), prepared.map { it.chaptersDone })
+        assertTrue(prepared.all { it.totalChapters == 2 })
+        assertEquals(2, writes.size)
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun importedBook_readsFirstChapterText() = runTest {
+        val epub = temp.newFile("read.epub")
+        twoChapterEpub(epub, "First Heading")
+        val storage = MemStorage()
+        val library = MemLibrary()
+        val root = temp.root.absolutePath.replace('\\', '/') + "/Auloud"
+        val outcome = IngestPipeline.importEpub(
+            epubFile = epub,
+            booksRoot = root,
+            storage = storage,
+            library = library
+        )
+        val imported = outcome as? IngestOutcome.Imported
+            ?: failNow("want Imported, got $outcome")
+        // Open path in production order: manifest, text paths, one chapter.
+        val manifestRaw = storage.readText(imported.report.bundleDir + "/manifest.json")
+        val manifest = BundleParser.parseText(manifestRaw).getOrThrow()
+        val textPaths = manifest.chapters.sortedBy { it.index }
+            .map { "${imported.report.bundleDir}/${it.text}" }
+        val progress = object : ProgressRepository {
+            override suspend fun save(
+                bookId: String,
+                chapterIndex: Int,
+                positionMs: Long,
+                sentenceSid: Int?
+            ): Result<Unit> = Result.success(Unit)
+            override suspend fun load(bookId: String): Result<ProgressEntity?> =
+                Result.success(null)
+            override suspend fun loadAll(): Result<Map<String, Long>> =
+                Result.success(emptyMap())
+            override suspend fun delete(bookId: String): Result<Unit> =
+                Result.success(Unit)
+        }
+        val vm = UnrenderedReaderViewModel(
+            bookId = imported.report.bookId,
+            storage = storage,
+            textPathForChapter = { textPaths.getOrNull(it) },
+            chapterCount = textPaths.size,
+            progress = progress,
+            dispatcher = StandardTestDispatcher(testScheduler)
+        )
+        try {
+            vm.state.test {
+                // The chapter load hops through Dispatchers.IO (real
+                // threads, like production), so wait for it instead of
+                // trusting the virtual clock past the hop.
+                var state = awaitItem()
+                while (state.chapter == null && state.textError == null) {
+                    state = awaitItem()
+                }
+                assertNull("load error: ${state.textError}", state.textError)
+                val chapter = state.chapter ?: failNow("chapter 1 text must load")
+                val sentences = chapter.sentencesInOrder()
+                assertTrue(sentences.isNotEmpty())
+                assertTrue(sentences.first().text.isNotBlank())
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    fun stagedImport_opensAfterFirstChapter() {
+        // Gated second-chapter write: the book must open (row, manifest,
+        // chapter one, marker) while the rest still streams behind.
+        val epub = temp.newFile("staged.epub")
+        twoChapterEpub(epub, "First Heading")
+        val inner = MemStorage()
+        val gate = java.util.concurrent.atomic.AtomicBoolean(false)
+        val storage = object : BundleStorage by inner {
+            override fun writeText(path: String, text: String) {
+                if (path.endsWith("ch002.json")) {
+                    while (!gate.get()) Thread.sleep(5)
+                }
+                inner.writeText(path, text)
+            }
+        }
+        val library = MemLibrary()
+        val root = temp.root.absolutePath.replace('\\', '/') + "/Auloud"
+        var outcome: IngestOutcome? = null
+        runBlocking {
+            val job = launch(Dispatchers.Default) {
+                outcome = IngestPipeline.importEpub(
+                    epubFile = epub,
+                    booksRoot = root,
+                    storage = storage,
+                    library = library
+                )
+            }
+            val dir = waitUntil(15_000L) {
+                library.books.values.singleOrNull()?.bundlePath
+            } ?: throw AssertionError("library row must land before chapter two")
+            awaitTrue(15_000L) { storage.exists("$dir/text/ch001.json") }
+            assertTrue("marker present mid-flight", storage.exists("$dir/.importing"))
+            assertTrue(
+                "chapter two still streaming",
+                !storage.exists("$dir/text/ch002.json")
+            )
+            val manifest = BundleParser.parseText(
+                storage.readText("$dir/manifest.json")
+            ).getOrThrow()
+            assertEquals(2, manifest.chapters.size)
+            gate.set(true)
+            withTimeout(30_000L) { job.join() }
+            if (outcome !is IngestOutcome.Imported) {
+                throw AssertionError("want Imported, got $outcome")
+            }
+            assertTrue(
+                "marker cleared at the end",
+                !storage.exists("$dir/.importing")
+            )
+            assertTrue(storage.exists("$dir/text/ch002.json"))
+        }
+    }
+
+    private fun <T> waitUntil(timeoutMs: Long, cond: () -> T?): T? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (true) {
+            val value = cond()
+            if (value != null) return value
+            if (System.currentTimeMillis() > deadline) return null
+            Thread.sleep(20)
+        }
+    }
+
+    private fun awaitTrue(timeoutMs: Long, cond: () -> Boolean) {
+        if (waitUntil(timeoutMs) { if (cond()) Unit else null } == null) {
+            throw AssertionError("timed out waiting for import state")
+        }
+    }
+
+    // PDF1: on-device PDF import over a fake PdfBook (the PdfBox adapter
+    // needs a real Android context, so the JVM suite never touches it).
+
+    private fun runPdfImport(
+        pdf: File,
+        book: PdfBook,
+        storage: MemStorage = MemStorage(),
+        library: MemLibrary = MemLibrary()
+    ): Pair<IngestOutcome, Pair<MemStorage, MemLibrary>> = runBlocking {
+        val outcome = IngestPipeline.importPdf(
+            pdfFile = pdf,
+            booksRoot = temp.root.absolutePath.replace('\\', '/') + "/Auloud",
+            storage = storage,
+            library = library,
+            openBook = { book }
+        )
+        Pair(outcome, Pair(storage, library))
+    }
+
+    @Test
+    fun pdfImport_writesPdfBundleAndRoundTrips() {
+        val pdf = File(temp.root, "tiny.pdf")
+        pdf.writeBytes(byteArrayOf(37, 80, 68, 70, 45))
+        val (outcome, pair) = runPdfImport(
+            pdf,
+            FakePdfBook(listOf("First page words.\n\nSecond para.", "Third page words."))
+        )
+        val (storage, library) = pair
+        val imported = outcome as? IngestOutcome.Imported
+            ?: failNow("want Imported, got $outcome")
+        val report = imported.report
+        assertEquals(1, report.chapters)
+        assertEquals("Tiny PDF", report.title)
+
+        val manifestRaw = storage.files[report.bundleDir + "/manifest.json"]?.toString(Charsets.UTF_8)
+            ?: failNow("manifest missing in storage")
+        assertTrue("manifest must be pdf type", "\"type\": \"pdf\"" in manifestRaw)
+        assertTrue(
+            "manifest must point at the pdf source",
+            "\"file\": \"source/book.pdf\"" in manifestRaw
+        )
+
+        val manifest = BundleParser.parseText(manifestRaw).getOrThrow()
+        assertEquals("pdf", manifest.type)
+        val problems = BundleValidator.validate(
+            report.bundleDir, manifest, storage::exists, storage::readText
+        )
+        assertTrue("written book must validate, got: $problems", problems.isEmpty())
+
+        val sourceBytes = storage.files[report.bundleDir + "/source/book.pdf"]
+            ?: failNow("source copy missing")
+        assertEquals(shaHex(pdf.readBytes()), shaHex(sourceBytes))
+
+        val row = library.books[report.bookId] ?: failNow("library row missing")
+        assertEquals(report.bundleDir, row.bundlePath)
+    }
+
+    @Test
+    fun pdfImport_emptyPagesFailNamingTheFile() {
+        val pdf = File(temp.root, "blank.pdf")
+        pdf.writeBytes(byteArrayOf(37, 80, 68, 70, 45))
+        val (outcome, _) = runPdfImport(pdf, FakePdfBook(listOf("", "   ")))
+        val failed = outcome as? IngestOutcome.Failed
+            ?: failNow("want Failed, got $outcome")
+        assertTrue("names the file, got: ${failed.errors}", "blank.pdf" in failed.errors.single())
     }
 
     @Test

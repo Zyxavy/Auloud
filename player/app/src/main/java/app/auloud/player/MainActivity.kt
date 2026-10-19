@@ -35,6 +35,8 @@ import app.auloud.player.library.LibraryScreen
 import app.auloud.player.library.LibraryViewModel
 import app.auloud.player.reader.BookScreen
 import app.auloud.player.reader.ReaderPreviewScreen
+import app.auloud.player.receive.ReceiveScreen
+import app.auloud.player.receive.ReceiveViewModel
 import app.auloud.player.render.JavaFileRenderIo
 import app.auloud.player.render.RenderJobProgress
 import app.auloud.player.render.RenderStateStore
@@ -146,16 +148,48 @@ class MainActivity : ComponentActivity() {
     private val importViewModel: ImportViewModel by lazy {
         ImportViewModel(
             runImport = { file, onProgress ->
-                IngestPipeline.importEpub(
-                    epubFile = file,
-                    booksRoot = BooksRootResolver.defaultBooksRoot(applicationContext),
-                    storage = routingStorage,
-                    library = libraryRepository,
-                    onProgress = onProgress
-                )
+                val booksRoot = BooksRootResolver.defaultBooksRoot(applicationContext)
+                if (file.extension.lowercase() == "pdf") {
+                    IngestPipeline.importPdf(
+                        pdfFile = file,
+                        booksRoot = booksRoot,
+                        storage = routingStorage,
+                        library = libraryRepository,
+                        onProgress = onProgress,
+                        onPrepareProgress = onProgress,
+                        appContext = applicationContext
+                    )
+                } else {
+                    IngestPipeline.importEpub(
+                        epubFile = file,
+                        booksRoot = booksRoot,
+                        storage = routingStorage,
+                        library = libraryRepository,
+                        onProgress = onProgress,
+                        onPrepareProgress = onProgress
+                    )
+                }
             }
         )
     }
+
+    // Slice 20 TR1: Wi-Fi receive driver (plain class, cleared in
+    // onDestroy). The server lives only while the Receive screen is open;
+    // a settled receive (import or duplicate) rescans so the library picks
+    // the new row up. The duplicate rescan matters: a kill between the
+    // folder move and the insert leaves a valid folder with no row, and
+    // the rescan is what heals it.
+    private val receiveVmDelegate = lazy {
+        ReceiveViewModel(
+            booksRoot = BooksRootResolver.defaultBooksRoot(applicationContext),
+            storage = routingStorage,
+            library = libraryRepository,
+            onSettled = {
+                if (::libraryViewModel.isInitialized) libraryViewModel.rescan()
+            }
+        )
+    }
+    private val receiveViewModel: ReceiveViewModel by receiveVmDelegate
 
     // IN8: system document picker for EPUBs (ACTION_OPEN_DOCUMENT needs no
     // new permission). A null URI is a picker cancel and stays silent.
@@ -214,6 +248,9 @@ class MainActivity : ComponentActivity() {
                     // returns via Back. WP3/WP5 refinement: Settings also
                     // hosts the watch-folder list (add via picker, remove).
                     var showSettings by remember { mutableStateOf(false) }
+                    // Slice 20 TR1: Receive screen above the library (below
+                    // settings/import); leaving it stops the receiver.
+                    var showReceive by remember { mutableStateOf(false) }
                     // RA0 throwaway: spike screen above everything, deleted
                     // with the spike once the RA0 decision is logged.
                     var showSpike by remember { mutableStateOf(false) }
@@ -245,6 +282,18 @@ class MainActivity : ComponentActivity() {
                             onRemoveFolder = ::removeWatchFolder,
                             onOpenSpike = { showSpike = true }
                         )
+                    } else if (showReceive) {
+                        val receiveState by receiveViewModel.state.collectAsState()
+                        ReceiveScreen(
+                            state = receiveState,
+                            onOpen = receiveViewModel::start,
+                            onStop = receiveViewModel::stop,
+                            onRetry = receiveViewModel::start,
+                            onBack = {
+                                receiveViewModel.stop()
+                                showReceive = false
+                            }
+                        )
                     } else if (state.selectedBookId != null && selectedBook != null) {
                         // RA7: one book screen across all modes (Listen shows
                         // the Slice 1 player, Read/ReadListen the reader).
@@ -271,6 +320,7 @@ class MainActivity : ComponentActivity() {
                                 showSettings = true
                             },
                             onImportEpub = ::launchEpubPicker,
+                            onReceiveWifi = { showReceive = true },
                             onDeleteBook = libraryViewModel::deleteBook
                         )
                     }
@@ -367,13 +417,13 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * IN8: launches the system EPUB picker (no permission needed; the
+     * IN8: launches the system document picker (no permission needed; the
      * picked bytes are copied to cache by [copyUriToCache] and imported
-     * from there).
+     * from there). PDF1 adds the PDF type (on-device text extraction).
      */
     private fun launchEpubPicker() {
         try {
-            epubPicker.launch(arrayOf("application/epub+zip"))
+            epubPicker.launch(arrayOf("application/epub+zip", "application/pdf"))
         } catch (e: Exception) {
             Log.w(TAG, "epub picker unavailable: ${e.message}")
             notice("Import", "The file picker is unavailable on this device.")
@@ -435,7 +485,11 @@ class MainActivity : ComponentActivity() {
      * importer shapes it into the copy-failure message.
      */
     private suspend fun copyUriToCache(uri: Uri, displayName: String): File {
-        val target = File(cacheDir, "import-${System.currentTimeMillis()}.epub")
+        // The importer routes PDF vs EPUB on the cache file extension,
+        // so the scratch copy must keep the picked type (a PDF named
+        // *.epub would take the EPUB path and fail).
+        val suffix = if (displayName.endsWith(".pdf", ignoreCase = true)) ".pdf" else ".epub"
+        val target = File(cacheDir, "import-${System.currentTimeMillis()}$suffix")
         try {
             val input = contentResolver.openInputStream(uri)
                 ?: throw java.io.IOException("$displayName: picked document cannot be opened")
@@ -523,6 +577,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         importViewModel.clear()
+        if (receiveVmDelegate.isInitialized()) receiveViewModel.clear()
         super.onDestroy()
     }
 

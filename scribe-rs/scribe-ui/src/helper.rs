@@ -191,9 +191,9 @@ pub enum WorkerCmd {
         /// UUIDv5 book id.
         book_id: String,
     },
-    /// Upload a staged book file (queues its draft job server-side).
+    /// Upload a picked book file (queues its draft job server-side).
     Upload {
-        /// Workspace-local staged file.
+        /// Any readable local file (the helper places the workspace copy).
         path: PathBuf,
     },
     /// Cancel one job by id (draft cancel lives here until the tray).
@@ -251,6 +251,11 @@ pub enum WorkerCmd {
         /// UUIDv5 book id.
         book_id: String,
     },
+    /// Run bundle validation inline (read-only, no job).
+    Validate {
+        /// UUIDv5 book id.
+        book_id: String,
+    },
     /// Load the voice list for an engine (dropdowns + voices screen).
     RefreshVoices {
         /// Engine id (`kokoro | piper`).
@@ -272,15 +277,11 @@ pub enum WorkerCmd {
         /// Guard mtime from the last cast load.
         mtime: f64,
     },
-    /// Remove a book: cancel its live jobs, then delete its staged source,
-    /// work dir, and hash-matched bundles (never outside the workspace).
+    /// Remove a book (server owns every trace; the helper cancels live
+    /// jobs first and 404s when nothing matched).
     DeleteBook {
         /// UUIDv5 book id.
         book_id: String,
-        /// Workspace-relative source filename, if known.
-        source_file: Option<String>,
-        /// Source sha256 for bundle matching, if known.
-        source_sha: Option<String>,
     },
 }
 
@@ -436,6 +437,20 @@ pub enum WorkerEvent {
         book_id: String,
         /// Raw `cast_report.md`.
         markdown: String,
+    },
+    /// Bundle validation document.
+    Validated {
+        /// Book the validation covers.
+        book_id: String,
+        /// Full `POST validate` document.
+        result: Box<scribe_client::ValidateResult>,
+    },
+    /// Validation refused (shaped when the helper sent one).
+    ValidateFailed {
+        /// Book the attempt covered.
+        book_id: String,
+        /// Human reason.
+        message: String,
     },
     /// Voice list for the voices screen.
     Voices {
@@ -824,6 +839,29 @@ fn worker_loop(
                     });
                 }
             }
+            Ok(WorkerCmd::Validate { book_id }) => {
+                if let Some(client) = &client {
+                    match client.validate(&book_id) {
+                        Ok(result) => {
+                            let _ = events.send(WorkerEvent::Validated {
+                                book_id,
+                                result: Box::new(result),
+                            });
+                        }
+                        Err(err) => {
+                            let _ = events.send(WorkerEvent::ValidateFailed {
+                                book_id: book_id.clone(),
+                                message: err.to_string(),
+                            });
+                        }
+                    }
+                } else {
+                    let _ = events.send(WorkerEvent::ValidateFailed {
+                        book_id,
+                        message: "helper not connected".to_owned(),
+                    });
+                }
+            }
             Ok(WorkerCmd::RefreshVoices { engine }) => {
                 if let Some(client) = &client {
                     match client.voices(&engine) {
@@ -906,11 +944,7 @@ fn worker_loop(
                     });
                 }
             }
-            Ok(WorkerCmd::DeleteBook {
-                book_id,
-                source_file,
-                source_sha,
-            }) => {
+            Ok(WorkerCmd::DeleteBook { book_id }) => {
                 if client.is_none() {
                     let _ = events.send(WorkerEvent::DeleteFailed {
                         message: "helper not connected".to_owned(),
@@ -918,45 +952,14 @@ fn worker_loop(
                     continue;
                 }
                 let client = client.as_ref().expect("checked");
-                // Quiet the book's live jobs first (best effort); the files
-                // go regardless so a wedged job cannot block removal.
-                if let Ok(jobs) = client.list_jobs() {
-                    for job in &jobs {
-                        if job.book_id == book_id
-                            && !matches!(job.state.as_str(), "done" | "failed" | "cancelled")
-                        {
-                            client.cancel_job(&job.id).ok();
-                        }
+                match client.delete_book(&book_id) {
+                    Ok(_) => {
+                        let _ = events.send(WorkerEvent::Deleted { book_id });
                     }
-                }
-                match crate::books::book_files_for_removal(
-                    &settings.workspace,
-                    &book_id,
-                    source_file.as_deref(),
-                    source_sha.as_deref(),
-                ) {
-                    Ok(paths) => {
-                        let mut failed = Vec::new();
-                        for path in &paths {
-                            let removed = if path.is_dir() {
-                                std::fs::remove_dir_all(path).is_ok()
-                            } else {
-                                std::fs::remove_file(path).is_ok()
-                            };
-                            if !removed {
-                                failed.push(path.display().to_string());
-                            }
-                        }
-                        if failed.is_empty() {
-                            let _ = events.send(WorkerEvent::Deleted { book_id });
-                        } else {
-                            let _ = events.send(WorkerEvent::DeleteFailed {
-                                message: format!("could not remove {}", failed.join(", ")),
-                            });
-                        }
-                    }
-                    Err(message) => {
-                        let _ = events.send(WorkerEvent::DeleteFailed { message });
+                    Err(err) => {
+                        let _ = events.send(WorkerEvent::DeleteFailed {
+                            message: err.to_string(),
+                        });
                     }
                 }
             }

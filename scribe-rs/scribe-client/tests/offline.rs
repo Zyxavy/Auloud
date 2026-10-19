@@ -7,9 +7,9 @@ use std::io::Cursor;
 use std::path::PathBuf;
 
 use scribe_client::{
-    check_compatible, BookDetail, BuildResult, CastPayload, CastReport, EventStream, Health, Job,
-    PatchResult, PlanResult, QuoteEntry, QuotesPage, SampleResult, Settings, UploadResult,
-    ValidateResult, Versions, VoicesResponse, SUPPORTED_API_VERSION,
+    check_compatible, BookDetail, BuildResult, CastPayload, CastReport, DeleteResult, EventStream,
+    Health, Job, PatchResult, PlanResult, QuoteEntry, QuotesPage, SampleResult, Settings,
+    UploadResult, ValidateResult, Versions, VoicesResponse, SUPPORTED_API_VERSION,
 };
 
 fn data(name: &str) -> PathBuf {
@@ -103,6 +103,13 @@ fn recorded_draft_flow_parses() {
     assert_eq!(plan.selected_chapters, vec![1]);
     assert!(plan.is_range, "chapters=1 on a 2-chapter book is a range");
     assert!(plan.to_render_sentences > 0);
+}
+
+#[test]
+fn recorded_delete_result_parses() {
+    let deleted: DeleteResult = read_json("delete.json");
+    assert!(!deleted.book_id.is_empty());
+    assert!(!deleted.removed.is_empty());
 }
 
 #[test]

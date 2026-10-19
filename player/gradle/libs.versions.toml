@@ -27,6 +27,15 @@
 # Player (same basis as every desugared app). Not a runtime dependency:
 # used via coreLibraryDesugaring only. Latest 2.1.x on 2026-10-06 per
 # Google Maven metadata; needs device test for import (IN10).
+# nanohttpd 2.3.1 (Slice 20 TR1, user-approved): BSD-3-Clause (LICENSE.md
+# in the repo). Java 6+ bytecode per the project history page, so minSdk
+# 24 is above the baseline. Maven Central latest is 2.3.1 (metadata
+# checked 2026-10-14). Core NanoHTTPD only (no websocket module).
+# pdfbox-android 2.0.27.0 (PDF1, user-approved 2026-10-16): Apache-2.0
+# (LICENSE.txt in the repo). Requires API 19+ per its readme, so minSdk
+# 24 is above the baseline. Maven Central latest is 2.0.27.0 (metadata
+# checked 2026-10-16). Text extraction only (no JPX image module, which
+# needs the JCenter-only JP2 dependency).
 [versions]
 agp = "8.7.3"
 kotlin = "2.0.21"
@@ -49,6 +58,8 @@ test-junit-ext = "1.2.1"
 sherpa-onnx = "1.13.8"
 jsoup = "1.23.2"
 desugar-nio = "2.1.5"
+nanohttpd = "2.3.1"
+pdfbox-android = "2.0.27.0"
 
 [libraries]
 compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
@@ -75,6 +86,8 @@ test-junit-ext = { group = "androidx.test.ext", name = "junit", version.ref = "t
 sherpa-onnx = { group = "com.github.k2-fsa.sherpa-onnx", name = "sherpa-onnx", version.ref = "sherpa-onnx" }
 jsoup = { group = "org.jsoup", name = "jsoup", version.ref = "jsoup" }
 desugar-nio = { group = "com.android.tools", name = "desugar_jdk_libs_nio", version.ref = "desugar-nio" }
+nanohttpd = { group = "org.nanohttpd", name = "nanohttpd", version.ref = "nanohttpd" }
+pdfbox-android = { group = "com.tom-roush", name = "pdfbox-android", version.ref = "pdfbox-android" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

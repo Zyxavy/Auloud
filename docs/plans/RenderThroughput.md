@@ -1,0 +1,382 @@
+# Plan: Scribe render throughput (speed tiers + parallel chapters)
+
+Status: decisions accepted 2026-10-18; RT1 to RT4, the RT5 gate probe and
+the production append (RT6) are done, with their numbers and as-built
+corrections below. RT5 itself
+stays gated on a model export that reports durations. Not yet a roadmap
+slice (`10-V3Roadmap.md` stops at Slice 22, Installers). No bundle-format
+change, no spec change, no new dependency. The book's cast is not part of
+this work.
+
+## 1. Goal
+
+A render already owns the whole machine and uses about one twentieth of
+it. Let `scribe build` spend the idle GPU headroom on the same range, and
+give the owner one knob for how greedy a render may be.
+
+**Done when:**
+
+- `scribe build --render-speed fast` renders the same range measurably
+  faster than `--render-speed slow` (RT1 predicts about 3.9x on the
+  synthesis path; RT4 measures the real build)
+- `slow` is exactly today's behavior (one worker, one sentence in flight)
+- Tests prove the parallel plumbing matches the serial one exactly with a
+  deterministic fake engine (byte-identical bundles when chapters do not
+  share sentence text; see the RT2 correction), that a stop leaves no
+  partial chapter and no bundle, and that a failing chapter still records
+  (non-strict) or aborts (strict)
+- The A/B numbers, the worker counts and the measured CUDA drift floor
+  are in `docs/DECISIONS.md`
+
+## 2. Inputs and what is known
+
+Baseline, the full GPU build of 2026-10-18 (chapters 94-112):
+
+- 19 chapters, 16 rendered, 1751.6 s wall, 2:24:36 audio, RTF 4.95x
+- about 0.73 s per sentence end to end; 3.2 s of audio per sentence
+- one render process: 0.93 of 20 logical cores busy, 1.4/23.7 GB RAM,
+  about 1.1 GB VRAM; CPU-only was about 4.6 s per sentence
+- machine: 20 logical cores, 23.7 GB RAM, 6 GB VRAM on a driver capped at
+  CUDA 12.9, `onnxruntime-gpu` 1.29.0
+
+**RT1 result** (`scribe/dev/probe_render_scaling.py`, 40 real sentences
+from chapters 97-100, voice `am_onyx`, cache untouched, three runs):
+
+| threads | wall s | s/sentence | speedup | run ms | other ms | VRAM MB |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 36.97 | 1.08 | 1.00 | 911 | 13 | 1129 |
+| 2 | 20.14 | 1.99 | 1.85 | 996 | -493 | 2181 |
+| 4 | 12.47 | 3.21 | 2.99 | 1198 | -886 | 2221 |
+| 8 | 9.54 | 4.19 | 3.90 | 1727 | -1488 | 3321 |
+| 12 | 11.27 | 3.55 | 3.31 | 3025 | -2743 | 4425 |
+
+- **The gate passes.** T=4 is 2.99x and T=8 is about 3.9x against T=1
+  (three runs gave 3.67x, 3.81x, 3.90x). T=12 is consistently *worse*
+  (3.16x, 3.17x, 3.31x) and takes 4.4 of 6 GB VRAM, so the knee is 8.
+- **Phonemize is not the bottleneck.** At T=1 the whole sentence is
+  911 ms inside `session.run` and 13 to 20 ms outside it (2%). The
+  plan's original guess (a long CPU phonemize pole) was wrong.
+- `run ms` is queue-inclusive when T>1 (eight callers waiting on one
+  session), which is why `other ms` goes negative there; only the T=1
+  row should be read as a stage split.
+- Audio drift at T=8 against a serial run over the first 8 sentences:
+  mean 1.2e-11, zero samples above 1e-3. A serial rerun of the same
+  sentence drifts the same way. Concurrency does not corrupt audio.
+- The full 40-sentence comparison still shows rare outliers (max sample
+  delta 0.14 to 0.31) *in both the serial-vs-serial and the parallel
+  comparisons*: the CUDA path occasionally moves a trim boundary by a
+  sample or two. So byte equality is not a sound acceptance test on the
+  CUDA path; see decision 6.
+
+**Cost model** for one `session.run` on this machine, from two points
+(1 sentence = 3.7 s audio in 1.16 s, 8 sentences = 23.3 s audio in 3.74 s
+in one call): about **0.67 s fixed cost per call plus about 0.13 s per
+second of audio generated**. So roughly two thirds of the current render
+time is per-call overhead, not synthesis.
+
+**RT5 gate probe** (`scribe/dev/probe_batch_windows.py`, same 8
+sentences):
+
+| case | wall s | `session.run` calls | audio s | ms/sentence |
+| --- | --- | --- | --- | --- |
+| A: 8 per-sentence calls (today) | 10.00 | 8 | 29.67 | 1250 |
+| B: one `create_timed` call | 4.66 | 1 | 23.27 | 583 |
+| C: `continuous=True` | FAILED | - | - | - |
+
+- Batching is real: **2.49x faster with 8x fewer calls**, exactly what
+  the cost model predicts.
+- **But it is blocked**: the model reports `has_timings: False` and a
+  single `waveform` output, so case B's audio carries no per-sentence
+  marks (`continuous=True` raises "needs a model that reports
+  durations"). Without timings there is no way to slice the batched
+  audio back into per-sentence pieces, which the read-along sync map and
+  the sentence cache both need.
+- B also returned 23.27 s where A returned 29.67 s for the same text:
+  different pause handling, so it is not a drop-in even in principle.
+
+Code facts (verified):
+
+- `build.py` `_run_build_locked` (line 1419) renders chapters in a plain
+  `for chapter in render_chapters:` loop (line 1599). Per chapter:
+  `resolve_chapter`, `_fingerprint`, `chapter_up_to_date`, then
+  `assemble_chapter(chapter, _emit_synth, voice_of=...)`,
+  `apply_loudness_gain`, `encode_assembled_chapter` (ffmpeg subprocess),
+  `_write_json`.
+- Per-sentence audio goes through `tts/cache.get_or_synth` (line 165):
+  content-keyed FLAC, written atomically (temp file plus `os.replace`).
+  **Corrected by RT2:** concurrent writers were NOT already safe, because
+  the temp name was per-PID only and the rename itself races a reader on
+  Windows. Both are fixed (`_IO_LOCK` serializes cache-file reads and
+  stores; the temp name adds the thread id). Duplicate synthesis of the
+  same key by two workers is still allowed and still just wastes work.
+  `CacheStats` is a plain per-chapter counter object.
+- The engine is built once (`create_engine`, build.py line 289,
+  `(models_dir, *, device="auto") -> TTSEngine`) and shared by every
+  `_synth` call.
+- Bundle assembly runs after the loop and reads dicts keyed by chapter
+  index, so it does not care in what order chapters finished.
+- `run_build` (line 1278) already takes `stop_event: threading.Event`,
+  `stop_file`, `progress_listener` and a test-injected `engine`.
+- The `build` CLI command (cli.py line 533) already has `--device`,
+  `--chapters`, `--events-jsonl`, `--stop-file`; one more option is
+  local.
+- `kokoro_onnx` runs the model at batch 1 (`[[0, *tokens, 0]]`, line
+  127) and processes phoneme windows serially (`_create_batches`, line
+  317). `create_stream` (line 348) is an asyncio producer/consumer over
+  those serial windows: useful for streaming playback, not for
+  parallelism.
+- `device.create_engine_with_device` builds the session with no
+  `SessionOptions` (line 169), so ORT uses its default thread pools.
+
+## 3. Scope
+
+| In | Out (later, or not this plan) |
+| --- | --- |
+| Chapter-level worker pool in one process, one shared engine | Multi-process orchestration, N bundles, lock changes |
+| `--render-speed slow\|balanced\|fast` on `scribe build` | A raw `--jobs N` knob |
+| Thread-safe counters, events and progress | ORT session-option tuning (phonemize is 2% of wall) |
+| Keeping `slow` byte-identical to today | RT5 batching: gated on a model with duration output |
+| RT1/RT5 probes and the recorded numbers | Player-side changes; bundle format (untouched) |
+
+## 4. Key decisions (accepted 2026-10-18 unless noted)
+
+1. **Threads, not processes.** One engine, one CUDA context, one copy of
+   the model (1.1 GB VRAM) shared by every worker. On Windows a
+   `ProcessPoolExecutor` spawns interpreters that each reload the ONNX
+   models, and the per-book lock plus one-bundle-per-range rule would
+   need rework. RT1 shows why threads pay: the 0.67 s fixed cost inside
+   each `session.run` is host work that overlaps, and Python releases
+   the GIL around `session.run`, numpy and the ffmpeg wait.
+2. **The chapter is the unit of work.** A chapter already owns its two
+   output files and its `CacheStats`; sentences stay serial inside a
+   chapter, so no timing, ordering or assembly code changes.
+3. **Events in completion order.** Accepted: sentence and chapter events
+   are emitted under one lock as chapters finish, so in parallel mode
+   the stream is no longer ordered by chapter number. `docs/api.md`
+   gains one line saying so, and the UI jobs tray keys by chapter.
+4. **Tiers: `slow` = 1, `balanced` = 4, `fast` = 8, with 12 as the hard
+   ceiling.** Accepted as one `--render-speed` option with `balanced` as
+   the default. `fast` is set to the measured knee (8): 12 was asked
+   for, but 12 measured 3.2x against 8's 3.9x and used 4.4 of 6 GB VRAM.
+   It is one constant, and a card with more VRAM may move the knee.
+5. **No new dependency.** `concurrent.futures`, `threading` and
+   `os.cpu_count` are stdlib.
+6. **Byte equality is tested on the fake engine, not on CUDA.** The
+   CUDA path already jitters by itself (a serial rerun differs on rare
+   sentences, max sample delta up to 0.31, from a trim boundary moving).
+   So RT2 proves exact equality with a deterministic fake engine, and
+   the real-engine check in RT4 compares durations, sample counts and
+   PCM against the measured jitter floor instead of demanding bytes.
+
+## 5. Work packages
+
+### RT1: Scaling probe (S) - DONE 2026-10-18
+
+- `scribe/dev/probe_render_scaling.py` (throwaway, writes nothing).
+  Results in section 2. Gate passed: threads are the right lever.
+- Follow-up left open: a second look at why one `session.run` costs
+  0.67 s of fixed time would be its own spike, not this plan's work.
+
+### RT2: Chapter worker pool (M) - DONE 2026-10-18
+
+- Built as nested closures inside `_run_build_locked` (`_render_chapter`,
+  `_fold`, `_check_hook`, `_emit_sentence`, `_emit_chapter`, `_log_now`)
+  instead of a module-level function with a dozen keyword arguments: the
+  per-chapter body needs `cast`, `engines`, the narrator, the render dirs
+  and the stop predicate, all of which the enclosing function already has.
+  `ChapterOutcome` is module level (dataclass, the plan's field list).
+- `workers <= 1` keeps the loop inline on the calling thread, so `slow` is
+  literally the old code path (Ctrl-C and exception flow included) rather
+  than a one-worker pool that only looks the same. `workers > 1` submits
+  every selected chapter and folds outcomes with `as_completed`.
+- Cumulative event counters moved into an `emit_lock`-guarded ledger
+  (`totals`), fed per sentence by a hits/misses delta: the same numbers
+  the old `cum_* + chapter_stats` arithmetic produced, but they add up
+  when several workers emit out of chapter order. `scribe.log` appends go
+  through `log_lock`.
+- Stop: the worker checks `stopped_fn()` both before its chapter and per
+  sentence (unchanged), unlinks its own partials, logs, and raises; the
+  parent cancels the queued futures and re-raises. A strict chapter error
+  propagates the same way (in-flight chapters finish first: the pool's exit
+  waits for them, so a strict abort is not instantaneous in parallel mode).
+- Tests (`tests/test_build.py`, section (e)): a probe engine reports how
+  many synths overlapped (4 workers reach 4, 1 worker reaches 1) so the
+  overlap check cannot flake on a loaded machine; the parallel bundle is
+  byte-compared to the serial one; a mid-run stop leaves no torn chapter
+  and no bundle and the resume finishes; a chapter failure under 4 workers
+  is still recorded and the rest render; `workers=0` is rejected.
+- **Corrections found while building it:**
+  1. Byte identity holds only when chapters do not share sentence text.
+     With a repeated fixture sentence, all four workers synthesize the
+     same key at once; the writer keeps its raw float32, the others read
+     the PCM_24 store (about 1e-8 apart, the documented cache
+     quantization), so a cold parallel chapter can differ in bytes from a
+     warm serial one. Inaudible, but it means "identical bytes" is a
+     claim about independent chapters only. The test fixture generates
+     distinct sentences per chapter to make the claim testable.
+  2. The sentence cache was not thread-safe (see the corrected code fact
+     above): same-process writers shared one temp path and the rename
+     collided with concurrent readers on Windows, both surfacing as
+     chapter failures (`PermissionError: Access is denied`). Fixed in
+     `tts/cache.py`, with a concurrency test in `tests/test_tts_cache.py`.
+- **Verify:** pytest green; one real 4-chapter A/B (n=1 versus n=4) on
+  the same book recorded. (Real A/B rolls into RT4.)
+
+### RT3: `--render-speed` (S) - DONE 2026-10-18
+
+- One Typer option on `build`: `--render-speed` with values
+  `slow|balanced|fast`, default `balanced`. Mapping in one place:
+  `{"slow": 1, "balanced": 4, "fast": min(8, max(2, cpu_count() - 1))}`,
+  as `workers_for_speed(speed: str) -> int`. Plumbed through `run_build`
+  (new keyword `render_speed: str = "balanced"`) into
+  `_run_build_locked`.
+- The resolved worker count joins the existing `build start:` log line,
+  so every render records its own mode.
+- Tests: `workers_for_speed` unit test (20 cores gives 1/4/8; a one-core
+  machine still gives a legal value); Typer rejects bad values.
+- **Verify:** `scribe build --help` shows the option; pytest green.
+
+### RT4: Measure the real build and record (S) - DONE 2026-10-18
+
+- As built, two independent pairs on the real book, both legs cold
+  (separate work roots, each holding the user's `cast.yaml` and the same
+  `script.json`), one render at a time, `--device cuda`:
+
+| pair (source chapters) | audio | sentence renders | `slow` wall | `slow` RTF | `fast` wall | `fast` RTF | speedup |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 77-81 | 35.6 min | 616 | 533.8 s | 4.00x | 164.0 s | 13.01x | 3.25x |
+| 85-88 | 29.7 min | 509 | 445.4 s | 4.00x | 157.7 s | 11.3x | 2.82x |
+
+- Live 15 s samples: `slow` about 1127 MiB VRAM, RSS 1.2 to 1.5 GB, 0.9
+  of 20 logical cores in the render process; `fast` about 2219 MiB VRAM,
+  RSS 1.45 to 1.5 GB, about 38 percent system CPU (7.6 of 20 logical
+  CPUs). The fast workers mostly block on the GPU, which is the point.
+- **First production range at `fast`:** 113-131, 19 chapters, 139.7 min
+  audio, 2545 engine calls, 566.0 s wall, RTF **14.81x**, 0.222 s per
+  sentence, 0 failed, `validate` clean. The shipped `slow` run of
+  comparable size (94-112, 144.6 min) was 1751.6 s at 4.95x and 0.775 s
+  per sentence, so **3.49x**, better than both A/B pairs because 4 or 5
+  chapters leave 3 or 4 of the 8 workers idle and 19 chapters do not.
+  Live samples on that run: VRAM median 3323 MiB, peak 4347 MiB, RSS
+  median 1.6 GB peak 3.7 GB, 48 percent system CPU. So the working VRAM
+  figure for `fast` on a 6 GB card is 4.3 GB, not the 2.2 GB the
+  4-chapter pair suggested.
+- End to end is 2.8 to 3.3x against RT1's 3.9x synthesis-only probe. The
+  gap is the serial remainder: 70 MB scope load, engine setup, bundle
+  write. No worker count removes it.
+- All four bundles `scribe validate` clean, 4 or 5 chapters, 0 failed.
+- Bytes: compare against RT1's measured drift floor, not equality, as
+  the plan says. Text, order and speaker are identical everywhere;
+  per-sentence `start_ms`/`end_ms` shift by up to 22 ms from accumulated
+  trim jitter, and most shared cache entries differ by exactly 1 PCM_24
+  ulp (1.19e-7). Details and the numbers are in `docs/DECISIONS.md`
+  (D-178).
+- `docs/api.md` carries the parallel event-ordering line (committed with
+  RT2).
+- **Verify:** numbers in `docs/DECISIONS.md`; tablet copy, import and
+  read-along stay listed as needs device test.
+
+### RT5 (gated, not this plan): batching windows
+
+- Measured upside: 2.49x and 8x fewer `session.run` calls (section 2).
+- Hard gate: the batched audio needs per-sentence marks, which needs a
+  model that reports durations. The current `kokoro-v1.0.onnx` does not
+  (`has_timings: False`, one `waveform` output); `continuous=True`
+  raises. Clearing the gate means re-exporting with
+  `scripts/export.py`, which changes the audio of every chapter, breaks
+  the sentence cache and needs its own parity pass against the CPU path.
+- Do not start this without RT4's numbers and the owner's go-ahead.
+
+### RT6: Production bundle for source 94-131 (DONE 2026-10-18)
+
+- The shipped artifact is one contiguous range bundle:
+  `scribe/bundles/501afcd4-a3e8-51b9-92a0-43f026ef73d0`, spec 1.2, 38
+  chapters renumbering source 94-131 to bundle 1..38, 4:44:21 audio,
+  135.5 MB, `scribe validate` clean.
+- Built by **widening the range**, not by merging two bundles:
+  `scribe build Strongest_Hammer_God.epub --chapters 94-131 --device cuda
+  --render-speed fast`. Every chapter was already up to date in the book
+  work root (`.scribe/937ed66f-...`), so it reported `rendered: 0,
+  skipped: 38, failed: 0` and finished in **19.1 s** (RTF 894.79x):
+  assembly and copy only, no synthesis, no re-encode of rendered audio.
+  The append of 284 minutes of audio cost less than one chapter render.
+- The partial bundles it supersedes stay on disk but are not for the
+  tablet: `ea8411a9` (94-112, 70.9 MB, rendered at `slow`, RTF 4.95x) and
+  `90688267` (113-131, 68.6 MB, rendered at `fast`, RTF 14.81x).
+- Range ids were recomputed from the epub's sha256 before the run
+  (`draft.book_id_for_range`) and matched the work root and both existing
+  bundles; that is how the wide rebuild is proven to reuse the same work
+  root and render output rather than draft the book afresh.
+- **Verify:** `validate` clean; tablet copy, import, read-along and
+  screen-off playback stay listed as needs device test.
+- Numbers, the cost of later appends and the open cast item are in
+  `docs/DECISIONS.md` (D-179).
+
+## 6. GPU utilization in fast mode (measured)
+
+The GPU was never idle because the work was too small for it. It was
+idle because one Python thread drives it: at T=1, 911 of about 930 ms in
+each sentence sit inside `session.run`, and 0.67 s of that is per-call
+host work (input copies, the 17 memcpy nodes the CUDA EP adds to the
+graph, the output copy back, launch), leaving about 0.13 s of actual
+compute per second of audio.
+
+So "use the GPU harder" has exactly two mechanisms, and both are now
+measured:
+
+1. **Overlap the per-call overhead with concurrent callers.** This is
+   RT2, and it is worth about 3.9x at 8 workers (the knee; 12 regresses
+   and eats 4.4 of 6 GB VRAM). It needs no audio change.
+2. **Give each call more audio to synthesize.** One 510-phoneme window
+   costs about 0.67 s + 0.13 s per audio second, so fewer and longer
+   calls are the only way to attack the 0.67 s. RT5 measures 2.49x for
+   8 sentences in one call, and is blocked on the model's missing
+   duration output.
+
+Not worth doing, with reasons:
+
+- **ORT thread tuning** (`intra_op_num_threads`, execution mode, IO
+  binding): phonemize plus glue is 2% of wall time, so there is almost
+  nothing on the CPU side to reclaim, and one shared session already
+  means one ORT thread pool.
+- **True GPU batching (batch > 1)**: the library runs batch 1 and its
+  windows are serial; rolling our own means padding sentences to a
+  common length and trusting the model to mask the padding, which would
+  corrupt audio if it does not, plus a new timing and cache story.
+- **fp16 or int8**: a different model file, so different audio, every
+  sentence cache key moves, and the model is not the bottleneck.
+- **CUDA graphs**: the CUDA EP already reports 17 memcpy nodes added to
+  the graph, and per-call launch cost is small next to 0.67 s of host
+  work.
+
+## 7. Order and check-ins
+
+| Step | Work packages | You can then... |
+| --- | --- | --- |
+| 1 | RT1 (done) | know threads give 3.9x and the knee is 8 |
+| 2 | RT2 | run a parallel render at the current default |
+| 3 | RT3 | choose a tier per render |
+| 4 | RT4 | have the real build numbers, and decide on RT5 |
+
+Check-in after RT4, with the A/B numbers and the `docs/api.md` line.
+
+## 8. Verification
+
+- `uv run --no-sync pytest` in `scribe/` green.
+- The two probe tables and the RT4 A/B table recorded.
+- `uv run --no-sync scribe build` on a 4-chapter range at `slow` and at
+  `fast`, then `scribe validate` on both bundles: same chapter list, same
+  sentence counts, same durations, PCM inside the measured drift floor.
+- No bundle-format change, so no `spec_version` bump and no spec edit.
+
+## 9. Decisions taken (2026-10-18)
+
+1. One `--render-speed {slow,balanced,fast}` option, not three switches.
+2. Default `balanced`.
+3. `fast` caps at 8 (the measured knee), ceiling 12. Asked for 12; 12
+   measured slower.
+4. Completion-order events accepted; `docs/api.md` gets the line and the
+   UI jobs tray keys by chapter.
+5. The book's `cast.yaml` fallback question is dropped; no cast change.
+6. Byte-equality acceptance moved to the fake engine, because the CUDA
+   path is not byte-reproducible by itself.

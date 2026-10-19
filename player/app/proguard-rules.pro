@@ -36,6 +36,19 @@
 # Coil image loading (conservative; 2.6.0 ships no consumer rules).
 -keep class coil.** { *; }
 
+# PDF1: PdfBox-Android text extraction (2.0.27.0 ships no consumer
+# rules; reflection in font handling means conservative keeps; proof is
+# the release assemble plus the unit suites, same basis as Coil above).
+-keep class com.tom_roush.pdfbox.** { *; }
+-keep class com.tom_roush.fontbox.** { *; }
+-keep class org.apache.pdfbox.** { *; }
+-keep class org.apache.fontbox.** { *; }
+# Text extraction only: the JPX image module (JCenter-only JP2
+# dependency, deliberately excluded) is never on the path; silence R8
+# about its optional classes (AGP-suggested rules verbatim).
+-dontwarn com.gemalto.jp2.JP2Decoder
+-dontwarn com.gemalto.jp2.JP2Encoder
+
 # VC2 (D-129): sherpa-onnx JNI bridge (full flavor only). The native
 # methods in libsherpa-onnx-jni.so are looked up by Java name at
 # runtime, so the com.k2fsa classes and their members must survive

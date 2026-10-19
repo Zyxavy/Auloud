@@ -21,7 +21,7 @@ pub use error::{ApiError, Error};
 pub use sse::{Event, EventStream};
 pub use types::{
     AffectedQuotes, BookDetail, BookSummary, BuildResult, BundleEntry, CastPayload, CastReport,
-    CastStat, ChapterEntry, Health, Job, JobSummary, MinorEntry, PatchResult, PlanResult,
-    QuoteEntry, QuotesPage, SampleResult, Settings, UploadResult, ValidateResult, Versions,
-    VoiceDetail, VoicesResponse,
+    CastStat, ChapterEntry, DeleteResult, Health, Job, JobSummary, MinorEntry, PatchResult,
+    PlanResult, QuoteEntry, QuotesPage, SampleResult, Settings, UploadResult, ValidateResult,
+    Versions, VoiceDetail, VoicesResponse,
 };

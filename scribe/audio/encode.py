@@ -50,6 +50,7 @@ import numpy as np
 
 from audio.assemble import AssembledChapter, ms_for_samples
 from bundle.validate import AudioProbeError, probe_audio_ffprobe
+from proc import no_window_kwargs
 from tts.base import SAMPLE_RATE
 
 #: MP3 encoder codec (spec: CBR via libmp3lame).
@@ -155,6 +156,7 @@ def encode_chapter_pcm(
             stdin=subprocess.PIPE,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
+            **no_window_kwargs(),  # console exes must not flash (per-spawn flag)
         )
     except OSError as exc:
         raise EncodeError(f"{chapter_label}: could not start ffmpeg: {exc}") from exc

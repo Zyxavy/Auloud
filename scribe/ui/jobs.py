@@ -1638,6 +1638,43 @@ class JobManager:
         current = self._load(job_id)
         return self._public(current or job)
 
+    def delete_jobs_for_book(self, book_id: str) -> list[str]:
+        """Cancel live jobs for a book, then remove all its job dirs.
+
+        Returns removed job ids (best effort: a dead process or a locked
+        file never aborts the sweep; leftovers simply stay listed).
+        """
+        import shutil
+
+        from .books import check_book_id
+
+        check_book_id(book_id)
+        removed: list[str] = []
+        for folder in self._all_job_dirs():
+            data = _read_job_file(folder / JOB_FILENAME)
+            if not isinstance(data, dict):
+                continue
+            if data.get("book_id") != book_id:
+                continue
+            job_id = data.get("id")
+            if not isinstance(job_id, str) or not job_id:
+                continue
+            if data.get("state") in ("queued", "running", "paused"):
+                try:
+                    self.cancel(job_id)
+                except Exception:
+                    pass
+            try:
+                if folder.is_symlink():
+                    folder.unlink()
+                else:
+                    shutil.rmtree(folder)
+            except OSError:
+                continue
+            if not folder.exists():
+                removed.append(job_id)
+        return removed
+
     # -- startup scan ---------------------------------------------------------------
 
     def _scan_on_start(self) -> None:

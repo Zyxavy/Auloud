@@ -13,6 +13,7 @@ import java.util.Locale
 import java.util.TimeZone
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -20,10 +21,14 @@ import kotlinx.coroutines.withContext
 /**
  * IN7: per-chapter import progress for the EPUB import pipeline.
  *
- * Emitted after each chapter file lands in the temp folder, in chapter
- * order. [chaptersDone] runs 1..[totalChapters]; [chapterIndex] is the
- * 1-based chapter just finished, [chapterTitle] its title. Callbacks run
- * on the import dispatcher thread (IO); IN8 forwards them to Main.
+ * Emitted per chapter in chapter order; [chaptersDone] runs
+ * 1..[totalChapters] within each phase, [chapterIndex] is the 1-based
+ * chapter just finished, [chapterTitle] its title. Callbacks run on the
+ * import dispatcher thread (IO); IN8 forwards them to Main. [onProgress]
+ * fires while chapter files land (write phase); [onPrepareProgress]
+ * fires while chapters split/tag and while they self-check, so the
+ * screen moves from the first chapter instead of going silent for the
+ * whole upfront pass on big books.
  */
 data class ImportProgress(
     val chapterIndex: Int,
@@ -105,12 +110,25 @@ sealed interface IngestOutcome {
 object IngestPipeline {
 
     /**
+     * In-progress marker inside a staged book dir (written before the
+     * move, removed after self-check). Rescan skips marked dirs quietly
+     * and the reader reports preparing chapters; a marker at startup
+     * means a dead import and the book goes (same promise as the temp
+     * sweep: failed imports leave nothing).
+     */
+    const val IMPORTING_FILENAME = ".importing"
+
+    /**
      * Imports [epubFile] into [booksRoot].
      *
      * @param clock epoch millis source for [ImportReport.elapsedMs] and
      * the manifest `created_at` (injectable, so tests never assert on
      * the wall clock).
-     * @param onProgress per-chapter completion callback (IO thread).
+     * @param onProgress per-chapter completion callback (IO thread,
+     * write phase only).
+     * @param onPrepareProgress per-chapter callback (IO thread) for the
+     * split/tag pass and the self-check pass (default silent, so the
+     * write-phase event counts asserted in tests never change).
      * @param readBook container-read seam (default IN3, injectable).
      * @param readSpine spine-bytes seam (default IN3, injectable).
      */
@@ -122,45 +140,183 @@ object IngestPipeline {
         clock: () -> Long = System::currentTimeMillis,
         ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
         onProgress: suspend (ImportProgress) -> Unit = {},
+        onPrepareProgress: suspend (ImportProgress) -> Unit = {},
         readBook: (File) -> Result<EpubBook> = EpubContainerReader::read,
         readSpine: (File, String) -> Result<ByteArray> = EpubContainerReader::readSpineBytes
     ): IngestOutcome = withContext(ioDispatcher) {
         val startMs = clock()
+        val sha = hashSource(epubFile)
+            ?: return@withContext IngestOutcome.Failed(
+                listOf("${epubFile.name}: cannot read source file (missing EPUB)")
+            )
+        return@withContext importStructured(
+            sourceFile = epubFile,
+            sha = sha,
+            prepareHead = { _ ->
+                val book = readBook(epubFile).getOrElse { cause ->
+                    return@importStructured HeadResult.Failed(
+                        listOf(cause.message ?: "${epubFile.name}: cannot read EPUB (unknown error)")
+                    )
+                }
+                HeadResult.Ready(
+                    StructuredHead(
+                        title = book.title,
+                        author = book.author,
+                        language = book.language,
+                        coverBytes = EpubContainerReader.readCoverBytes(epubFile, book),
+                        structure = EpubStructurePipeline.ingest(epubFile, book, readSpine)
+                    )
+                )
+            },
+            emptyMessage = "${epubFile.name}: no readable chapters " +
+                "(every spine item was skipped or dropped)",
+            sourceFileName = IngestWriter.SOURCE_REL,
+            bundleType = "epub",
+            booksRoot = booksRoot,
+            storage = storage,
+            library = library,
+            clock = clock,
+            startMs = startMs,
+            onProgress = onProgress,
+            onPrepareProgress = onPrepareProgress
+        )
+    }
+
+    /**
+     * PDF1: imports [pdfFile] into [booksRoot] (same staged book, same
+     * contract as [importEpub]: manifest plus chapter one first, the row
+     * early, the rest streaming behind). Pages become 20-page chapters
+     * ([PdfStructure]); outline and heading splits stay a follow-up.
+     * Empty (scanned) PDFs fail naming the file, never silently.
+     */
+    suspend fun importPdf(
+        pdfFile: File,
+        booksRoot: String,
+        storage: BundleStorage,
+        library: LibraryRepository,
+        clock: () -> Long = System::currentTimeMillis,
+        ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+        onProgress: suspend (ImportProgress) -> Unit = {},
+        onPrepareProgress: suspend (ImportProgress) -> Unit = {},
+        appContext: android.content.Context? = null,
+        openBook: (File) -> PdfBook = { openPdfBook(it, appContext) }
+    ): IngestOutcome = withContext(ioDispatcher) {
+        val startMs = clock()
+        val sha = hashSource(pdfFile)
+            ?: return@withContext IngestOutcome.Failed(
+                listOf("${pdfFile.name}: cannot read source file (missing PDF)")
+            )
+        return@withContext importStructured(
+            sourceFile = pdfFile,
+            sha = sha,
+            prepareHead = { reportRange ->
+                val book = try {
+                    openBook(pdfFile)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    return@importStructured HeadResult.Failed(
+                        listOf("${pdfFile.name}: cannot read PDF (${e.message})")
+                    )
+                }
+                try {
+                    val chapters = PdfStructure.chapters(book, reportRange)
+                    val title = book.title?.takeIf { it.isNotBlank() }
+                        ?: pdfFile.nameWithoutExtension.ifBlank { pdfFile.name }
+                    HeadResult.Ready(
+                        StructuredHead(
+                            title = title,
+                            author = book.author,
+                            language = null,
+                            coverBytes = null,
+                            structure = StructureResult(chapters = chapters, drops = emptyList())
+                        )
+                    )
+                } finally {
+                    try {
+                        book.close()
+                    } catch (_: Exception) {
+                    }
+                }
+            },
+            emptyMessage = "${pdfFile.name}: no readable chapters " +
+                "(empty pages or a scanned PDF without a text layer?)",
+            sourceFileName = IngestWriter.SOURCE_PDF_REL,
+            bundleType = "pdf",
+            booksRoot = booksRoot,
+            storage = storage,
+            library = library,
+            clock = clock,
+            startMs = startMs,
+            onProgress = onProgress,
+            onPrepareProgress = onPrepareProgress
+        )
+    }
+    /**
+     * Container-read output for [importStructured]: everything the shared
+     * tail needs that differs per format. Built inside the per-book lock,
+     * after the duplicate check, so a duplicate never pays for it.
+     */
+    private data class StructuredHead(
+        val title: String,
+        val author: String?,
+        val language: String?,
+        val coverBytes: ByteArray?,
+        val structure: StructureResult
+    )
+
+    private sealed interface HeadResult {
+        data class Ready(val head: StructuredHead) : HeadResult
+        data class Failed(val errors: List<String>) : HeadResult
+    }
+
+    /**
+     * Shared staged tail for [importEpub] and [importPdf]: split/tag with
+     * prepare progress, manifest plus source plus cover plus chapter one,
+     * move, early row upsert (the book opens here), remaining chapters
+     * streaming behind, self-check, marker removal. Same files either
+     * way; only the head (container read, title, source name, bundle
+     * type) differs per format.
+     */
+    private suspend fun CoroutineScope.importStructured(
+        sourceFile: File,
+        sha: String,
+        prepareHead: suspend (suspend (ImportProgress) -> Unit) -> HeadResult,
+        emptyMessage: String,
+        sourceFileName: String,
+        bundleType: String,
+        booksRoot: String,
+        storage: BundleStorage,
+        library: LibraryRepository,
+        clock: () -> Long,
+        startMs: Long,
+        onProgress: suspend (ImportProgress) -> Unit,
+        onPrepareProgress: suspend (ImportProgress) -> Unit
+    ): IngestOutcome {
+        val bookId = DeviceBookIds.idForSha256(sha)
+        val finalDir = join(booksRoot, bookId)
+        val temp = join(booksRoot, ".tmp-$bookId")
         var tempDir: String? = null
         var movedDir: String? = null
+        var rowBookId: String? = null
         try {
-            val sha = hashSource(epubFile)
-                ?: return@withContext IngestOutcome.Failed(
-                    listOf("${epubFile.name}: cannot read source file (missing EPUB)")
-                )
-            val bookId = DeviceBookIds.idForSha256(sha)
-            val finalDir = join(booksRoot, bookId)
-            val temp = join(booksRoot, ".tmp-$bookId")
             tempDir = temp
-
-            // IN8: same-book serialization. The duplicate scan plus every
-            // later step run under the per-hash lock, so a concurrent
-            // same-book import waits here and then reports Duplicate
-            // instead of racing into the rename.
-            return@withContext ImportLocks.withBookLock(sha.lowercase()) {
+            return ImportLocks.withBookLock(sha.lowercase()) {
                 findDuplicate(storage, booksRoot, sha)?.let { existing ->
                     return@withBookLock IngestOutcome.Duplicate(existing.first, existing.second)
                 }
 
-                val book = readBook(epubFile).getOrElse { cause ->
-                    return@withBookLock IngestOutcome.Failed(
-                        listOf(cause.message ?: "${epubFile.name}: cannot read EPUB (unknown error)")
-                    )
+                val head = when (val resolved = prepareHead(onPrepareProgress)) {
+                    is HeadResult.Failed -> return@withBookLock IngestOutcome.Failed(resolved.errors)
+                    is HeadResult.Ready -> resolved.head
                 }
-
-                val structure = EpubStructurePipeline.ingest(epubFile, book, readSpine)
+                val title = head.title
+                val author = head.author
+                val language = head.language
+                val coverBytes = head.coverBytes
+                val structure = head.structure
                 if (structure.chapters.isEmpty()) {
-                    return@withBookLock IngestOutcome.Failed(
-                        listOf(
-                            "${epubFile.name}: no readable chapters " +
-                                "(every spine item was skipped or dropped)"
-                        )
-                    )
+                    return@withBookLock IngestOutcome.Failed(listOf(emptyMessage))
                 }
 
                 // A stale temp folder from a crashed process (same deterministic
@@ -170,19 +326,27 @@ object IngestPipeline {
 
                 val warnings = ArrayList<String>()
                 val dialogues = LinkedHashMap<Int, ChapterDialogue>()
+                val total = structure.chapters.size
+                var prepared = 0
                 for (chapter in structure.chapters) {
-                    ensureActive()
+                    this.ensureActive()
                     val split = SentenceSplitter.splitChapter(chapter, warnings)
                     dialogues[chapter.index] = DialogueTagger.tagChapter(chapter, split, warnings)
+                    prepared++
+                    onPrepareProgress(
+                        ImportProgress(
+                            chapterIndex = chapter.index,
+                            chaptersDone = prepared,
+                            totalChapters = total,
+                            chapterTitle = chapter.title
+                        )
+                    )
                 }
-
-                val total = structure.chapters.size
-                val coverBytes = EpubContainerReader.readCoverBytes(epubFile, book)
                 val manifestInput = IngestWriter.ManifestInput(
                     bookId = bookId,
-                    title = book.title,
-                    author = book.author,
-                    language = book.language,
+                    title = title,
+                    author = author,
+                    language = language,
                     sha256Hex = sha,
                     coverRel = if (coverBytes != null) IngestWriter.COVER_REL else null,
                     chapters = structure.chapters.map { chapter ->
@@ -192,33 +356,56 @@ object IngestPipeline {
                             textRel = IngestWriter.chapterRel(chapter.index, total)
                         )
                     },
-                    createdAt = formatCreatedAt(startMs)
+                    createdAt = formatCreatedAt(startMs),
+                    sourceFile = sourceFileName,
+                    type = bundleType
                 )
 
             var done = 0
-            val manifest: Manifest
-            try {
-                manifest = IngestWriter.writeBook(
-                    storage = storage,
-                    tempDir = temp,
-                    manifestInput = manifestInput,
-                    chapters = structure.chapters,
-                    dialogues = dialogues,
-                    sourcePath = epubFile.absolutePath,
-                    coverBytes = coverBytes,
-                    onChapterWritten = { chapter ->
-                        ensureActive()
-                        done++
-                        onProgress(
-                            ImportProgress(
-                                chapterIndex = chapter.index,
-                                chaptersDone = done,
-                                totalChapters = total,
-                                chapterTitle = chapter.title
-                            )
-                        )
-                    }
+            val manifest: Manifest = IngestWriter.buildManifestModel(manifestInput)
+            suspend fun emitWritten(chapter: IngestChapter) {
+                this.ensureActive()
+                done++
+                onProgress(
+                    ImportProgress(
+                        chapterIndex = chapter.index,
+                        chaptersDone = done,
+                        totalChapters = total,
+                        chapterTitle = chapter.title
+                    )
                 )
+            }
+            fun writeChapterTo(dir: String, chapter: IngestChapter) {
+                val dialogue = dialogues[chapter.index]
+                    ?: throw IOException(
+                        "text/${IngestWriter.chapterRel(chapter.index, total)}: " +
+                            "missing dialogue tags for chapter ${chapter.index} (internal error)"
+                    )
+                val rel = IngestWriter.chapterRel(chapter.index, total)
+                storage.writeText(
+                    join(dir, rel),
+                    IngestWriter.renderChapterJson(chapter, dialogue)
+                )
+            }
+            try {
+                // Staged import (fast open): the marker names the
+                // in-progress book for rescan; the manifest, source and
+                // first chapter land before the move, so the book opens
+                // while the rest streams behind. Same files as the old
+                // order, only sooner.
+                storage.writeText(join(temp, IMPORTING_FILENAME), bookId)
+                storage.writeText(
+                    join(temp, IngestWriter.MANIFEST_REL),
+                    IngestWriter.renderManifestJson(manifestInput)
+                )
+                storage.copySourceFile(sourceFile.absolutePath, join(temp, sourceFileName))
+                if (coverBytes != null) {
+                    storage.writeBytes(join(temp, IngestWriter.COVER_REL), coverBytes)
+                }
+                val first = structure.chapters.firstOrNull()
+                    ?: return@withBookLock failAndClean(storage, temp, "no chapters to write")
+                writeChapterTo(temp, first)
+                emitWritten(first)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: IOException) {
@@ -229,13 +416,7 @@ object IngestPipeline {
                 )
             }
 
-            ensureActive()
-            val problems = selfValidate(storage, temp, manifest)
-            if (problems.isNotEmpty()) {
-                return@withBookLock failAndClean(storage, temp, problems)
-            }
-
-            ensureActive()
+            this.ensureActive()
             try {
                 storage.movePath(temp, finalDir)
             } catch (e: CancellationException) {
@@ -247,7 +428,7 @@ object IngestPipeline {
             }
             movedDir = finalDir
 
-            ensureActive()
+            this.ensureActive()
             val upserted = library.importBundle(finalDir, manifest)
             if (upserted.isFailure) {
                 val reason = upserted.exceptionOrNull()?.message ?: "library upsert failed"
@@ -255,13 +436,54 @@ object IngestPipeline {
                 movedDir = null
                 return@withBookLock IngestOutcome.Failed(listOf(reason))
             }
+            rowBookId = bookId
+
+            // The book is openable from here (manifest, source, chapter
+            // one); the remaining chapters stream into the final dir
+            // with the same per-chapter progress as before.
+            try {
+                for (chapter in structure.chapters.drop(1)) {
+                    this.ensureActive()
+                    writeChapterTo(finalDir, chapter)
+                    emitWritten(chapter)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: IOException) {
+                return@withBookLock failAndCleanFinal(
+                    storage, library, bookId, finalDir,
+                    e.message ?: "cannot write book"
+                )
+            } catch (e: Exception) {
+                return@withBookLock failAndCleanFinal(
+                    storage, library, bookId, finalDir,
+                    e.message ?: "cannot write book"
+                )
+            }
+
+            this.ensureActive()
+            val problems = selfValidate(storage, finalDir, manifest, onPrepareProgress)
+            if (problems.isNotEmpty()) {
+                return@withBookLock failAndCleanFinal(
+                    storage, library, bookId, finalDir, problems
+                )
+            }
+            storage.deleteRecursively(join(finalDir, IMPORTING_FILENAME))
+            if (storage.exists(join(finalDir, IMPORTING_FILENAME))) {
+                // A stuck marker would hide the book from rescan and the
+                // reader forever; fail loud instead of shipping that.
+                return@withBookLock failAndCleanFinal(
+                    storage, library, bookId, finalDir,
+                    "cannot clear the import marker (still importing)"
+                )
+            }
 
             IngestOutcome.Imported(
                 ImportReport(
                     bookId = bookId,
                     bundleDir = finalDir,
-                    title = book.title,
-                    author = book.author,
+                    title = title,
+                    author = author,
                     chapters = total,
                     words = structure.chapters.sumOf { it.wordCount },
                     drops = structure.drops.toList(),
@@ -276,13 +498,20 @@ object IngestPipeline {
             // closure, so no smart cast applies here.
             val moved = movedDir
             if (moved != null) storage.deleteRecursively(moved)
+            val row = rowBookId
+            if (row != null) {
+                try {
+                    library.deleteBook(row)
+                } catch (_: Exception) {
+                }
+            }
             throw e
         }
     }
 
-    private fun hashSource(epubFile: File): String? {
+    private fun hashSource(sourceFile: File): String? {
         return try {
-            EpubContainerReader.sha256Hex(epubFile)
+            EpubContainerReader.sha256Hex(sourceFile)
         } catch (_: Exception) {
             null
         }
@@ -328,13 +557,36 @@ object IngestPipeline {
      * conforming books ever reach the rename. Returns the error list
      * (empty means valid).
      */
-    private fun selfValidate(
+    private suspend fun selfValidate(
         storage: BundleStorage,
         tempDir: String,
-        manifest: Manifest
+        manifest: Manifest,
+        onChapterChecked: suspend (ImportProgress) -> Unit = {}
     ): List<String> {
         return try {
-            BundleValidator.validate(tempDir, manifest, storage::exists, storage::readText, storage::sizeBytes)
+            // The validator hook is plain (shared with rescan callers);
+            // record the order here, then emit on the suspend channel.
+            val order = ArrayList<Int>()
+            val problems = BundleValidator.validate(
+                tempDir,
+                manifest,
+                storage::exists,
+                storage::readText,
+                storage::sizeBytes,
+                onChapter = { order.add(it) }
+            )
+            val titles = manifest.chapters.associate { it.index to it.title }
+            for ((pos, index) in order.withIndex()) {
+                onChapterChecked(
+                    ImportProgress(
+                        chapterIndex = index,
+                        chaptersDone = pos + 1,
+                        totalChapters = manifest.chapters.size,
+                        chapterTitle = titles[index] ?: ""
+                    )
+                )
+            }
+            problems
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -359,6 +611,36 @@ object IngestPipeline {
         errors: List<String>
     ): IngestOutcome.Failed {
         storage.deleteRecursively(tempDir)
+        return IngestOutcome.Failed(errors)
+    }
+
+    /**
+     * Failure after the early move: removes the partial book dir and,
+     * best-effort, the library row the staged import already upserted,
+     * so a failed import leaves neither files nor a row (the atomic
+     * promise, kept across the staging).
+     */
+    private suspend fun failAndCleanFinal(
+        storage: BundleStorage,
+        library: LibraryRepository,
+        bookId: String,
+        finalDir: String,
+        error: String
+    ): IngestOutcome.Failed =
+        failAndCleanFinal(storage, library, bookId, finalDir, listOf(error))
+
+    private suspend fun failAndCleanFinal(
+        storage: BundleStorage,
+        library: LibraryRepository,
+        bookId: String,
+        finalDir: String,
+        errors: List<String>
+    ): IngestOutcome.Failed {
+        storage.deleteRecursively(finalDir)
+        try {
+            library.deleteBook(bookId)
+        } catch (_: Exception) {
+        }
         return IngestOutcome.Failed(errors)
     }
 

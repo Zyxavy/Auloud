@@ -8,7 +8,9 @@ import app.auloud.player.bundle.Manifest
 import app.auloud.player.data.BookEntity
 import app.auloud.player.data.LibraryRepository
 import app.auloud.player.data.ProgressRepository
+import app.auloud.player.ingest.IngestPipeline
 import app.auloud.player.ingest.StrayTempSweep
+import app.auloud.player.ingest.StaleImportSweep
 import app.auloud.player.render.RenderJobProgress
 import app.auloud.player.storage.BundleStorage
 import app.auloud.player.storage.WatchFolder
@@ -252,12 +254,12 @@ class LibraryViewModel(
             books.collect { refreshProgress(it) }
         }
         if (hasPermission.value) {
-            rescan()
+            rescan(sweepStaleImports = true)
         }
     }
 
     /** Re-scans ALL watch folders: imports valid bundles, records per-bundle errors. Never throws. */
-    fun rescan() {
+    fun rescan(sweepStaleImports: Boolean = false) {
         if (isScanning.value) return
         if (!isPermissionGranted()) {
             hasPermission.value = false
@@ -306,6 +308,18 @@ class LibraryViewModel(
                         throw e
                     } catch (_: Exception) {
                     }
+                    // Staged imports (fast open): at startup only, drop
+                    // books still marked importing (their process died;
+                    // no import can be running yet). Manual rescans never
+                    // sweep: a live import's book must survive.
+                    if (sweepStaleImports) {
+                        try {
+                            StaleImportSweep.sweep(root, storage)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                        }
+                    }
                     val dirs = try {
                         storage.listBundleDirs(root)
                     } catch (e: CancellationException) {
@@ -321,6 +335,19 @@ class LibraryViewModel(
                         // IN8: never read an import temp as a book (a temp
                         // born from a concurrent import after the sweep).
                         if (StrayTempSweep.isStrayDir(dir)) continue
+                        // Staged imports (fast open): a marked dir is still
+                        // arriving; skip it quietly (no validation, no
+                        // import, no error). Stale markers die at startup
+                        // (see the sweep below), so a skip here always
+                        // means a live import in this process.
+                        val importing = try {
+                            storage.exists(join(dir, IngestPipeline.IMPORTING_FILENAME))
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            false
+                        }
+                        if (importing) continue
                         // Bundle label: SAF tokens collapse to the bundle
                         // name; file paths pass through.
                         val dirLabel = WatchFolders.displayPath(dir)

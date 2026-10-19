@@ -94,14 +94,16 @@ object BundleValidator {
         bundleDir: File,
         manifest: Manifest,
         readText: ((String) -> String?)? = null,
-        textSize: ((String) -> Long?)? = null
+        textSize: ((String) -> Long?)? = null,
+        onChapter: ((chapterIndex: Int) -> Unit)? = null
     ): List<String> =
         validate(
             bundleDir.path,
             manifest,
             { File(it).isFile },
             readText,
-            textSize ?: { File(it).takeIf { f -> f.isFile }?.length() }
+            textSize ?: { File(it).takeIf { f -> f.isFile }?.length() },
+            onChapter
         )
 
     fun validate(
@@ -116,7 +118,14 @@ object BundleValidator {
          * nearly 3x the byte budget). Null (unknown size, e.g. SAF) or a
          * throw falls back to the post-read byte check below. Pure seam.
          */
-        textSize: ((String) -> Long?)? = null
+        textSize: ((String) -> Long?)? = null,
+        /**
+         * Per-chapter progress hook (import self-check streams it to the
+         * import screen; rescan and tablet flows leave it null). Plain
+         * lambda, never suspending: fires once per chapter entry as it
+         * is checked.
+         */
+        onChapter: ((chapterIndex: Int) -> Unit)? = null
     ): List<String> {
         val errors = mutableListOf<String>()
         if (manifest.specVersion.isBlank()) {
@@ -161,6 +170,7 @@ object BundleValidator {
             errors.add("manifest.json: no chapters listed")
         }
         for (chapter in manifest.chapters) {
+            onChapter?.invoke(chapter.index)
             val label = "chapter ${chapter.index}"
             if (chapter.title.isBlank()) {
                 errors.add("manifest.json: $label missing required field title")

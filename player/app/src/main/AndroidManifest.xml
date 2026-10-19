@@ -8,6 +8,13 @@
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- Slice 20 TR1 (user-approved, option A): INTERNET for the LAN-only
+         Wi-Fi bundle receiver (no cloud; the receiver binds while its
+         screen is open and never leaves the local network). Both are
+         normal install-time permissions (no runtime prompt on API 24).
+         No ACCESS_WIFI_STATE: the screen reads the device IP via
+         NetworkInterface enumeration, which needs no permission. -->
+    <uses-permission android:name="android.permission.INTERNET" />
 
     <application
         android:label="@string/app_name"

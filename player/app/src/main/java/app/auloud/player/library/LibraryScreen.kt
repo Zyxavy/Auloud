@@ -50,6 +50,7 @@ fun LibraryScreen(
     onBookSelected: (String) -> Unit,
     onOpenSettings: () -> Unit = {},
     onImportEpub: () -> Unit = {},
+    onReceiveWifi: () -> Unit = {},
     onDeleteBook: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -76,6 +77,11 @@ fun LibraryScreen(
                 // IN8: on-device EPUB import (system picker, no permission).
                 TextButton(onClick = onImportEpub) {
                     Text("Import EPUB")
+                }
+                // Slice 20 TR1: Wi-Fi bundle receive (tablet-hosts, same
+                // network; the receiver runs only while its screen is open).
+                TextButton(onClick = onReceiveWifi) {
+                    Text("Receive via Wi-Fi")
                 }
                 Button(onClick = onRescan, enabled = !state.isScanning) {
                     Text(if (state.isScanning) "Scanning…" else "Rescan")

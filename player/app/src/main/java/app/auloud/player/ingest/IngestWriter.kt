@@ -46,6 +46,9 @@ object IngestWriter {
     /** Source path inside every imported book folder. */
     const val SOURCE_REL = "source/book.epub"
 
+    /** Source path for PDF imports (PDF1). */
+    const val SOURCE_PDF_REL = "source/book.pdf"
+
     /** Cover path inside the book folder (only when a cover exists). */
     const val COVER_REL = "cover.jpg"
 
@@ -77,7 +80,10 @@ object IngestWriter {
         val sha256Hex: String,
         val coverRel: String?,
         val chapters: List<ChapterEntry>,
-        val createdAt: String
+        val createdAt: String,
+        /** Bundle source file plus manifest type (`book.epub`/`epub`, `book.pdf`/`pdf`). */
+        val sourceFile: String = SOURCE_REL,
+        val type: String = "epub"
     )
 
     /** One manifest chapter entry (unrendered: title plus text path only). */
@@ -97,7 +103,7 @@ object IngestWriter {
             specVersion = "2.0",
             id = input.bookId,
             title = input.title,
-            type = "epub",
+            type = input.type,
             chapters = input.chapters.map { entry ->
                 ChapterInfo(index = entry.index, title = entry.title, text = entry.textRel)
             },
@@ -105,7 +111,7 @@ object IngestWriter {
             renderState = "none",
             author = input.author,
             language = input.language,
-            source = SourceInfo(file = SOURCE_REL, sha256 = input.sha256Hex),
+            source = SourceInfo(file = input.sourceFile, sha256 = input.sha256Hex),
             cover = input.coverRel,
             voices = defaultVoices(),
             createdAt = input.createdAt,
@@ -146,9 +152,9 @@ object IngestWriter {
             put("title", input.title)
             if (input.author != null) put("author", input.author)
             if (input.language != null) put("language", input.language)
-            put("type", "epub")
+            put("type", input.type)
             putJsonObject("source") {
-                put("file", SOURCE_REL)
+                put("file", input.sourceFile)
                 put("sha256", input.sha256Hex)
             }
             if (input.coverRel != null) put("cover", input.coverRel)
@@ -252,45 +258,6 @@ object IngestWriter {
                 }
             }
         )
-    }
-
-    /**
-     * Writes one full book into [tempDir] through [storage]: chapter files
-     * first, then the source EPUB copy, then the cover, then the manifest
-     * last. [onChapterWritten] runs after each chapter file lands, so the
-     * caller ([IngestPipeline]) can emit per-chapter progress and honor
-     * cooperative cancellation between chapters. Returns the manifest
-     * model plus its file form. Throws [IOException] naming the file and
-     * the rule on any write failure; the caller deletes the temp residue.
-     */
-    suspend fun writeBook(
-        storage: app.auloud.player.storage.BundleStorage,
-        tempDir: String,
-        manifestInput: ManifestInput,
-        chapters: List<IngestChapter>,
-        dialogues: Map<Int, ChapterDialogue>,
-        sourcePath: String,
-        coverBytes: ByteArray?,
-        onChapterWritten: suspend (IngestChapter) -> Unit = {}
-    ): Manifest {
-        val manifest = buildManifestModel(manifestInput)
-        val total = chapters.size
-        for (chapter in chapters) {
-            val dialogue = dialogues[chapter.index]
-                ?: throw IOException(
-                    "text/${chapterRel(chapter.index, total)}: " +
-                        "missing dialogue tags for chapter ${chapter.index} (internal error)"
-                )
-            val rel = chapterRel(chapter.index, total)
-            storage.writeText(join(tempDir, rel), renderChapterJson(chapter, dialogue))
-            onChapterWritten(chapter)
-        }
-        storage.copySourceFile(sourcePath, join(tempDir, SOURCE_REL))
-        if (coverBytes != null) {
-            storage.writeBytes(join(tempDir, COVER_REL), coverBytes)
-        }
-        storage.writeText(join(tempDir, MANIFEST_REL), renderManifestJson(manifestInput))
-        return manifest
     }
 
     private fun join(dir: String, rel: String): String =

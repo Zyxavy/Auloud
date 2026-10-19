@@ -84,6 +84,58 @@ class LibraryViewModelTest {
     }
 
     @Test
+    fun rescan_throwingMarkerCheck_doesNotAbortScan() = runBlocking {
+        storage.dirs = listOf(novelDir)
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting()
+        storage.throwOnMarkerExists = true
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertEquals(1, state.books.size)
+            assertEquals("book-1", state.books[0].id)
+            assertTrue(state.errors.isEmpty())
+        }
+    }
+
+    @Test
+    fun rescan_markedImportDir_skippedQuietly() = runBlocking {
+        storage.dirs = listOf(novelDir)
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting() + "$novelDir/.importing"
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertTrue(state.books.isEmpty())
+            assertTrue(state.errors.isEmpty())
+        }
+        assertEquals(0, libraryRepo.importCalls)
+    }
+
+    @Test
+    fun rescanStartup_sweepsStaleMarkedDir() = runBlocking {
+        storage.dirs = listOf(novelDir)
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting() + "$novelDir/.importing"
+
+        val vm = viewModel()
+        vm.rescan(sweepStaleImports = true)
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertTrue(state.books.isEmpty())
+            assertTrue(state.errors.isEmpty())
+        }
+        // Init already swept once (startup path); the explicit sweep
+        // re-runs over the fake's static listing, so assert presence.
+        assertTrue(storage.deletedPaths.contains(novelDir))
+    }
+
+    @Test
     fun rescan_invalidBundle_yieldsErrorWithReason_notCrash() = runBlocking {
         storage.dirs = listOf(novelDir)
         storage.texts = validTexts(manifestJson())
@@ -865,6 +917,7 @@ class LibraryViewModelTest {
         var strayDirs: List<String> = emptyList()
         var strayDirsByRoot: Map<String, List<String>> = emptyMap()
         var failStrayRoots: Set<String> = emptySet()
+        var throwOnMarkerExists = false
         val deletedPaths = mutableListOf<String>()
 
         override fun listBundleDirs(root: String): List<String> {
@@ -880,7 +933,12 @@ class LibraryViewModelTest {
         }
         override fun readText(path: String): String =
             texts[path] ?: throw IOException("$path: file not found or not readable")
-        override fun exists(path: String): Boolean = path in existing
+        override fun exists(path: String): Boolean {
+            if (throwOnMarkerExists && path.endsWith("/.importing")) {
+                throw IOException("$path: grant revoked")
+            }
+            return path in existing
+        }
         override fun audioUri(bundleDir: String, relPath: String): Uri =
             throw UnsupportedOperationException("not used by the library")
         override fun coverUri(bundleDirPath: String, coverRel: String): String? {

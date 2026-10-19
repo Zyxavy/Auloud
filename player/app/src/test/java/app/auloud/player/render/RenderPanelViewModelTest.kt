@@ -7,8 +7,13 @@ import app.auloud.player.storage.BundleStorage
 import app.auloud.player.storage.FakeSharedPreferences
 import app.auloud.player.tts.PrefsTtsStore
 import app.auloud.player.tts.TtsRole
+import app.auloud.player.tts.TtsVoiceStore
 import java.io.IOException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
@@ -115,9 +120,18 @@ class RenderPanelViewModelTest {
         "$bundleDir/audio/ch001.m4a" to "fake-audio"
     )
 
-    private inner class Harness(files: HashMap<String, String> = HashMap()) {
+    private inner class Harness(
+        files: HashMap<String, String> = HashMap(),
+        private val vmDispatcher: CoroutineDispatcher = Dispatchers.Unconfined
+    ) {
         val sharedFiles: HashMap<String, String> = files
-        val storage = FakeStorage(sharedFiles)
+        val textReads = mutableListOf<String>()
+        val storage = object : BundleStorage by FakeStorage(sharedFiles) {
+            override fun readText(path: String): String {
+                if ("/text/" in path) textReads.add(path)
+                return sharedFiles[path] ?: throw IOException("missing: $path")
+            }
+        }
         val io = FakeIo(sharedFiles)
         val progress = FakeProgress(
             mutableMapOf("b1" to ProgressEntity("b1", 1, 0L, 0L))
@@ -155,16 +169,20 @@ class RenderPanelViewModelTest {
                 onStartRerender = { chapter, mode ->
                     rerenderStarts.add(chapter to mode)
                 },
-                dispatcher = Dispatchers.Unconfined
+                dispatcher = vmDispatcher
             )
         }
     }
 
     @Test
-    fun loads_titleCountsEstimateAndVoices() {
-        val harness = Harness(partialFiles())
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun loads_titleCountsEstimateAndVoices() = runTest {
+        val harness = Harness(partialFiles(), StandardTestDispatcher(testScheduler))
         val vm = harness.viewModel()
         try {
+            testScheduler.advanceUntilIdle()
+            vm.ensureWordCounts()
+            testScheduler.advanceUntilIdle()
             val state = vm.state.value
             assertEquals(false, state.isLoading)
             assertNull(state.manifestError)
@@ -188,12 +206,70 @@ class RenderPanelViewModelTest {
     }
 
     @Test
-    fun unreadableChapterJson_countsUnknownButLoads() {
-        val files = partialFiles()
-        files.remove("$bundleDir/text/ch003.json")
-        val harness = Harness(files)
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun openShowsManifestBeforeChapterReads() = runTest {
+        val harness = Harness(partialFiles(), StandardTestDispatcher(testScheduler))
         val vm = harness.viewModel()
         try {
+            // First paint is manifest-only: no fill runs until the hub
+            // asks, so no chapter JSON is touched.
+            testScheduler.advanceUntilIdle()
+            val early = vm.state.value
+            assertEquals(false, early.isLoading)
+            assertEquals("Partial", early.title)
+            assertEquals(2, early.estimate.unknownChapters)
+            // Only the stale scan's rendered-chapter read ran; the
+            // unrendered words pass waits for the panel trigger.
+            assertEquals(listOf("$bundleDir/text/ch001.json"), harness.textReads)
+            // The panel-visible fill refines to the eager-load values.
+            vm.ensureWordCounts()
+            testScheduler.advanceUntilIdle()
+            val late = vm.state.value
+            assertEquals(1_600L + 800L, late.estimate.audioMs)
+            assertEquals(0, late.estimate.unknownChapters)
+            assertEquals(3, harness.textReads.size)
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun refreshKeepsWordCountsWithoutRereads() = runTest {
+        val harness = Harness(partialFiles(), StandardTestDispatcher(testScheduler))
+        val vm = harness.viewModel()
+        try {
+            testScheduler.advanceUntilIdle()
+            vm.ensureWordCounts()
+            testScheduler.advanceUntilIdle()
+            assertEquals(0, vm.state.value.estimate.unknownChapters)
+            val unrenderedReads = harness.textReads.filterNot { it.endsWith("ch001.json") }
+            assertEquals(2, unrenderedReads.size)
+            // A refresh (back-navigation) reloads the manifest but must
+            // not re-read unrendered chapters: text is immutable, so the
+            // cached counts stay true and the estimate stays refined.
+            vm.refresh()
+            testScheduler.advanceUntilIdle()
+            vm.ensureWordCounts()
+            testScheduler.advanceUntilIdle()
+            assertEquals(0, vm.state.value.estimate.unknownChapters)
+            assertEquals(2, harness.textReads.filterNot { it.endsWith("ch001.json") }.size)
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun unreadableChapterJson_countsUnknownButLoads() = runTest {
+        val files = partialFiles()
+        files.remove("$bundleDir/text/ch003.json")
+        val harness = Harness(files, StandardTestDispatcher(testScheduler))
+        val vm = harness.viewModel()
+        try {
+            testScheduler.advanceUntilIdle()
+            vm.ensureWordCounts()
+            testScheduler.advanceUntilIdle()
             val state = vm.state.value
             assertEquals(1, state.estimate.unknownChapters)
             assertEquals(1_600L + RenderEstimates.DEFAULT_CHAPTER_AUDIO_MS, state.estimate.audioMs)
@@ -203,10 +279,14 @@ class RenderPanelViewModelTest {
     }
 
     @Test
-    fun selectOption_nextN_recomputesEstimate() {
-        val harness = Harness(partialFiles())
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun selectOption_nextN_recomputesEstimate() = runTest {
+        val harness = Harness(partialFiles(), StandardTestDispatcher(testScheduler))
         val vm = harness.viewModel()
         try {
+            testScheduler.advanceUntilIdle()
+            vm.ensureWordCounts()
+            testScheduler.advanceUntilIdle()
             vm.selectOption(RenderOption.NEXT_N)
             vm.setNextN(1)
             val state = vm.state.value
@@ -579,6 +659,38 @@ class RenderPanelViewModelTest {
             assertEquals(true, state.staleReadOnly)
             vm.rerenderStale()
             assertTrue(harness.rerenderStarts.isEmpty())
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun rogueThrow_surfacesPanelErrorInsteadOfSpinningForever() = runTest {
+        // OPEN1: a throw escaping the panel load used to kill the loader
+        // silently, leaving the hub on an eternal spinner (manifest stays
+        // null). It must surface as a panel error instead.
+        val harness = Harness(partialFiles(), StandardTestDispatcher(testScheduler))
+        val wedgedVoices = object : TtsVoiceStore by harness.voiceStore {
+            override fun voiceId(role: TtsRole): String = throw RuntimeException("prefs wedged")
+        }
+        val vm = RenderPanelViewModel(
+            bookId = "b1",
+            bundleDir = bundleDir,
+            storage = harness.storage,
+            progress = harness.progress,
+            voices = wedgedVoices,
+            fileIo = harness.io,
+            dispatcher = StandardTestDispatcher(testScheduler)
+        )
+        try {
+            testScheduler.advanceUntilIdle()
+            val state = vm.state.value
+            assertEquals(false, state.isLoading)
+            assertTrue(
+                "panel error must name the failure, got: ${state.manifestError}",
+                state.manifestError != null
+            )
         } finally {
             vm.clear()
         }

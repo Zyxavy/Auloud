@@ -5,9 +5,10 @@
 //! show which slice builds them.
 
 use eframe::egui;
-use scribe_ui::books::{book_status, stage_book};
+use scribe_ui::books::book_status;
 use scribe_ui::helper::{self, WorkerCmd, WorkerEvent};
 use scribe_ui::machine::{self, Action, Event, State};
+use scribe_ui::send::SendOutcome;
 use scribe_ui::settings::{self, Settings};
 use scribe_ui::theme;
 
@@ -26,6 +27,7 @@ enum Screen {
     Jobs,
     Cast,
     Voices,
+    Models,
     Validate,
     Settings,
 }
@@ -37,6 +39,7 @@ impl Screen {
             Self::Jobs => "Jobs",
             Self::Cast => "Cast",
             Self::Voices => "Voices",
+            Self::Models => "Models",
             Self::Validate => "Validate",
             Self::Settings => "Settings",
         }
@@ -49,21 +52,32 @@ impl Screen {
             Self::Jobs => "live jobs + history (same tray as below, expanded)",
             Self::Cast => "per-book Cast section (below the detail stepper)",
             Self::Voices => "audition voices (list below)",
-            Self::Validate => "Slice 20: validate list, transfer, models",
+            Self::Models => "Kokoro model files (status, download, sideload)",
+            Self::Validate => "Slice 20: validate list, transfer",
             Self::Settings => "here: workspace, device, helper path",
         }
     }
 
-    fn all() -> [Self; 6] {
+    fn all() -> [Self; 7] {
         [
             Self::Books,
             Self::Jobs,
             Self::Cast,
             Self::Voices,
+            Self::Models,
             Self::Validate,
             Self::Settings,
         ]
     }
+}
+
+/// First-run wizard steps (WZ1): welcome, models, device. Skippable on
+/// every step; re-runnable from Settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WizardStep {
+    Welcome,
+    Models,
+    Device,
 }
 
 struct App {
@@ -93,6 +107,10 @@ struct App {
     /// range-aware for partial renders, so it cannot key this).
     preflight_for: Option<String>,
     render_note: String,
+    send: scribe_ui::send::Sender,
+    models: scribe_ui::models::Manager,
+    models_dir: Option<std::path::PathBuf>,
+    wizard: Option<WizardStep>,
     helper_keep_awake: Option<bool>,
     cast: Option<scribe_client::CastPayload>,
     cast_voices: Vec<String>,
@@ -108,6 +126,8 @@ struct App {
     match_speaker: String,
     report_md: Option<String>,
     show_report: bool,
+    validation: Option<scribe_client::ValidateResult>,
+    validation_note: String,
     voices_engine: String,
     voices: Option<scribe_client::VoicesResponse>,
     voices_for: Option<String>,
@@ -133,6 +153,15 @@ impl App {
         worker_tx
             .send(WorkerCmd::Spawn)
             .expect("worker takes commands");
+        // First-run gate (cheap metadata check): models missing means a
+        // fresh install that cannot render yet.
+        let wizard =
+            if scribe_ui::models::setup_needed(&scribe_ui::models::models_dir(&settings.workspace))
+            {
+                Some(WizardStep::Welcome)
+            } else {
+                None
+            };
         Self {
             workspace_edit: settings.workspace.display().to_string(),
             device_edit: settings.device.clone(),
@@ -162,6 +191,10 @@ impl App {
             preflight: None,
             preflight_for: None,
             render_note: String::new(),
+            send: scribe_ui::send::Sender::default(),
+            models: scribe_ui::models::Manager::fresh(),
+            models_dir: None,
+            wizard,
             helper_keep_awake: None,
             cast: None,
             cast_voices: Vec::new(),
@@ -177,6 +210,8 @@ impl App {
             match_speaker: String::new(),
             report_md: None,
             show_report: false,
+            validation: None,
+            validation_note: String::new(),
             voices_engine: "kokoro".to_owned(),
             voices: None,
             voices_for: None,
@@ -189,6 +224,11 @@ impl App {
     /// Drain worker events: lifecycle ones through the state machine, book
     /// ones straight into view state (called every frame).
     fn pump(&mut self) {
+        // TR1: send-thread events drain here too (non-blocking); the worker
+        // feed below is untouched.
+        self.send.poll();
+        // MM1: model-thread events drain the same way.
+        self.models.poll();
         while let Ok(event) = self.worker_rx.try_recv() {
             match event {
                 WorkerEvent::Books { books } => {
@@ -258,6 +298,8 @@ impl App {
                         self.render_note = format!("render queued ({job_id}): watch the tray");
                         self.preflight = None;
                         self.preflight_for = None;
+                        self.validation = None;
+                        self.validation_note.clear();
                     }
                     self.worker_tx.send(WorkerCmd::RefreshBooks).ok();
                 }
@@ -335,6 +377,17 @@ impl App {
                     if self.selected.as_deref() == Some(&book_id) {
                         self.report_md = Some(markdown);
                         self.show_report = true;
+                    }
+                }
+                WorkerEvent::Validated { book_id, result } => {
+                    if self.selected.as_deref() == Some(&book_id) {
+                        self.validation = Some(*result);
+                        self.validation_note.clear();
+                    }
+                }
+                WorkerEvent::ValidateFailed { book_id, message } => {
+                    if self.selected.as_deref() == Some(&book_id) {
+                        self.validation_note = message;
                     }
                 }
                 WorkerEvent::Voices { engine, response } => {
@@ -460,6 +513,10 @@ impl App {
         }
         if self.screen == Screen::Voices {
             self.voices_ui(ui);
+            return;
+        }
+        if self.screen == Screen::Models {
+            self.models_ui(ui);
             return;
         }
         ui.heading(egui::RichText::new(self.screen.title()).color(rgb(theme::OXBLOOD)));
@@ -769,24 +826,9 @@ impl App {
                         }
                         if self.pending_remove.as_deref() == Some(&book.id) {
                             if ui.button("Confirm remove").clicked() {
-                                // Hash from the detail document when it is
-                                // open (bundle matching); rows carry the
-                                // source filename themselves.
-                                let sha = self
-                                    .detail
-                                    .as_ref()
-                                    .filter(|detail| detail.id == book.id)
-                                    .and_then(|detail| detail.source_sha256.clone());
-                                let source = self
-                                    .books
-                                    .iter()
-                                    .find(|row| row.id == book.id)
-                                    .and_then(|row| row.source_file.clone());
                                 self.worker_tx
                                     .send(WorkerCmd::DeleteBook {
                                         book_id: book.id.clone(),
-                                        source_file: source,
-                                        source_sha: sha,
                                     })
                                     .ok();
                             }
@@ -809,6 +851,11 @@ impl App {
             self.preflight = None;
             self.preflight_for = None;
             self.render_note.clear();
+            // TR1: a send belongs to the old book; drop its settled state
+            // (a running thread still lands, rare and harmless) but keep
+            // the remembered ip/code.
+            self.send.outcome = None;
+            self.send.phase = None;
             self.helper_keep_awake = None;
             self.cast = None;
             self.cast_voices.clear();
@@ -823,6 +870,8 @@ impl App {
             self.match_speaker.clear();
             self.report_md = None;
             self.show_report = false;
+            self.validation = None;
+            self.validation_note.clear();
             self.worker_tx
                 .send(WorkerCmd::SelectBook {
                     book_id: id.clone(),
@@ -876,6 +925,285 @@ impl App {
         // mutates form state, so it re-reads what it needs itself.
         self.render_ui(ui);
         self.cast_ui(ui);
+        self.send_ui(ui);
+        self.validate_ui(ui);
+    }
+
+    /// First-run wizard (WZ1): welcome, models, device. Every step
+    /// skips straight to Books; the models step reuses the Models
+    /// screen, the device step reuses the settings editor state.
+    fn wizard_ui(&mut self, ui: &mut egui::Ui) {
+        let Some(step) = self.wizard else {
+            return;
+        };
+        ui.heading(egui::RichText::new("Welcome to Auloud Scribe").color(rgb(theme::OXBLOOD)));
+        match step {
+            WizardStep::Welcome => {
+                ui.label("Turn ebooks into audiobooks: add a book, draft it, render it, send it to the tablet.");
+                ui.horizontal(|ui| {
+                    if ui.button("Continue").clicked() {
+                        self.wizard = Some(WizardStep::Models);
+                    }
+                    if ui.button("Skip").clicked() {
+                        self.wizard = None;
+                    }
+                });
+            }
+            WizardStep::Models => {
+                self.models_ui(ui);
+                ui.separator();
+                ui.horizontal(|ui| {
+                    if ui.button("Back").clicked() {
+                        self.wizard = Some(WizardStep::Welcome);
+                    }
+                    if ui.button("Next").clicked() {
+                        self.wizard = Some(WizardStep::Device);
+                    }
+                    if ui.button("Skip").clicked() {
+                        self.wizard = None;
+                    }
+                });
+            }
+            WizardStep::Device => {
+                ui.label("Which machine renders?");
+                ui.horizontal(|ui| {
+                    ui.label("Device:");
+                    for device in settings::DEVICES {
+                        ui.radio_value(&mut self.device_edit, device.to_owned(), device);
+                    }
+                });
+                ui.horizontal(|ui| {
+                    if ui.button("Back").clicked() {
+                        self.wizard = Some(WizardStep::Models);
+                    }
+                    if ui.button("Finish").clicked() {
+                        self.save_settings();
+                        self.wizard = None;
+                        self.screen = Screen::Books;
+                    }
+                    if ui.button("Skip").clicked() {
+                        self.wizard = None;
+                    }
+                });
+                if !self.notice.is_empty() {
+                    ui.label(&self.notice);
+                }
+            }
+        }
+    }
+
+    /// Models screen (MM1): Kokoro pair status, download with byte
+    /// progress plus checksum, sideload, delete. Same PC as the helper,
+    /// so files land directly in `<workspace>/models` (the D-163 home).
+    fn models_ui(&mut self, ui: &mut egui::Ui) {
+        let dir = scribe_ui::models::models_dir(&self.settings.workspace);
+        // First arrival (or workspace switch) checks the pair; hashing
+        // hundreds of megabytes stays on the manager thread. A switch
+        // waits for idle: the running op targets the old folder, and its
+        // settle relabels nothing until it lands.
+        if self.models_dir.as_ref() != Some(&dir) && !self.models.busy() {
+            self.models_dir = Some(dir.clone());
+            self.models
+                .begin(scribe_ui::models::ModelOp::Refresh, dir.clone());
+        }
+        ui.heading(egui::RichText::new("Models").color(rgb(theme::OXBLOOD)));
+        ui.label(format!("Folder: {}", dir.display()));
+        ui.label(scribe_ui::models::LICENSE_LINE);
+        ui.separator();
+        let busy = self.models.busy();
+        for (index, pinned) in scribe_ui::models::PAIR.iter().enumerate() {
+            let state = self
+                .models
+                .states
+                .get(index)
+                .cloned()
+                .unwrap_or(scribe_ui::models::FileState::Missing);
+            ui.horizontal(|ui| {
+                ui.label(pinned.name);
+                match state {
+                    scribe_ui::models::FileState::Missing => {
+                        ui.label("missing");
+                    }
+                    scribe_ui::models::FileState::Pinned => {
+                        ui.label(format!(
+                            "ready (pinned, {})",
+                            scribe_ui::send::human_bytes(pinned.size)
+                        ));
+                    }
+                    scribe_ui::models::FileState::Unpinned { size } => {
+                        ui.label(format!(
+                            "present, not pinned ({})",
+                            scribe_ui::send::human_bytes(size)
+                        ));
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                let present = !matches!(state, scribe_ui::models::FileState::Missing);
+                if ui.button("Download").clicked() && !busy {
+                    self.models
+                        .begin(scribe_ui::models::ModelOp::Download(index), dir.clone());
+                }
+                if !present {
+                    if ui.button("Sideload…").clicked() && !busy {
+                        if let Some(picked) = rfd::FileDialog::new()
+                            .add_filter("Models", &["onnx", "bin"])
+                            .pick_file()
+                        {
+                            self.models.begin(
+                                scribe_ui::models::ModelOp::Sideload(index, picked),
+                                dir.clone(),
+                            );
+                        }
+                    }
+                } else if ui.button("Delete").clicked() && !busy {
+                    self.models
+                        .begin(scribe_ui::models::ModelOp::Delete(index), dir.clone());
+                }
+            });
+        }
+        if busy {
+            ui.spinner();
+        }
+        if let Some(phase) = self.models.phase.clone() {
+            ui.label(phase);
+        }
+        if let Some((downloaded, total)) = self.models.progress {
+            let line = match total {
+                Some(total) => format!(
+                    "{} / {}",
+                    scribe_ui::send::human_bytes(downloaded),
+                    scribe_ui::send::human_bytes(total)
+                ),
+                None => format!("{}…", scribe_ui::send::human_bytes(downloaded)),
+            };
+            ui.label(line);
+        }
+        if let Some(outcome) = self.models.outcome.clone() {
+            if let Some(error) = outcome.error {
+                ui.label(error);
+            } else if !outcome.note.is_empty() {
+                ui.label(outcome.note);
+            }
+        }
+        if ui.button("Check again").clicked() && !busy {
+            self.models
+                .begin(scribe_ui::models::ModelOp::Refresh, dir.clone());
+        }
+    }
+
+    /// Validate section (VT1): per-bundle ticks plus file/rule/message
+    /// lines from the last run. One button re-runs it inline (read-only,
+    /// no job); no bundles yet names the next action instead.
+    fn request_validation(&self, book_id: &str) {
+        self.worker_tx
+            .send(WorkerCmd::Validate {
+                book_id: book_id.to_owned(),
+            })
+            .ok();
+    }
+
+    fn validate_ui(&mut self, ui: &mut egui::Ui) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        ui.separator();
+        ui.heading(egui::RichText::new("Validate").color(rgb(theme::OXBLOOD)));
+        if !self.validation_note.is_empty() {
+            ui.label(&self.validation_note);
+        }
+        match self
+            .validation
+            .as_ref()
+            .filter(|result| result.book_id == id)
+        {
+            Some(result) => {
+                for line in scribe_ui::validate::lines(result) {
+                    ui.label(line);
+                }
+                if ui.button("Re-validate").clicked() {
+                    self.validation = None;
+                    self.validation_note = "Validating…".to_owned();
+                    self.request_validation(&id);
+                }
+            }
+            None => {
+                let detail = self.detail.as_ref().filter(|detail| detail.id == id);
+                let Some(detail) = detail else {
+                    return;
+                };
+                if detail.bundles.is_empty() {
+                    ui.label("Render a bundle first, then validate it.");
+                    return;
+                }
+                if ui.button("Validate").clicked() {
+                    self.validation = None;
+                    self.validation_note = "Validating…".to_owned();
+                    self.request_validation(&id);
+                }
+            }
+        }
+    }
+
+    /// Send section (TR1): tablet IP plus pairing code, push the newest
+    /// valid bundle over Wi-Fi. The stepper transfer row stays the
+    /// folder-copy record (the helper never learns about Wi-Fi sends);
+    /// this section reports its own outcome.
+    fn send_ui(&mut self, ui: &mut egui::Ui) {
+        let Some(id) = self.selected.clone() else {
+            return;
+        };
+        let (bundles, workspace) = match self.detail.as_ref().filter(|detail| detail.id == id) {
+            Some(detail) => (detail.bundles.clone(), self.settings.workspace.clone()),
+            None => return,
+        };
+        ui.separator();
+        ui.heading(egui::RichText::new("Send to tablet").color(rgb(theme::OXBLOOD)));
+        let bundle = match bundles.iter().find(|entry| entry.valid).or(bundles.first()) {
+            Some(entry) => entry.clone(),
+            None => {
+                ui.label("Render a bundle first, then send it.");
+                return;
+            }
+        };
+        if !bundle.valid {
+            ui.label("No valid bundle (see Validate); the tablet will refuse it.");
+        }
+        ui.horizontal(|ui| {
+            ui.label("Tablet IP:");
+            ui.text_edit_singleline(&mut self.send.ip);
+            ui.label("Code:");
+            ui.text_edit_singleline(&mut self.send.code);
+            let busy = self.send.busy();
+            if ui.button("Send").clicked() && !busy {
+                let dir = workspace.join(&bundle.path);
+                let ip = self.send.ip.clone();
+                let code = self.send.code.clone();
+                self.send
+                    .begin(dir, ip, scribe_ui::send::DEFAULT_PORT, code);
+            }
+        });
+        if self.send.busy() {
+            ui.spinner();
+        }
+        if let Some(phase) = self.send.phase.clone() {
+            ui.label(phase);
+        }
+        match self.send.outcome.clone() {
+            Some(SendOutcome::Sent {
+                title, duplicate, ..
+            }) => {
+                ui.label(if duplicate {
+                    format!("Already on tablet: {title}")
+                } else {
+                    format!("Sent {title} (open it in the tablet library)")
+                });
+            }
+            Some(SendOutcome::Failed(message)) => {
+                ui.label(message);
+            }
+            None => {}
+        }
     }
 
     /// Render section (JP2): chapter boxes or a range string, PDF pages,
@@ -886,8 +1214,8 @@ impl App {
             return;
         };
         // Chapters only (the full detail document stays put: it is big).
-        let chapters = match self.detail.as_ref().filter(|detail| detail.id == id) {
-            Some(detail) => detail.chapters.clone(),
+        let (chapters, bundles) = match self.detail.as_ref().filter(|detail| detail.id == id) {
+            Some(detail) => (detail.chapters.clone(), detail.bundles.clone()),
             None => return,
         };
         let book_id = id;
@@ -901,6 +1229,16 @@ impl App {
         ui.heading(egui::RichText::new("Render").color(rgb(theme::OXBLOOD)));
         if !self.render_note.is_empty() {
             ui.label(&self.render_note);
+        }
+        // Done state first: did the render succeed, where is the bundle,
+        // and what comes next. The picker below starts a new one.
+        let finished = scribe_ui::render::finished_lines(&bundles);
+        if !finished.is_empty() {
+            ui.group(|ui| {
+                for line in &finished {
+                    ui.label(line);
+                }
+            });
         }
         if chapters.is_empty() {
             ui.label("nothing to render (no chapters yet)");
@@ -1445,8 +1783,8 @@ impl App {
         }
     }
 
-    /// Native pick + stage + upload (the dialog is owner-tested; the
-    /// staging below it is unit-tested in `books.rs`).
+    /// Native pick + upload (the dialog is owner-tested; the helper owns
+    /// the one workspace copy and refuses non-ebooks with a shaped error).
     fn add_book(&mut self) {
         let Some(path) = rfd::FileDialog::new()
             .add_filter("Ebooks", &["epub", "pdf"])
@@ -1454,19 +1792,13 @@ impl App {
         else {
             return;
         };
-        match stage_book(&self.settings.workspace, &path) {
-            Ok(staged) => {
-                self.books_note = format!(
-                    "uploading {}…",
-                    staged
-                        .file_name()
-                        .map(|n| n.to_string_lossy())
-                        .unwrap_or_default()
-                );
-                self.worker_tx.send(WorkerCmd::Upload { path: staged }).ok();
-            }
-            Err(message) => self.books_note = message,
-        }
+        self.books_note = format!(
+            "uploading {}…",
+            path.file_name()
+                .map(|n| n.to_string_lossy())
+                .unwrap_or_default()
+        );
+        self.worker_tx.send(WorkerCmd::Upload { path }).ok();
     }
 
     /// Settings editor, reachable from any machine state (a bad helper path
@@ -1489,6 +1821,9 @@ impl App {
         });
         if ui.button("Save").clicked() {
             self.save_settings();
+        }
+        if ui.button("First-run wizard").clicked() {
+            self.wizard = Some(WizardStep::Welcome);
         }
         if !self.notice.is_empty() {
             ui.label(&self.notice);
@@ -1527,7 +1862,11 @@ impl eframe::App for App {
         // the same refusal).
         match self.machine.clone() {
             State::Running { .. } => {
-                self.screen_ui(ui);
+                if self.wizard.is_some() {
+                    self.wizard_ui(ui);
+                } else {
+                    self.screen_ui(ui);
+                }
                 self.tray_ui(ui);
                 self.quit_intercept(ui);
             }
@@ -1569,7 +1908,24 @@ fn main() {
     eframe::run_native(
         "Auloud Scribe",
         eframe::NativeOptions::default(),
-        Box::new(|_cc| Ok(Box::new(App::new()))),
+        Box::new(|cc| {
+            // DS2: serif display face for titles (Source Serif 4, OFL-1.1
+            // vendored in `fonts/`; Merriweather stays one swap away).
+            let mut fonts = egui::FontDefinitions::default();
+            fonts.font_data.insert(
+                scribe_ui::theme::SERIF_FAMILY.to_owned(),
+                std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+                    "../fonts/source-serif-4-latin-400-normal.ttf"
+                ))),
+            );
+            fonts.families.insert(
+                egui::FontFamily::Name(scribe_ui::theme::SERIF_FAMILY.into()),
+                vec![scribe_ui::theme::SERIF_FAMILY.to_owned()],
+            );
+            cc.egui_ctx.set_fonts(fonts);
+            cc.egui_ctx.all_styles_mut(scribe_ui::theme::serif_titles);
+            Ok(Box::new(App::new()))
+        }),
     )
     .expect("auloud scribe runs");
 }

@@ -14,9 +14,9 @@ use serde::Serialize;
 use crate::error::{ApiError, Error};
 use crate::sse::EventStream;
 use crate::types::{
-    BookDetail, BookSummary, BuildResult, CastPayload, CastReport, Health, Job, PatchResult,
-    PlanResult, QuotesPage, SampleResult, Settings, UploadResult, ValidateResult, Versions,
-    VoiceDetail, VoicesResponse,
+    BookDetail, BookSummary, BuildResult, CastPayload, CastReport, DeleteResult, Health, Job,
+    PatchResult, PlanResult, QuotesPage, SampleResult, Settings, UploadResult, ValidateResult,
+    Versions, VoiceDetail, VoicesResponse,
 };
 
 /// Contract integer this client speaks (docs/api.md section 8).
@@ -191,8 +191,9 @@ impl Client {
             .map(serde_json::to_string)
             .transpose()
             .map_err(|err| Error::Json(err.to_string()))?;
-        // Only POST/PUT/PATCH travel here (GETs use `get_json`); anything
-        // else is a bug at the call site.
+        // Only POST/PUT/PATCH travel here (GETs use `get_json`, DELETE
+        // has no body shape in ureq); anything else is a bug at the call
+        // site.
         let request = match verb {
             "PUT" => self.agent.put(&url),
             "PATCH" => self.agent.patch(&url),
@@ -272,6 +273,16 @@ impl Client {
             .post(&format!("{}/api/books/upload", self.base))
             .header(TOKEN_HEADER, &self.token)
             .send(form)?;
+        self.read_json(response)
+    }
+
+    /// `DELETE /api/books/{book_id}` (removes every trace server-side).
+    pub fn delete_book(&self, book_id: &str) -> Result<DeleteResult, Error> {
+        let response = self
+            .agent
+            .delete(&format!("{}/api/books/{book_id}", self.base))
+            .header(TOKEN_HEADER, &self.token)
+            .call()?;
         self.read_json(response)
     }
 

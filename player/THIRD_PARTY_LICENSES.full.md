@@ -25,6 +25,7 @@ verified). Test-only and build-only items never ship in the APK.
 | kotlinx-serialization-json | 1.7.3 | Apache-2.0 |
 | Coil (coil-compose) | 2.6.0 | Apache-2.0 |
 | jsoup | 1.23.2 | MIT |
+| PdfBox-Android | 2.0.27.0 | Apache-2.0 |
 | sherpa-onnx (JitPack AAR, full flavor only) | 1.13.8 | Apache-2.0 (POM) |
 | onnxruntime native (libonnxruntime.so inside the sherpa AAR) | as built into sherpa-onnx 1.13.8 | MIT |
 | espeak-ng (static, inside the sherpa native libs) | as built into sherpa-onnx 1.13.8 | GPL-3.0-or-later |
