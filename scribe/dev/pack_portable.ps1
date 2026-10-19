@@ -82,12 +82,26 @@ try {
     Pop-Location
 }
 
-# 5. Zip it.
+# 5. Zip it. The entries are written with `/` by hand: CreateFromDirectory
+# stores Windows `\` separators, which the ZIP spec forbids and a Unix
+# unzip keeps as part of the file name.
 Write-Host "zipping $stage"
 Remove-Item -Force $zip -ErrorAction SilentlyContinue
+Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-[System.IO.Compression.ZipFile]::CreateFromDirectory(
-    $stage, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $true)
+$zipRoot = Split-Path -Parent $stage
+$archive = [System.IO.Compression.ZipFile]::Open(
+    $zip, [System.IO.Compression.ZipArchiveMode]::Create)
+try {
+    foreach ($file in Get-ChildItem $stage -Recurse -File) {
+        $name = $file.FullName.Substring($zipRoot.Length + 1) -replace '\\', '/'
+        [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+            $archive, $file.FullName, $name,
+            [System.IO.Compression.CompressionLevel]::Optimal) | Out-Null
+    }
+} finally {
+    $archive.Dispose()
+}
 
 # 6. Self-check the zip: the entries the app needs after extraction.
 $wanted = @(
