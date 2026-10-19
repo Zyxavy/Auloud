@@ -159,6 +159,18 @@ open.
 - **Verify:** the generator fails on a dependency missing from the list;
   the NOTICE matches the lock files; every license file is present in the
   artifact.
+- **State (2026-10-19):** `scribe/dev/gen_licenses.py` (stdlib only) plus
+  18 canonical texts in `scribe/dev/license-texts/`; `pack_portable.ps1`
+  runs it as step 4 and asserts the three headline files in step 6. Ran
+  against the IN1 stage: 307 components (226 crates, 76 distributions,
+  3 bundled native libraries, 2 programs), 18 texts, 507 per-component
+  license files, CycloneDX 1.5 SBOM, `MANIFEST.sha256`; 12 unit tests.
+  The in-app view is Settings > Licenses in `scribe-ui` (reads the folder
+  beside the exe, names the generator in a source tree). Nothing about the
+  set is a clean-machine claim. Open: the locked GPU stack (D-185) puts
+  four NVIDIA wheels with proprietary metadata into a rebuilt helper, so
+  step 4 now stops by design and the packaged set is an owner decision.
+  Files and rules: `docs/08-Licenses.md` section 8, D-186.
 
 ### SO1: Clean-machine soak (M, owner-run)
 

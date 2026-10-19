@@ -26,7 +26,9 @@ fn job_state_tone(state: &str) -> Tone {
     }
 }
 
-/// Top-level screens; order matches the Book detail stepper.
+/// Top-level screens; order matches the Book detail stepper. Licenses is
+/// the one screen outside the stepper: Settings opens it, the nav keeps
+/// its order (the Player does the same).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Screen {
     Books,
@@ -36,6 +38,7 @@ enum Screen {
     Models,
     Validate,
     Settings,
+    Licenses,
 }
 
 impl Screen {
@@ -47,7 +50,7 @@ impl Screen {
             Self::Voices => "Voices",
             Self::Models => "Models",
             Self::Validate => "Validate",
-            Self::Settings => "Settings",
+            Self::Settings | Self::Licenses => "Settings",
         }
     }
 
@@ -60,7 +63,7 @@ impl Screen {
             Self::Voices => "audition voices (list below)",
             Self::Models => "Kokoro model files (status, download, sideload)",
             Self::Validate => "Slice 20: validate list, transfer",
-            Self::Settings => "here: workspace, device, helper path",
+            Self::Settings | Self::Licenses => "here: workspace, device, helper path",
         }
     }
 
@@ -140,6 +143,9 @@ struct App {
     voices_note: String,
     audio: Option<AudioOut>,
     pending_remove: Option<String>,
+    /// LG1: the generated license files, loaded the first time the screen
+    /// opens (they never change while the app runs).
+    licenses: Option<Vec<scribe_ui::licenses::Document>>,
 }
 
 /// Audition playback (CS3): the device handle must outlive the player.
@@ -224,6 +230,7 @@ impl App {
             voices_note: String::new(),
             audio: None,
             pending_remove: None,
+            licenses: None,
         }
     }
 
@@ -507,6 +514,10 @@ impl App {
     fn screen_ui(&mut self, ui: &mut egui::Ui) {
         if self.screen == Screen::Settings {
             self.settings_ui(ui);
+            return;
+        }
+        if self.screen == Screen::Licenses {
+            self.licenses_ui(ui);
             return;
         }
         if self.screen == Screen::Books {
@@ -1848,9 +1859,41 @@ impl App {
         if ui.button("First-run wizard").clicked() {
             self.wizard = Some(WizardStep::Welcome);
         }
+        if ui.button("Licenses").clicked() {
+            self.screen = Screen::Licenses;
+        }
         if !self.notice.is_empty() {
             ui.label(&self.notice);
         }
+    }
+
+    /// LG1: the generated notice, third-party list and source offer, read
+    /// from beside the executable. Needs no helper, so it works in every
+    /// state.
+    fn licenses_ui(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.heading(egui::RichText::new("Licenses").color(theme::color(theme::OXBLOOD)));
+            if ui.button("Back to Settings").clicked() {
+                self.screen = Screen::Settings;
+            }
+        });
+        let exe = std::env::current_exe().unwrap_or_default();
+        let dir = scribe_ui::licenses::dir_for(&exe);
+        ui.label(format!("from {}", dir.display()));
+        let texts = scribe_ui::licenses::texts(&dir);
+        if !texts.is_empty() {
+            ui.label(format!("license texts: {}", texts.join(", ")));
+        }
+        let documents = self
+            .licenses
+            .get_or_insert_with(|| scribe_ui::licenses::load(&dir));
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for document in documents.iter() {
+                ui.heading(egui::RichText::new(document.title).color(theme::color(theme::SAGE)));
+                ui.label(&document.body);
+                ui.separator();
+            }
+        });
     }
 
     /// Halt screens (missing/crashed/version): reason + Retry.
@@ -1893,6 +1936,7 @@ impl eframe::App for App {
                 self.tray_ui(ui);
                 self.quit_intercept(ui);
             }
+            _ if self.screen == Screen::Licenses => self.licenses_ui(ui),
             _ if self.screen == Screen::Settings => self.settings_ui(ui),
             State::Starting { .. } => {
                 ui.spinner();

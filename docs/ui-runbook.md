@@ -2,9 +2,12 @@
 
 This is the path from a bare Windows or Linux machine to a rendered
 chapter, plus the failure table. Slice 21 RB1; the packaged zip is Slice
-22 IN1 and is step 1. The zip ships without NOTICE, the SBOM and the
-license texts: LG1 adds them to that same folder, so until then the zip
-stays inside the project.
+22 IN1 and is step 1. The zip carries a generated `licenses\` folder
+(NOTICE, third-party list, one canonical text per license, per-component
+license files, the source offer and a CycloneDX SBOM), and the app shows
+three of those files under `Settings` > `Licenses` (Slice 22 LG1). The zip
+on disk was staged before that step existed, so a zip that carries them
+comes from the next `scribe\dev\pack_portable.ps1` run.
 
 ## Who ran what
 
@@ -193,10 +196,11 @@ were read from source, not observed.
 
 ## 5. What this runbook does not cover
 
-- NOTICE, the SBOM and the source offer (LG1), which is why the zip is
-  not a release artifact yet. There is no installer: the portable zip is
-  the Windows artifact, and the folder it unpacks to is the install
-  (Slice 22 IN1).
+- NOTICE, the SBOM and the source offer travel inside the zip and the app
+  shows NOTICE, the third-party list and the source offer under `Settings`
+  > `Licenses` (LG1); there is no legal review and no installer. The
+  portable zip is the Windows artifact, and the folder it unpacks to is
+  the install (Slice 22 IN1).
 - Anything on the tablet: screen-off playback, battery and Samsung
   quirks stay with `docs/07-TestPlan.md` and its device test log.
 - The Python CLI (`uv run scribe ...`), which the README covers.

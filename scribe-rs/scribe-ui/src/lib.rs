@@ -6,6 +6,7 @@ pub mod books;
 pub mod cast;
 pub mod components;
 pub mod helper;
+pub mod licenses;
 pub mod machine;
 pub mod models;
 pub mod progress;

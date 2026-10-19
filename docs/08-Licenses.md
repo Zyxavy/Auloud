@@ -86,23 +86,23 @@ APK; it comes from the sideloaded packs in section 4.
 | EbookLib | AGPL-3.0 | Strong copyleft. Fine inside an open-source GPL/AGPL tool; if you offer Scribe as a hosted service, AGPL's network clause means users must be able to get the source. Consider licensing Scribe as AGPL-3.0 in that case. | \[x\] |
 | PyMuPDF | AGPL-3.0 (commercial license available) | AGPL is compatible inside AGPL-3.0-or-later Scribe (never ships in the Apache-2.0 Player); pymupdf 1.28.2 pinned in `scribe/pyproject.toml` + `uv.lock`, proven by `scribe doctor` (new `pymupdf` row: import + in-memory open). | \[x\] |
 | FastAPI UI stack (`scribe[ui]` extra) | fastapi MIT, uvicorn BSD-3-Clause, starlette BSD-3-Clause, python-multipart Apache-2.0, pydantic MIT | All permissive, AGPL-compatible inside Scribe (never ships in the Player); checked 2026-10-04 via the PyPI JSON API (`license_expression`: fastapi 0.142.2 MIT, uvicorn 0.54.0 BSD-3-Clause, starlette 1.7.0 BSD-3-Clause, python-multipart 0.0.32 Apache-2.0, pydantic 2.13.5 MIT) and re-verified 2026-10-05 from installed dist metadata (same versions, same expressions). Floors pinned in `scribe/pyproject.toml` (`fastapi>=0.115.0`, `uvicorn>=0.30.0`, `starlette>=0.46.0`, `python-multipart>=0.0.18`, `pydantic>=2.9.0`, satisfying fastapi's own requirements) + `uv.lock`, proven by `scribe doctor` (new `ui` row: fastapi + uvicorn import + versions). Base CLI never imports them (lazy import with a `uv sync --extra ui` hint). Gap: full license texts not read line by line (SPDX expressions only); no vendoring, standard for permissive deps. | \[x\] |
-| beautifulsoup4, lxml | MIT, BSD-3 |  | \[ \] |
-| pysbd | MIT |  | \[ \] |
+| beautifulsoup4, lxml | MIT, BSD-3 | Read from the installed METADATA of the shipped helper (section 8, 2026-10-19): beautifulsoup4 4.15.0 MIT, lxml 6.1.3 BSD-3-Clause. | \[x\] |
+| pysbd | MIT | pysbd 0.3.4 MIT from the installed METADATA (section 8). | \[x\] |
 | spaCy, `en_core_web_sm` | MIT | spacy 3.8.16 + en-core-web-sm 3.8.0 (installed METADATA says MIT for both; transitives MIT/BSD/Apache-2.0, tqdm dual MPL-2.0 AND MIT, nothing GPL). Model pinned by wheel URL in `scribe/pyproject.toml` + `uv.lock` (not on PyPI); `scribe doctor` checks present + version and proves a parse. | \[x\] |
-| PyYAML, numpy, typer, rich, pytest | MIT/BSD |  | \[ \] |
-| soundfile | BSD-3 | Uses libsndfile (LGPL) | \[ \] |
-| pyrubberband (optional) | ISC | Uses Rubber Band (GPL, commercial option) | \[ \] |
-| ffmpeg / ffprobe | LGPL or GPL depending on the build | Run as a separate program, do not link it. Uses LAME (LGPL) for MP3. | \[ \] |
+| PyYAML, numpy, typer, rich, pytest | MIT/BSD | From the installed METADATA (section 8): PyYAML 6.0.3 MIT, typer 0.27.2 MIT, rich 15.0.0 MIT, numpy 2.5.3 (BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0; the OpenBLAS DLL it bundles is a native row). pytest is test-only and is not in the shipped helper set. | \[x\] |
+| soundfile | BSD-3 | soundfile 0.14.0 BSD-3-Clause (OSI classifier). The `libsndfile_x64.dll` it bundles is its own native row, LGPL-2.1-or-later, with the COPYING from beside the DLL in the artifact (section 8). | \[x\] |
+| pyrubberband (optional) | ISC | Uses Rubber Band (GPL, commercial option). Not a dependency today: nothing imports it and it is in no lock entry (only two Slice 4 docstrings name it), so the artifact ships nothing for it. Recorded for when pitch shifting lands. | \[ \] |
+| ffmpeg / ffprobe | LGPL or GPL depending on the build | The pinned archive is the GPL build: ffmpeg 9.0.2 GPL-3.0-or-later, its LICENSE copied from the archive into the artifact as a program row (section 8). Run as a separate process, never linked (it carries LAME for MP3). | \[x\] |
 
 ## 4. TTS engines and voices
 
 | Item | License (as I understand it) | Notes | Verified |
 | --- | --- | --- | --- |
-| Kokoro (Python package) | Apache-2.0 | Needs espeak-ng for phonemes | \[ \] |
+| Kokoro (Python package) | Apache-2.0 | Needs espeak-ng for phonemes. The engine we ship is `kokoro-onnx` 0.6.1, MIT with its own LICENSE in the wheel (section 8), which is a different distribution from `kokoro` on PyPI; the row below covers the weights. Phonemes come from espeakng-loader. | \[x\] |
 | Kokoro model weights | Apache-2.0 | Model card `license: apache-2.0` (https://huggingface.co/hexgrad/Kokoro-82M), checked 2026-10-04 | [x] |
-| Piper (current GPL fork) | GPL-3.0 | Older `rhasspy/piper` was MIT; check which you use | \[ \] |
+| Piper (current GPL fork) | GPL-3.0 | Older `rhasspy/piper` was MIT; check which you use. Resolved: the engine we ship is piper-tts 1.8.0, GPL-3.0-or-later (next row). | \[x\] |
 | piper-tts 1.8.0 (Scribe PC engine, SW1) | GPL-3.0-or-later | Reference Piper runtime (OHF); PyPI `license` field 2026-10-05. GPL-3.0 combines into AGPL-3.0-or-later Scribe (GPLv3 section 13, combined work stays AGPL); pinned `piper-tts>=1.8.0` in `scribe/pyproject.toml` + `uv.lock`, proven by `scribe doctor` (`piper-models` row). Phonemization bundled in the wheel (internal espeak-ng data, no external install); never ships in the Player, so D-066 is untouched. | [x] |
-| Piper voice models | **Each voice has its own license** | Some permissive, some restricted (for example non-commercial). Record it per voice. | \[ \] |
+| Piper voice models | **Each voice has its own license** | Some permissive, some restricted (for example non-commercial). Record it per voice. Nothing bundles them: the Scribe artifact carries no voice pack (its NOTICE says so) and the app shows a pack's terms before any download; the three proof voices below are the recorded examples. | \[x\] |
 | Piper proof voice `en_US-lessac-low` (SW1 manual proof + SW4 mixed-engine proof) | Blizzard 2013 Lessac license (research/non-commercial, University of Edinburgh CSTR) | Per its MODEL_CARD (dataset: cstr.ed.ac.uk Blizzard 2013 Lessac, license page linked there). Local proof audio only under `models/piper/` (gitignored, never committed, never distributed); the link would not deliver permissive voices in session time (all Piper voices are 45-65 MB), so the second Piper voice is deferred breadth, not a new code path. | [x] |
 | Piper SW4 proof voice `en_US-ljspeech-medium` | Public domain | Per its MODEL_CARD (dataset keithito.com LJ-Speech, license public domain). Under `models/piper/` (gitignored, never committed). | [x] |
 | Piper SW4 proof voice `en_US-kathleen-low` | CC0 | Per its MODEL_CARD (dataset github.com/rhasspy/dataset-voice-kathleen, license CC0). Under `models/piper/` (gitignored, never committed). | [x] |
@@ -173,7 +173,7 @@ screen lists what its build ships.
 
 - [x] `LICENSE` file in each component (Player: `player/LICENSE` Apache-2.0; Scribe: `scribe/LICENSE` AGPL-3.0-or-later; root `LICENSE` MIT is the repo default) - decided D-015/D-050 on release/v1.0
 - [x] `NOTICE` and `THIRD_PARTY_LICENSES.md` generated (`player/NOTICE` + `player/THIRD_PARTY_LICENSES.md`, CP8)
-- [ ] All "Verified" boxes above ticked (Player section 2 + 2b v2 engine rows + voices done; Scribe section 3 rows for bs4/lxml, pysbd, yaml/numpy/typer/rich/pytest, soundfile, pyrubberband, ffmpeg and section 4 Kokoro package/Piper still open; section 4 sideloaded-packs row open by design, it is per-pack; VC6 docs pass 2026-10-09 is prose only and changes no box; maintainer review of the NOTICE.full paragraphs plus the SOURCE_OFFER placeholders before any `full` distribution still open per D-128)
+- [ ] All "Verified" boxes above ticked (Player section 2 + 2b v2 engine rows + voices done; Scribe section 3 closed on 2026-10-19 by the LG1 generator for bs4/lxml, pysbd, yaml/numpy/typer/rich, soundfile, ffmpeg and section 4 rows for the Kokoro engine package, the weights and the Piper fork, leaving pyrubberband open (not a dependency) and the sideloaded-packs row open by design, it is per-pack; section 8 records the generated artifact and the open NVIDIA question for the packaged helper (D-185); VC6 docs pass 2026-10-09 is prose only and changes no box; maintainer review of the NOTICE.full paragraphs plus the SOURCE_OFFER placeholders before any `full` distribution still open per D-128)
 - [x] Voice table complete, with per-voice licenses (section 4 palette: 9 Kokoro-82M voices, all Apache-2.0, CP8; 3 Piper proof voices with own licenses, SW1/SW4; sideload rule recorded)
 - [x] In-app licenses screen (Settings entry rendering the static list; legibility on the Tab E left for the user)
 - [x] Per-flavor license layout (VC1, D-126 option A): player/LICENSE (Apache-2.0 core) + player/LICENSE.full (GPL note); per-flavor NOTICE + THIRD_PARTY_LICENSES; full-only GPL text + source offer assets in the APK
@@ -181,3 +181,51 @@ screen lists what its build ships.
 - [x] Automated license scan (VC1): `:app:licenseScan` passes for both flavors (core carries no sherpa/onnxruntime/espeak files or markers; full carries the sherpa files plus its notices)
 - [x] README states the copyright/personal-use position (verbatim paragraph, CP10)
 - [x] Contribution policy decided: DCO sign-off (see D-127)
+
+## 8. v3 Scribe artifact: generated licenses (LG1)
+
+The Windows portable artifact carries a generated `licenses/` folder beside
+`scribe-ui.exe`. `scribe/dev/gen_licenses.py` writes it at packaging time
+(`scribe/dev/pack_portable.ps1` step 4) from the locked sets, so these files
+follow the build instead of a hand-kept list.
+
+| File | What it holds |
+| --- | --- |
+| `NOTICE.txt` | Our terms, the carried programs, the component counts |
+| `THIRD_PARTY_LICENSES.txt` | One row per component: name, version, the license relied on, where its own text is |
+| `texts/<SPDX>.txt` | The canonical text of every license in use (18, 2026-10-19) |
+| `third-party/<ecosystem>/<name>-<version>/` | The license files that component itself ships |
+| `SOURCE_OFFER.txt` | The written offer (GPL-3.0 section 6b, AGPL-3.0 section 13) |
+| `sbom.cdx.json` | CycloneDX 1.5, both ecosystems |
+
+Sets it reads (2026-10-19): 226 Rust crates from
+`cargo tree -p scribe-ui --edges normal,build`, 76 installed distributions
+from the embedded helper's site-packages, and the two carried programs
+(CPython 3.14.8 PSF-2.0; ffmpeg 9.0.2 GPL-3.0-or-later, its LICENSE copied
+from the pinned archive). Three native libraries bundled inside Python wheels
+have their own rows: libsndfile (LGPL-2.1-or-later, the COPYING next to the
+DLL ships too), OpenBLAS (BSD-3-Clause) and the Microsoft Visual C++ runtime
+(no SPDX identifier; the row carries the name).
+
+A build fails rather than shipping an unattributed component when:
+
+- a crate declares a license `deny.toml` does not allow (cargo-deny and this
+  generator read the same allow-list, so they cannot drift);
+- a distribution's metadata, shipped text and override all resolve to nothing
+  allowed;
+- a license in use has no text under `scribe/dev/license-texts/`.
+
+That last rule is why the packaged helper's set is an open question: the
+locked GPU stack (D-185) installs four NVIDIA wheels whose metadata says
+`LicenseRef-NVIDIA-Proprietary`, so a helper rebuilt today makes step 4 stop.
+Either the NVIDIA terms get an allow-list entry plus their texts (an owner
+decision, the same shape as the espeakng-loader row) or the packaged helper
+takes D-185 consequence 2's CPU-only alternative.
+
+In-app: Settings > Licenses renders `NOTICE.txt`,
+`THIRD_PARTY_LICENSES.txt` and `SOURCE_OFFER.txt` from the folder beside the
+executable, so the screen shows what the build carries and needs no browser.
+A source tree has no such folder; the screen then names the generator.
+
+Not bundled: Kokoro weights, Piper voice packs (sections 4, 4b) and the
+`full`-flavor on-device pieces (section 5).

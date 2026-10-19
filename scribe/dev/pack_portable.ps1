@@ -7,10 +7,11 @@
 #   helper\embedded\python\python.exe      the discovery path (helper.rs)
 #   helper\embedded\ffmpeg\*.exe           ffmpeg and ffprobe as files
 #   helper\embedded\helper-manifest.json   helper versions and hashes
+#   licenses\                              NOTICE, third-party list, texts,
+#                                          source offer and the SBOM (LG1)
 #
 # Models stay out of the zip: the wizard downloads or sideloads them into
-# the workspace. NOTICE, SBOM, in-app licenses and the source offer join
-# this same folder in LG1; until then the zip is for the project only.
+# the workspace.
 #
 # The stage is rebuilt from scratch every run, so no stale files can ship.
 # Downloads (CPython standalone, ffmpeg) are reused from -CacheDir.
@@ -63,17 +64,33 @@ Require (Join-Path $embedded "helper-manifest.json") "the helper manifest"
 Require (Join-Path $embedded "ffmpeg\ffmpeg.exe") "ffmpeg"
 Copy-Item -Force $exe (Join-Path $stage "scribe-ui.exe")
 
-# 4. Zip it.
+# 4. Licenses (LG1): NOTICE, third-party list, texts, source offer, SBOM.
+$ffmpegZip = Get-ChildItem (Join-Path $CacheDir "ffmpeg-*.zip") -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+if (-not $ffmpegZip) { throw "no ffmpeg archive in $CacheDir (its license files ship)" }
+Write-Host "generating NOTICE, license texts and the SBOM"
+Push-Location (Join-Path $repo "scribe")
+try {
+    & uv run python dev/gen_licenses.py --artifact $stage --app-version $Version --ffmpeg-archive $ffmpegZip.FullName
+    if ($LASTEXITCODE -ne 0) { throw "gen_licenses.py failed" }
+} finally {
+    Pop-Location
+}
+
+# 5. Zip it.
 Write-Host "zipping $stage"
 Remove-Item -Force $zip -ErrorAction SilentlyContinue
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 [System.IO.Compression.ZipFile]::CreateFromDirectory(
     $stage, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $true)
 
-# 5. Self-check the zip: the two entries the app needs after extraction.
+# 6. Self-check the zip: the entries the app needs after extraction.
 $wanted = @(
     "Auloud-Scribe-$Version/scribe-ui.exe",
-    "Auloud-Scribe-$Version/helper/embedded/python/python.exe"
+    "Auloud-Scribe-$Version/helper/embedded/python/python.exe",
+    "Auloud-Scribe-$Version/licenses/NOTICE.txt",
+    "Auloud-Scribe-$Version/licenses/texts/AGPL-3.0-or-later.txt",
+    "Auloud-Scribe-$Version/licenses/sbom.cdx.json"
 )
 $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
 try {
