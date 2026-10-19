@@ -12,7 +12,11 @@ table at acceptance; the tag `slice-21` lands only after those rows pass.
 | Deny | `cargo deny check` | green (advisories, bans, licenses, sources) after the owner-approved `zip` bump to 9.0.5 with its codec features off. The first run failed advisories on `zip v2.4.2` (GHSA-4684-h2q9-2vcp), which is what triggered the bump. See D-182. |
 | PF1 probe | `cargo test -p scribe-ui --test cast_table_probe -- --ignored --nocapture` | numbers and verdict in D-181 |
 
-## Owner acceptance (pending)
+## Owner acceptance (accepted 2026-10-19)
+
+The owner accepted the slice on 2026-10-19. The rows below keep the results
+that were written down before that; where a row still says `pending`, no
+per-item result was recorded here.
 
 | Item | How to judge | State | Notes |
 | --- | --- | --- | --- |
@@ -26,7 +30,7 @@ table at acceptance; the tag `slice-21` lands only after those rows pass.
 | DPI | 100, 125, 150 and 200% | pending | |
 | 500-speaker table | a big cast open, scroll top to bottom | pending | probe numbers in D-181 |
 | Runbook cold run | follow `docs/ui-runbook.md` on Windows | pending | Linux lines are attributed in that file |
-| Tag | `git tag slice-21` | pending | after the rows above |
+| Tag | `git tag slice-21` | cut (2026-10-19) | on `2d2be06`, the last slice-21 commit, after the owner's acceptance |
 
 ## Walk findings (owner writes here)
 

@@ -5,9 +5,9 @@ chapter, plus the failure table. Slice 21 RB1; the packaged zip is Slice
 22 IN1 and is step 1. The zip carries a generated `licenses\` folder
 (NOTICE, third-party list, one canonical text per license, per-component
 license files, the source offer and a CycloneDX SBOM), and the app shows
-three of those files under `Settings` > `Licenses` (Slice 22 LG1). The zip
-on disk was staged before that step existed, so a zip that carries them
-comes from the next `scribe\dev\pack_portable.ps1` run.
+three of those files under `Settings` > `Licenses` (Slice 22 LG1). Both
+zips on disk were rebuilt on 2026-10-19 and carry them; a build from
+before that date may not.
 
 ## Who ran what
 
@@ -19,7 +19,7 @@ mark. Nothing here claims a device or OS test.
 | Section | OS | Ran by | State |
 | --- | --- | --- | --- |
 | Windows steps | Windows 11 | not run by the agent | read from source, line named per step |
-| Packaged zip (step 1, rule 2 of step 3) | Windows 11 dev machine | agent, 2026-10-18 | stage folder unzipped: helper ready in 0.6 s, `/api/health` ok, the app spawned the bundled helper and exited clean. No clean-machine run: this machine has Python and the repo |
+| Packaged zip (step 1, rule 2 of step 3) | Windows 11 dev machine | agent, 2026-10-18; rebuilt 2026-10-19 | stage folder unzipped: helper ready in 0.6 s, `/api/health` ok, the app spawned the bundled helper and exited clean. The 2026-10-19 `-cpu` and `-gpu` rebuilds were verified by listing the archives (11,780 and 11,951 entries, the exe that carries the Licenses screen, `licenses/` inside), not re-smoked. No clean-machine run: this machine has Python and the repo |
 | Linux differences | Linux | not run | owner to confirm each line |
 
 Legend: `[code]` means read from the named source, not observed.

@@ -6,7 +6,13 @@ Everything runs on your own hardware: the PC renders, and the tablet receives bu
 
 ## Get the app
 
-Download the APK from [Releases](https://github.com/Zyxavy/Auloud/releases) and sideload it (allow unknown sources for the install):
+Both downloads are on [Releases](https://github.com/Zyxavy/Auloud/releases).
+
+**Auloud Scribe (Windows 11, the machine that renders).** Unzip `Auloud-Scribe-3.0.0-gpu.zip` anywhere and run `scribe-ui.exe` from the folder it creates. No installer, no Python, no Rust and no `ffmpeg` on `PATH`: the folder carries its own interpreter, its dependencies and ffmpeg, and deleting the folder is the uninstall. It wants an NVIDIA GPU with a current driver; on any other machine take `Auloud-Scribe-3.0.0-cpu.zip` instead (286 MB against 1.9 GB, and a slower render, D-187). First run downloads the Kokoro voice models (about 350 MB) or takes files you already have. Step by step: [first-run guide](docs/ui-runbook.md).
+
+The zip carries its generated license notice, third-party list and source offer under `licenses\`, and the app shows them under `Settings` > `Licenses`; see [Licenses](docs/08-Licenses.md).
+
+**Auloud Player (the tablet).** Download the APK and sideload it (allow unknown sources for the install):
 
 - **core** (most people): renders with the tablet's own System TTS voices.
 - **full**: adds on-device Piper voices. Only pick this if you sideload Piper packs too (below).
@@ -20,6 +26,8 @@ Developed for a Samsung Galaxy Tab E (Android 7.1.1). Needs free storage: about 
 **B. The tablet renders (no PC).** Import a DRM-free EPUB on the tablet, pick two voices, render overnight, listen with read-along.
 
 ## Path A: PC to tablet in 5 steps
+
+With the app this is the [first-run guide](docs/ui-runbook.md): add a book, cast it, render, validate, send. From the source tree:
 
 Requirements: Windows 11, Python 3.11+, `uv`, `ffmpeg` + `ffprobe` on PATH, espeak-ng 1.52.0, Kokoro model files (`kokoro-v1.0.onnx` + `voices-v1.0.bin`).
 
@@ -65,10 +73,12 @@ One saved position per book across all modes, speed 0.75x to 2.0x, sleep timer, 
 ## Repo layout
 
 ```
-scribe/   Python PC tool (AGPL-3.0-or-later)
-player/   Android app (core Apache-2.0, full GPL-3.0; see player/NOTICE)
-spec/     Bundle spec mirror (spec/bundle.md) + shared fixtures
-docs/     PRD, designs, roadmap, test plan, runbooks, signing guide
+scribe/     Python PC tool (AGPL-3.0-or-later)
+scribe-rs/  Native Rust UI for Scribe; drives the packaged Python helper (AGPL-3.0-or-later)
+player/     Android app (core Apache-2.0, full GPL-3.0; see player/NOTICE)
+parity/     Python-vs-Rust parity harness (stdlib driver, expected files)
+spec/       Bundle spec mirror (spec/bundle.md) + shared fixtures
+docs/       PRD, designs, roadmap, test plan, runbooks, signing guide
 ```
 
 ## Docs map
@@ -77,6 +87,7 @@ docs/     PRD, designs, roadmap, test plan, runbooks, signing guide
 - [Bundle spec](docs/03-BundleSpec.md): the Scribe <-> Player contract (v1.1)
 - [Roadmap](docs/04-Roadmap.md): slices and the soak list
 - [Player design](docs/06-PlayerDesign.md) and [Scribe design](docs/05-ScribeDesign.md)
+- [First-run guide](docs/ui-runbook.md): unpacked app to first render, plus the failure table
 - [Test plan](docs/07-TestPlan.md), [test log](docs/test-log.md)
 - [Licenses](docs/08-Licenses.md) (per-dependency and per-voice tables)
 - [Decisions](docs/DECISIONS.md): why things are the way they are
@@ -87,7 +98,7 @@ docs/     PRD, designs, roadmap, test plan, runbooks, signing guide
 
 - [x] **v1 (done):** PC renders MP3 audiobooks from EPUB/PDF with narrator + character voices and sentence timings; read-along player with three modes; release APK `1.0.0` soak-passed on the Tab E.
 - [~] **v2 (partial):** on-device rendering (System TTS plus Piper in `full`), two voices, background renders, live streaming of unrendered chapters. Player `2.1.0` tagged; some device numbers still provisional.
-- [ ] **v3 (next):** native desktop Scribe app (Rust UI driving the packaged Python backend): jobs tray, render step with preflight, cast table with audition, voices view, validate/transfer, installers. Python Scribe stays canonical until parity.
+- [~] **v3 (in progress):** native desktop Scribe app (Rust UI driving the packaged Python backend): jobs tray, render step with preflight, render speed, cast table with audition, voices view, validate/transfer, and a portable Windows zip (`gpu` and `cpu`) instead of an installer. Python Scribe stays canonical.
 - [ ] **v4 (later):** Android platform refresh: current `targetSdk`, background-service rules, newer Android versions, word-level highlight. Placeholder until v3 ships.
 - [ ] **v5 (planned):** iOS/iPadOS Player in Swift (xtool build from Windows): import and play bundles with read-along, no rendering on device. See [V5 plan](docs/V5-iOS-support.md).
 

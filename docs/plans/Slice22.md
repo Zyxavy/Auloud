@@ -132,6 +132,16 @@ open.
   The Verify line above is unrun, because this machine has Python and the
   repo, and the owner chose documented setup only (D-157). Layout and
   numbers: D-184.
+- **State (2026-10-19):** both variant zips exist and carry this slice's
+  UI and licenses: `-cpu` 286 MB, 11,780 entries; `-gpu` 1,918 MB, 11,951
+  entries. Their entries are named with `/` (verified: no entry contains a
+  backslash), the `gpu` one carries the four NVIDIA rows, and both carry
+  `licenses/` with the six headline files plus `texts/` and `third-party/`.
+  The 2026-10-18 pair was packaged with `-SkipUi` and carried the previous
+  day's `scribe-ui.exe`, so it held neither the Licenses screen nor the
+  SBOM fix; step 5 also used `CreateFromDirectory`, whose Windows
+  separators a Unix `unzip` keeps in the file name. Both are fixed, and a
+  full run of each variant verifies them.
 
 ### IN2: Linux artifact (M, best effort)
 
@@ -183,12 +193,10 @@ open.
   (the four wheels join the allow-list and carry their own `License.txt`),
   so a `gpu` build no longer stops at step 4, and the SBOM writes a
   non-SPDX atom such as `LicenseRef-NVIDIA-Proprietary` as a `name`
-  because `license.id` must be an SPDX id. Two things ride on the next zip
-  build: both zips predate that SBOM fix, and their entries are named with
-  `\` rather than the `/` the ZIP spec requires (IN1's
-  `CreateFromDirectory`; step 6 normalizes the separator, so it does not
-  catch it, and a Unix `unzip` would keep the backslash in the file name,
-  which is not tested here). Files and rules: `docs/08-Licenses.md`
+  because `license.id` must be an SPDX id. Both rebuilt zips carry the
+  folder (`-cpu` 307 components, `-gpu` 311, the four NVIDIA rows pointing
+  at their own `License.txt` under `third-party/`). Nobody has looked at
+  the screen on a display. Files and rules: `docs/08-Licenses.md`
   section 8, D-186, D-188.
 
 ### SO1: Clean-machine soak (M, owner-run)
@@ -218,6 +226,19 @@ open.
   for verified items.
 - **Verify:** every link and path in the README resolves in the artifact;
   `git tag` list matches the tagged slices.
+- **State (2026-10-19):** the README's "Get the app" now covers both
+  Windows zips (unzip, run `scribe-ui.exe`, no installer, the `cpu` pick
+  without an NVIDIA driver), the `licenses\` note and a link to the
+  first-run guide; Path A points at the runbook and keeps the source-tree
+  commands; the repo layout lists `scribe-rs/` and `parity/`; the v3
+  status line drops "installers". `docs/04-Roadmap.md` describes the
+  native Rust UI over the packaged Python helper (D-147, egui per D-159)
+  instead of the cancelled Tauri port, and the v4 "Tauri mobile targets"
+  parenthetical is gone. The five missing tags are cut on the commits that
+  closed their slices: `slice-14` `84d4aef`, `slice-15` `6d8f4c8`,
+  `slice-17` `c5d10e8`, `slice-20` `485edc2`, `slice-21` `2d2be06` (the
+  last slice-21 commit, after the owner's acceptance). The Slice 21 sheet
+  records that acceptance.
 
 ### AC: Acceptance and `v3.0.0` (S)
 
@@ -257,10 +278,10 @@ Both decisions are in: the contract line (D-183) and the portable zip
 
 - [ ] Render speed selectable in the app; tiers verified on a real render
 - [ ] Windows artifact built, placed and started on a machine without Python
-- [ ] Linux story documented with its unverified lines named; no Linux artifact in v3.0.0 (D-190)
+- [x] Linux story documented with its unverified lines named; no Linux artifact in v3.0.0 (D-190)
 - [ ] NOTICE, SBOM, in-app licenses and the source offer complete and generated
 - [ ] Soak done and recorded, or its gaps named in place of results
-- [ ] README, first-run guide, stale v3 wording and missing tags fixed
+- [x] README, first-run guide, stale v3 wording and missing tags fixed
 - [ ] Release criteria list verified item by item; tagged `v3.0.0`
 
 ## 9. Risks and mitigations
