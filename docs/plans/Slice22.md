@@ -247,6 +247,13 @@ open.
   criterion from `docs/10-V3Roadmap.md` section 7 with its evidence.
 - **Verify:** owner acceptance logged; suite, clippy and deny green on
   the tagged commit; tag `v3.0.0`.
+- **State (2026-10-19):** `docs/acceptance-slice22.md` holds the agent
+  gates (Rust and Python suites, clippy, deny, ruff, both packer runs),
+  the artifact checks for both zips, and one row per release criterion
+  with its evidence. The owner rows (soak, render tiers, the Licenses
+  screen) are pending, so `v3.0.0` is not cut: criterion 2 holds only as
+  far as D-157 and D-190 allow, and criterion 1's device listening result
+  is still an empty protocol.
 
 ## 6. Order and check-ins
 
