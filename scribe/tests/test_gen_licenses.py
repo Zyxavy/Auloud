@@ -25,9 +25,11 @@ the owner's decision, not a silent ship).
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import sys
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -212,6 +214,39 @@ def test_native_components_name_a_row_with_no_spdx_identifier(tmp_path: Path) ->
     assert rows["OpenBLAS"].atoms == ["BSD-3-Clause"]
 
 
+def test_program_components_read_the_ffmpeg_licence_from_the_archive(tmp_path: Path) -> None:
+    embedded = tmp_path / "embedded"
+    (embedded / "python").mkdir(parents=True)
+    (embedded / "python" / "LICENSE.txt").write_text(MIT_TEXT, encoding="utf-8")
+    (embedded / "helper-manifest.json").write_text(
+        json.dumps({"python": {"version": "3.14.8"}, "ffmpeg": {"version": "9.0.2"}}),
+        encoding="utf-8",
+    )
+    archive = tmp_path / "ffmpeg-9.0.2.zip"
+    gpl = (ROOT / "dev" / "license-texts" / "GPL-3.0-or-later.txt").read_text(encoding="utf-8")
+
+    def zipped(name: str, text: str) -> None:
+        with zipfile.ZipFile(archive, "w") as box:
+            box.writestr(f"ffmpeg-9.0.2/{name}", text)
+
+    zipped("LICENSE", gpl)
+    work = tmp_path / "work"
+    work.mkdir()
+    components = gen_licenses.program_components(embedded, archive, work)
+
+    assert components[1].declared == "GPL-3.0-or-later"
+    assert components[1].files[0][1] == Path("LICENSE")
+
+    # A different build must not keep a sentence it no longer earns.
+    zipped("LICENSE", MIT_TEXT)
+    try:
+        gen_licenses.program_components(embedded, archive, work)
+    except SystemExit as error:
+        assert "needs a decision" in str(error)
+    else:
+        raise AssertionError("an ffmpeg build whose text is not GPL-3.0 must stop the build")
+
+
 def test_writers_emit_the_notice_the_copies_and_the_sbom(tmp_path: Path) -> None:
     canonical = tmp_path / "canonical"
     canonical.mkdir()
@@ -274,4 +309,9 @@ def test_writers_emit_the_notice_the_copies_and_the_sbom(tmp_path: Path) -> None
     assert runtime["licenses"] == [
         {"license": {"name": "Microsoft Visual C++ runtime (no SPDX identifier)"}}
     ]
-    assert (out / "MANIFEST.sha256").read_text(encoding="utf-8").endswith("  licenses/\n")
+
+    manifest = (out / "MANIFEST.sha256").read_text(encoding="utf-8").splitlines()
+    entries = dict(line.split("  ")[::-1] for line in manifest)
+    copied = (out / "texts" / "MIT.txt").read_bytes()
+    assert entries["texts/MIT.txt"] == hashlib.sha256(copied).hexdigest()
+    assert "MANIFEST.sha256" not in entries

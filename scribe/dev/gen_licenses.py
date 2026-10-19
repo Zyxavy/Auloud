@@ -24,6 +24,7 @@ Writes into ``<artifact>/licenses``:
 * ``sbom.cdx.json``: CycloneDX 1.5, both ecosystems.
 * ``texts/<SPDX>.txt``: the canonical text of every license in use.
 * ``third-party/<ecosystem>/<name>-<version>/``: the component's own files.
+* ``MANIFEST.sha256``: one sha256sum line per generated file.
 
 Sources of truth: ``cargo tree`` plus ``cargo metadata`` for the crates that
 link into ``scribe-ui.exe``, the installed ``dist-info`` of the embedded
@@ -544,6 +545,17 @@ def program_components(embedded: Path, ffmpeg_archive: Path, work: Path) -> list
             target.write_bytes(archive.read(name))
             targets.append(target)
 
+    # The row's claim comes from the archive's own text, so pointing the
+    # packer at a different build (an LGPL one, say) stops instead of
+    # shipping a wrong sentence.
+    sniffed = {sniff_atom(text_of(path)) for path in targets}
+    if sniffed != {"GPL-3.0-or-later"}:
+        found = sorted(atom or "unrecognised" for atom in sniffed)
+        raise SystemExit(
+            f"ffmpeg: {ffmpeg_archive.name} licenses read as {found}; the program "
+            "row claims GPL-3.0-or-later, so another build needs a decision"
+        )
+
     return [
         Component(
             "program",
@@ -784,13 +796,13 @@ def write_sbom(components: list[Component], out: Path, app_version: str) -> None
 
 
 def write_manifest_hash(out: Path) -> None:
-    """A digest over the generated files, so a diff is one line."""
-    digest = hashlib.sha256()
+    """sha256sum lines for the generated files, so a shipped folder can be checked."""
+    lines = []
     for path in sorted(out.rglob("*")):
         if path.is_file() and path.name != "MANIFEST.sha256":
-            digest.update(path.relative_to(out).as_posix().encode("utf-8"))
-            digest.update(path.read_bytes())
-    (out / "MANIFEST.sha256").write_text(f"{digest.hexdigest()}  licenses/\n", encoding="utf-8")
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            lines.append(f"{digest}  {path.relative_to(out).as_posix()}")
+    (out / "MANIFEST.sha256").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 # --- entry point --------------------------------------------------------

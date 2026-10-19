@@ -197,6 +197,7 @@ follow the build instead of a hand-kept list.
 | `third-party/<ecosystem>/<name>-<version>/` | The license files that component itself ships |
 | `SOURCE_OFFER.txt` | The written offer (GPL-3.0 section 6b, AGPL-3.0 section 13) |
 | `sbom.cdx.json` | CycloneDX 1.5, both ecosystems |
+| `MANIFEST.sha256` | One sha256sum line per generated file, so an unpacked folder can be checked |
 
 Sets it reads (2026-10-19): 226 Rust crates from
 `cargo tree -p scribe-ui --edges normal,build`, 76 installed distributions
