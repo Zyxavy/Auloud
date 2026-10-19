@@ -13,7 +13,19 @@ dependencies = [
     "pyyaml>=6.0.3",
     "kokoro-onnx>=0.6.1",
     "piper-tts>=1.8.0",
-    "onnxruntime>=1.30.0",
+    # D-185: GPU is the default TTS runtime on Windows, the CPU is the
+    # fallback. `onnxruntime-gpu` must be the CUDA 12 feed build (see
+    # [tool.uv.sources] below); the four NVIDIA wheels are the runtime DLLs
+    # its CUDA provider dlopens at session load. On a machine where the
+    # provider cannot load, `--device auto` warns on stderr and continues on
+    # the CPU (D-177), so the fallback is automatic and visible. Other
+    # platforms use the plain CPU wheel.
+    "onnxruntime-gpu==1.29.0; sys_platform == 'win32'",
+    "nvidia-cublas-cu12==12.9.2.10; sys_platform == 'win32'",
+    "nvidia-cudnn-cu12==9.27.0.42; sys_platform == 'win32'",
+    "nvidia-cuda-runtime-cu12==12.9.79; sys_platform == 'win32'",
+    "nvidia-cuda-nvrtc-cu12==12.9.86; sys_platform == 'win32'",
+    "onnxruntime>=1.30.0; sys_platform != 'win32'",
     "numpy>=2.4.6",
     "soundfile>=0.14.0",
     "rich>=15.0.0",
@@ -92,5 +104,27 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F"]
 
+[tool.uv]
+# D-185: `kokoro-onnx` and `piper-tts` require the CPU `onnxruntime` distribution,
+# which owns the same `onnxruntime` module as `onnxruntime-gpu`: installed
+# together, the CPU build wins whichever way the file writes land, and CUDA
+# silently disappears from `get_available_providers()`. This override keeps the
+# requirement off Windows (so only the CUDA 12 build is installed there) and
+# leaves it untouched elsewhere, where it is the CPU fallback.
+override-dependencies = [
+    "onnxruntime; sys_platform != 'win32'",
+]
+
 [tool.uv.sources]
 en-core-web-sm = { url = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl" }
+# D-185: pin onnxruntime-gpu to ONNX Runtime's CUDA 12 feed. PyPI publishes the
+# same version number as a CUDA 13 build, which fails to load on this
+# laptop's driver while `get_available_providers()` still lists CUDA (D-176).
+# A source pinned to an index excludes every other index for that package, so
+# no --extra-index-url or --index-strategy flag is needed.
+onnxruntime-gpu = { index = "onnxruntime-cuda12" }
+
+[[tool.uv.index]]
+name = "onnxruntime-cuda12"
+url = "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/"
+explicit = true

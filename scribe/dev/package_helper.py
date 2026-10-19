@@ -58,6 +58,14 @@ FFMPEG_SHA256 = "60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047b
 # Gyan builds are GPLv3 (essentials includes libmp3lame and friends); the
 # source-offer decision lands in Slice 22, recorded here so it is not lost.
 FFMPEG_LICENSE = "GPLv3"
+# onnxruntime-gpu comes from ONNX Runtime's CUDA 12 feed (D-185), because PyPI
+# publishes the same version number as a CUDA 13 build that will not load on
+# this laptop's driver (D-176). `uv export` records that wheel's hash but not
+# its index, so the hash-checked install below needs the feed explicitly.
+ORT_CUDA_FEED = (
+    "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/"
+    "onnxruntime-cuda-12/pypi/simple/"
+)
 
 SCRIBE_DIR = Path(__file__).resolve().parent.parent
 
@@ -178,7 +186,15 @@ def install_packages(python_exe: Path, requirements: Path, wheel: Path) -> None:
         "--break-system-packages",
     ]
     completed = subprocess.run(
-        base + ["--require-hashes", "--requirement", str(requirements)],
+        base + [
+            "--require-hashes",
+            # Feed first only for the hashed GPU wheel; every other package
+            # resolves from PyPI and its hash still has the final say.
+            "--extra-index-url",
+            ORT_CUDA_FEED,
+            "--requirement",
+            str(requirements),
+        ],
         capture_output=True,
         text=True,
         check=False,
