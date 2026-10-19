@@ -143,6 +143,15 @@ open.
   tarball is the artifact and the gap is stated.
 - **Verify:** the runbook's Linux lines are run and marked by whoever ran
   them, or the lines stay unverified and say so.
+- **State (2026-10-19):** not built, on the owner's call that the Windows
+  build is enough for `v3.0.0` (D-190). The lines in
+  `docs/ui-runbook.md` section 3 stay as Slice 21 read them from the
+  sources, unrun by anyone, and AC records them that way. A tarball is not
+  a rerun on this machine: `scribe/dev/package_helper.py` is Windows-only
+  (no platform branch; the CPython standalone asset, the ffmpeg archive
+  and the exported requirement set are all the Windows ones), so the
+  helper builder would gain a platform path first. WSL2 with Debian exists
+  here, so the stop is scope, not hardware.
 
 ### LG1: NOTICE, SBOM, licenses, source offer (S)
 
@@ -238,7 +247,7 @@ Both decisions are in: the contract line (D-183) and the portable zip
 | Result | Decision |
 | --- | --- |
 | No clean machine available | Dev-machine soak plus a named set of unproven items; no verified claim (D-157) |
-| No Linux machine or WSL2 | Tarball built and documented here, Linux lines stay unverified |
+| No Linux artifact in v3.0.0 (D-190) | Owner's call: the Windows build is the release; the Linux lines stay documented and unverified |
 | Installer tool judged not worth it | Portable zip is the artifact; the repo says so |
 | The render-speed picker needs more than one contract line | Keep the request field, drop the job echo (decision 3) |
 | A dependency has no license allow-list entry | Owner decision before it ships, never a silent addition |
@@ -248,7 +257,7 @@ Both decisions are in: the contract line (D-183) and the portable zip
 
 - [ ] Render speed selectable in the app; tiers verified on a real render
 - [ ] Windows artifact built, placed and started on a machine without Python
-- [ ] Linux artifact built and documented, with its unverified lines named
+- [ ] Linux story documented with its unverified lines named; no Linux artifact in v3.0.0 (D-190)
 - [ ] NOTICE, SBOM, in-app licenses and the source offer complete and generated
 - [ ] Soak done and recorded, or its gaps named in place of results
 - [ ] README, first-run guide, stale v3 wording and missing tags fixed
@@ -269,7 +278,7 @@ Both decisions are in: the contract line (D-183) and the portable zip
 
 - [x] Packaging choice: portable zip (D-184)
 - [x] Clean machine for the soak: documented setup only, so no verified clean-machine claim (D-157)
-- [ ] A Linux machine or WSL2 if the Linux artifact is to be tested rather than documented
+- [x] Linux: no artifact in `v3.0.0` (D-190); WSL2 exists on this machine, but `package_helper.py` is Windows-only
 - [x] Approval for the one contract line (`selection.render_speed`), which amends D-178 (D-183)
 - [x] Per-render choice only, kept out of Settings (D-183)
 - [ ] The Slice 21 acceptance rows, if they are not done yet: the `slice-21` tag is a prerequisite for this slice's `v3.0.0`
