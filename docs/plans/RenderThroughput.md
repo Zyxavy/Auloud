@@ -310,7 +310,8 @@ Code facts (verified):
 - **Verify:** `validate` clean; tablet copy, import, read-along and
   screen-off playback stay listed as needs device test.
 - Numbers, the cost of later appends and the open cast item are in
-  `docs/DECISIONS.md` (D-179).
+  `docs/DECISIONS.md` (D-179). The cast item is since closed by D-189, which
+  also moved the artifact to source 94-203.
 
 ## 6. GPU utilization in fast mode (measured)
 
