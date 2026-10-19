@@ -756,21 +756,23 @@ licenses/texts/.
 
 
 def write_sbom(components: list[Component], out: Path, app_version: str) -> None:
+    def license_entry(component: Component) -> dict:
+        # CycloneDX license.id must be an SPDX id. A LicenseRef- atom is a
+        # reference to a license SPDX does not list (the NVIDIA terms), so it
+        # travels in name, as a component with no id at all does.
+        atom = component.atoms[0] if component.atoms else ""
+        if atom and not atom.startswith("LicenseRef-"):
+            return {"license": {"id": atom}}
+        return {"license": {"name": atom or component.declared}}
+
     def entry(component: Component) -> dict:
-        # CycloneDX carries an SPDX id when one exists, else the plain name
-        # (the Microsoft redistributable runtime has no SPDX identifier).
-        license_entry = (
-            {"license": {"id": component.atoms[0]}}
-            if component.atoms
-            else {"license": {"name": component.declared}}
-        )
         entry = {
             "type": "library",
             "bom-ref": purl(component),
             "name": component.name,
             "purl": purl(component),
             "properties": [{"name": "auloud:license-declared", "value": component.declared}],
-            "licenses": [license_entry],
+            "licenses": [license_entry(component)],
         }
         if component.version:
             entry["version"] = component.version

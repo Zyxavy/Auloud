@@ -193,7 +193,7 @@ follow the build instead of a hand-kept list.
 | --- | --- |
 | `NOTICE.txt` | Our terms, the carried programs, the component counts |
 | `THIRD_PARTY_LICENSES.txt` | One row per component: name, version, the license relied on, where its own text is |
-| `texts/<SPDX>.txt` | The canonical text of every license in use (18, or 19 in the gpu variant) |
+| `texts/<license>.txt` | The canonical text of every license in use (18, or 19 in the gpu variant) |
 | `third-party/<ecosystem>/<name>-<version>/` | The license files that component itself ships |
 | `SOURCE_OFFER.txt` | The written offer (GPL-3.0 section 6b, AGPL-3.0 section 13) |
 | `sbom.cdx.json` | CycloneDX 1.5, both ecosystems |

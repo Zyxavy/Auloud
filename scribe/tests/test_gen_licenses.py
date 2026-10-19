@@ -250,7 +250,7 @@ def test_program_components_read_the_ffmpeg_licence_from_the_archive(tmp_path: P
 def test_writers_emit_the_notice_the_copies_and_the_sbom(tmp_path: Path) -> None:
     canonical = tmp_path / "canonical"
     canonical.mkdir()
-    for atom in ("MIT", "PSF-2.0"):
+    for atom in ("MIT", "PSF-2.0", "LicenseRef-NVIDIA-Proprietary"):
         (canonical / f"{atom}.txt").write_text(MIT_TEXT, encoding="utf-8")
     own = tmp_path / "own-LICENSE"
     own.write_text(MIT_TEXT, encoding="utf-8")
@@ -266,6 +266,13 @@ def test_writers_emit_the_notice_the_copies_and_the_sbom(tmp_path: Path) -> None
             "Microsoft Visual C++ runtime (no SPDX identifier)",
             [],
             note="redistributed runtime",
+        ),
+        gen_licenses.Component(
+            "pypi",
+            "nvidia-cudnn-cu12",
+            "9.27.0.42",
+            "LicenseRef-NVIDIA-Proprietary",
+            ["LicenseRef-NVIDIA-Proprietary"],
         ),
     ]
     out = tmp_path / "out"
@@ -302,8 +309,14 @@ def test_writers_emit_the_notice_the_copies_and_the_sbom(tmp_path: Path) -> None
         "pkg:pypi/quiet@2.0",
         "pkg:generic/python@3.14.8",
         "pkg:generic/microsoft-visual-c-runtime",
+        "pkg:pypi/nvidia-cudnn-cu12@9.27.0.42",
     ]
-    runtime = sbom["components"][-1]
+    by_purl = {entry["purl"]: entry for entry in sbom["components"]}
+    # license.id is an SPDX id only: a LicenseRef- atom travels in name.
+    assert by_purl["pkg:pypi/nvidia-cudnn-cu12@9.27.0.42"]["licenses"] == [
+        {"license": {"name": "LicenseRef-NVIDIA-Proprietary"}}
+    ]
+    runtime = by_purl["pkg:generic/microsoft-visual-c-runtime"]
     # No SPDX id and no version: the entry carries the name alone.
     assert "version" not in runtime
     assert runtime["licenses"] == [
