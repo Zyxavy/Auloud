@@ -25,6 +25,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  * until the storage answers; the caller is free to name the failure and
  * offer a retry.
  *
+ * OPEN5: [block] may be a whole load (reads plus parsing plus Room
+ * queries), so a silent hang anywhere inside it names the stage it
+ * reached instead of leaving the owner on a spinner.
+ *
  * API 24 safe: coroutines only.
  */
 
@@ -45,7 +49,7 @@ internal sealed interface ReadGuardOutcome<out T> {
 internal suspend fun <T> guardedRead(
     timeoutMs: Long = STALL_TIMEOUT_MS,
     workDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    block: () -> T
+    block: suspend () -> T
 ): ReadGuardOutcome<T> {
     // Detached on purpose: a stalled read must not hold up the caller, and
     // cancelling the job could not unblock it anyway (cancellation cannot

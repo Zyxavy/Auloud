@@ -79,9 +79,9 @@ class RenderPanelViewModel(
         { _, _ -> },
     private val registry: EngineRegistry? = null,
     private val freeBytes: () -> Long = { Long.MAX_VALUE },
-    /** OPEN3: stall budget for the manifest read (tests shorten it). */
+    /** OPEN3/OPEN5: stall budget for the whole panel load (tests shorten it). */
     private val stallTimeoutMs: Long = STALL_TIMEOUT_MS,
-    /** OPEN3: where the guarded manifest read runs (tests pin it). */
+    /** OPEN3/OPEN5: where the guarded load runs (tests pin it). */
     private val readDispatcher: CoroutineDispatcher = Dispatchers.IO,
     dispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
@@ -100,6 +100,11 @@ class RenderPanelViewModel(
     private var noSleep: (Long) -> Unit = {}
     /** VS5: error a bulk delete carries across the reload (reload freshens states first). */
     private var carriedError: String? = null
+    /** OPEN5: stage the guarded load last reached; named when it stalls. */
+    @Volatile
+    private var loadStage: String = STAGE_MANIFEST
+    /** The manifest the load reads first (stage text and errors name it). */
+    private val manifestPath: String get() = join(bundleDir, MANIFEST_FILE)
 
     init {
         reload()
@@ -373,18 +378,18 @@ class RenderPanelViewModel(
         val kept = _state.value
         _state.value = kept.copy(isLoading = true)
         scope.launch {
-            // OPEN1: a rogue throw used to kill this coroutine silently,
-            // leaving the hub on an eternal spinner (manifest stays null).
-            // Surface it as a panel error instead; cancellation still
-            // propagates so screen dispose stays clean.
-            val loaded = try {
-                loadBlocking()
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                RenderPanelState(
+            // OPEN1/OPEN5: the whole load runs under the stall guard, so a
+            // rogue throw or a blocked read anywhere inside it (manifest,
+            // reading position, job file) surfaces as a named panel error
+            // instead of killing the loader silently (OPEN1: eternal
+            // spinner; OPEN5: `Preparing…` forever when the wedge was past
+            // the manifest). Cancellation still propagates so screen
+            // dispose stays clean.
+            val loaded = when (val outcome = guardedRead(stallTimeoutMs, readDispatcher) { loadBlocking() }) {
+                is ReadGuardOutcome.Ok -> outcome.value
+                is ReadGuardOutcome.Failed -> RenderPanelState(
                     isLoading = false,
-                    manifestError = renderErrorText("panel load failed (${e.message})")
+                    manifestError = renderErrorText(loadFailureText(outcome))
                 )
             }
             _state.value = loaded.copy(
@@ -417,28 +422,38 @@ class RenderPanelViewModel(
     }
 
     /**
-     * OPEN3: plain-words text for the unreadable manifest, naming the stall
-     * (a blocked read) or the throwable (an `Error` included).
+     * OPEN3/OPEN5: plain-words text for a load that stalled or threw,
+     * naming the stage it reached (the manifest keeps its own wording).
      */
-    private fun manifestUnreadableText(failed: ReadGuardOutcome.Failed, path: String): String =
-        if (failed.stalled) {
-            "manifest unreadable: no answer within ${secondsText(stallTimeoutMs)} ($path), " +
-                "the storage read looks stuck"
-        } else {
-            val name = failed.cause?.javaClass?.simpleName ?: "unknown error"
-            "manifest unreadable ($name: ${failed.cause?.message})"
+    private fun loadFailureText(failed: ReadGuardOutcome.Failed): String {
+        val name = failed.cause?.javaClass?.simpleName ?: "unknown error"
+        return when {
+            failed.stalled && loadStage == STAGE_MANIFEST ->
+                "manifest unreadable: no answer within ${secondsText(stallTimeoutMs)} ($manifestPath), " +
+                    "the storage read looks stuck"
+            failed.stalled ->
+                "panel load stuck while reading $loadStage: no answer within " +
+                    "${secondsText(stallTimeoutMs)}, the storage read looks stuck"
+            loadStage == STAGE_MANIFEST -> "manifest unreadable ($name: ${failed.cause?.message})"
+            else -> "panel load failed while reading $loadStage ($name: ${failed.cause?.message})"
         }
+    }
 
     private suspend fun loadBlocking(): RenderPanelState {
-        // OPEN3: the read runs under the stall guard, so a blocked storage
-        // read surfaces as this panel's named error instead of holding the
-        // hub on `Preparing…` forever.
-        val manifestPath = join(bundleDir, MANIFEST_FILE)
-        val rawManifest = when (val read = guardedRead(stallTimeoutMs, readDispatcher) { storage.readText(manifestPath) }) {
-            is ReadGuardOutcome.Ok -> read.value
-            is ReadGuardOutcome.Failed -> return RenderPanelState(
+        // OPEN5: this whole method runs under the stall guard; [loadStage]
+        // names where a stall happened. The manifest read keeps its own
+        // wording (the stage comparison in [loadFailureText]).
+        loadStage = STAGE_MANIFEST
+        val rawManifest = try {
+            storage.readText(manifestPath)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return RenderPanelState(
                 isLoading = false,
-                manifestError = renderErrorText(manifestUnreadableText(read, manifestPath))
+                manifestError = renderErrorText(
+                    "manifest unreadable (${e.javaClass.simpleName}: ${e.message})"
+                )
             )
         }
         val manifest = BundleParser.parseText(rawManifest).getOrElse {
@@ -452,6 +467,7 @@ class RenderPanelViewModel(
         for ((pos, chapter) in sorted.withIndex()) {
             if (PlaybackQueue.isRenderedChapter(chapter)) rendered.add(pos)
         }
+        loadStage = STAGE_PROGRESS
         val saved = try {
             progress.load(bookId).getOrNull()
         } catch (_: Exception) {
@@ -481,11 +497,13 @@ class RenderPanelViewModel(
             audioMs[pos] = audioMsByChapter[pos]
         }
         audioMsByChapter = audioMs
+        loadStage = STAGE_JOB
         val job = loadJob()
         val renderedSet = rendered.toSet()
         // VS5: staleness over the same manifest (rendered chapters read
         // one at a time, flags only; null for read-only books and books
         // with nothing rendered, so those rows show no stale UI).
+        loadStage = STAGE_STALE
         val stale = try {
             StaleBookScan.scan(
                 manifest = manifest,
@@ -502,6 +520,7 @@ class RenderPanelViewModel(
         } catch (_: Exception) {
             null
         }
+        loadStage = STAGE_VOICES
         return RenderPanelState(
             isLoading = false,
             title = manifest.title,
@@ -618,6 +637,11 @@ class RenderPanelViewModel(
 
     companion object {
         private const val MANIFEST_FILE = "manifest.json"
+        private const val STAGE_MANIFEST = "the manifest"
+        private const val STAGE_PROGRESS = "your reading position"
+        private const val STAGE_JOB = "the render job file"
+        private const val STAGE_STALE = "the chapter voice check"
+        private const val STAGE_VOICES = "voice settings"
     }
 }
 

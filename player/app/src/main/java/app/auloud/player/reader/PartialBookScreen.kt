@@ -112,6 +112,8 @@ fun PartialBookScreen(
      * Shown with a retry instead of the eternal spinner.
      */
     loadingError: String? = null,
+    /** OPEN5: chapter-load run counters for the gate diagnostic. */
+    loadSignals: LoadSignals = LoadSignals(),
     onRetryLoading: () -> Unit = {},
     onBookChanged: () -> Unit = {}
 ) {
@@ -333,30 +335,38 @@ fun PartialBookScreen(
             null
         }
         val gateError = chapterGateError ?: panelGateError
-        if (gateError != null) {
-            Column(
-                modifier = modifier.fillMaxSize().padding(16.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = gateError,
-                    style = MaterialTheme.typography.bodyLarge
-                )
-                Spacer(Modifier.height(8.dp))
-                TextButton(
-                    onClick = {
-                        if (chapterGateError != null) {
-                            onRetryLoading()
-                        } else {
-                            panelVm.refresh()
-                        }
-                    }
-                ) {
-                    Text("Retry")
-                }
-                TextButton(onClick = onBack) { Text("Back") }
-            }
+        // OPEN5: a gate with no error must not sit unexplained. Past
+        // [STUCK_AFTER_SECS] the card names every part still waiting. The
+        // seconds clock only ticks while Main is free, so even a dead
+        // loader (the one thing a load-side guard cannot report) ends up
+        // on screen as counters that never moved.
+        val gateText = gateError ?: stuckWaitText(
+            loadingSecs,
+            listOf(
+                when {
+                    entries == null ->
+                        "chapter list: still waiting (${loadSignalText(loadSignals)}; no error)"
+                    entries.isEmpty() -> "chapter list: empty (${loadSignalText(loadSignals)})"
+                    else -> "chapter list: ready (${entries.size} chapters)"
+                },
+                when {
+                    map != null -> "render panel: ready"
+                    panelState.isLoading -> "render panel: still loading (no error yet)"
+                    else -> "render panel: not loading, no manifest and no error"
+                },
+                "folder: ${book.bundleDir}"
+            )
+        )
+        if (gateText != null) {
+            GateCard(
+                message = gateText,
+                onRetry = {
+                    onRetryLoading()
+                    panelVm.refresh()
+                },
+                onBack = onBack,
+                modifier = modifier
+            )
             return
         }
         ReaderScreen(
@@ -545,6 +555,32 @@ fun PartialBookScreen(
                 )
             }
         )
+    }
+}
+
+/**
+ * OPEN1/OPEN5: the gate's full-screen message with a way forward. The
+ * message is either a named failure or the stuck-watchdog body.
+ */
+@Composable
+private fun GateCard(
+    message: String,
+    onRetry: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = message,
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onRetry) { Text("Retry") }
+        TextButton(onClick = onBack) { Text("Back") }
     }
 }
 

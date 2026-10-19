@@ -67,6 +67,10 @@ fun UnrenderedBookScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     chapters: List<ChapterEntry>? = null,
+    /** OPEN5: chapter-load run counters for the gate diagnostic. */
+    loadSignals: LoadSignals = LoadSignals(),
+    /** OPEN5: retry for the chapter-list gate (the host's [BookScreen] load). */
+    onRetryLoading: () -> Unit = {},
     showChapters: Boolean = false,
     onOpenChapters: () -> Unit = {},
     onDismissChapters: () -> Unit = {},
@@ -105,6 +109,17 @@ fun UnrenderedBookScreen(
     val paths = textPaths
     val entries = chapters
     val loadError = pathsError
+    // OPEN5: the same ticking-seconds watchdog as the hub (either load
+    // can be the one this gate waits on: the host's chapter list or
+    // this screen's paths).
+    var loadingSecs by remember(book.id) { mutableIntStateOf(0) }
+    LaunchedEffect(book.id, paths == null || entries == null) {
+        loadingSecs = 0
+        while (paths == null || entries == null) {
+            delay(1_000L)
+            loadingSecs++
+        }
+    }
     if (loadError != null) {
         UnrenderedLoadError(
             message = loadError,
@@ -115,7 +130,31 @@ fun UnrenderedBookScreen(
         return
     }
     if (paths == null || entries == null) {
-        UnrenderedLoading(onBack = onBack, modifier = modifier)
+        val stuck = stuckWaitText(
+            loadingSecs,
+            listOf(
+                if (entries == null) {
+                    "chapter list: still waiting (${loadSignalText(loadSignals)}; no error)"
+                } else {
+                    "chapter list: ready (${entries.size} chapters)"
+                },
+                if (paths == null) "text paths: still waiting (no error)" else "text paths: ready",
+                "folder: ${book.bundleDir}"
+            )
+        )
+        if (stuck != null) {
+            UnrenderedLoadError(
+                message = stuck,
+                onRetry = {
+                    onRetryLoading()
+                    pathsTick++
+                },
+                onBack = onBack,
+                modifier = modifier
+            )
+            return
+        }
+        UnrenderedLoading(onBack = onBack, secs = loadingSecs, modifier = modifier)
         return
     }
     UnrenderedContent(
@@ -329,21 +368,14 @@ private fun UnrenderedContent(
 @Composable
 private fun UnrenderedLoading(
     onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-    message: String = "Loading book…"
+    secs: Int,
+    modifier: Modifier = Modifier
 ) {
-    var secs by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1_000L)
-            secs++
-        }
-    }
     ReaderScreen(
         state = ReaderState(isTextLoading = true),
         onBack = onBack,
         modifier = modifier,
-        loadingText = "$message ${secs}s"
+        loadingText = "Loading book… ${secs}s"
     )
 }
 

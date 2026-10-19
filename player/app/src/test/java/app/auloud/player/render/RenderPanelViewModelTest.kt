@@ -467,6 +467,47 @@ class RenderPanelViewModelTest {
     }
 
     @Test
+    fun blockedProgressRead_namesTheStageInsteadOfSpinning() {
+        // OPEN5: the manifest read was not the only silent wedge (OPEN3
+        // guarded just it). A wedged reading-position query used to hold
+        // the hub on `Preparing…` with no error, forever: the load now
+        // runs entirely under the guard and names the stage it stopped in.
+        val latch = CountDownLatch(1)
+        val harness = Harness(partialFiles())
+        val blocked = object : ProgressRepository by harness.progress {
+            override suspend fun load(bookId: String): Result<ProgressEntity?> {
+                latch.await()
+                return harness.progress.load(bookId)
+            }
+        }
+        val vm = RenderPanelViewModel(
+            bookId = "b1",
+            bundleDir = bundleDir,
+            storage = harness.storage,
+            progress = blocked,
+            voices = harness.voiceStore,
+            fileIo = harness.io,
+            stallTimeoutMs = 200L,
+            readDispatcher = Dispatchers.IO,
+            dispatcher = Dispatchers.Unconfined
+        )
+        try {
+            val deadline = System.currentTimeMillis() + 5_000L
+            while (vm.state.value.isLoading && System.currentTimeMillis() < deadline) {
+                Thread.sleep(20L)
+            }
+            val state = vm.state.value
+            assertEquals(false, state.isLoading)
+            val error = state.manifestError ?: ""
+            assertTrue("must name the stage, was: $error", "reading position" in error)
+            assertTrue("must name the stall, was: $error", "no answer" in error)
+        } finally {
+            latch.countDown()
+            vm.clear()
+        }
+    }
+
+    @Test
     fun jobLoaded_stateCarriesProgressAndRowStates() {
         val files = partialFiles()
         val plan = RenderPlan(

@@ -119,6 +119,9 @@ fun BookScreen(
     // the load below.
     var chapterError by remember(book.id) { mutableStateOf<String?>(null) }
     var loadTick by remember(book.id) { mutableIntStateOf(0) }
+    // OPEN5: effect-run counters for the gate diagnostics (shown when a
+    // gate sits with no error: proves whether the loader ran at all).
+    var loadSignals by remember(book.id) { mutableStateOf(LoadSignals()) }
     var showChapters by remember(book.id) { mutableStateOf(false) }
     // VS5: staleness for complete books (null = not loaded yet, or no
     // stale UI: read-only, legacy, or nothing rendered). Reloaded with
@@ -151,6 +154,7 @@ fun BookScreen(
         }
     }
     LaunchedEffect(book.id, staleTick, loadTick) {
+        loadSignals = loadSignals.copy(started = loadSignals.started + 1)
         Log.d(TAG, "chapter load start id=${book.id} dir=${book.bundleDir}")
         val started = android.os.SystemClock.uptimeMillis()
         val result = loadChapterList(storage, book.bundleDir)
@@ -158,6 +162,7 @@ fun BookScreen(
             Log.w(TAG, "chapter load failed id=${book.id} timedOut=${result.timedOut}")
             chapterError = result.message
             chapters = emptyList()
+            loadSignals = loadSignals.copy(finished = loadSignals.finished + 1)
             return@LaunchedEffect
         }
         result as ChapterLoadResult.Ready
@@ -192,6 +197,7 @@ fun BookScreen(
         } else {
             null
         }
+        loadSignals = loadSignals.copy(finished = loadSignals.finished + 1)
     }
     // IN9: read-only routing. The manifest wins once loaded; before that the
     // library map decides (a just-imported book shows read-only immediately
@@ -210,6 +216,7 @@ fun BookScreen(
             modifier = modifier,
             chapters = chapters,
             loadingError = chapterError,
+            loadSignals = loadSignals,
             onRetryLoading = { loadTick++ },
             onBookChanged = onBookChanged
         )
@@ -224,6 +231,8 @@ fun BookScreen(
             modifier = modifier,
             chapters = chapters,
             showChapters = showChapters,
+            loadSignals = loadSignals,
+            onRetryLoading = { loadTick++ },
             onOpenChapters = { showChapters = true },
             onDismissChapters = { showChapters = false }
         )
