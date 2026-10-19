@@ -193,7 +193,7 @@ follow the build instead of a hand-kept list.
 | --- | --- |
 | `NOTICE.txt` | Our terms, the carried programs, the component counts |
 | `THIRD_PARTY_LICENSES.txt` | One row per component: name, version, the license relied on, where its own text is |
-| `texts/<SPDX>.txt` | The canonical text of every license in use (18, 2026-10-19) |
+| `texts/<SPDX>.txt` | The canonical text of every license in use (18, or 19 in the gpu variant) |
 | `third-party/<ecosystem>/<name>-<version>/` | The license files that component itself ships |
 | `SOURCE_OFFER.txt` | The written offer (GPL-3.0 section 6b, AGPL-3.0 section 13) |
 | `sbom.cdx.json` | CycloneDX 1.5, both ecosystems |
@@ -201,7 +201,8 @@ follow the build instead of a hand-kept list.
 
 Sets it reads (2026-10-19): 226 Rust crates from
 `cargo tree -p scribe-ui --edges normal,build`, 76 installed distributions
-from the embedded helper's site-packages, and the two carried programs
+from the embedded helper's site-packages (80 in the gpu variant, which adds the
+four NVIDIA wheels), and the two carried programs
 (CPython 3.14.8 PSF-2.0; ffmpeg 9.0.2 GPL-3.0-or-later, its LICENSE copied
 from the pinned archive). Three native libraries bundled inside Python wheels
 have their own rows: libsndfile (LGPL-2.1-or-later, the COPYING next to the
@@ -216,12 +217,16 @@ A build fails rather than shipping an unattributed component when:
   allowed;
 - a license in use has no text under `scribe/dev/license-texts/`.
 
-That last rule is why the packaged helper's set is an open question: the
-locked GPU stack (D-185) installs four NVIDIA wheels whose metadata says
-`LicenseRef-NVIDIA-Proprietary`, so a helper rebuilt today makes step 4 stop.
-Either the NVIDIA terms get an allow-list entry plus their texts (an owner
-decision, the same shape as the espeakng-loader row) or the packaged helper
-takes D-185 consequence 2's CPU-only alternative.
+That last rule is what the NVIDIA wheels tripped: the locked GPU stack (D-185)
+installs four distributions whose metadata declares
+`LicenseRef-NVIDIA-Proprietary`, so a helper built after D-185 made step 4 stop.
+That reference is now in `PYTHON_ALLOWED` with NVIDIA's own `License.txt` as the
+canonical text under `scribe/dev/license-texts/` (D-188), and the `gpu` variant
+passes step 4. Each of the four ships its own text, so every row points at
+`third-party/pypi/<name>-<version>/` rather than at `texts/`: the three CUDA
+wheels (cublas, nvrtc, cuda-runtime) ship one identical CUDA Toolkit EULA, while
+`nvidia-cudnn-cu12` ships its own, separate EULA. The `cpu` variant (D-187)
+carries none of this, because its TTS runtime is the MIT-licensed `onnxruntime`.
 
 In-app: Settings > Licenses renders `NOTICE.txt`,
 `THIRD_PARTY_LICENSES.txt` and `SOURCE_OFFER.txt` from the folder beside the

@@ -81,6 +81,9 @@ PYTHON_ALLOWED = {
     "GPL-3.0-or-later",
     "ISC",
     "LGPL-2.1-or-later",
+    # The CUDA 12 wheels NVIDIA publishes declare this reference themselves and
+    # ship their own texts, which the artifact copies into third-party/ (D-188).
+    "LicenseRef-NVIDIA-Proprietary",
     "MIT",
     "MPL-2.0",
     "PSF-2.0",

@@ -1,7 +1,11 @@
 # IN1 (Slice 22): assemble the portable Windows artifact and zip it.
 #
-# Layout inside <OutRoot>\Auloud-Scribe-<Version>\ (one top folder, so
-# extraction cannot scatter files):
+# Two variants (D-187), differing only in helper\embedded\site-packages:
+# -Variant gpu (the default) ships the CUDA 12 stack, about 2.9 GB total;
+# -Variant cpu ships the CPU onnxruntime instead, near 300 MB.
+#
+# Layout inside <OutRoot>\Auloud-Scribe-<Version>-<Variant>\ (one top folder,
+# so extraction cannot scatter files):
 #
 #   scribe-ui.exe                          the app
 #   helper\embedded\python\python.exe      the discovery path (helper.rs)
@@ -21,6 +25,7 @@
 
 param(
     [string]$Version = "3.0.0",
+    [ValidateSet("gpu", "cpu")][string]$Variant = "gpu",
     [string]$OutRoot = "",
     [string]$CacheDir = "",
     [switch]$SkipUi
@@ -30,7 +35,7 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if (-not $OutRoot) { $OutRoot = Join-Path $repo "logs\portable" }
 if (-not $CacheDir) { $CacheDir = Join-Path $OutRoot "cache" }
-$stage = Join-Path $OutRoot "Auloud-Scribe-$Version"
+$stage = Join-Path $OutRoot "Auloud-Scribe-$Version-$Variant"
 $zip = "$stage.zip"
 
 function Require([string]$path, [string]$what) {
@@ -48,11 +53,11 @@ Require $exe "the built app"
 
 # 2. The helper bundle (HP2 builder), into a clean stage.
 $embedded = Join-Path $stage "helper\embedded"
-Write-Host "building the embedded helper bundle"
+Write-Host "building the embedded helper bundle ($Variant variant)"
 Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
 Push-Location (Join-Path $repo "scribe")
 try {
-    & uv run python dev/package_helper.py --out $embedded --cache-dir $CacheDir
+    & uv run python dev/package_helper.py --out $embedded --cache-dir $CacheDir --variant $Variant
     if ($LASTEXITCODE -ne 0) { throw "package_helper.py failed" }
 } finally {
     Pop-Location
@@ -86,11 +91,11 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 # 6. Self-check the zip: the entries the app needs after extraction.
 $wanted = @(
-    "Auloud-Scribe-$Version/scribe-ui.exe",
-    "Auloud-Scribe-$Version/helper/embedded/python/python.exe",
-    "Auloud-Scribe-$Version/licenses/NOTICE.txt",
-    "Auloud-Scribe-$Version/licenses/texts/AGPL-3.0-or-later.txt",
-    "Auloud-Scribe-$Version/licenses/sbom.cdx.json"
+    "Auloud-Scribe-$Version-$Variant/scribe-ui.exe",
+    "Auloud-Scribe-$Version-$Variant/helper/embedded/python/python.exe",
+    "Auloud-Scribe-$Version-$Variant/licenses/NOTICE.txt",
+    "Auloud-Scribe-$Version-$Variant/licenses/texts/AGPL-3.0-or-later.txt",
+    "Auloud-Scribe-$Version-$Variant/licenses/sbom.cdx.json"
 )
 $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
 try {

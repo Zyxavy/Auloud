@@ -44,10 +44,13 @@ Legend: `[code]` means read from the named source, not observed.
 
 1. **Get the app: the packaged zip, or a build.** `[code]`
 
-   The packaged zip is `logs\portable\Auloud-Scribe-3.0.0.zip`, written by
-   `scribe\dev\pack_portable.ps1` (it builds the app, builds the helper
-   with `scribe\dev\package_helper.py`, then self-checks the folder and
-   the zip). Unzip it anywhere and run `scribe-ui.exe` from the folder it
+   The packaged zips are `logs\portable\Auloud-Scribe-3.0.0-cpu.zip` and
+   `...-gpu.zip`, written by `scribe\dev\pack_portable.ps1 -Variant cpu|gpu`
+   (it builds the app, builds the helper with `scribe\dev\package_helper.py`,
+   then self-checks the folder and the zip). Take `-cpu` for a machine with no
+   usable NVIDIA driver: it carries the CPU TTS runtime instead of the CUDA
+   stack, so it is a 286 MB zip instead of a 1.9 GB one (783 MB unpacked
+   against 3.3 GB) and renders slower (D-187). Unzip it anywhere and run `scribe-ui.exe` from the folder it
    creates, then skip to step 3. That machine needs Windows 11 64-bit and
    nothing else: no Rust, no Python, no `ffmpeg` on `PATH`, because
    `helper\embedded\` carries the interpreter, the installed dependencies
