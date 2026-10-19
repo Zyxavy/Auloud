@@ -6,7 +6,11 @@ import app.auloud.player.bundle.Manifest
 import app.auloud.player.data.ProgressRepository
 import app.auloud.player.playback.PlaybackQueue
 import app.auloud.player.storage.BundleStorage
+import app.auloud.player.storage.ReadGuardOutcome
+import app.auloud.player.storage.STALL_TIMEOUT_MS
 import app.auloud.player.storage.SafPaths
+import app.auloud.player.storage.guardedRead
+import app.auloud.player.storage.secondsText
 import app.auloud.player.tts.BookVoices
 import app.auloud.player.tts.EngineRegistry
 import app.auloud.player.tts.TtsRole
@@ -75,6 +79,10 @@ class RenderPanelViewModel(
         { _, _ -> },
     private val registry: EngineRegistry? = null,
     private val freeBytes: () -> Long = { Long.MAX_VALUE },
+    /** OPEN3: stall budget for the manifest read (tests shorten it). */
+    private val stallTimeoutMs: Long = STALL_TIMEOUT_MS,
+    /** OPEN3: where the guarded manifest read runs (tests pin it). */
+    private val readDispatcher: CoroutineDispatcher = Dispatchers.IO,
     dispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
 
@@ -408,13 +416,29 @@ class RenderPanelViewModel(
         }
     }
 
+    /**
+     * OPEN3: plain-words text for the unreadable manifest, naming the stall
+     * (a blocked read) or the throwable (an `Error` included).
+     */
+    private fun manifestUnreadableText(failed: ReadGuardOutcome.Failed, path: String): String =
+        if (failed.stalled) {
+            "manifest unreadable: no answer within ${secondsText(stallTimeoutMs)} ($path), " +
+                "the storage read looks stuck"
+        } else {
+            val name = failed.cause?.javaClass?.simpleName ?: "unknown error"
+            "manifest unreadable ($name: ${failed.cause?.message})"
+        }
+
     private suspend fun loadBlocking(): RenderPanelState {
-        val rawManifest = try {
-            storage.readText(join(bundleDir, MANIFEST_FILE))
-        } catch (e: Exception) {
-            return RenderPanelState(
+        // OPEN3: the read runs under the stall guard, so a blocked storage
+        // read surfaces as this panel's named error instead of holding the
+        // hub on `Preparing…` forever.
+        val manifestPath = join(bundleDir, MANIFEST_FILE)
+        val rawManifest = when (val read = guardedRead(stallTimeoutMs, readDispatcher) { storage.readText(manifestPath) }) {
+            is ReadGuardOutcome.Ok -> read.value
+            is ReadGuardOutcome.Failed -> return RenderPanelState(
                 isLoading = false,
-                manifestError = renderErrorText("manifest unreadable (${e.message})")
+                manifestError = renderErrorText(manifestUnreadableText(read, manifestPath))
             )
         }
         val manifest = BundleParser.parseText(rawManifest).getOrElse {

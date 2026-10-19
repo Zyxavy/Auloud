@@ -4,6 +4,7 @@ import android.net.Uri
 import app.auloud.player.ingest.IngestWriter
 import app.auloud.player.storage.BundleStorage
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -59,11 +60,23 @@ class ChapterLoadTest {
 
     @Test
     fun slowStorage_timesOutFast() = runBlocking {
-        val storage = storageOf { Thread.sleep(5_000L); "" }
-        val result = loadChapterList(storage, "/books/b1", timeoutMs = 100L)
+        val closed = CountDownLatch(1)
+        val storage = storageOf { closed.await(); "" }
+        val started = System.currentTimeMillis()
+        val result = try {
+            loadChapterList(storage, "/books/b1", timeoutMs = 100L)
+        } finally {
+            closed.countDown()
+        }
+        val elapsed = System.currentTimeMillis() - started
+        // OPEN3: the old `withTimeout` over a blocking read resumed only
+        // when the read returned (measured 5.016s). A blocked read must
+        // now report the stall without waiting for it.
+        assertTrue("must not wait for the blocked read, took ${elapsed}ms", elapsed < 5_000L)
         val failed = result as? ChapterLoadResult.Failed
             ?: throw AssertionError("want Failed, got $result")
-        assertTrue("slow storage must read timed out, got: ${failed.message}", failed.timedOut)
+        assertTrue("blocked storage must read timed out, got: ${failed.message}", failed.timedOut)
+        assertTrue("must name the path, got: ${failed.message}", "/books/b1/manifest.json" in failed.message)
     }
 
     @Test

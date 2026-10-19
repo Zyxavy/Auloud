@@ -3,24 +3,26 @@ package app.auloud.player.reader
 import app.auloud.player.bundle.BundleParser
 import app.auloud.player.bundle.Manifest
 import app.auloud.player.storage.BundleStorage
+import app.auloud.player.storage.ReadGuardOutcome
+import app.auloud.player.storage.STALL_TIMEOUT_MS
+import app.auloud.player.storage.guardedRead
+import app.auloud.player.storage.secondsText
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
 
 /**
- * OPEN1: chapter-list load for [BookScreen], extracted so the JVM suite
- * can prove every failure mode lands visibly (a silent loader death
- * used to leave owners on `Loading book…` forever).
+ * OPEN1/OPEN3: chapter-list load for [BookScreen] and the read-only
+ * reader, extracted so the JVM suite can prove every failure mode lands
+ * visibly (a silent loader death used to leave owners on
+ * `Loading book…` forever).
  *
  * [Ready] carries the entries plus the manifest render state (and the
- * manifest itself for the complete-book stale scan). [Failed] carries
- * plain-words text for the hub error screen; [timedOut] names the
- * slow-storage case. Any rogue [Throwable] (a linking or native error
- * on device bypasses an `Exception` catch) lands in [Failed] with its
- * class name, so the next report names the layer. Only genuine
- * cancellation propagates.
+ * manifest itself for the complete-book stale scan and the reader's text
+ * paths). [Failed] carries plain-words text for the hub error screen;
+ * [timedOut] names the stalled-storage case. The read runs under
+ * [guardedRead], so a blocked storage read reports a stall instead of
+ * holding the caller forever (OPEN3); any rogue [Throwable] (a linking or
+ * native error on device bypasses an `Exception` catch) lands in [Failed]
+ * with its class name. Only genuine cancellation propagates.
  */
 internal sealed interface ChapterLoadResult {
     data class Ready(
@@ -34,42 +36,50 @@ internal sealed interface ChapterLoadResult {
 internal suspend fun loadChapterList(
     storage: BundleStorage,
     bundleDir: String,
-    timeoutMs: Long = 20_000L
+    timeoutMs: Long = STALL_TIMEOUT_MS
 ): ChapterLoadResult {
-    try {
-        val parsed = withTimeout(timeoutMs) {
-            withContext(Dispatchers.IO) {
-                try {
-                    val root = bundleDir.trimEnd('/')
-                    val raw = storage.readText("$root/manifest.json")
-                    BundleParser.parseText(raw).getOrThrow()
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    null
-                }
-            }
-        }
-        val list = try {
-            parsed?.chapters?.let(::toChapterEntries) ?: emptyList()
+    val root = bundleDir.trimEnd('/')
+    val path = "$root/manifest.json"
+    val outcome = guardedRead(timeoutMs) {
+        try {
+            BundleParser.parseText(storage.readText(path)).getOrThrow()
         } catch (e: CancellationException) {
             throw e
-        } catch (e: Throwable) {
-            return ChapterLoadResult.Failed(loadFailedMessage(e), false)
+        } catch (e: Exception) {
+            null
         }
-        return ChapterLoadResult.Ready(list, parsed?.renderState, parsed)
-    } catch (e: TimeoutCancellationException) {
-        return ChapterLoadResult.Failed(
-            "Could not read the chapter list in time. Check storage, then retry.",
-            true
+    }
+    val parsed = when (outcome) {
+        is ReadGuardOutcome.Ok -> outcome.value
+        is ReadGuardOutcome.Failed -> return ChapterLoadResult.Failed(
+            chapterListFailure(outcome.stalled, outcome.cause, path, timeoutMs),
+            outcome.stalled
         )
+    }
+    val list = try {
+        parsed?.chapters?.let(::toChapterEntries) ?: emptyList()
     } catch (e: CancellationException) {
         throw e
     } catch (e: Throwable) {
-        return ChapterLoadResult.Failed(loadFailedMessage(e), false)
+        return ChapterLoadResult.Failed(
+            chapterListFailure(stalled = false, cause = e, path = path, timeoutMs = timeoutMs),
+            false
+        )
     }
+    return ChapterLoadResult.Ready(list, parsed?.renderState, parsed)
 }
 
-private fun loadFailedMessage(e: Throwable): String =
-    "Could not read the chapter list (${e.javaClass.simpleName}). " +
+/** Plain-words failure naming the layer, the path and the stall state. */
+internal fun chapterListFailure(
+    stalled: Boolean,
+    cause: Throwable?,
+    path: String,
+    timeoutMs: Long
+): String = if (stalled) {
+    "Could not read the chapter list: no answer within ${secondsText(timeoutMs)} ($path). " +
+        "The storage read looks stuck; tap Retry, and if it sticks again restart the tablet."
+} else {
+    val name = cause?.javaClass?.simpleName ?: "unknown error"
+    "Could not read the chapter list ($name: ${cause?.message}). " +
         "Try again or re-import the book."
+}

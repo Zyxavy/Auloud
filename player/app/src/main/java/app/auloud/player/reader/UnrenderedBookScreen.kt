@@ -3,14 +3,17 @@ package app.auloud.player.reader
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -26,7 +29,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import app.auloud.player.bundle.BundleParser
 import app.auloud.player.data.ProgressRepository
 import app.auloud.player.ingest.IngestPipeline
 import app.auloud.player.library.BookUiModel
@@ -35,12 +37,10 @@ import app.auloud.player.playback.PlaybackIntents
 import app.auloud.player.playback.StreamRoute
 import app.auloud.player.settings.PrefsReaderModeStore
 import app.auloud.player.storage.BundleStorage
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.withContext
 
 /**
  * IN9: read-only book screen for unrendered (2.0 `none`/`partial`) books.
@@ -85,21 +85,35 @@ fun UnrenderedBookScreen(
     val appContext = remember(context) { context.applicationContext }
     val modeStore = remember(appContext) { PrefsReaderModeStore.fromContext(appContext) }
     var textPaths by remember(book.id) { mutableStateOf<List<String>?>(null) }
-    LaunchedEffect(book.id) {
-        textPaths = withContext(Dispatchers.IO) {
-            try {
+    // OPEN3: a bare read here (no timeout) was the last gate that could
+    // spin `Loading book…` forever; it now shares the guarded load and
+    // shows its named failure with a retry.
+    var pathsError by remember(book.id) { mutableStateOf<String?>(null) }
+    var pathsTick by remember(book.id) { mutableIntStateOf(0) }
+    LaunchedEffect(book.id, pathsTick) {
+        pathsError = null
+        when (val loaded = loadChapterList(storage, book.bundleDir)) {
+            is ChapterLoadResult.Ready -> {
                 val root = book.bundleDir.trimEnd('/')
-                val raw = storage.readText("$root/manifest.json")
-                BundleParser.parseText(raw).getOrThrow().chapters.map { chapter ->
+                textPaths = loaded.manifest?.chapters?.map { chapter ->
                     "$root/${chapter.text}"
-                }
-            } catch (_: Exception) {
-                emptyList()
+                } ?: emptyList()
             }
+            is ChapterLoadResult.Failed -> pathsError = loaded.message
         }
     }
     val paths = textPaths
     val entries = chapters
+    val loadError = pathsError
+    if (loadError != null) {
+        UnrenderedLoadError(
+            message = loadError,
+            onRetry = { pathsTick++ },
+            onBack = onBack,
+            modifier = modifier
+        )
+        return
+    }
     if (paths == null || entries == null) {
         UnrenderedLoading(onBack = onBack, modifier = modifier)
         return
@@ -331,6 +345,29 @@ private fun UnrenderedLoading(
         modifier = modifier,
         loadingText = "$message ${secs}s"
     )
+}
+
+/**
+ * OPEN3: the guarded book load failed (stalled read or a rogue throw).
+ * Same shape as the hub's gate error: the named reason, Retry, Back.
+ */
+@Composable
+private fun UnrenderedLoadError(
+    message: String,
+    onRetry: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(text = message, style = MaterialTheme.typography.bodyLarge)
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onRetry) { Text("Retry") }
+        TextButton(onClick = onBack) { Text("Back") }
+    }
 }
 
 /**

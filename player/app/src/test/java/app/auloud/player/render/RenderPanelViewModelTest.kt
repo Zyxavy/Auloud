@@ -5,10 +5,12 @@ import app.auloud.player.data.ProgressEntity
 import app.auloud.player.data.ProgressRepository
 import app.auloud.player.storage.BundleStorage
 import app.auloud.player.storage.FakeSharedPreferences
+import app.auloud.player.storage.STALL_TIMEOUT_MS
 import app.auloud.player.tts.PrefsTtsStore
 import app.auloud.player.tts.TtsRole
 import app.auloud.player.tts.TtsVoiceStore
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -122,12 +124,18 @@ class RenderPanelViewModelTest {
 
     private inner class Harness(
         files: HashMap<String, String> = HashMap(),
-        private val vmDispatcher: CoroutineDispatcher = Dispatchers.Unconfined
+        private val vmDispatcher: CoroutineDispatcher = Dispatchers.Unconfined,
+        /** OPEN3: shortened guard budget plus a blocking read seam. */
+        private val stallTimeoutMs: Long = STALL_TIMEOUT_MS,
+        /** OPEN3: the guarded read runs here; defaults to the test driver. */
+        private val readDispatcher: CoroutineDispatcher = vmDispatcher,
+        private val readTextOverride: ((String) -> String)? = null
     ) {
         val sharedFiles: HashMap<String, String> = files
         val textReads = mutableListOf<String>()
         val storage = object : BundleStorage by FakeStorage(sharedFiles) {
             override fun readText(path: String): String {
+                readTextOverride?.let { return it(path) }
                 if ("/text/" in path) textReads.add(path)
                 return sharedFiles[path] ?: throw IOException("missing: $path")
             }
@@ -169,6 +177,8 @@ class RenderPanelViewModelTest {
                 onStartRerender = { chapter, mode ->
                     rerenderStarts.add(chapter to mode)
                 },
+                stallTimeoutMs = stallTimeoutMs,
+                readDispatcher = readDispatcher,
                 dispatcher = vmDispatcher
             )
         }
@@ -428,6 +438,35 @@ class RenderPanelViewModelTest {
     }
 
     @Test
+    fun blockedManifestRead_reportsStallInsteadOfSpinning() {
+        // OPEN3: a read stuck in storage used to hold the hub on
+        // `Preparing…` forever (withTimeout cannot preempt a blocking
+        // read). The guard must name the stall and the path.
+        val latch = CountDownLatch(1)
+        val harness = Harness(
+            stallTimeoutMs = 200L,
+            readDispatcher = Dispatchers.IO,
+            readTextOverride = { latch.await(); "{}" }
+        )
+        val vm = harness.viewModel()
+        try {
+            val deadline = System.currentTimeMillis() + 5_000L
+            while (vm.state.value.isLoading && System.currentTimeMillis() < deadline) {
+                Thread.sleep(20L)
+            }
+            val state = vm.state.value
+            assertEquals(false, state.isLoading)
+            val error = state.manifestError ?: ""
+            assertTrue("was: $error", "unreadable" in error)
+            assertTrue("must name the stall, was: $error", "no answer" in error)
+            assertTrue("must name the path, was: $error", "manifest.json" in error)
+        } finally {
+            latch.countDown()
+            vm.clear()
+        }
+    }
+
+    @Test
     fun jobLoaded_stateCarriesProgressAndRowStates() {
         val files = partialFiles()
         val plan = RenderPlan(
@@ -681,6 +720,9 @@ class RenderPanelViewModelTest {
             progress = harness.progress,
             voices = wedgedVoices,
             fileIo = harness.io,
+            // OPEN3: keep the guarded read on the test driver so this test
+            // still exercises the wedged voices, not a virtual-time stall.
+            readDispatcher = StandardTestDispatcher(testScheduler),
             dispatcher = StandardTestDispatcher(testScheduler)
         )
         try {
