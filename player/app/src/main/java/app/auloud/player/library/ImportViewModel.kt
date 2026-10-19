@@ -53,7 +53,13 @@ sealed interface ImportUiState {
         val displayName: String,
         val chaptersDone: Int,
         val totalChapters: Int,
-        val chapterTitle: String
+        val chapterTitle: String,
+        /**
+         * OPEN4: wall-clock ms of the last progress step (stamped at
+         * start too), so the screen can name how long the bar has been
+         * silent and which step it stopped on.
+         */
+        val lastEventAtMs: Long
     ) : ImportUiState
     data class Succeeded(val report: ImportReport) : ImportUiState
     data class AlreadyInLibrary(val bookId: String, val bundleDir: String) : ImportUiState
@@ -69,7 +75,9 @@ class ImportViewModel(
     private val runImport: RunImport,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
-    externalScope: CoroutineScope? = null
+    externalScope: CoroutineScope? = null,
+    /** OPEN4: stamp source for the silence line; tests pin it. */
+    private val clock: () -> Long = System::currentTimeMillis
 ) {
 
     private val _state = MutableStateFlow<ImportUiState>(ImportUiState.Idle)
@@ -108,13 +116,14 @@ class ImportViewModel(
                     return@launch
                 }
                 scratch = copied
-                _state.value = ImportUiState.Importing(displayName, 0, 0, "")
+                _state.value = ImportUiState.Importing(displayName, 0, 0, "", clock())
                 val outcome = runImport(copied) { progress ->
                     _state.value = ImportUiState.Importing(
                         displayName = displayName,
                         chaptersDone = progress.chaptersDone,
                         totalChapters = progress.totalChapters,
-                        chapterTitle = progress.chapterTitle
+                        chapterTitle = progress.chapterTitle,
+                        lastEventAtMs = clock()
                     )
                 }
                 _state.value = when (outcome) {
