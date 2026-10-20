@@ -189,6 +189,25 @@ class StreamCoreTest {
     }
 
     @Test
+    fun requeueBeforeFirstSentenceReplansFromStartSid() {
+        val core = core()
+        val initial = core.start(3)
+        // StreamPlayer.load() drops start()'s plan; play() calls requeue().
+        val requeued = core.requeue()
+        assertEquals(speaks(initial).map { it.sid }, speaks(requeued).map { it.sid })
+        assertEquals("s1:3", requeued[0].id)
+        assertEquals(StreamCore.Status.Playing, core.status)
+    }
+
+    @Test
+    fun pauseBeforeFirstSentenceKeepsTheStartSid() {
+        val core = core()
+        core.start(3)
+        assertEquals(3, core.pause())
+        assertEquals(listOf(3, 4, 5, 6), speaks(core.resume()).map { it.sid })
+    }
+
+    @Test
     fun pauseMidSentenceResumesSameSentence() {
         val core = core()
         core.start(1)
