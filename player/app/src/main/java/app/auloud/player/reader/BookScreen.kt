@@ -40,6 +40,7 @@ import app.auloud.player.playback.ReaderDebugOverlay
 import app.auloud.player.playback.SleepOption
 import app.auloud.player.playback.SleepTimerButton
 import app.auloud.player.playback.SpeedButton
+import app.auloud.player.playback.StreamSidMonitor
 import app.auloud.player.playback.TransientNotice
 import app.auloud.player.playback.cycleSleepOption
 import app.auloud.player.playback.sleepCycleBase
@@ -101,6 +102,23 @@ fun BookScreen(
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
+    // Opening another book stops the previous book's live voice. The
+    // monitor claims a start before its TTS build, so this also cancels
+    // one that has not begun speaking. Same-book opens are left alone.
+    LaunchedEffect(book.id) {
+        val streaming = StreamSidMonitor.bookId
+        if (streaming != null && streaming != book.id) {
+            try {
+                appContext.startService(
+                    PlaybackIntents.serviceIntent(appContext)
+                        .putExtra(PlaybackIntents.EXTRA_BOOK_ID, book.id)
+                        .putExtra(PlaybackIntents.EXTRA_STOP_STREAM_IF_OTHER, true)
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "stop other book's stream: ${e.message}")
+            }
+        }
+    }
     val modeStore = remember(appContext) { PrefsReaderModeStore.fromContext(appContext) }
     var mode by remember(book.id) { mutableStateOf(modeStore.mode()) }
     // CP3: shared chapter list for both branches (null = not loaded yet,

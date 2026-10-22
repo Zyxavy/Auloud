@@ -34,7 +34,9 @@ import app.auloud.player.ingest.IngestPipeline
 import app.auloud.player.library.BookUiModel
 import app.auloud.player.playback.PlaybackController
 import app.auloud.player.playback.PlaybackIntents
+import app.auloud.player.playback.SpeedButton
 import app.auloud.player.playback.StreamRoute
+import app.auloud.player.playback.nextSpeed
 import app.auloud.player.settings.PrefsReaderModeStore
 import app.auloud.player.storage.BundleStorage
 import kotlinx.coroutines.delay
@@ -194,6 +196,7 @@ private fun UnrenderedContent(
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
     val modeStore = remember(appContext) { PrefsReaderModeStore.fromContext(appContext) }
+    var speed by remember(book.id) { mutableStateOf(modeStore.playbackSpeed()) }
     // ST5: live audio attachment (dormant until the ST0 gate passes).
     val streamingAvailable = StreamRoute.GATE_PASSED
     val scope = rememberCoroutineScope()
@@ -206,10 +209,14 @@ private fun UnrenderedContent(
             null
         } else {
             LiveStream(
-                sid = controller.state.map { it.streamSid }
-                    .stateIn(scope, SharingStarted.Eagerly, null),
-                chapterPos = controller.state.map { it.streamChapterPos }
-                    .stateIn(scope, SharingStarted.Eagerly, null),
+                // Another book's stream must not drive this reader, even for
+                // the moment before the service stops it.
+                sid = controller.state.map { state ->
+                    state.streamSid.takeIf { state.streamBookId == book.id }
+                }.stateIn(scope, SharingStarted.Eagerly, null),
+                chapterPos = controller.state.map { state ->
+                    state.streamChapterPos.takeIf { state.streamBookId == book.id }
+                }.stateIn(scope, SharingStarted.Eagerly, null),
                 restartAt = { index ->
                     controller.seekToSentence(index)
                     controller.play()
@@ -305,15 +312,22 @@ private fun UnrenderedContent(
         )
         return
     }
+    val liveHere = playerState.streamBookId == book.id
     Column(modifier = modifier.fillMaxSize()) {
         // ST5: live voice bar (streaming only; the mode row below is
         // untouched, so gate-closed builds render exactly as before).
         if (streamingAvailable) {
             val sentences = unrendered.chapter?.sentencesInOrder().orEmpty()
             LiveListenBar(
-                isPlaying = playerState.isPlaying,
-                preparing = playerState.isPlaying && unrendered.liveSid == null,
+                isPlaying = liveHere && playerState.isPlaying,
+                preparing = liveHere && playerState.isPlaying && unrendered.liveSid == null,
                 fraction = liveFractionOf(unrendered.liveSid, sentences),
+                speed = speed,
+                onSpeed = {
+                    val next = nextSpeed(speed)
+                    controller.setSpeed(next)
+                    speed = next
+                },
                 onPlay = ::playLive,
                 onPause = controller::pause
             )
@@ -327,7 +341,7 @@ private fun UnrenderedContent(
                 // ST5: the highlight follows the voice when live.
                 currentSid = unrendered.liveSid ?: unrendered.currentSid,
                 positionMs = 0L,
-                isPlaying = streamingAvailable && playerState.isPlaying,
+                isPlaying = streamingAvailable && liveHere && playerState.isPlaying,
                 isTextLoading = unrendered.isTextLoading,
                 textError = unrendered.textError,
                 pendingTapSid = null,
@@ -415,6 +429,8 @@ private fun LiveListenBar(
     isPlaying: Boolean,
     preparing: Boolean,
     fraction: Float?,
+    speed: Float,
+    onSpeed: () -> Unit,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     modifier: Modifier = Modifier
@@ -428,8 +444,10 @@ private fun LiveListenBar(
             CircularProgressIndicator(modifier = Modifier.size(24.dp))
             Text(
                 text = "Preparing live voice…",
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f)
             )
+            SpeedButton(speed = speed, onClick = onSpeed)
             return
         }
         Button(onClick = { if (isPlaying) onPause() else onPlay() }) {
@@ -441,7 +459,9 @@ private fun LiveListenBar(
             } else {
                 "Live voice, not saved - ${(fraction * 100).toInt()}%"
             },
-            style = MaterialTheme.typography.bodyMedium
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f)
         )
+        SpeedButton(speed = speed, onClick = onSpeed)
     }
 }

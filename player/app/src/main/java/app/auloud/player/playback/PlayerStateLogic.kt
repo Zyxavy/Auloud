@@ -39,6 +39,8 @@ data class ControllerSnapshot(
      * the voice across chapter ends instead of going stale behind it.
      */
     val streamChapterPos: Int? = null,
+    /** Book that owns [streamSid] and [streamChapterPos]. */
+    val streamBookId: String? = null,
     /**
      * CP4: fresh skip/storage notice from [SkipNoticeMonitor.consume].
      * Null means "no new notice" (the holder retains the displayed one
@@ -72,6 +74,7 @@ fun ControllerSnapshot.toPlaybackState(): PlaybackState {
         sleepRemainingMs = sleepRemainingMs?.coerceAtLeast(0L),
         streamSid = streamSid?.takeIf { it >= 1 },
         streamChapterPos = streamChapterPos?.takeIf { it >= 0 },
+        streamBookId = streamBookId,
         skipNotice = skipNotice
     )
 }
@@ -175,6 +178,7 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
         val sleepRemaining = snapshot.sleepRemainingMs?.coerceAtLeast(0L)
         val streamSid = snapshot.streamSid?.takeIf { it >= 1 }
         val streamChapterPos = snapshot.streamChapterPos?.takeIf { it >= 0 }
+        val streamBookId = snapshot.streamBookId
         // CP4: null in a snapshot means "no new notice", never "clear".
         // The displayed notice survives idle ticks until the UI dismisses
         // it via clearSkipNotice() (tap or ~6 s timeout).
@@ -191,6 +195,7 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
             sleepRemaining == cur.sleepRemainingMs &&
             streamSid == cur.streamSid &&
             streamChapterPos == cur.streamChapterPos &&
+            streamBookId == cur.streamBookId &&
             notice == cur.skipNotice
         ) {
             return
@@ -208,6 +213,7 @@ class PlayerStateHolder(initial: PlaybackState = PlaybackState()) {
             sleepRemainingMs = sleepRemaining,
             streamSid = streamSid,
             streamChapterPos = streamChapterPos,
+            streamBookId = streamBookId,
             skipNotice = notice
         )
     }

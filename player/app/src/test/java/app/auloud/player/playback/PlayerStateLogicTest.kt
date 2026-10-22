@@ -28,7 +28,8 @@ class PlayerStateLogicTest {
         isConnected: Boolean = true,
         sleepRemainingMs: Long? = null,
         streamSid: Int? = null,
-        streamChapterPos: Int? = null
+        streamChapterPos: Int? = null,
+        streamBookId: String? = null
     ) = ControllerSnapshot(
         isPlaying = isPlaying,
         chapterIndex = chapterIndex,
@@ -40,7 +41,8 @@ class PlayerStateLogicTest {
         isConnected = isConnected,
         sleepRemainingMs = sleepRemainingMs,
         streamSid = streamSid,
-        streamChapterPos = streamChapterPos
+        streamChapterPos = streamChapterPos,
+        streamBookId = streamBookId
     )
 
     // Controller-state mapping.
@@ -365,6 +367,30 @@ class PlayerStateLogicTest {
             expectNoEvents()
             holder.onSnapshot(snapshot(streamChapterPos = 2))
             assertEquals(2, awaitItem().streamChapterPos)
+        }
+    }
+
+    // Live stream ownership: another book's stream must not look like ours.
+
+    @Test
+    fun mapping_carriesStreamBookId() {
+        val state = snapshot(streamBookId = "book-a").toPlaybackState()
+
+        assertEquals("book-a", state.streamBookId)
+    }
+
+    @Test
+    fun holder_emitsStreamBookChangesOnly() = runBlocking {
+        val holder = PlayerStateHolder()
+
+        holder.state.test {
+            assertEquals(PlaybackState(), awaitItem())
+            holder.onSnapshot(snapshot(streamBookId = "book-a"))
+            assertEquals("book-a", awaitItem().streamBookId)
+            holder.onSnapshot(snapshot(streamBookId = "book-a"))
+            expectNoEvents()
+            holder.onSnapshot(snapshot(streamBookId = "book-b"))
+            assertEquals("book-b", awaitItem().streamBookId)
         }
     }
 }

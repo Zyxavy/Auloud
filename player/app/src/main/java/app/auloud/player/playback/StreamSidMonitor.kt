@@ -25,6 +25,13 @@ object StreamSidMonitor {
     var sid: Int? = null
         private set
 
+    /** Claim the stream before its first sentence starts (preparing UI). */
+    fun start(bookId: String, chapterPos: Int) {
+        this.bookId = bookId
+        this.chapterPos = chapterPos
+        sid = null
+    }
+
     fun publish(bookId: String, chapterPos: Int, sid: Int) {
         this.bookId = bookId
         this.chapterPos = chapterPos

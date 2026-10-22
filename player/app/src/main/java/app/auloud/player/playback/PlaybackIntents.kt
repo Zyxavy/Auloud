@@ -28,6 +28,9 @@ object PlaybackIntents {
     /** 0-based manifest chapter position (live chapter jump). */
     const val EXTRA_STREAM_CHAPTER = "app.auloud.player.extra.STREAM_CHAPTER"
 
+    /** Opening [EXTRA_BOOK_ID] stops a live stream owned by another book. */
+    const val EXTRA_STOP_STREAM_IF_OTHER = "app.auloud.player.extra.STOP_STREAM_IF_OTHER"
+
     /** Explicit intent for the playback service (stable class address). */
     fun serviceIntent(appContext: Context): Intent = Intent()
         .setClassName(appContext.packageName, SERVICE_CLASS_NAME)
