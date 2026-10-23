@@ -8,7 +8,7 @@ Status key: `[ ]` not run, `[x]` done. Only tick a box from the evidence named o
 
 - [x] Player unit suites, both flavors (`:app:testCoreDebugUnitTest :app:testFullDebugUnitTest`, from `player/`, with `--no-daemon`): green at VC5, 2696 tests, three consecutive full runs, 0 failures; lint clean on both flavors. Re-run before any release claim; record counts in `docs/test-log.md`.
 - [x] `:app:licenseScan` passes for both flavors (`core` carries no sherpa/onnxruntime/espeak files or markers; `full` carries its native libs plus its notices). Re-run command plus APK entry counts in `docs/test-log.md` (VC1 entry).
-- [x] `:app:releaseManifestCheck` passes every merged release manifest (no `INTERNET`). Re-run command in `docs/test-log.md` (VC2 entry).
+- [x] `:app:releaseManifestCheck` passes the merged `coreRelease` and `fullRelease` manifests with `INTERNET` present (TR1 Wi-Fi receive; the stale non-flavored `release` output is excluded). Re-run command: `.\gradlew.bat --no-daemon :app:releaseManifestCheck` (2026-10-23 entry in `docs/test-log.md`).
 - [x] VC3 JVM compatibility matrix (v1 MP3, Scribe PC, and PC multi-voice bundles play in the v2 reader; a 2.0 book hits the v1 refusal branch): 4/4 green, recorded in `docs/test-log.md`. The Room v1-to-v2 migration has no JVM test (v1 never exported its schema; no Robolectric/room-testing in the harness), so data survival is proven only by the section 2 over-install below.
 
 ## 2. Device rounds (DEVICE-RUN, reference device: Galaxy Tab E)

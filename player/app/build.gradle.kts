@@ -265,23 +265,27 @@ tasks.register("licenseScan") {
 // needs INTERNET (LAN only, no cloud), so this task now FAILS when a
 // merged release manifest LACKS it. The unit test (ReleaseManifestTest)
 // only sees the manifest source; this task reads the merged release
-// manifests instead. Run after the release assembles (from player/):
+// manifests instead. Only the core/full flavor outputs count: a
+// pre-flavor release/processReleaseMainManifest can linger and
+// false-fail a correct TR1 build. Run after the release assembles
+// (from player/):
 // .\gradlew.bat --no-daemon :app:assembleCoreRelease :app:assembleFullRelease :app:releaseManifestCheck
 tasks.register("releaseManifestCheck") {
     group = "verification"
-    description = "VC2/TR1: fail when a merged release manifest lacks INTERNET (Wi-Fi receive needs it)."
+    description = "VC2/TR1: fail when a merged core/full release manifest lacks INTERNET (Wi-Fi receive needs it)."
     doLast {
         val merged = layout.buildDirectory.dir("intermediates/merged_manifest").get().asFile
         val manifests = if (merged.isDirectory) {
             merged.walkTopDown().filter {
-                it.isFile && it.name == "AndroidManifest.xml" && "Release" in it.path
+                it.isFile && it.name == "AndroidManifest.xml" &&
+                    (it.path.contains("coreRelease") || it.path.contains("fullRelease"))
             }.toList()
         } else {
             emptyList()
         }
         if (manifests.isEmpty()) {
             throw GradleException(
-                "releaseManifestCheck: no merged release manifest under ${merged.path}. " +
+                "releaseManifestCheck: no merged core/full release manifest under ${merged.path}. " +
                     "Build first: :app:assembleCoreRelease :app:assembleFullRelease"
             )
         }

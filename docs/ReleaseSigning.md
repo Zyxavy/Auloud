@@ -51,10 +51,12 @@ keeps sideloading and upgrades simple. Model packs stay separate.
 - `licenseScan`: `core` carries no sherpa/onnx/espeak files or dex
   markers; `full` carries its native libs plus the notices
   (`assets/gpl-3.0.txt`, `assets/SOURCE_OFFER.txt`, `assets/NOTICE.txt`).
-- `releaseManifestCheck`: every merged release manifest has no
-  `android.permission.INTERNET` (the unit test only sees the source).
-- Extra belt: `<sdk>\build-tools\<version>\aapt.exe dump badging <apk> | findstr permission`
-  must list NO `android.permission.INTERNET`.
+- `releaseManifestCheck`: the merged `coreRelease` and `fullRelease`
+  manifests contain `android.permission.INTERNET` (TR1 LAN-only Wi-Fi
+  receive; the unit test only sees the source). The non-flavored
+  `release` output is ignored.
+- Extra belt: `<sdk>\build-tools\<version>\aapt.exe dump permissions <apk> | findstr INTERNET`
+  must list `android.permission.INTERNET`.
   (`ACCESS_NETWORK_STATE` comes from an AndroidX dependency; accepted
   since v1, see D-047.)
 

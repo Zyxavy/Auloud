@@ -666,3 +666,17 @@ Not claimed: 2.0.0-to-2.1.0 over-install proof and release smoke on
 the tablet (owner device work, same checklist as VC3/VC8). Push +
 tags, GitHub release page, and PR are owner-side (this environment
 has no git push auth; no MCP release/upload tools exist).
+
+## TR1 manifest-check scope fix (agent, 2026-10-23)
+
+`releaseManifestCheck` now scans only the merged `coreRelease` and
+`fullRelease` manifests. Run from `player/` after the release build:
+
+    .\gradlew.bat --no-daemon :app:releaseManifestCheck
+
+Result: PASS on `processCoreReleaseMainManifest` and
+`processFullReleaseMainManifest` with `android.permission.INTERNET`
+present. The stale `release/processReleaseMainManifest` output from
+2026-10-05 is excluded. The both-flavor unit suites include
+`ReleaseManifestTest`, which asserts the source `INTERNET` permission
+and no `ACCESS_WIFI_STATE`; both green on 2026-10-23.

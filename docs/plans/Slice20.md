@@ -45,12 +45,13 @@ wizard that ensures the Kokoro models exist first.
   rejected: the helper's 127.0.0.1-only bind is a deliberate guard
   (D8/UI2) and opening it to the LAN needs a bigger security review.
 - Player posture change (owner-approved, option A): the Player gains
-  `INTERNET` + `ACCESS_WIFI_STATE` (both install-time normal
-  permissions, no runtime prompt on API 24). This supersedes the
-  no-network posture in `AGENTS.md` and the `android-api24` skill; the
-  `DECISIONS.md` entry lands at AC. `releaseManifestCheck`'s
-  no-INTERNET assertion and the README offline claim (becomes LAN-only,
-  no cloud) are updated in the same slice.
+  `INTERNET` only (install-time normal, no runtime prompt on API 24);
+  no `ACCESS_WIFI_STATE` (`NetworkInterface` enumeration needs none,
+  D-167). This supersedes the no-network posture in `AGENTS.md` and the
+  `android-api24` skill; the `DECISIONS.md` entry lands at AC.
+  `releaseManifestCheck` now requires `INTERNET` for the merged
+  core/full manifests and the README offline claim becomes LAN-only
+  (no cloud); both are updated in the same slice.
 - Models (decided): Kokoro pair only (`kokoro-v1.0.onnx` +
   `voices-v1.0.bin`); downloads happen in the Rust app with checksums
   into the models folder (v3 roadmap decision 4); hardcoded URL +
@@ -214,7 +215,7 @@ TR1 goes first as the riskiest; VT1 and MM1 are independent of it.
 - [ ] Receiver runs only while the Receive screen is open
 - [ ] Kokoro download/sideload/delete with checksum verify + license
 - [ ] First-run wizard reaches Books on a fresh workspace
-- [ ] INTERNET permission + manifest-check + README updates landed
+- [x] INTERNET permission + manifest-check + README updates landed
 - [ ] Owner acceptance logged; suites + clippy + deny + lint green;
   tagged `slice-20`
 
