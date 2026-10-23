@@ -84,10 +84,11 @@ class UnrenderedLiveStreamTest {
     private fun viewModel(
         dao: FakeProgressDao,
         dispatcher: CoroutineDispatcher,
-        live: LiveStream?
+        live: LiveStream?,
+        bundleFiles: Map<String, String> = files()
     ): UnrenderedReaderViewModel = UnrenderedReaderViewModel(
         bookId = "book-live",
-        storage = FakeStorage(files()),
+        storage = FakeStorage(bundleFiles),
         textPathForChapter = { "text/ch001.json" },
         chapterCount = 1,
         progress = RoomProgressRepository(dao),
@@ -144,6 +145,41 @@ class UnrenderedLiveStreamTest {
         }
         // Sids 1,2,3: sid 3 is index 2.
         assertEquals(listOf(2), fake.restarts)
+    }
+
+    @Test
+    fun tap_mapsSidOntoFilteredStreamIndex() = runTest {
+        val dao = FakeProgressDao()
+        val fake = FakeLive()
+        // Sid 1 is blank: the service skips it on the stream path, so sid 3
+        // is stream index 1 even though it is reading index 2.
+        val payload =
+            """{"spec_version": "2.0", "chapter": 1, "title": "Ch 1",
+                "blocks": [{"id": 1, "type": "para", "sentences": [
+                {"sid": 1, "speaker": "narrator", "text": " "},
+                {"sid": 2, "speaker": "narrator", "text": "Two. "},
+                {"sid": 3, "speaker": "narrator", "text": "Three."}]}]}"""
+        val vm = viewModel(
+            dao,
+            StandardTestDispatcher(testScheduler),
+            fake.stream,
+            bundleFiles = mapOf("text/ch001.json" to payload)
+        )
+        try {
+            vm.state.test {
+                testScheduler.advanceUntilIdle()
+                var state = awaitItem()
+                while (state.chapter == null) state = awaitItem()
+                vm.onSentenceTap(3)
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.currentSid != 3) state = awaitItem()
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            vm.clear()
+        }
+        assertEquals(listOf(1), fake.restarts)
     }
 
     @Test

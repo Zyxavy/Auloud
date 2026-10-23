@@ -190,7 +190,12 @@ class UnrenderedReaderViewModel(
         val index = sentences.indexOfFirst { it.sid == sid }
         if (index < 0) return
         _state.value = _state.value.copy(currentSid = sid)
-        live?.restartAt(index)
+        // The stream path skips blank sentences (PlaybackService builds
+        // that list), so seek by the filtered index, not the reading index.
+        val streamIndex = sentences
+            .filter { it.text.isNotBlank() }
+            .indexOfFirst { it.sid == sid }
+        if (streamIndex >= 0) live?.restartAt(streamIndex)
         saveReadingPosition(_state.value.chapterIndex, sid)
     }
 

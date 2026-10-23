@@ -137,6 +137,12 @@ class PlaybackService : MediaSessionService() {
 
     private var currentBookId: String? = null
     /**
+     * Book whose manifest, map and bundle are actually attached.
+     * [currentBookId] changes when a load starts; this changes only after
+     * the new prepare succeeds, so a jump cannot read the old book's text.
+     */
+    private var loadedBookId: String? = null
+    /**
      * RN8: chapter-to-media mapping for the loaded book (D-099 hook).
      * Identity for fully rendered books (saves pass through untouched);
      * sparse for partial books (media indexes convert to manifest chapter
@@ -329,9 +335,13 @@ class PlaybackService : MediaSessionService() {
         // stashed for loadBook (fresh Listen-now races the async load).
         if (intent?.hasExtra(PlaybackIntents.EXTRA_STREAM_CHAPTER) == true && bookId != null) {
             val requested = intent.getIntExtra(PlaybackIntents.EXTRA_STREAM_CHAPTER, -1)
-            pendingStreamChapter = requested.takeIf { it >= 0 }
             if (bookId == currentBookId) {
-                jumpStreamToChapter(requested)
+                pendingStreamChapter = requested.takeIf { it >= 0 }
+                // Only a loaded book can jump; a loading book consumes the
+                // stashed chapter after its prepare swaps the text.
+                if (bookId == loadedBookId) {
+                    jumpStreamToChapter(requested)
+                }
             }
         }
         return super.onStartCommand(intent, flags, startId)
@@ -360,7 +370,7 @@ class PlaybackService : MediaSessionService() {
             )
         }
         val finalPoint = destroySavePointOrNull(
-            currentBookId,
+            loadedBookId ?: currentBookId,
             player?.currentMediaItemIndex ?: C.INDEX_UNSET,
             (player?.currentPosition ?: 0L).coerceAtLeast(0L),
             currentMap
@@ -387,7 +397,6 @@ class PlaybackService : MediaSessionService() {
         // ST4: the session's player plus whichever path idles detached.
         // A stream-paused render job stays paused here (its notification
         // resumes it); destroy never auto-resumes render work (D-134).
-        StreamSidMonitor.clear()
         serviceScope.cancel()
         session?.release()
         session = null
@@ -408,12 +417,26 @@ class PlaybackService : MediaSessionService() {
         }
         exoPlayer = null
         streamPlayer = null
+        // Clear after the players stop: a sid callback in flight during
+        // teardown must not republish the book this service just left.
+        StreamSidMonitor.clear()
         super.onDestroy()
     }
 
     /** Loads [bookId] from storage and prepares it paused at the saved spot. */
     private fun loadBook(bookId: String) {
         if (session?.player == null) return
+        val opened = StreamSidMonitor.openedBookId
+        if (opened != null && opened != bookId) {
+            Log.i(TAG, "load skipped for book=$bookId; reader on $opened")
+            return
+        }
+        // The service's book boundary is here, not only in the UI: a
+        // different book's stream must not keep playing during this load.
+        stopStreamIfOtherBook(bookId)
+        // The new load owns any pending chapter jump; until its prepare
+        // succeeds the attached manifest is still the previous book's.
+        pendingStreamChapter = null
         val generation = ++loadGeneration
         currentBookId = bookId
         serviceScope.launch {
@@ -430,6 +453,8 @@ class PlaybackService : MediaSessionService() {
             val player = session?.player ?: return@launch
             if (prepared == null) {
                 currentBookId = null
+                loadedBookId = null
+                pendingStreamChapter = null
                 currentMap = null
                 currentManifest = null
                 currentBundlePath = null
@@ -440,6 +465,7 @@ class PlaybackService : MediaSessionService() {
             currentMap = prepared.map
             currentManifest = prepared.manifest
             currentBundlePath = prepared.bundlePath
+            loadedBookId = bookId
             // ST4: stream-only books (no playable audio) start on the
             // stream path when the gate allows it.
             if (prepared.mediaItems.isEmpty()) {
@@ -596,6 +622,7 @@ class PlaybackService : MediaSessionService() {
         val current = session
         if (current == null) {
             session = MediaSession.Builder(this, player).build()
+            applyPersistedSpeed(player)
             return
         }
         try {
@@ -604,6 +631,21 @@ class PlaybackService : MediaSessionService() {
             Log.w(TAG, "session setPlayer: ${e.message}; rebuilding")
             current.release()
             session = MediaSession.Builder(this, player).build()
+        }
+        applyPersistedSpeed(player)
+    }
+
+    /** A new Exo starts at 1x; the pref must survive every session swap. */
+    private fun applyPersistedSpeed(player: Player) {
+        try {
+            player.setPlaybackParameters(
+                PlaybackParameters(
+                    PrefsReaderModeStore.fromContext(this).playbackSpeed(),
+                    1.0f
+                )
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "apply speed: ${e.message}")
         }
     }
 
@@ -624,6 +666,19 @@ class PlaybackService : MediaSessionService() {
         generation: Int,
         stopOnRefusal: Boolean,
     ) {
+        val opened = StreamSidMonitor.openedBookId
+        if (opened != null && opened != bookId) {
+            // Before stopStreamPath: a stale start must not kill the
+            // stream of the book the reader is actually on.
+            Log.i(TAG, "stream start skipped for book=$bookId; reader on $opened")
+            return
+        }
+        if (loadedBookId != bookId) {
+            // The attached manifest belongs to another book (or none).
+            // Starting now would speak the previous book's text.
+            Log.i(TAG, "stream start skipped for book=$bookId; loaded=${loadedBookId ?: "none"}")
+            return
+        }
         stopStreamPath(resumeRender = false)
         val sidGeneration = streamSidGeneration
         // Claim the book before the build so opening another book can
@@ -661,6 +716,8 @@ class PlaybackService : MediaSessionService() {
                 StreamSidMonitor.clear()
                 if (stopOnRefusal) {
                     currentBookId = null
+                    loadedBookId = null
+                    pendingStreamChapter = null
                     currentMap = null
                     currentManifest = null
                     currentBundlePath = null
@@ -684,31 +741,28 @@ class PlaybackService : MediaSessionService() {
                 },
                 object : StreamPlayerCallbacks {
                     override fun onChapterDone() {
-                        onStreamChapterDone()
+                        onStreamChapterDone(sidGeneration)
                     }
 
                     override fun onStreamFailed() {
-                        onStreamFailed()
+                        onStreamFailed(sidGeneration)
                     }
 
                     override fun onSidChanged(sid: Int) {
-                        if (sidGeneration != streamSidGeneration) return
-                        val book = streamBookId ?: return
-                        StreamSidMonitor.publish(book, streamChapterPos, sid)
+                        // TTS callbacks arrive on binder threads. Publish
+                        // on Main so the generation check, the book read
+                        // and the write cannot interleave with a stop.
+                        serviceScope.launch {
+                            if (sidGeneration != streamSidGeneration) return@launch
+                            val book = streamBookId ?: return@launch
+                            StreamSidMonitor.publish(book, streamChapterPos, sid)
+                        }
                     }
                 }
             )
             streamPlayer = player
             streamChapterSize = built.input.sentences.size
             setSessionPlayer(player.asPlayer())
-            // The controller syncs speed only when it connects (before this
-            // player exists), so the stream starts at the persisted rate.
-            player.asPlayer().setPlaybackParameters(
-                PlaybackParameters(
-                    PrefsReaderModeStore.fromContext(this@PlaybackService).playbackSpeed(),
-                    1.0f
-                )
-            )
             if (!player.load(built.input)) {
                 refuseStream("stream unavailable (chapter failed to load)")
                 stopStreamPath(resumeRender = false)
@@ -940,6 +994,8 @@ class PlaybackService : MediaSessionService() {
      * false at the book ends or when the target refuses.
      */
     private fun advanceChapter(direction: Int): Boolean {
+        // During a load the attached manifest is still the old book's.
+        if (loadedBookId != currentBookId) return false
         val manifest = currentManifest ?: return false
         val ordered = manifest.chapters.sortedBy { it.index }
         val streaming = streamingAvailable()
@@ -995,10 +1051,11 @@ class PlaybackService : MediaSessionService() {
      * else (out of range, no manifest) is ignored.
      */
     private fun jumpStreamToChapter(chapterPos: Int) {
+        val bookId = currentBookId ?: return
+        if (loadedBookId != bookId) return
         val manifest = currentManifest ?: return
         if (chapterPos < 0 || chapterPos >= manifest.chapters.size) return
         pendingStreamChapter = null
-        val bookId = currentBookId ?: return
         if (isRenderedAt(manifest, chapterPos)) {
             stopStreamPath(resumeRender = true)
             playRenderedChapter(chapterPos)
@@ -1010,10 +1067,12 @@ class PlaybackService : MediaSessionService() {
     }
 
     /** A streamed chapter played to its last sentence: keep going. */
-    private fun onStreamChapterDone() {
+    private fun onStreamChapterDone(generation: Int) {
         // Driver callbacks land on binder threads; player and session
-        // work stays on the service scope (Main).
+        // work stays on the service scope (Main). A late done from a
+        // stopped stream must not advance whatever book runs now.
         serviceScope.launch {
+            if (generation != streamSidGeneration) return@launch
             if (!advanceChapter(1)) {
                 saveStreamFinishedNow()
             }
@@ -1021,11 +1080,12 @@ class PlaybackService : MediaSessionService() {
     }
 
     /** The engine failed mid-chapter: message, save the spot, fall back. */
-    private fun onStreamFailed() {
-        Log.w(TAG, "stream failed")
-        SkipNoticeMonitor.publish(STREAM_FAILED_MESSAGE)
+    private fun onStreamFailed(generation: Int) {
         serviceScope.launch {
-            val bookId = currentBookId
+            if (generation != streamSidGeneration) return@launch
+            Log.w(TAG, "stream failed")
+            SkipNoticeMonitor.publish(STREAM_FAILED_MESSAGE)
+            val bookId = streamBookId ?: currentBookId
             stopStreamPath(resumeRender = true)
             if (bookId != null) {
                 loadBook(bookId)
@@ -1082,7 +1142,7 @@ class PlaybackService : MediaSessionService() {
             return
         }
         val point = ProgressSavePolicy.pointOrNull(
-            currentBookId,
+            loadedBookId ?: currentBookId,
             chapterPos,
             player.currentPosition.coerceAtLeast(0L)
         ) ?: return

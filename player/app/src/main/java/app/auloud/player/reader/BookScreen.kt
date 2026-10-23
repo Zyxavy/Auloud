@@ -102,10 +102,14 @@ fun BookScreen(
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
-    // Opening another book stops the previous book's live voice. The
-    // monitor claims a start before its TTS build, so this also cancels
-    // one that has not begun speaking. Same-book opens are left alone.
+    // Opening another book stops the previous book's live voice. Record
+    // this reader even before a stream exists: a load that finishes after
+    // the user moved on must not start talking under the new book. The
+    // monitor claims a start before its TTS build, so the check below also
+    // cancels one that has not begun speaking. Same-book opens are left
+    // alone.
     LaunchedEffect(book.id) {
+        StreamSidMonitor.opened(book.id)
         val streaming = StreamSidMonitor.bookId
         if (streaming != null && streaming != book.id) {
             try {

@@ -287,8 +287,16 @@ class PlaybackController(
                 // An active sleep timer keeps ticking while paused so the
                 // remaining display stays live (one volatile read). A
                 // pending skip/storage notice does the same so a paused
-                // error still reaches the UI.
-                if (c.isPlaying || SleepTimerMonitor.active || SkipNoticeMonitor.hasPending) refresh("tick")
+                // error still reaches the UI. A claimed stream with no sid
+                // yet keeps ticking so the preparing state appears before
+                // the TTS build finishes.
+                val preparing = StreamSidMonitor.bookId != null &&
+                    StreamSidMonitor.sid == null
+                if (c.isPlaying || SleepTimerMonitor.active ||
+                    SkipNoticeMonitor.hasPending || preparing
+                ) {
+                    refresh("tick")
+                }
             }
         }
     }

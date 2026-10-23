@@ -218,8 +218,14 @@ private fun UnrenderedContent(
                     state.streamChapterPos.takeIf { state.streamBookId == book.id }
                 }.stateIn(scope, SharingStarted.Eagerly, null),
                 restartAt = { index ->
-                    controller.seekToSentence(index)
-                    controller.play()
+                    // The session can still hold another book's rendered
+                    // queue; only seek when this book's live stream is the
+                    // thing attached.
+                    val state = controller.state.value
+                    if (state.streamBookId == book.id && state.streamSid != null) {
+                        controller.seekToSentence(index)
+                        controller.play()
+                    }
                 },
                 seekToChapter = { pos ->
                     appContext.startService(
@@ -320,7 +326,7 @@ private fun UnrenderedContent(
             val sentences = unrendered.chapter?.sentencesInOrder().orEmpty()
             LiveListenBar(
                 isPlaying = liveHere && playerState.isPlaying,
-                preparing = liveHere && playerState.isPlaying && unrendered.liveSid == null,
+                preparing = liveHere && unrendered.liveSid == null,
                 fraction = liveFractionOf(unrendered.liveSid, sentences),
                 speed = speed,
                 onSpeed = {
