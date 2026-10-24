@@ -1111,15 +1111,18 @@ fn spawn_verified(
             });
         }
     };
-    match client.health() {
-        Ok(health) if health.ok => {}
-        _ => {
-            process.kill().ok();
-            process.wait().ok();
-            return Err(WorkerEvent::Failed {
-                message: "helper health check failed right after ready".to_owned(),
-            });
-        }
+    // The ready line can be printed just before the socket accepts (and a
+    // loaded machine delays the first response), so retry briefly instead
+    // of failing a healthy child on one instantaneous probe.
+    let healthy = retry_until(HEALTH_READY_TIMEOUT, || {
+        matches!(client.health(), Ok(health) if health.ok)
+    });
+    if !healthy {
+        process.kill().ok();
+        process.wait().ok();
+        return Err(WorkerEvent::Failed {
+            message: "helper health check failed right after ready".to_owned(),
+        });
     }
     match client.ensure_compatible() {
         Ok(_) => Ok((process, client)),
@@ -1135,6 +1138,24 @@ fn spawn_verified(
                 message: format!("version check failed: {err}"),
             })
         }
+    }
+}
+
+/// How long the first health probe may retry after the ready line.
+const HEALTH_READY_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Run `attempt` until it returns true or `timeout` elapses (100 ms polls).
+/// Used for the ready-to-health race, kept pure so a unit test can drive it.
+fn retry_until(timeout: Duration, mut attempt: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if attempt() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(100));
     }
 }
 
@@ -1285,6 +1306,18 @@ mod tests {
             }
             _ => panic!("want Failed, got {event:?}"),
         }
+    }
+
+    #[test]
+    fn retry_until_waits_for_a_late_success() {
+        let mut calls = 0;
+        let seen = retry_until(Duration::from_secs(2), || {
+            calls += 1;
+            calls >= 3
+        });
+        assert!(seen);
+        assert_eq!(calls, 3);
+        assert!(!retry_until(Duration::from_millis(0), || false));
     }
 
     #[test]

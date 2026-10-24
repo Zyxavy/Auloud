@@ -160,9 +160,14 @@ impl Client {
         // Pool idle age stays below the helper's 5 s keep-alive close: the
         // UI polls jobs every few seconds, and a pooled connection the
         // server already closed fails with a reset instead of an answer.
+        // A global timeout keeps one wedged request from hanging the worker
+        // thread forever; SSE uses its own agent below (a global timeout
+        // would cut a live job stream short).
         let config = ureq::config::Config::builder()
             .http_status_as_error(false)
             .max_idle_age(std::time::Duration::from_secs(2))
+            .timeout_global(Some(std::time::Duration::from_secs(120)))
+            .timeout_connect(Some(std::time::Duration::from_secs(5)))
             .build();
         Ok(Self {
             agent: ureq::Agent::new_with_config(config),
@@ -347,8 +352,16 @@ impl Client {
         job_id: &str,
         last_event_id: u64,
     ) -> Result<EventStream<ureq::BodyReader<'static>>, Error> {
-        let mut request = self
-            .agent
+        // Dedicated agent: the main agent's global timeout would end a
+        // long-running job stream after 120 s. Connect/response timeouts
+        // still catch a dead helper.
+        let stream_config = ureq::config::Config::builder()
+            .http_status_as_error(false)
+            .timeout_connect(Some(std::time::Duration::from_secs(5)))
+            .timeout_recv_response(Some(std::time::Duration::from_secs(30)))
+            .build();
+        let stream_agent = ureq::Agent::new_with_config(stream_config);
+        let mut request = stream_agent
             .get(&format!("{}/api/jobs/{job_id}/events", self.base))
             .header(TOKEN_HEADER, &self.token);
         if last_event_id > 0 {
