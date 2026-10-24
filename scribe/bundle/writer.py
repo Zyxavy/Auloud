@@ -360,6 +360,17 @@ def write_bundle(
     title, author = read_book_metadata(source)
 
     bundle = Path(out_dir)
+    backup = bundle.parent / f"{bundle.name}.bak"
+    # Crash recovery: a previous publish may have moved the old bundle to
+    # `.bak` and died before the staging swap. Restore it before anything
+    # else so the output is never left absent.
+    try:
+        if not bundle.exists() and backup.exists():
+            backup.replace(bundle)
+        elif bundle.exists() and backup.exists():
+            shutil.rmtree(backup, ignore_errors=True)
+    except OSError:
+        pass
     # FP6: never write into the output dir directly. Everything lands in a
     # sibling staging dir; the previous bundle stays valid until the rename
     # below, so a killed rebuild cannot leave a half-written bundle behind.
@@ -485,18 +496,30 @@ def write_bundle(
             f"-- do not use {bundle}:\n{details}"
         )
     # Publish: the old bundle (if any) moves aside first, so a kill here
-    # leaves either the old or the new bundle whole, never a mix.
+    # leaves either the old or the new bundle whole, never a mix. If the
+    # staging swap fails, put the old bundle back instead of leaving the
+    # output absent; the next run's recovery above also restores a stale
+    # backup left by a hard kill.
     try:
-        backup = bundle.parent / f"{bundle.name}.bak"
         shutil.rmtree(backup, ignore_errors=True)
+        moved_old = False
         if bundle.exists() or bundle.is_symlink():
             bundle.replace(backup)
+            moved_old = True
         staging.replace(bundle)
-        shutil.rmtree(backup, ignore_errors=True)
     except OSError as exc:
+        if moved_old and not bundle.exists() and backup.exists():
+            try:
+                backup.replace(bundle)
+            except OSError as restore_exc:
+                raise BundleWriteError(
+                    f"{bundle}: cannot publish finished bundle: {exc.strerror or exc} "
+                    f"(previous bundle also unrestored at {backup}: {restore_exc})"
+                ) from exc
         raise BundleWriteError(
             f"{bundle}: cannot publish finished bundle: {exc.strerror or exc}"
         ) from exc
+    shutil.rmtree(backup, ignore_errors=True)
     return WriteResult(
         bundle_dir=bundle,
         manifest_path=bundle / "manifest.json",

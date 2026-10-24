@@ -44,7 +44,7 @@ from typing import Any, Callable
 
 import numpy as np
 
-from tts.base import SAMPLE_RATE, TTSEngine, resample_mono
+from tts.base import SAMPLE_RATE, TTSEngine, file_identity, resample_mono
 
 #: Model file suffix scanned in the piper dir (config is model + ".json",
 #: which for ``<voice>.onnx`` is ``<voice>.onnx.json`` — exactly what
@@ -114,7 +114,15 @@ class PiperEngine(TTSEngine):
             pkg = importlib.metadata.version("piper-tts")
         except importlib.metadata.PackageNotFoundError:
             pkg = "unknown"
-        return f"piper-tts {pkg}"
+        # Include each voice's model/config identity so replacing a Piper
+        # voice file invalidates the sentence cache even when the package
+        # version is unchanged. Sorted for a stable key; any voice edit
+        # re-renders (voice id is already in the key, so this is safe).
+        files = " ".join(
+            f"{name}={file_identity(model)}+{file_identity(config)}"
+            for name, (model, config) in sorted(self._voice_files.items())
+        )
+        return f"piper-tts {pkg} files=[{files}]"
 
     def _voice(self, voice: str) -> Any:
         if voice not in self._voice_files:

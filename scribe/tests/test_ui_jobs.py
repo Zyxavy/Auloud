@@ -40,6 +40,49 @@ LOCAL = {"host": "127.0.0.1:8137"}
 SENTENCE = "The quiet alder fox crosses the mossy hill at dawn."
 
 
+def test_pump_queue_starts_queued_job_exactly_once(tmp_path: Path) -> None:
+    """Concurrent pumps cannot both claim the same queued job."""
+    from ui.jobs import JobManager, job_dir
+
+    manager = JobManager(tmp_path)
+    folder = job_dir(tmp_path, "job-one")
+    folder.mkdir(parents=True, exist_ok=True)
+    job_path = folder / "job.json"
+    job_path.write_text(
+        json.dumps(
+            {
+                "id": "job-one",
+                "kind": "build",
+                "state": "queued",
+                "created": "2026-01-01T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls: list[str] = []
+
+    def _start(job_id: str) -> None:
+        calls.append(job_id)
+        data = json.loads(job_path.read_text(encoding="utf-8"))
+        data["state"] = "running"
+        job_path.write_text(json.dumps(data), encoding="utf-8")
+        time.sleep(0.1)
+
+    manager._start_job = _start  # type: ignore[method-assign]
+    barrier = threading.Barrier(8)
+
+    def _worker() -> None:
+        barrier.wait()
+        manager._pump_queue()
+
+    threads = [threading.Thread(target=_worker) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert calls == ["job-one"]
+
+
 def _make_epub(path: Path, titles: list[str], title: str = "UI4 Test Book") -> Path:
     book = epub.EpubBook()
     book.set_identifier("test-ui4-book")

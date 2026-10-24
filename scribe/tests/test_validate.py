@@ -273,6 +273,25 @@ def test_blank_title_rejected(tmp_path: Path) -> None:
     assert any("title" in e for e in result.errors)
 
 
+def test_escaping_manifest_paths_rejected(tmp_path: Path) -> None:
+    root = write_ok_bundle(tmp_path)
+    outside = tmp_path / "outside" / "ch001.json"
+    outside.parent.mkdir(parents=True, exist_ok=True)
+    outside.write_text("{}", encoding="utf-8")
+    (tmp_path / "outside" / "ch001.mp3").write_bytes(b"")
+
+    def mutate(m: dict[str, Any]) -> None:
+        m["chapters"][0]["audio"] = "../outside/ch001.mp3"
+        m["chapters"][0]["text"] = "../outside/ch001.json"
+        m["source"]["file"] = "../outside/ch001.json"
+
+    _rewrite_manifest(root, mutate)
+    result = validate_bundle(root, probe=make_probe())
+    assert any("audio path escapes bundle" in e for e in result.errors)
+    assert any("text path escapes bundle" in e for e in result.errors)
+    assert any("source" in e and "escapes bundle" in e for e in result.errors)
+
+
 def test_non_increasing_chapter_indices_rejected(tmp_path: Path) -> None:
     root = write_ok_bundle(tmp_path)
     _rewrite_manifest(

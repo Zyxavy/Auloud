@@ -38,7 +38,7 @@ from typing import Any
 
 import numpy as np
 
-from tts.base import SAMPLE_RATE, TTSEngine, resample_mono
+from tts.base import SAMPLE_RATE, TTSEngine, file_identity, resample_mono
 
 #: Narrator voice chosen in D-023 (American English).
 DEFAULT_VOICE = "af_heart"
@@ -117,7 +117,12 @@ class KokoroEngine(TTSEngine):
             pkg = importlib.metadata.version("kokoro-onnx")
         except importlib.metadata.PackageNotFoundError:
             pkg = "unknown"
-        return f"kokoro-onnx {pkg}"
+        # Include the model file identity so replacing the ONNX or voices
+        # binary invalidates the sentence cache (the package version alone
+        # does not change when those files are swapped).
+        model = file_identity(getattr(self, "_model_path", ""))
+        voices = file_identity(getattr(self, "_voices_path", ""))
+        return f"kokoro-onnx {pkg} model={model} voices={voices}"
 
     def synth(self, text: str, voice: str = DEFAULT_VOICE, speed: float = 1.0) -> np.ndarray:
         """Synthesize one sentence with ``voice`` at ``speed`` (24 kHz mono)."""

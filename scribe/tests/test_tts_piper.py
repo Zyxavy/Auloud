@@ -137,6 +137,16 @@ def test_engine_version_names_package(tmp_path: Path) -> None:
     assert "unknown" not in version  # pinned dep installed in project env
 
 
+def test_engine_version_tracks_model_file_identity(tmp_path: Path) -> None:
+    model, _config = _pair(tmp_path, "v")
+    before = _engine(tmp_path).engine_version
+    # Same package, replaced model bytes -> cache identity must change.
+    model.write_bytes(b"fake-onnx-v2-longer")
+    after = _engine(tmp_path).engine_version
+    assert before != after
+    assert "files=[" in after
+
+
 def test_synth_concatenates_and_resamples(tmp_path: Path) -> None:
     _pair(tmp_path, "v")
     audio = _engine(tmp_path).synth("one two three", "v", 1.0)

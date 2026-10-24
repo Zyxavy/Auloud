@@ -783,29 +783,70 @@ def _validate_voices(
                 )
 
 
+def _bundle_path(root: Path, rel: str) -> Path | None:
+    """``root / rel`` when ``rel`` stays inside ``root``, else None.
+
+    Manifest paths are relative POSIX paths. Absolute paths, Windows drive
+    paths and any ``..`` segment (also with backslashes) are refused so a
+    crafted manifest cannot point at a file outside its own bundle. Symlinks
+    are resolved too, so a link that escapes the bundle is refused.
+    """
+    if not rel or "\x00" in rel:
+        return None
+    candidate = Path(rel)
+    if candidate.is_absolute() or ".." in candidate.parts:
+        return None
+    root_resolved = root.resolve()
+    target = (root_resolved / candidate).resolve()
+    if target != root_resolved and not target.is_relative_to(root_resolved):
+        return None
+    return target
+
+
 def _validate_referenced_files(root: Path, manifest: Manifest, result: ValidationResult) -> None:
     for entry in manifest.chapters:
         # Unrendered 2.0 chapters omit audio: only chapters naming one need
         # the file (1.x always names one; 2.0 rendered chapters name one).
         if entry.audio and entry.audio.strip():
             if manifest.spec_version in V1_SPEC_VERSIONS or entry.duration_ms is not None:
-                if not (root / entry.audio).is_file():
+                audio_path = _bundle_path(root, entry.audio)
+                if audio_path is None:
+                    result.errors.append(
+                        f"manifest.json: chapter {entry.index} audio path escapes bundle "
+                        f"{entry.audio}"
+                    )
+                elif not audio_path.is_file():
                     result.errors.append(
                         f"manifest.json: chapter {entry.index} audio file missing {entry.audio}"
                     )
-        if entry.text and not (root / entry.text).is_file():
-            result.errors.append(
-                f"manifest.json: chapter {entry.index} text file missing {entry.text}"
-            )
-    if manifest.cover and not (root / manifest.cover).is_file():
-        result.errors.append(f"manifest.json: cover file missing {manifest.cover}")
+        if entry.text and entry.text.strip():
+            text_path = _bundle_path(root, entry.text)
+            if text_path is None:
+                result.errors.append(
+                    f"manifest.json: chapter {entry.index} text path escapes bundle {entry.text}"
+                )
+            elif not text_path.is_file():
+                result.errors.append(
+                    f"manifest.json: chapter {entry.index} text file missing {entry.text}"
+                )
+    if manifest.cover:
+        cover_path = _bundle_path(root, manifest.cover)
+        if cover_path is None:
+            result.errors.append(f"manifest.json: cover path escapes bundle {manifest.cover}")
+        elif not cover_path.is_file():
+            result.errors.append(f"manifest.json: cover file missing {manifest.cover}")
 
 
 def _validate_source(root: Path, manifest: Manifest, result: ValidationResult) -> None:
     source = manifest.source
     if source is None or source.file is None:
         return
-    path = root / source.file
+    path = _bundle_path(root, source.file)
+    if path is None:
+        result.errors.append(
+            f"{source.file}: path escapes bundle (listed in manifest source)"
+        )
+        return
     if not path.is_file():
         result.errors.append(f"{source.file}: file missing (listed in manifest source)")
         return
@@ -834,13 +875,15 @@ def _validate_chapter(
     result: ValidationResult,
 ) -> None:
     label = entry.text or f"chapter {entry.index}"
-    text_path = root / entry.text if entry.text else None
+    # Escape is already reported by _validate_referenced_files; never read
+    # outside the bundle here.
+    text_path = _bundle_path(root, entry.text) if entry.text else None
     chapter: ChapterFile | None = None
     if text_path is not None and text_path.is_file():
         chapter = _load_chapter(text_path, label, result)
     if chapter is not None:
         _validate_chapter_content(label, chapter, entry, manifest, result)
-    audio_path = root / entry.audio if entry.audio else None
+    audio_path = _bundle_path(root, entry.audio) if entry.audio else None
     if (
         audio_path is not None
         and audio_path.is_file()

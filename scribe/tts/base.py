@@ -27,12 +27,28 @@ consistently across engines.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 
 import numpy as np
 
 #: Bundle-wide audio rate (Hz). Kokoro is native 24 kHz; any engine that
 #: reports otherwise is resampled to this rate by its wrapper.
 SAMPLE_RATE = 24_000
+
+
+def file_identity(path: Path | str) -> str:
+    """Cheap identity for one model file (``size:mtime_ns``, or ``missing``).
+
+    Baked into an engine's version so the sentence cache is invalidated
+    when the model on disk is replaced, not just when the package changes.
+    Content hashing a 300 MB ONNX model on every engine construction is not
+    worth it; a replacement changes size or mtime.
+    """
+    try:
+        stat = Path(path).stat()
+        return f"{stat.st_size}:{stat.st_mtime_ns}"
+    except OSError:
+        return "missing"
 
 
 def resample_mono(audio: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
