@@ -60,6 +60,38 @@ class BundleValidatorTest {
     }
 
     @Test
+    fun escapingManifestPaths_flaggedAndNotRead() {
+        val dir = fixtureDir("valid-bundle")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        val bad = manifest.copy(
+            chapters = listOf(
+                manifest.chapters[0].copy(audio = "../../secret.mp3", text = "../evil.json")
+            )
+        )
+        var readAnything = false
+        val errors = BundleValidator.validate(
+            dir,
+            bad,
+            readText = { readAnything = true; null }
+        )
+        val joined = errors.joinToString("\n")
+        assertTrue("expected escape errors, got: $joined", joined.contains("path escapes bundle"))
+        assertTrue(!readAnything)
+    }
+
+    @Test
+    fun safeJoin_rejectsAbsoluteAndDotDot() {
+        assertEquals(null, BundleValidator.safeJoin("/books/b1", "../x.mp3"))
+        assertEquals(null, BundleValidator.safeJoin("/books/b1", "audio/../../x.mp3"))
+        assertEquals(null, BundleValidator.safeJoin("/books/b1", "\\evil.mp3"))
+        assertEquals(null, BundleValidator.safeJoin("/books/b1", "C:\\evil.mp3"))
+        assertEquals(
+            "/books/b1/audio/ch001.mp3",
+            BundleValidator.safeJoin("/books/b1", "audio/ch001.mp3")
+        )
+    }
+
+    @Test
     fun blankRequiredField_isFlagged() {
         val dir = fixtureDir("valid-bundle")
         val manifest = BundleParser.parse(dir).getOrThrow()

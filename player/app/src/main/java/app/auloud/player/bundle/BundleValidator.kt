@@ -233,13 +233,23 @@ object BundleValidator {
             }
             errors.addAll(validateChapterFingerprint(manifest, chapter))
             if (hasAudio && (manifest.specVersion in V1_VERSIONS || hasDuration)) {
-                val audioPath = joinPath(bundleDirPath, chapter.audio)
-                if (!exists(audioPath)) {
+                val audioPath = safeJoin(bundleDirPath, chapter.audio)
+                if (audioPath == null) {
+                    errors.add(
+                        "manifest.json: $label audio path escapes bundle ${chapter.audio}"
+                    )
+                } else if (!exists(audioPath)) {
                     errors.add("manifest.json: $label audio file missing ${chapter.audio}")
                 }
             }
             if (readText != null && chapter.text.isNotBlank()) {
-                val textPath = joinPath(bundleDirPath, chapter.text)
+                val textPath = safeJoin(bundleDirPath, chapter.text)
+                if (textPath == null) {
+                    errors.add(
+                        "manifest.json: $label text path escapes bundle ${chapter.text}"
+                    )
+                    continue
+                }
                 if (!exists(textPath)) {
                     errors.add("manifest.json: $label text file missing ${chapter.text}")
                 } else if (isOverTextCap(textPath, textSize)) {
@@ -643,6 +653,22 @@ object BundleValidator {
 
     private fun joinPath(dir: String, rel: String): String =
         dir.trimEnd('/') + '/' + rel.trimStart('/')
+
+    /**
+     * [joinPath] only when [rel] stays inside [dir]. Rejects absolute paths,
+     * Windows drive paths and any `..` segment (backslashes count as
+     * separators) so a crafted manifest cannot make the validator read or
+     * delete a file outside its own bundle. Lexical only (works for file
+     * paths and SAF-style roots alike); null means refuse.
+     */
+    internal fun safeJoin(dir: String, rel: String): String? {
+        if (rel.isBlank() || rel.indexOf('\u0000') >= 0) return null
+        if (rel.startsWith('/') || rel.startsWith('\\')) return null
+        if (rel.length >= 2 && rel[1] == ':') return null
+        val parts = rel.replace('\\', '/').split('/')
+        if (parts.any { it == ".." }) return null
+        return joinPath(dir, rel)
+    }
 
     /**
      * FP4: true when the size seam reports over [MAX_TEXT_BYTES]. Null

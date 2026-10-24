@@ -434,6 +434,12 @@ class PlaybackService : MediaSessionService() {
         // The service's book boundary is here, not only in the UI: a
         // different book's stream must not keep playing during this load.
         stopStreamIfOtherBook(bookId)
+        // Persist the outgoing book before its identity changes. Rendered
+        // saves key on loadedBookId (still the old book here), so this
+        // writes the old spot under the old book, never the new one.
+        if (loadedBookId != null && loadedBookId != bookId) {
+            saveProgressNow("book-switch")
+        }
         // The new load owns any pending chapter jump; until its prepare
         // succeeds the attached manifest is still the previous book's.
         pendingStreamChapter = null
@@ -461,14 +467,10 @@ class PlaybackService : MediaSessionService() {
                 stopSelf()
                 return@launch
             }
-            chapterDurations = prepared.durations
-            currentMap = prepared.map
-            currentManifest = prepared.manifest
-            currentBundlePath = prepared.bundlePath
-            loadedBookId = bookId
             // ST4: stream-only books (no playable audio) start on the
             // stream path when the gate allows it.
             if (prepared.mediaItems.isEmpty()) {
+                commitLoadedBook(bookId, prepared)
                 val ordered = prepared.manifest.chapters.sortedBy { it.index }
                 val count = ordered.size
                 val requested = pendingStreamChapter?.takeIf { it in 0 until count }
@@ -495,6 +497,7 @@ class PlaybackService : MediaSessionService() {
             if (streamingAvailable() && streamPos != null &&
                 !isRenderedAt(prepared.manifest, streamPos)
             ) {
+                commitLoadedBook(bookId, prepared)
                 val sid = if (streamPos == savedPos) prepared.savedSid else null
                 startStreamChapter(bookId, streamPos, sid, generation, stopOnRefusal = true)
                 return@launch
@@ -509,6 +512,10 @@ class PlaybackService : MediaSessionService() {
                 prepared.start.chapterIndex,
                 prepared.start.positionMs
             )
+            // Commit identity only now that the player holds the new book:
+            // a progress callback between the media swap and this line still
+            // maps to the old book, never the new one.
+            commitLoadedBook(bookId, prepared)
             exo.prepare()
             // Start paused at the saved spot; WP7 takes over controls.
             exo.playWhenReady = false
@@ -519,6 +526,20 @@ class PlaybackService : MediaSessionService() {
                     "start=${prepared.start.chapterIndex}@${prepared.start.positionMs}"
             )
         }
+    }
+
+    /**
+     * Publishes the loaded-book identity ([loadedBookId] plus the map,
+     * manifest and durations that belong with it). Called only once the
+     * player holds this book's media (or the stream owns it), so a progress
+     * save can never pair the new book id with the previous book's position.
+     */
+    private fun commitLoadedBook(bookId: String, prepared: PreparedBook) {
+        chapterDurations = prepared.durations
+        currentMap = prepared.map
+        currentManifest = prepared.manifest
+        currentBundlePath = prepared.bundlePath
+        loadedBookId = bookId
     }
 
     /**
@@ -1141,8 +1162,13 @@ class PlaybackService : MediaSessionService() {
             Log.w(TAG, "save skipped: media ${player.currentMediaItemIndex} has no chapter")
             return
         }
+        // Rendered saves key on the LOADED book (the one whose media the
+        // player holds), never currentBookId: a load-in-progress changes
+        // currentBookId before the new media is attached, and saving the old
+        // position under the new id is the bug this guards.
+        val bookId = loadedBookId ?: return
         val point = ProgressSavePolicy.pointOrNull(
-            loadedBookId ?: currentBookId,
+            bookId,
             chapterPos,
             player.currentPosition.coerceAtLeast(0L)
         ) ?: return
@@ -1278,7 +1304,8 @@ class PlaybackService : MediaSessionService() {
     /** At the end of the final chapter: mark finished (last chapter, full duration). */
     private fun saveFinishedNow() {
         val player = session?.player ?: return
-        val bookId = currentBookId ?: return
+        // The loaded book, never a book whose load is still in flight.
+        val bookId = loadedBookId ?: return
         // RN8 (end-of-portion message): a partial book stopping at the end
         // of its rendered portion is not finished, so it surfaces the stop
         // message through the notice channel and never writes a finished

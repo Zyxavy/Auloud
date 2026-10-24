@@ -8,6 +8,7 @@ import java.io.IOException
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -42,8 +43,13 @@ class ReceiveServer(
     private val storage: BundleStorage,
     private val library: LibraryRepository,
     private val onReceiveStarted: () -> Unit = {},
-    private val onReceiveFinished: (ReceiveOutcome) -> Unit = {}
+    private val onReceiveFinished: (ReceiveOutcome) -> Unit = {},
+    /** Wrong-code brake; tests pass 0 to exercise the cap without waiting. */
+    private val badCodeDelayMs: Long = 1000L
 ) : NanoHTTPD(port) {
+
+    /** TR1 hardening: wrong pairing codes seen this server lifetime. */
+    private val badGuesses = AtomicInteger(0)
 
     override fun serve(session: IHTTPSession): Response {
         if (session.method != Method.POST || session.uri != "/bundle") {
@@ -55,10 +61,18 @@ class ReceiveServer(
         }
         if (!constantTimeEquals(session.headers["x-pairing-code"], pairingCode)) {
             // One-second brake on wrong guesses (each connection has its
-            // own thread): a 6-digit code with instant cheap rejects would
-            // brute-force in minutes to a same-Wi-Fi neighbor.
+            // own thread), plus a hard cap so a neighbor cannot guess
+            // forever: after MAX_BAD_GUESSES the server refuses until it is
+            // restarted (the Receive screen owns its lifetime).
+            if (badGuesses.incrementAndGet() > MAX_BAD_GUESSES) {
+                return json(
+                    Response.Status.TOO_MANY_REQUESTS,
+                    ok = false,
+                    error = "bundle.zip: too-many-attempts: too many wrong pairing codes"
+                )
+            }
             try {
-                Thread.sleep(1000)
+                Thread.sleep(badCodeDelayMs)
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
             }
@@ -66,6 +80,17 @@ class ReceiveServer(
                 Response.Status.FORBIDDEN,
                 ok = false,
                 error = "bundle.zip: bad-code: wrong pairing code"
+            )
+        }
+        badGuesses.set(0)
+        if (oversizeDeclaredLength(session.headers["content-length"])) {
+            // Refuse a declared oversize upload before NanoHTTPD streams it
+            // to a temp file; the pipeline's unpacked cap stays the second
+            // line of defense.
+            return json(
+                Response.Status.PAYLOAD_TOO_LARGE,
+                ok = false,
+                error = "bundle.zip: too-large: upload exceeds $MAX_UPLOAD_BYTES bytes"
             )
         }
         val sha = session.headers["x-sha256"]
@@ -131,9 +156,19 @@ class ReceiveServer(
         /** Fixed LAN port shown on the Receive screen as `IP:PORT`. */
         const val RECEIVE_PORT = 8089
 
+        /** Wrong pairing codes allowed before the server refuses (429). */
+        const val MAX_BAD_GUESSES = 10
+
+        /** Declared-upload ceiling (4 GiB; the pipeline caps unpacked bytes). */
+        const val MAX_UPLOAD_BYTES = 4L * 1024L * 1024L * 1024L
+
         /** Six-digit code, regenerated every time the server starts. */
         fun newPairingCode(random: SecureRandom = SecureRandom()): String =
             String.format(Locale.US, "%06d", random.nextInt(1_000_000))
+
+        /** True when a declared `Content-Length` is past [MAX_UPLOAD_BYTES]. */
+        internal fun oversizeDeclaredLength(header: String?): Boolean =
+            (header?.trim()?.toLongOrNull() ?: 0L) > MAX_UPLOAD_BYTES
 
         internal fun constantTimeEquals(candidate: String?, expected: String): Boolean =
             MessageDigest.isEqual(

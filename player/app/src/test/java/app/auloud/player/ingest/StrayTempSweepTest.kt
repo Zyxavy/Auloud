@@ -79,6 +79,21 @@ class StrayTempSweepTest {
     }
 
     @Test
+    fun renderTempPaths_skipsEscapingManifestRels() {
+        val json = """
+            {"spec_version":"1.0","id":"b1","title":"B","type":"epub",
+             "audio":{"format":"mp3","channels":1,"sample_rate":24000,"bitrate_kbps":64,"cbr":true},
+             "voices":{"narrator":{"engine":"kokoro","voice":"af_heart","speed":1.0,"pitch":1.0}},
+             "chapters":[{"index":1,"title":"C","audio":"../evil.mp3",
+                          "text":"../evil.json","duration_ms":1000}]}
+        """.trimIndent()
+        val manifest = app.auloud.player.bundle.BundleParser.parseText(json).getOrThrow()
+        val paths = StrayTempSweep.renderTempPaths("/books/b1", manifest)
+        assertTrue(paths.none { it.contains("..") })
+        assertTrue(paths.contains("/books/b1/manifest.json.tmp"))
+    }
+
+    @Test
     fun isStrayDir_matchesTempPrefixOnly() {
         assertTrue(StrayTempSweep.isStrayDir("/books/.tmp-abc"))
         assertTrue(StrayTempSweep.isStrayDir("/books/.tmp-abc/"))
