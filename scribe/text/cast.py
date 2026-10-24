@@ -42,6 +42,13 @@ an optional ``pitch`` is accepted but ignored in v1: decision 4 is speed
 offsets only, no pitch shifting). ``default_female``/``default_male``
 carry ``voice`` and an optional ``speed`` (default 1.0) plus the same
 optional ``engine``.
+- ``voice`` may be one string (the legacy form) or a list of strings (a
+  multi-voice pool). In the list form each quote picks one voice
+  deterministically from its text (see :func:`_pool_index`), so the same
+  sentence always re-renders to the same voice while different sentences
+  vary; a re-render is byte-identical and a re-draft does not touch the
+  edit. A pool is for generics and a few hand-picked characters; the
+  palette assignment in :func:`draft_cast` always writes one string.
 - ``aliases`` maps a character key to its alias surfaces (the reverse of a
   flat alias-to-character map, so a surface claimed by two characters is a
   detectable duplicate). Matching is exact on :func:`text.speakers
@@ -135,6 +142,7 @@ byte-identical across runs (no timestamps anywhere).
 from __future__ import annotations
 
 import copy
+import hashlib
 import math
 import re
 from collections.abc import Collection
@@ -178,6 +186,27 @@ CHARACTER_PALETTE_MALE: tuple[str, ...] = ("bm_lewis", "im_nicola", "am_eric")
 #: Generic fallback voices (D-036).
 DEFAULT_FEMALE_VOICE = "af_bella"
 DEFAULT_MALE_VOICE = "am_adam"
+
+#: Multi-voice pools (D-190). A generic entry may name one voice (the legacy
+#: single-string form) or a list of voices; in the list form each quote picks
+#: one deterministically from its text, so the same sentence always re-renders
+#: to the same voice while different sentences vary. Re-rendering a bundle is
+#: byte-identical; a re-draft does not touch these edits.
+DEFAULT_FEMALE_POOL: tuple[str, ...] = ("af_jessica", "af_nicole", "af_river")
+DEFAULT_MALE_POOL: tuple[str, ...] = ("am_adam", "am_eric", "am_michael")
+
+
+def _pool_index(pool: Collection[str], text: str) -> int:
+    """Deterministic pseudo-random pick from ``pool``, keyed on ``text``.
+
+    Bundles must be reproducible, so this is not :mod:`random`: the same quote
+    text always maps to the same index, and two different texts are not
+    correlated. The hash is over the UTF-8 bytes of the quote text.
+    """
+    if not pool:
+        return 0
+    digest = hashlib.sha256((text or "").encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") % len(pool)
 
 #: Top-level keys of a multi-voice cast (also the generic character keys).
 CHARACTERS_KEY = "characters"
@@ -328,17 +357,24 @@ def cast_engines(cast: dict[str, Any]) -> list[str]:
     return [engine for engine in SUPPORTED_ENGINES if engine in needed]
 
 
-def _entry_voice(entry: Any, *, fallback_voice: str) -> tuple[str, float]:
+def _entry_voice(entry: Any, *, fallback_voice: str, text: str = "") -> tuple[str, float]:
     """``(voice, speed)`` from a cast entry, defensively (never raises).
 
-    Invalid casts resolve to fallbacks here; :func:`validate_cast` is the
-    layer that reports the errors.
+    ``voice`` may be one string (the legacy form) or a list of strings (a
+    multi-voice pool; each quote picks one deterministically from its text via
+    :func:`_pool_index`). Invalid casts resolve to fallbacks here;
+    :func:`validate_cast` is the layer that reports the errors.
     """
     voice, speed = fallback_voice, DEFAULT_SPEED
     if isinstance(entry, dict):
         raw_voice = entry.get("voice")
         if isinstance(raw_voice, str) and raw_voice.strip():
             voice = raw_voice
+        elif isinstance(raw_voice, list) and any(
+            isinstance(v, str) and v.strip() for v in raw_voice
+        ):
+            pool = [v for v in raw_voice if isinstance(v, str) and v.strip()]
+            voice = pool[_pool_index(pool, text)]
         raw_speed = entry.get("speed", DEFAULT_SPEED)
         if (
             isinstance(raw_speed, (int, float))
@@ -350,20 +386,25 @@ def _entry_voice(entry: Any, *, fallback_voice: str) -> tuple[str, float]:
     return voice, speed
 
 
-def _generic_voice(cast: dict[str, Any], *, male: bool) -> ResolvedVoice:
+def _generic_voice(cast: dict[str, Any], *, male: bool, text: str = "") -> ResolvedVoice:
     """Generic fallback: ``default_male`` for male hints, else default female.
 
     Unknown (and garbled) hints deliberately fall back to the female
-    generic; see the module docstring for the rationale.
+    generic; see the module docstring for the rationale. A pool entry picks
+    one voice per quote from ``text``.
     """
     if male:
         entry = cast.get(DEFAULT_MALE_KEY)
-        voice, speed = _entry_voice(entry, fallback_voice=DEFAULT_MALE_VOICE)
+        voice, speed = _entry_voice(
+            entry, fallback_voice=DEFAULT_MALE_VOICE, text=text
+        )
         return ResolvedVoice(
             character=GENERIC_MALE, voice=voice, speed=speed, engine=_entry_engine(entry)
         )
     entry = cast.get(DEFAULT_FEMALE_KEY)
-    voice, speed = _entry_voice(entry, fallback_voice=DEFAULT_FEMALE_VOICE)
+    voice, speed = _entry_voice(
+        entry, fallback_voice=DEFAULT_FEMALE_VOICE, text=text
+    )
     return ResolvedVoice(
         character=GENERIC_FEMALE, voice=voice, speed=speed, engine=_entry_engine(entry)
     )
@@ -411,7 +452,9 @@ def _match_text_override(entry: Any, *, text: str) -> str | None:
     return speaker if matched else None
 
 
-def _voice_for_canonical(cast: dict[str, Any], canonical: str) -> ResolvedVoice | None:
+def _voice_for_canonical(
+    cast: dict[str, Any], canonical: str, *, text: str = ""
+) -> ResolvedVoice | None:
     """Voice for a canonical name (narrator, character, or alias surface)."""
     characters = cast.get(CHARACTERS_KEY)
     if not isinstance(characters, dict):
@@ -421,20 +464,24 @@ def _voice_for_canonical(cast: dict[str, Any], canonical: str) -> ResolvedVoice 
         aliases = {}
     if canonical == NARRATOR:
         entry = cast.get(NARRATOR)
-        voice, speed = _entry_voice(entry, fallback_voice=NARRATOR_VOICE)
+        voice, speed = _entry_voice(entry, fallback_voice=NARRATOR_VOICE, text=text)
         return ResolvedVoice(
             character=NARRATOR, voice=voice, speed=speed, engine=_entry_engine(entry)
         )
     if isinstance(canonical, str) and canonical in characters:
         entry = characters[canonical]
-        voice, speed = _entry_voice(entry, fallback_voice=DEFAULT_FEMALE_VOICE)
+        voice, speed = _entry_voice(
+            entry, fallback_voice=DEFAULT_FEMALE_VOICE, text=text
+        )
         return ResolvedVoice(
             character=canonical, voice=voice, speed=speed, engine=_entry_engine(entry)
         )
     target = canonicalize_speaker(canonical, characters, aliases)
     if target is not None:
         entry = characters[target]
-        voice, speed = _entry_voice(entry, fallback_voice=DEFAULT_FEMALE_VOICE)
+        voice, speed = _entry_voice(
+            entry, fallback_voice=DEFAULT_FEMALE_VOICE, text=text
+        )
         return ResolvedVoice(
             character=target, voice=voice, speed=speed, engine=_entry_engine(entry)
         )
@@ -490,18 +537,18 @@ def resolve_speaker(
         target = cast.get(FIRST_PERSON_KEY, NARRATOR)
         if not isinstance(target, str) or not target.strip():
             target = NARRATOR
-        resolved = _voice_for_canonical(cast, target)
+        resolved = _voice_for_canonical(cast, target, text=text)
         if resolved is not None:
             return resolved
         entry = cast.get(NARRATOR)
-        voice, speed = _entry_voice(entry, fallback_voice=NARRATOR_VOICE)
+        voice, speed = _entry_voice(entry, fallback_voice=NARRATOR_VOICE, text=text)
         return ResolvedVoice(
             character=NARRATOR, voice=voice, speed=speed, engine=_entry_engine(entry)
         )
 
     if normalize_name(effective) == NARRATOR:
         entry = cast.get(NARRATOR)
-        voice, speed = _entry_voice(entry, fallback_voice=NARRATOR_VOICE)
+        voice, speed = _entry_voice(entry, fallback_voice=NARRATOR_VOICE, text=text)
         return ResolvedVoice(
             character=NARRATOR, voice=voice, speed=speed, engine=_entry_engine(entry)
         )
@@ -509,11 +556,13 @@ def resolve_speaker(
     canonical = canonicalize_speaker(effective, characters, aliases)
     if canonical is not None:
         entry = characters.get(canonical)
-        voice, speed = _entry_voice(entry, fallback_voice=DEFAULT_FEMALE_VOICE)
+        voice, speed = _entry_voice(
+            entry, fallback_voice=DEFAULT_FEMALE_VOICE, text=text
+        )
         return ResolvedVoice(
             character=canonical, voice=voice, speed=speed, engine=_entry_engine(entry)
         )
-    return _generic_voice(cast, male=(gender == GENDER_MALE))
+    return _generic_voice(cast, male=(gender == GENDER_MALE), text=text)
 
 
 def _pick_palette_voice(pool: Collection[str], used: set[str], index: int) -> str:
@@ -676,7 +725,27 @@ def _check_voice(
     known_voices: Collection[str] | None,
     engine: str = NARRATOR_ENGINE,
 ) -> None:
-    """Validate one voice field (non-empty; real engine voice when known)."""
+    """Validate one voice field (non-empty; real engine voice when known).
+
+    Accepts one string (the legacy form) or a list of strings (a multi-voice
+    pool; each quote picks one at resolution time). Both forms are checked
+    against the engine's voice list when one is given.
+    """
+    if isinstance(voice, list):
+        if not voice:
+            errors.append(f"{source}: {key}: voice pool must be a non-empty list")
+            return
+        for i, item in enumerate(voice):
+            if not isinstance(item, str) or not item.strip():
+                errors.append(
+                    f"{source}: {key}[{i}]: voice must be a non-empty string (got {item!r})"
+                )
+            elif known_voices is not None and item not in known_voices:
+                errors.append(
+                    f"{source}: {key}[{i}]: unknown voice {item!r} "
+                    f"(must be a real {engine} voice)"
+                )
+        return
     if not isinstance(voice, str) or not voice.strip():
         errors.append(f"{source}: {key}: voice must be a non-empty string (got {voice!r})")
     elif known_voices is not None and voice not in known_voices:
