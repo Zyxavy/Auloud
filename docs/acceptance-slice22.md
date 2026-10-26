@@ -62,4 +62,4 @@ one. The owner chose the documented clean-machine path (D-157).
 | Render speed tiers | a render started at `fast` runs 8 workers on this 20-CPU machine, `slow` runs 1 | owner, 2026-10-26 | render good; tier-vs-worker count not separately recorded |
 | Licenses screen | open `Settings` > `Licenses` and read the three files | owner, 2026-10-26 | fair |
 | Clean machine | D-157: documented setup only | n/a | no verified clean-machine claim is made |
-| Tag | `git tag v3.0.0` | pending | after the rows above |
+| Tag | `git tag v3.0.0` | done, 2026-10-26 | cut on the acceptance commit; not pushed |
