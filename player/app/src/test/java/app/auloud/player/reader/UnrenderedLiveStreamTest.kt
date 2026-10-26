@@ -160,6 +160,47 @@ class UnrenderedLiveStreamTest {
     }
 
     @Test
+    fun confirmTapJump_reattachesOnlyWhenVoiceReachesTarget() = runTest {
+        val dao = FakeProgressDao()
+        val fake = FakeLive()
+        val vm = viewModel(dao, StandardTestDispatcher(testScheduler), fake.stream)
+        try {
+            vm.state.test {
+                testScheduler.advanceUntilIdle()
+                var state = awaitItem()
+                while (state.chapter == null) state = awaitItem()
+                fake.sids.value = 1
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.liveSid == null) state = awaitItem()
+                vm.onUserScrolled()
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.follow != FollowState.Detached) state = awaitItem()
+                vm.onSentenceTap(3)
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.pendingTapSid != 3) state = awaitItem()
+                vm.confirmTapJump()
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.currentSid != 3) state = awaitItem()
+                // The old sentence is still the voice position: re-attaching
+                // now would scroll there first.
+                assertEquals(FollowState.Detached, state.follow)
+                fake.sids.value = 3
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.liveSid != 3) state = awaitItem()
+                assertEquals(FollowState.Following, state.follow)
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
     fun dismissTapJump_keepsVoiceAndReadingPosition() = runTest {
         val dao = FakeProgressDao()
         val fake = FakeLive()
@@ -200,11 +241,18 @@ class UnrenderedLiveStreamTest {
                 testScheduler.advanceUntilIdle()
                 var state = awaitItem()
                 while (state.chapter == null) state = awaitItem()
+                // A manual scroll detached follow; the tap is an explicit
+                // jump, so it re-attaches like the rendered reader.
+                vm.onUserScrolled()
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.follow != FollowState.Detached) state = awaitItem()
                 vm.onSentenceTap(3)
                 testScheduler.advanceUntilIdle()
                 state = awaitItem()
                 while (state.currentSid != 3) state = awaitItem()
                 assertNull(state.pendingTapSid)
+                assertEquals(FollowState.Following, state.follow)
                 cancelAndIgnoreRemainingEvents()
             }
         } finally {
