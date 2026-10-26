@@ -651,10 +651,10 @@ re-tags at 7444632 (the actual end state); #19 closes.
 ## V2.1 release build (agent, 2026-10-10, commit 64efd81)
 
 > **Superseded 2026-10-26.** This was the 2.1.0 build. The release tag for
-> the v2 line is now `v2.1.6` (tagged at `ec3b84d`, the ST7 follow-up);
-> `v2.1.0` was deleted because it pointed at `dcd43f4`, before the three
-> ST7 fixes. The shipped APK is the 2.1.6 one below. The numbers here
-> stand as the 2.1.0 record.
+> the v2 line is now `v2.1.6` (tagged at `d678ef1`, the ST7 follow-up
+> plus the SOURCE_OFFER fix); `v2.1.0` was deleted because it pointed at
+> `dcd43f4`, before the three ST7 fixes. The shipped APK is the 2.1.6
+> one in the section below. The numbers here stand as the 2.1.0 record.
 
 Version `2.1.0`, `versionCode` 3 (bump + source-offer tag v2.1.0).
 Signed release APKs (release key CN=Auloud, V2 signature; both flavors
@@ -673,7 +673,7 @@ the tablet (owner device work, same checklist as VC3/VC8). Push +
 tags, GitHub release page, and PR are owner-side (this environment
 has no git push auth; no MCP release/upload tools exist).
 
-## V2.1.6 release build (agent, 2026-10-26, commit ec3b84d)
+## V2.1.6 release build (agent, 2026-10-26; tag `v2.1.6` at `d678ef1`, the ST7 fixes plus the SOURCE_OFFER fix)
 
 The shipped v2 build. `versionName` "2.1.6", `versionCode` 11 (bump from
 2.1.0 code 3). Signed release APK (release key CN=Auloud, V2 signature;
@@ -691,10 +691,25 @@ the `full` flavor upgrades a v1/v2 install in place on the same cert
   in `core`; no `ACCESS_WIFI_STATE`)
 - `:app:testFullDebugUnitTest` 1576 pass, `:app:testCoreDebugUnitTest`
   1553 pass on the tagged tree
-- Tag: `v2.1.6` at `ec3b84d`. Replaces the stale `v2.1.0` tag, which had
-  pointed at `dcd43f4` (before the ST7 fixes).
+- Tag: `v2.1.6` at `d678ef1` (the SOURCE_OFFER fix moved it off `ec3b84d`).
+  Replaces the stale `v2.1.0` tag, which had pointed at `dcd43f4` (before
+  the ST7 fixes).
 
-Not claimed: 2.0.0-to-2.1.6 over-install proof and the 2.1.6 device round
+Owner device round on the 2.1.6 full build (2026-10-26, no adb):
+
+- **Imported books open (issue #25, closed).** The spinner-past-120-s
+  symptom on imported EPUBs and PDFs is gone on the current build. The
+  fix it asked for was already shipped: the render-panel load runs under
+  a stall budget that names the stage it stopped in
+  (`RenderPanelViewModel.kt:82-106`), the chapter-list load is its own
+  guarded path (`ChapterLoad.kt:36-70`), and `BookScreen.kt` sets
+  `chapters` before the stale scan runs on `Dispatchers.IO`. The report
+  was confirming the fix on device, not finding a new defect.
+
+Still open in the 2.1.6 device round: cross-book stop, Listen on B after
+A, highlight, preparing state, chapter-end or failure during a switch,
+forced re-send replacement, progress save across a book switch, and the
+2.0.0-to-2.1.6 over-install proof.
 (cross-book stop, Listen on B after A, highlight, preparing state,
 chapter-end or failure during a switch, forced re-send replacement,
 progress save across a book switch) - owner device work. Push, the
