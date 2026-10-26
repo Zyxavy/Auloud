@@ -23,7 +23,7 @@ Do not tick these from JVM results; each needs a physical device.
 
 ## 3. Release gate (VC8)
 
-Run when sections 1-2 are green: the checklist in `docs/archive/v2/plans/Slice12.md` (section 6 definition of done) plus `docs/08-Licenses.md` section 7 plus the VC1-VC7 outcomes. Done 2026-10-10: tagged `slice-12` and `v2.0.0`. Slice 13 streaming (ST0-ST7) is covered in `docs/archive/v2/plans/Slice13.md` plus `docs/archive/v2/streaming.md`, tagged `slice-13`; the release tag for that line is now `v2.1.6` (2026-10-26, at `ec3b84d`). The `v2.1.0` tag named here was deleted as stale: it pointed at `dcd43f4`, before the ST7 fixes.
+Run when sections 1-2 are green: the checklist in `docs/archive/v2/plans/Slice12.md` (section 6 definition of done) plus `docs/08-Licenses.md` section 7 plus the VC1-VC7 outcomes. Done 2026-10-10: tagged `slice-12` and `v2.0.0`. Slice 13 streaming (ST0-ST7) is covered in `docs/archive/v2/plans/Slice13.md` plus `docs/archive/v2/streaming.md`, tagged `slice-13`; the release tag for that line is now `v2.1.6` (2026-10-26, at `d678ef1`). The `v2.1.0` tag named here was deleted as stale: it pointed at `dcd43f4`, before the ST7 fixes.
 
 ## 4. What stays open by design
 

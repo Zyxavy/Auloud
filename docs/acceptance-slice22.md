@@ -46,15 +46,15 @@ one. The owner chose the documented clean-machine path (D-157).
 
 | WP | State |
 | --- | --- |
-| RP1 | committed (`be6dd28`); the tier check on a live render is unrun, owner |
+| RP1 | committed (`be6dd28`); the tier-vs-worker count was not separately recorded by the owner |
 | IN1 | both zips rebuilt 2026-10-19 and checked; the machine-without-Python run is unrun (D-157) |
 | IN2 | documented only, no artifact (D-190) |
-| LG1 | generated and checked for both variants; `Settings` > `Licenses` has not been seen on a display |
-| SO1 | owner, pending |
+| LG1 | generated and checked for both variants; `Settings` > `Licenses` read as "fair" |
+| SO1 | owner, 2026-10-26: soak run, verdict good |
 | DC1 | committed (`8ab24af`); the five missing slice tags are cut (`slice-14`, `slice-15`, `slice-17`, `slice-20`, `slice-21`) |
-| AC | this sheet |
+| AC | this sheet, closed 2026-10-26 |
 
-## Owner acceptance (pending)
+## Owner acceptance (closed 2026-10-26)
 
 | Item | How to judge | State | Notes |
 | --- | --- | --- | --- |
@@ -62,4 +62,4 @@ one. The owner chose the documented clean-machine path (D-157).
 | Render speed tiers | a render started at `fast` runs 8 workers on this 20-CPU machine, `slow` runs 1 | owner, 2026-10-26 | render good; tier-vs-worker count not separately recorded |
 | Licenses screen | open `Settings` > `Licenses` and read the three files | owner, 2026-10-26 | fair |
 | Clean machine | D-157: documented setup only | n/a | no verified clean-machine claim is made |
-| Tag | `git tag v3.0.0` | done, 2026-10-26 | cut on the acceptance commit; not pushed |
+| Tag | `git tag v3.0.0` | done, 2026-10-26 | cut at `52e4458`; not pushed |

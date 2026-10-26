@@ -247,13 +247,14 @@ open.
   criterion from `docs/10-V3Roadmap.md` section 7 with its evidence.
 - **Verify:** owner acceptance logged; suite, clippy and deny green on
   the tagged commit; tag `v3.0.0`.
-- **State (2026-10-19):** `docs/acceptance-slice22.md` holds the agent
+- **State (2026-10-26):** `docs/acceptance-slice22.md` holds the agent
   gates (Rust and Python suites, clippy, deny, ruff, both packer runs),
   the artifact checks for both zips, and one row per release criterion
   with its evidence. The owner rows (soak, render tiers, the Licenses
-  screen) are pending, so `v3.0.0` is not cut: criterion 2 holds only as
-  far as D-157 and D-190 allow, and criterion 1's device listening result
-  is still an empty protocol.
+  screen) are filled in: soak good, render good, licenses fair.
+  `v3.0.0` is cut at `52e4458`. Criterion 2 still holds only as far as
+  D-157 and D-190 allow (no clean-machine run, no Linux artifact), and
+  criterion 1's device listening result is still an empty protocol.
 
 ## 6. Order and check-ins
 
@@ -283,13 +284,24 @@ Both decisions are in: the contract line (D-183) and the portable zip
 
 ## 8. Definition of done
 
-- [ ] Render speed selectable in the app; tiers verified on a real render
-- [ ] Windows artifact built, placed and started on a machine without Python
-- [x] Linux story documented with its unverified lines named; no Linux artifact in v3.0.0 (D-190)
-- [ ] NOTICE, SBOM, in-app licenses and the source offer complete and generated
-- [ ] Soak done and recorded, or its gaps named in place of results
-- [x] README, first-run guide, stale v3 wording and missing tags fixed
-- [ ] Release criteria list verified item by item; tagged `v3.0.0`
+> **Closed 2026-10-26 (tag `v3.0.0` at `52e4458`).** The last v3 slice.
+> - Render speed selectable in the app: render good. The tier-vs-worker
+>   count (8 on `fast`, 1 on `slow`) was not separately recorded.
+> - Windows artifact: built, placed, generated and checked on the dev
+>   machine. Never started on a machine without Python - D-157, documented
+>   setup only, no clean-machine claim.
+> - Linux: documented with its unverified lines named; no artifact (D-190).
+> - NOTICE, SBOM, in-app licenses and source offer: generated from the
+>   lock files, checked for both variants; the Licenses screen was read
+>   as "fair".
+> - Soak: run, good; recorded as a one-line verdict in
+>   `docs/test-log.md`, no per-box numbers.
+> - README, first-run guide, stale v3 wording and the missing slice
+>   tags: fixed.
+> - Release criteria: verified item by item in
+>   `docs/acceptance-slice22.md`; two of the seven criteria (clean
+>   machine, Linux) are recorded as not met by owner decision, not
+>   forgotten. Tagged `v3.0.0`.
 
 ## 9. Risks and mitigations
 
@@ -309,7 +321,7 @@ Both decisions are in: the contract line (D-183) and the portable zip
 - [x] Linux: no artifact in `v3.0.0` (D-190); WSL2 exists on this machine, but `package_helper.py` is Windows-only
 - [x] Approval for the one contract line (`selection.render_speed`), which amends D-178 (D-183)
 - [x] Per-render choice only, kept out of Settings (D-183)
-- [ ] The Slice 21 acceptance rows, if they are not done yet: the `slice-21` tag is a prerequisite for this slice's `v3.0.0`
+- [x] The Slice 21 acceptance rows, if they are not done yet: the `slice-21` tag is a prerequisite for this slice's `v3.0.0`
 
 ## 11. Working with the agent
 

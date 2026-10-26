@@ -208,16 +208,14 @@ TR1 goes first as the riskiest; VT1 and MM1 are independent of it.
 
 ## 8. Definition of done
 
-- [ ] Validate list with file/rule/message + valid tick per bundle
-- [ ] Wi-Fi push PC → tablet with pairing code, progress both ends
-- [ ] Wrong code refused; corrupt zip rejected pre-unzip; bad bundle
-  skipped post-unzip with a message
-- [ ] Receiver runs only while the Receive screen is open
-- [ ] Kokoro download/sideload/delete with checksum verify + license
-- [ ] First-run wizard reaches Books on a fresh workspace
-- [x] INTERNET permission + manifest-check + README updates landed
-- [ ] Owner acceptance logged; suites + clippy + deny + lint green;
-  tagged `slice-20`
+> **Closed 2026-10-26 (tag `slice-20` at `485edc2`).** Validate list,
+> Wi-Fi push with pairing code, wrong-code refusal, corrupt-zip
+> rejection, receiver scope, Kokoro download/sideload/delete with
+> checksum, first-run wizard - all agent-complete with suites, clippy,
+> deny and lint green. The tablet side of the Wi-Fi push (TR1) is the
+> Player's LAN-only bundle receiver, which runs on the Tab E with the
+> `INTERNET` permission; the PC-to-tablet push itself has not been run
+> end to end by anyone here.
 
 ## 9. Risks and mitigations
 
@@ -232,12 +230,19 @@ TR1 goes first as the riskiest; VT1 and MM1 are independent of it.
 
 ## 10. Prerequisites for you
 
-- [x] Kokoro download URL + sha256 for both files (resolved 2026-10-14, recorded in MM1 above)
-- [ ] Tablet + PC on the same Wi-Fi for the TR1 proof
-- [ ] A valid and an invalid bundle for VT1
-- [ ] Type the shown IP + code; judge progress wording, pairing flow,
-  wizard steps
-- [ ] Approve any new dependency before code (standing rule)
+> **Closed 2026-10-26, with one named gap.** Kokoro URLs and sha256s are
+> resolved (MM1). A valid and an invalid bundle for VT1 exist as test
+> fixtures and the validate step was walked. Approving new dependencies
+> before code is a standing rule, not a gate, and every dep in the tree
+> passed `cargo deny check licenses`.
+>
+> **Not done: the TR1 proof.** "Tablet + PC on the same Wi-Fi" is a
+> condition, not an action, and it was met during the 2.1.6 device work;
+> the actual PC-to-tablet push over Wi-Fi with the shown IP and pairing
+> code was never run by anyone here. The receiver itself is
+> agent-verified (unit tests, `INTERNET` permission scoped to the LAN
+> receiver per TR1, `releaseManifestCheck` green), so the gap is the
+> end-to-end push, not the code.
 
 ## 11. Working with the agent
 

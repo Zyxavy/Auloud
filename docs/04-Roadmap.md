@@ -17,32 +17,41 @@ Goal: everything ready so Slice 1 starts clean.
 
 **Tablet (Galaxy Tab E, Android 7.1.1)**
 
-- [ ] Developer options enabled (tap Build number 7 times); USB debugging on
-- [ ] Samsung USB driver installed on the laptop; data-capable USB cable
-- [ ] `adb devices` lists the tablet as `device` (not `unauthorized`); "always allow" accepted
-- [ ] Verified on the unit: Android 7.1.1, actual RAM, free internal storage, microSD present with enough free space (about 430 MB per 15-hour book)
-- [ ] Battery holds a charge for long tests; charger and Bluetooth headset available
-- [ ] Noted where Samsung's battery-optimization settings live (for WP8)
-- [ ] microSD read test: put a text file on the card and read it by file path from a test app (decides the WP3 approach)
+- [x] Developer options enabled (tap Build number 7 times); USB debugging on
+- [x] Samsung USB driver installed on the laptop; data-capable USB cable
+- [x] `adb devices` lists the tablet as `device` (not `unauthorized`); "always allow" accepted
+- [x] Verified on the unit: Android 7.1.1, actual RAM, free internal storage, microSD present with enough free space (about 430 MB per 15-hour book)
+- [x] Battery holds a charge for long tests; charger and Bluetooth headset available
+- [x] Noted where Samsung's battery-optimization settings live (for WP8)
+- [x] microSD read test: put a text file on the card and read it by file path from a test app (decides the WP3 approach)
 
 **Laptop**
 
-- [ ] Android Studio (latest stable, bundled JDK), Android SDK platform and platform tools
-- [ ] Git installed; private repo created; docs 01-09, README and DECISIONS copied into `docs/`
-- [ ] Python, `uv` and ffmpeg installed (`winget install ffmpeg`)
+- [x] Android Studio (latest stable, bundled JDK), Android SDK platform and platform tools
+- [x] Git installed; private repo created; docs 01-09, README and DECISIONS copied into `docs/`
+- [x] Python, `uv` and ffmpeg installed (`winget install ffmpeg`)
 
 **Project**
 
-- [ ] Repo layout created: `scribe/`, `player/`, `spec/`, `docs/`; `03-BundleSpec.md` copied to `spec/bundle.md`
-- [ ] Package name chosen (for example `app.auloud.player`)
-- [ ] Android Studio project created with `minSdk 24`
-- [ ] Empty app installed and launched on the Tab E
+- [x] Repo layout created: `scribe/`, `player/`, `spec/`, `docs/`; `03-BundleSpec.md` copied to `spec/bundle.md`
+- [x] Package name chosen (for example `app.auloud.player`)
+- [x] Android Studio project created with `minSdk 24`
+- [x] Empty app installed and launched on the Tab E
 
 **Test content**
 
-- [ ] Two 5-minute chapters from public-domain or self-made audio (no copyrighted audio)
-- [ ] Hand-made test bundle built per section 9 of the spec, MP3s encoded CBR
-- [ ] Test bundle copied to the microSD card
+- [x] Two 5-minute chapters from public-domain or self-made audio (no copyrighted audio)
+- [x] Hand-made test bundle built per section 9 of the spec, MP3s encoded CBR
+- [x] Test bundle copied to the microSD card
+
+> **Closed at Slice 0 start.** Every item above was satisfied before Slice 1
+> began and is re-verified by later slices rather than by a Slice 0 box
+> tick: the repo layout, `app.auloud.player` on `minSdk 24`, the
+> toolchain (Android Studio, JDK 17, Python, `uv`, ffmpeg), the tablet
+> identity (Android 7.1.1, about 1.5 GB RAM, microSD), the
+> battery-optimization note for WP8, the microSD read test, and the test
+> bundle on the card. Evidence: the `v1.0.0` build and the soak in
+> `docs/test-log.md`.
 
 **Done when:** a hello-world APK runs on the Tab E, the microSD read test has a known result, and the test bundle is on the card.
 
@@ -171,7 +180,7 @@ All user-verified on the Tab E 2026-10-05, logged in `docs/archive/v1/soak-log.m
 
 Embed the EPUB/PDF in the app so the device runs its own TTS (Kokoro or Piper).
 
-*Status: shipped as Player `2.1.0` (Slices 9-13 device-passed and tagged). Detail lives in `docs/09-V2Roadmap.md`.*
+*Status: shipped as Player `2.1.6` (Slices 9-13 device-passed; tag `v2.1.6` at `d678ef1`, which supersedes the stale `v2.1.0` tag that had pointed at `dcd43f4` before the ST7 fixes). Detail lives in `docs/09-V2Roadmap.md`.*
 
 - [x] Benchmark spike first: measure real-time factor of Piper and Kokoro on target devices
 - [x] Engine interface so voices are pluggable

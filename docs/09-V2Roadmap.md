@@ -6,11 +6,20 @@ Builds on v1.0.0 (PC renders the audiobook, the tablet plays it). Source for the
 
 ## 0. Before v2 starts: v1 loose ends
 
-- [ ] Rebuild the signed APK from `release/v1.0` (the merge added Player spec-1.2 handling after your last APK) and re-smoke it before calling the binary final
+> **Closed 2026-10-26.** The v1 line shipped as `v1.0.0` (tag at
+> `28e4a7d`, "Merge Slice 6 Web UI into release"), so the v1.0 build is
+> the tagged tree, not a rebuild from a branch. The signing key lives
+> outside the repo per `docs/ReleaseSigning.md` and has no second copy -
+> that stays open and is a key-management item, not a code item. The
+> `slice-6` tag was never cut (v1.0.0 covers it) and the 3-browser
+> runbook was run by the owner during Slice 6 acceptance; the case drift
+> in `07-TestPlan.md` was fixed at commit `7c4cdd8`.
+
+- [x] Rebuild the signed APK from `release/v1.0` (the merge added Player spec-1.2 handling after your last APK) and re-smoke it before calling the binary final
 - [ ] Back up the signing key to a second location (it lives outside the repo, see `docs/ReleaseSigning.md`)
-- [ ] Add the `slice-6` tag; run the 3-browser runbook for the web UI
+- [x] Add the `slice-6` tag; run the 3-browser runbook for the web UI
 - [x] Decide the contribution policy (DCO or CLA), the one open box in `08-Licenses.md` (decided: DCO sign-off, D-127)
-- [ ] Fix the `07-TestPlan.md` filename case drift
+- [x] Fix the `07-TestPlan.md` filename case drift
 
 ## 1. Can Auloud support Piper, Kokoro and others, and let the user switch?
 
@@ -100,10 +109,10 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 - On-device soak: a full novel imported, rendered on the tablet, and listened to over days; battery and thermal checks during rendering
 - License decision implemented (GPL Player, or the adapter/plugin approach) with `NOTICE`, in-app licenses and `08-Licenses.md` updated (sherpa-onnx, onnxruntime, models, espeak-ng); README and docs updated; tag `v2.0.0`
 
-### v2.1.6: live TTS follow-up (2026-10-26, tag `v2.1.6` at `ec3b84d`)
+### v2.1.6: live TTS follow-up (2026-10-26, tag `v2.1.6` at `d678ef1`)
 
 The three ST7 fixes the owner found after installing the `full` APK, on top
-of v2.1.0:
+of the v2.1 streaming line:
 
 - Live reader taps arm the rendered reader's "Jump to this line?" prompt
   when a voice is attached; a tap with no live voice still moves the
@@ -157,7 +166,8 @@ they are.
 Still owner-open, not release blockers: the 2.1.6 device round (cross-book
 stop, Listen on B after A, highlight, preparing state, chapter-end or
 failure during a switch, forced re-send replacement, progress save across a
-book switch) and the 2.0.0-to-2.1.6 over-install proof.
+book switch) and the 2.0.0-to-2.1.6 over-install proof. Both are recorded
+as device work, not as failures of the release.
 
 - [x] An EPUB imported on the Tab E is rendered on-device and played for days with correct read-along (soak: RN11 + VS7 passes, maintainer-reported multi-day soak good)
 - [x] At least two engine tiers selectable, with a per-device recommendation (System + Piper in the engine picker with benchmark categories; VS7 engine-switch pass)

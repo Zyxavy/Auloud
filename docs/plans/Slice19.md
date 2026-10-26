@@ -163,12 +163,12 @@ CS1 needs no CS0 answer (dropdowns work without playback). CS3 waits on CS0.
 
 ## 8. Definition of done
 
-- [ ] Cast table with dropdowns, speeds, first-person, minor collapsed
-- [ ] Conflict message with reload, no silent overwrites
-- [ ] Overrides editor with quote picker + affected preflight
-- [ ] cast_report read-only view
-- [ ] Voices view with engine selector + audition (or agreed fallback)
-- [ ] Owner acceptance logged; suite + clippy + deny green; tagged `slice-19`
+> **Closed 2026-10-26 (tag `slice-19` at `c576cce`).** Cast table,
+> conflict message, overrides editor, cast_report, voices view with
+> engine selector and audition all agent-complete with suite, clippy and
+> deny green. The slice's own "done when" - edit the cast, audition,
+> apply an override and rebuild without touching YAML - is part of the
+> native-UI walk recorded in `docs/acceptance-slice22.md` criterion 3.
 
 ## 9. Risks and mitigations
 
@@ -182,11 +182,19 @@ CS1 needs no CS0 answer (dropdowns work without playback). CS3 waits on CS0.
 
 ## 10. Prerequisites for you
 
-- [ ] CS0 verdict: audition playback crate approved, or reveal-fallback
-- [ ] A drafted multi-voice book for the table + a low-confidence quote
-- [ ] One forced `cast.yaml` conflict, judged message-first
-- [ ] Three voices auditioned; engine switch tried
-- [ ] Judge table density, dropdown wording, and error text
+> **Closed 2026-10-26.** CS0 is decided and landed: rodio 0.23
+> (`default-features = false`, `playback` + `wav`) is in `Cargo.toml` and
+> the owner picked in-app playback over reveal-fallback (D-162). Table
+> density, dropdown wording and error text were judged as part of the
+> native-UI walk recorded in `docs/acceptance-slice22.md` criterion 3,
+> whose wording is "add book, draft, **cast edit with audition**, render
+> with ranges, validate and transfer" - so a multi-voice book, an
+> override and an audition were on that walk.
+>
+> Not separately recorded: a low-confidence quote, one forced
+> `cast.yaml` conflict judged message-first, three voices auditioned, and
+> an engine switch tried. Those are per-box owner actions; the soak was
+> a one-line verdict, so they are not claimed from it.
 
 ## 11. Working with the agent
 
