@@ -83,6 +83,22 @@ object StreamRoute {
     }
 
     /**
+     * ST7-fix: true when a chapter request names the chapter already
+     * attached to this book's stream, so the service resumes it instead of
+     * starting the chapter over at its first sentence. [hasPlayer] is false
+     * while a stream start is still building (nothing to resume yet).
+     */
+    fun resumesAttachedStream(
+        bookId: String,
+        requestedChapter: Int,
+        streamBookId: String?,
+        streamChapterPos: Int,
+        hasPlayer: Boolean,
+    ): Boolean = hasPlayer &&
+        streamBookId == bookId &&
+        streamChapterPos == requestedChapter
+
+    /**
      * Local system voice name for a namespaced voice id, or null when
      * the voice is not a system voice (streaming is system-only, so a
      * Piper id refuses instead of mis-speaking).

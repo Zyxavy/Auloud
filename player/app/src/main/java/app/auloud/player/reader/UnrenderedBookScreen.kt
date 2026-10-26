@@ -268,8 +268,14 @@ private fun UnrenderedContent(
     val playerState by controller.state.collectAsState()
     // ST7-fix: one shared "start the stream here" for the live bar and
     // the mode row (the service auto-plays fresh loads and jumps, so
-    // this is safe before the controller connects).
+    // this is safe before the controller connects). A stream already
+    // attached to this book resumes where it is: re-sending the chapter
+    // extra would restart the chapter from sentence 1 after every pause.
     fun playLive() {
+        if (playerState.streamBookId == book.id) {
+            if (playerState.streamSid != null) controller.play()
+            return
+        }
         appContext.startService(
             PlaybackIntents.serviceIntent(appContext)
                 .putExtra(PlaybackIntents.EXTRA_BOOK_ID, book.id)
@@ -350,7 +356,7 @@ private fun UnrenderedContent(
                 isPlaying = streamingAvailable && liveHere && playerState.isPlaying,
                 isTextLoading = unrendered.isTextLoading,
                 textError = unrendered.textError,
-                pendingTapSid = null,
+                pendingTapSid = unrendered.pendingTapSid,
                 textKind = unrendered.textKind
             ),
             onBack = onBack,
@@ -359,6 +365,8 @@ private fun UnrenderedContent(
             onBackToNow = viewModel::onBackToNow,
             onSentenceTap = viewModel::onSentenceTap,
             onTopVisibleSentence = viewModel::onTopVisibleSid,
+            onConfirmTapJump = viewModel::confirmTapJump,
+            onDismissTapJump = viewModel::dismissTapJump,
             onOpenChapters = onOpenChapters,
             onOpenRender = onOpenRender,
             onSpeak = if (streamingAvailable) ::playLive else null,

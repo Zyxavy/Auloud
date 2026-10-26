@@ -34,7 +34,13 @@ data class UnrenderedReaderState(
      * (saves, back-to-now anchor) stays in [currentSid]. Never saved
      * from here (the service saves the stream spot on its own cadence).
      */
-    val liveSid: Int? = null
+    val liveSid: Int? = null,
+    /**
+     * ST7-fix: tapped sentence awaiting confirmation while a live stream
+     * is attached (null when no prompt is open). Mirrors the rendered
+     * reader's confirm step: a tap never moves the voice by accident.
+     */
+    val pendingTapSid: Int? = null
 )
 
 /**

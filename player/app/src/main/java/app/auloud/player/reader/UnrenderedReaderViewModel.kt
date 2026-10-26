@@ -35,10 +35,12 @@ import kotlinx.coroutines.launch
  *   no-op) and loads the chapter start, saving it on success. Failures
  *   keep the error state and do not overwrite the last good position.
  *   [nextChapter] and [previousChapter] step through it (ends no-op).
- * - [onSentenceTap] moves the reading position immediately (no confirm
- *   prompt: there is no audio to lose) and saves it; unknown sids are
- *   ignored. [onTopVisibleSid] debounces rapid scroll reports and settles
- *   the last one the same way.
+ * - [onSentenceTap] moves the reading position immediately when no live
+ *   voice is attached (there is no audio to lose) and saves it; with a
+ *   live voice it arms the same confirm prompt as the rendered reader
+ *   ([confirmTapJump]/[dismissTapJump]), so an accidental tap never moves
+ *   the stream. Unknown sids are ignored. [onTopVisibleSid] debounces rapid
+ *   scroll reports and settles the last one the same way.
  * - Follow reuses the shared machine: manual scroll detaches, back-to-now
  *   and chapter changes re-attach.
  * - The voice leads across chapter ends: a service chapter advance loads
@@ -180,18 +182,53 @@ class UnrenderedReaderViewModel(
     }
 
     /**
-     * Tap moves the reading position (no confirm: there is no audio to
-     * lose). Unknown sids are ignored. ST5: a live stream restarts
-     * audibly from the tapped sentence.
+     * Tap arms the jump prompt while a live voice is attached (mirrors the
+     * rendered reader's confirm step: an accidental tap never loses the
+     * place). With no live voice there is no audio to lose, so the reading
+     * position moves immediately. Unknown sids are ignored.
      */
     fun onSentenceTap(sid: Int) {
-        val chapter = _state.value.chapter ?: return
-        val sentences = chapter.sentencesInOrder()
-        val index = sentences.indexOfFirst { it.sid == sid }
-        if (index < 0) return
+        val current = _state.value
+        val chapter = current.chapter ?: return
+        if (chapter.sentencesInOrder().none { it.sid == sid }) return
+        if (current.liveSid != null) {
+            _state.value = current.copy(pendingTapSid = sid)
+            return
+        }
+        moveReadingPosition(sid)
+    }
+
+    /** Prompt confirmed: move the reading position and restart the voice there. */
+    fun confirmTapJump() {
+        val current = _state.value
+        val pending = current.pendingTapSid ?: return
+        val sentences = current.chapter?.sentencesInOrder().orEmpty()
+        if (sentences.none { it.sid == pending }) {
+            _state.value = current.copy(pendingTapSid = null)
+            return
+        }
+        _state.value = current.copy(currentSid = pending, pendingTapSid = null)
+        // The stream path skips blank sentences (PlaybackService builds
+        // that list), so seek by the filtered index, not the reading index.
+        val streamIndex = sentences
+            .filter { it.text.isNotBlank() }
+            .indexOfFirst { it.sid == pending }
+        if (streamIndex >= 0) live?.restartAt(streamIndex)
+        saveReadingPosition(current.chapterIndex, pending)
+    }
+
+    /** Prompt dismissed: close it, playback and position untouched. */
+    fun dismissTapJump() {
+        if (_state.value.pendingTapSid != null) {
+            _state.value = _state.value.copy(pendingTapSid = null)
+        }
+    }
+
+    private fun moveReadingPosition(sid: Int) {
         _state.value = _state.value.copy(currentSid = sid)
         // The stream path skips blank sentences (PlaybackService builds
         // that list), so seek by the filtered index, not the reading index.
+        val sentences = _state.value.chapter?.sentencesInOrder().orEmpty()
         val streamIndex = sentences
             .filter { it.text.isNotBlank() }
             .indexOfFirst { it.sid == sid }
@@ -230,6 +267,7 @@ class UnrenderedReaderViewModel(
             chapter = null,
             follow = reduceFollow(_state.value.follow, FollowEvent.ChapterChanged),
             currentSid = null,
+            pendingTapSid = null,
             isTextLoading = true,
             textError = null,
             textKind = null

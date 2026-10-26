@@ -336,11 +336,25 @@ class PlaybackService : MediaSessionService() {
         if (intent?.hasExtra(PlaybackIntents.EXTRA_STREAM_CHAPTER) == true && bookId != null) {
             val requested = intent.getIntExtra(PlaybackIntents.EXTRA_STREAM_CHAPTER, -1)
             if (bookId == currentBookId) {
-                pendingStreamChapter = requested.takeIf { it >= 0 }
-                // Only a loaded book can jump; a loading book consumes the
-                // stashed chapter after its prepare swaps the text.
-                if (bookId == loadedBookId) {
-                    jumpStreamToChapter(requested)
+                if (StreamRoute.resumesAttachedStream(
+                        bookId = bookId,
+                        requestedChapter = requested,
+                        streamBookId = streamBookId,
+                        streamChapterPos = streamChapterPos,
+                        hasPlayer = streamPlayer != null
+                    )
+                ) {
+                    // ST7-fix: the same chapter is already attached (paused
+                    // or playing). Resume it; restarting would send the
+                    // listener back to sentence 1 after every pause.
+                    streamPlayer?.play()
+                } else {
+                    pendingStreamChapter = requested.takeIf { it >= 0 }
+                    // Only a loaded book can jump; a loading book consumes
+                    // the stashed chapter after its prepare swaps the text.
+                    if (bookId == loadedBookId) {
+                        jumpStreamToChapter(requested)
+                    }
                 }
             }
         }
