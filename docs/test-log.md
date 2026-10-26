@@ -650,6 +650,12 @@ re-tags at 7444632 (the actual end state); #19 closes.
 
 ## V2.1 release build (agent, 2026-10-10, commit 64efd81)
 
+> **Superseded 2026-10-26.** This was the 2.1.0 build. The release tag for
+> the v2 line is now `v2.1.6` (tagged at `ec3b84d`, the ST7 follow-up);
+> `v2.1.0` was deleted because it pointed at `dcd43f4`, before the three
+> ST7 fixes. The shipped APK is the 2.1.6 one below. The numbers here
+> stand as the 2.1.0 record.
+
 Version `2.1.0`, `versionCode` 3 (bump + source-offer tag v2.1.0).
 Signed release APKs (release key CN=Auloud, V2 signature; both flavors
 share cert `985d45a2...28c9041611`, so either upgrades a v1/v2 install
@@ -666,6 +672,34 @@ Not claimed: 2.0.0-to-2.1.0 over-install proof and release smoke on
 the tablet (owner device work, same checklist as VC3/VC8). Push +
 tags, GitHub release page, and PR are owner-side (this environment
 has no git push auth; no MCP release/upload tools exist).
+
+## V2.1.6 release build (agent, 2026-10-26, commit ec3b84d)
+
+The shipped v2 build. `versionName` "2.1.6", `versionCode` 11 (bump from
+2.1.0 code 3). Signed release APK (release key CN=Auloud, V2 signature;
+the `full` flavor upgrades a v1/v2 install in place on the same cert
+`985d45a2...28c9041611`): `full` 64,592,736 B.
+
+- full SHA256: `72F52FBAA1A57562234A8DC41E3E391AF9D2BF5AF905F3DAE0CADFC7E146D8C0`
+  (`player/app/build/outputs/apk/full/release/app-full-release.apk`,
+  built 2026-10-26 11:39, after the ST7 fixes)
+  - The 10:52 build (sha256 `80156D74…`) carried `assets/SOURCE_OFFER.txt`
+    naming `tag v2.1.0`, which had been deleted. Rebuilt with the offer
+    pointing at `v2.1.6`; verified by unzipping the APK.
+- `:app:lintFullDebug`, `:app:assembleFullRelease`, `:app:releaseManifestCheck`
+  BUILD SUCCESSFUL; `licenseScan` PASS (INTERNET present in `full`, absent
+  in `core`; no `ACCESS_WIFI_STATE`)
+- `:app:testFullDebugUnitTest` 1576 pass, `:app:testCoreDebugUnitTest`
+  1553 pass on the tagged tree
+- Tag: `v2.1.6` at `ec3b84d`. Replaces the stale `v2.1.0` tag, which had
+  pointed at `dcd43f4` (before the ST7 fixes).
+
+Not claimed: 2.0.0-to-2.1.6 over-install proof and the 2.1.6 device round
+(cross-book stop, Listen on B after A, highlight, preparing state,
+chapter-end or failure during a switch, forced re-send replacement,
+progress save across a book switch) - owner device work. Push, the
+GitHub release page and the PR are owner-side (this environment has no
+git push auth).
 
 ## TR1 manifest-check scope fix (agent, 2026-10-23)
 

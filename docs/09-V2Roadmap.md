@@ -100,10 +100,38 @@ Piper and Kokoro can both run through one native library (sherpa-onnx, which sup
 - On-device soak: a full novel imported, rendered on the tablet, and listened to over days; battery and thermal checks during rendering
 - License decision implemented (GPL Player, or the adapter/plugin approach) with `NOTICE`, in-app licenses and `08-Licenses.md` updated (sherpa-onnx, onnxruntime, models, espeak-ng); README and docs updated; tag `v2.0.0`
 
+### v2.1.6: live TTS follow-up (2026-10-26, tag `v2.1.6` at `ec3b84d`)
+
+The three ST7 fixes the owner found after installing the `full` APK, on top
+of v2.1.0:
+
+- Live reader taps arm the rendered reader's "Jump to this line?" prompt
+  when a voice is attached; a tap with no live voice still moves the
+  reading position immediately (D-200).
+- A chapter request naming the chapter already attached to the paused
+  stream resumes it instead of restarting at sentence 1, in both the
+  live bar and `PlaybackService`.
+- Confirmed jumps re-attach follow (`FollowEvent.TextJump`) like the
+  rendered reader; a live jump re-attaches only when the restarted voice
+  reaches the tapped sentence.
+- A confirmed jump while the stream is paused resumes at the tapped
+  sentence in one plan: `StreamPlayer.handleSeek` no longer starts through
+  `startSpeaking()`, whose `requeue()` replans from the pre-seek sentence.
+
+full release APK: `player/app/build/outputs/apk/full/release/
+app-full-release.apk`, 64,592,736 B, sha256
+`72F52FBAA1A57562234A8DC41E3E391AF9D2BF5AF905F3DAE0CADFC7E146D8C0`
+(the 10:52 build, sha256 `80156D74…`, carried a `SOURCE_OFFER.txt` naming
+the deleted `v2.1.0` tag and was rebuilt).
+The earlier `v2.1.0` tag pointed at `dcd43f4` and was stale; it is
+replaced by this tag. `versionCode` 11, `versionName` "2.1.6".
+
 ### v2.1: Instant listening
 
 **Slice 13: Streaming synthesis (M-L).** *Status: complete (maintainer
-acceptance 2026-10-10; tags `slice-13` and `v2.1.0`).*
+acceptance 2026-10-10; tag `slice-13`). The release tag for this line is
+`v2.1.6` (2026-10-26), which supersedes the stale `v2.1.0` tag that had
+pointed at `dcd43f4` before the ST7 fixes.*
 
 - Synthesize-ahead pipeline into an audio buffer so listening starts within seconds, falling back to rendered chapters when present; handle underruns; seeking into unsynthesized text starts synthesis from that sentence
 - Highlight sync from live timings; foreground service with the screen off
@@ -119,6 +147,17 @@ acceptance 2026-10-10; tags `slice-13` and `v2.1.0`).*
 - Web UI: engine selector in the cast view; an "Export for on-device rendering" action in the Transfer step (optional)
 
 ## 6. v2 release criteria (ticked 2026-10-10; bases in `docs/test-log.md`)
+
+v2 is complete as a line: `v2.0.0` (Slices 7-12), `v2.1.6` (Slice 13
+streaming plus the ST7 follow-up),
+streaming) and `v2.1.6` (ST7 follow-up) are all tagged on `dev/v3`. The
+last three are not pushed; the SOURCE_OFFER URL still resolves only after
+they are.
+
+Still owner-open, not release blockers: the 2.1.6 device round (cross-book
+stop, Listen on B after A, highlight, preparing state, chapter-end or
+failure during a switch, forced re-send replacement, progress save across a
+book switch) and the 2.0.0-to-2.1.6 over-install proof.
 
 - [x] An EPUB imported on the Tab E is rendered on-device and played for days with correct read-along (soak: RN11 + VS7 passes, maintainer-reported multi-day soak good)
 - [x] At least two engine tiers selectable, with a per-device recommendation (System + Piper in the engine picker with benchmark categories; VS7 engine-switch pass)
