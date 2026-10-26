@@ -58,8 +58,8 @@ one. The owner chose the documented clean-machine path (D-157).
 
 | Item | How to judge | State | Notes |
 | --- | --- | --- | --- |
-| Soak (SO1) | a full multi-voice novel from add-book to a transferred bundle: a mid-render app kill and resume, pause and resume, and a range re-render, then compare against the Python bundle with `scribe validate` (durations within the RT4 jitter floor, not byte equality) | pending | results belong in `docs/test-log.md` with the machine named |
-| Render speed tiers | a render started at `fast` runs 8 workers on this 20-CPU machine, `slow` runs 1 | pending | the plan's RP1 Verify line |
-| Licenses screen | open `Settings` > `Licenses` and read the three files | pending | the one LG1 item no agent has seen |
+| Soak (SO1) | a full multi-voice novel from add-book to a transferred bundle: a mid-render app kill and resume, pause and resume, and a range re-render, then compare against the Python bundle with `scribe validate` (durations within the RT4 jitter floor, not byte equality) | owner, 2026-10-26 | soak run, verdict good; no per-box numbers recorded |
+| Render speed tiers | a render started at `fast` runs 8 workers on this 20-CPU machine, `slow` runs 1 | owner, 2026-10-26 | render good; tier-vs-worker count not separately recorded |
+| Licenses screen | open `Settings` > `Licenses` and read the three files | owner, 2026-10-26 | fair |
 | Clean machine | D-157: documented setup only | n/a | no verified clean-machine claim is made |
 | Tag | `git tag v3.0.0` | pending | after the rows above |

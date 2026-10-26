@@ -680,3 +680,26 @@ present. The stale `release/processReleaseMainManifest` output from
 2026-10-05 is excluded. The both-flavor unit suites include
 `ReleaseManifestTest`, which asserts the source `INTERNET` permission
 and no `ACCESS_WIFI_STATE`; both green on 2026-10-23.
+
+## Slice 22 / v3.0.0 (owner, 2026-10-26)
+
+Owner acceptance for the last v3 slice, per `docs/acceptance-slice22.md`.
+One-line verdicts, same standing as the v2 soak one-liners; no per-box
+numbers were recorded.
+
+- Soak (SO1): run, good. A full multi-voice novel from add-book through
+  a transferred bundle, including a mid-render app kill and resume, pause
+  and resume, and a range re-render; `scribe validate` clean against the
+  Python workflow's bundle.
+- Render speed tiers: render good. The tier-vs-worker-count check (8
+  workers on `fast`, 1 on `slow`) was not separately recorded.
+- Licenses screen (`Settings` > `Licenses`): fair.
+- Clean machine: still documented setup only (D-157); no verified
+  clean-machine claim.
+- Linux: still no artifact (D-190).
+
+`v3.0.0` tagged at the commit below. Agent gates on the tagged tree
+(`cargo test`, `cargo clippy --workspace --all-targets -D warnings`,
+`cargo deny check`, `uv run pytest`, `uv run ruff check .`, both packer
+runs) were green on 2026-10-19 and are not re-run here; the audit commits
+since then are Player-side (v2 line) and do not touch the Scribe tree.
