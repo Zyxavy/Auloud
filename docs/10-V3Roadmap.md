@@ -168,13 +168,13 @@ Run before Slice 17 if you want data about speed (about an hour or two of agent 
 
 ## 7. v3.0 release criteria
 
-- [ ] Kitten engine result recorded (Slice 14), licenses verified
+- [~] Kitten engine result recorded (Slice 14), licenses verified
 - [ ] A clean Windows 11 machine with no Python runs the installed app and completes a build; Linux build documented and tested
-- [ ] Add book, draft, cast edit with audition, render with ranges, validate and transfer all work in the native UI
-- [ ] Jobs survive closing the window; relaunch reattaches
-- [ ] Models install through the manager (download or sideload)
-- [ ] Keyboard and screen-reader pass done; scaling checked
-- [ ] Licenses, NOTICE, SBOM and source offer complete; decisions logged; tagged `v3.0.0`
+- [x] Add book, draft, cast edit with audition, render with ranges, validate and transfer all work in the native UI
+- [x] Jobs survive closing the window; relaunch reattaches
+- [x] Models install through the manager (download or sideload)
+- [x] Keyboard and screen-reader pass done; scaling checked
+- [x] Licenses, NOTICE, SBOM and source offer complete; decisions logged; tagged `v3.0.0` (2026-10-26)
 
 ## 8. Risks and mitigations
 

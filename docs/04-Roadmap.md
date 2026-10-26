@@ -181,7 +181,7 @@ Embed the EPUB/PDF in the app so the device runs its own TTS (Kokoro or Piper).
 
 ## v3
 
-Scribe desktop app (D-133, amended by D-147): a native Rust UI (`scribe-rs/`, toolkit egui per D-159) drives the packaged Python Scribe over its documented localhost API, on Windows 11. The Python Scribe stays canonical, the full-logic Rust rewrite is cancelled and Tauri stays the reserve option; the UI honors `spec/` unchanged. Full plan: `docs/10-V3Roadmap.md` (KittenTTS engine first, then the UI in Slices 15-22).
+Scribe desktop app (D-133, amended by D-147): a native Rust UI (`scribe-rs/`, toolkit egui per D-159) drives the packaged Python Scribe over its documented localhost API, on Windows 11. The Python Scribe stays canonical, the full-logic Rust rewrite is cancelled and Tauri stays the reserve option; the UI honors `spec/` unchanged. **Shipped as `v3.0.0` (2026-10-26, tag on `dev/v3`)**: Slices 14-22 closed, portable zips built, NOTICE/SBOM/licenses generated, soak run good. Windows only (D-190); clean machine documented setup only (D-157). Full plan: `docs/10-V3Roadmap.md`.
 
 ## v4
 
