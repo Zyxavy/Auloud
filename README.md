@@ -58,7 +58,7 @@ Details: [Scribe design](docs/05-ScribeDesign.md), [Web UI walkthrough](docs/arc
 
 Limits: two voices (narrator + dialogue; a PC book re-rendered on-device collapses extra speakers into dialogue), English only, renders take a while (charge while rendering). Tested on one Android device; other devices may differ.
 
-Details: [v2 roadmap](docs/09-V2Roadmap.md), [render tuning notes](docs/constants.md).
+Details: [v2 roadmap](docs/archive/v2/09-V2Roadmap.md), [render tuning notes](docs/constants.md).
 
 ## Player modes
 
@@ -92,14 +92,14 @@ docs/       PRD, designs, roadmap, test plan, runbooks, signing guide
 - [Licenses](docs/08-Licenses.md) (per-dependency and per-voice tables)
 - [Decisions](docs/DECISIONS.md): why things are the way they are
 - [Release signing](docs/ReleaseSigning.md): flavors, keys, release smoke checks
-- [Archive](docs/archive/v1/): frozen v1 records and plans; [v2 plans](docs/archive/v2/plans/)
+- [Archive](docs/archive/): frozen records and plans per version ([v1](docs/archive/v1/), [v2](docs/archive/v2/), [v3](docs/archive/v3/))
 
 ## Status checklist
 
 - [x] **v1 (done):** PC renders MP3 audiobooks from EPUB/PDF with narrator + character voices and sentence timings; read-along player with three modes; release APK `1.0.0` soak-passed on the Tab E.
-- [~] **v2 (partial):** on-device rendering (System TTS plus Piper in `full`), two voices, background renders, live streaming of unrendered chapters. Player `2.1.0` tagged; some device numbers still provisional.
-- [~] **v3 (in progress):** native desktop Scribe app (Rust UI driving the packaged Python backend): jobs tray, render step with preflight, render speed, cast table with audition, voices view, validate/transfer, and a portable Windows zip (`gpu` and `cpu`) instead of an installer. Python Scribe stays canonical.
-- [ ] **v4 (later):** Android platform refresh: current `targetSdk`, background-service rules, newer Android versions, word-level highlight. Placeholder until v3 ships.
+- [x] **v2 (shipped):** on-device rendering (System TTS plus Piper in `full`), two voices, background renders, live streaming of unrendered chapters. Player `2.1.6` tagged (supersedes `2.1.0`); some device numbers still provisional.
+- [x] **v3 (shipped):** native desktop Scribe app (Rust UI driving the packaged Python backend): jobs tray, render step with preflight, render speed, cast table with audition, voices view, validate/transfer, and a portable Windows zip (`gpu` and `cpu`) instead of an installer. Scribe `3.0.0` tagged. Python Scribe stays canonical.
+- [ ] **v4 (next):** Android platform refresh: current `targetSdk`, background-service rules, newer Android versions, word-level highlight.
 - [ ] **v5 (planned):** iOS/iPadOS Player in Swift (xtool build from Windows): import and play bundles with read-along, no rendering on device. See [V5 plan](docs/V5-iOS-support.md).
 
 ## Limitations

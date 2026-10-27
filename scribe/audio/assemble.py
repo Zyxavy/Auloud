@@ -22,7 +22,7 @@ come from RUNNING SAMPLE COUNTS on that same buffer, so they agree with
 what :mod:`audio.encode` writes by construction (spec section 6 rule 5).
 
 Pauses (source: ``docs/05-ScribeDesign.md`` section 9, which governs over
-``docs/plans/Slice2.md`` SW7 — both agree: 250/500/800/1000 ms — plus the
+``docs/archive/v1/plans/Slice2.md`` SW7 — both agree: 250/500/800/1000 ms — plus the
 MV7 tag pause):
 
 - inside a paragraph/quote, between sentences: 250 ms (sentence pause)

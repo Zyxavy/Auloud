@@ -1,6 +1,8 @@
-# Rust Port Notes (Slice 15+)
+# Validation rule reference and Python/Rust parity notes
 
-How the Rust Scribe stays identical to the Python Scribe, and how to add a rule.
+The generated rule table below is the reference for every `BundleValidator`
+rule, and `scribe/dev/export_expected.py --render-docs` regenerates it. The
+parity notes explain how the Rust validator stays identical to the Python one.
 
 ## Architecture
 
@@ -11,18 +13,20 @@ How the Rust Scribe stays identical to the Python Scribe, and how to add a rule.
   fake for tests, orchestration, doctor checks.
 - `scribe-cli`: binary `scribe-rs`; human output and exit codes match the
   Python CLI, plus `--json` (harness-only extra; the Python CLI is untouched).
-- `scribe-ui`: Tauri shell (stub until Slice 20).
+- `scribe-client`: typed client for the helper's localhost API (`docs/api.md`).
+- `scribe-ui`: the egui desktop app. The full-logic Rust rewrite is cancelled
+  (D-147): the UI drives the packaged Python Scribe, which stays canonical.
 
-Python is canonical until parity: never change Python validator behavior to
-match Rust. A suspicious rule gets logged and raised, never fixed in one
-implementation only.
+Python is canonical: never change Python validator behavior to match Rust. A
+suspicious rule gets logged and raised, never fixed in one implementation only.
 
 ## Parity levels
 
-1. `validate` mode (this slice): same verdict plus same `(file, rule,
+1. `validate` mode: same verdict plus same `(file, rule,
    message)` triples on every bundle fixture.
-2. Later slices add `draft`, `attribute` and `build` modes to the same
-   harness; each new mode gets its own contract tests and expected files.
+2. `draft`, `attribute` and `build` modes are not implemented in Rust and are
+   not planned; each would need its own contract tests and expected files.
+
 
 ## Comparison rules (decision S15-5)
 

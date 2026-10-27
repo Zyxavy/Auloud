@@ -461,15 +461,15 @@ requirements, core/full flavors plus model packs, offline System TTS
 voice prep, limitations, OWNER-RUN walkthrough with unchecked boxes);
 new `docs/07-TestPlan.md` holds the v2 test plan (suites, owner device
 rounds, VC8 gate) so the `07-TestPlan.md` pointers in
-`docs/plans/Slice12.md` resolve; short v2
+`docs/archive/v2/plans/Slice12.md` resolve; short v2
 addendum appended to `docs/01-PRD.md`; Slice 12 status plus the decided
-DCO box in `docs/09-V2Roadmap.md`; v2 status notes in `README.md` and
+DCO box in `docs/archive/v2/09-V2Roadmap.md`; v2 status notes in `README.md` and
 `docs/04-Roadmap.md`; the open `08-Licenses.md` box annotated, none
 ticked. No new DECISIONS entry (no new product decision). Link check:
 every path named above exists at head (`docs/07-TestPlan.md`,
 `docs/ReleaseSigning.md`, `docs/constants.md`, `docs/test-log.md`,
-`docs/plans/Slice12.md`, `docs/08-Licenses.md`,
-`docs/09-V2Roadmap.md`, `docs/04-Roadmap.md`, `docs/01-PRD.md`,
+`docs/archive/v2/plans/Slice12.md`, `docs/08-Licenses.md`,
+`docs/archive/v2/09-V2Roadmap.md`, `docs/04-Roadmap.md`, `docs/01-PRD.md`,
 `docs/archive/v1/07-Testplan.md`). The README walkthrough is written
 for a fresh install but unrun: do not claim it until the owner ticks
 its boxes on the Tab E.
@@ -552,7 +552,7 @@ a live architecture, gated on Slice 13 design plus measurement
 Owner verdict: smoke checklist and over-install procedure both
 "good and complete" (flavor not specified). Boxes ticked in
 `docs/ReleaseSigning.md` on that verdict (the conditional fallback
-box marked N/A, nothing lost). Release criteria (`09-V2Roadmap.md`
+box marked N/A, nothing lost). Release criteria (`archive/v2/09-V2Roadmap.md`
 section 6) all ticked with evidence bases; `07-TestPlan.md` device
 rounds ticked. Release APKs at head: core 3.5 MB, full 55.4 MB,
 `licenseScan` + `releaseManifestCheck` green, suites green both
@@ -732,7 +732,7 @@ and no `ACCESS_WIFI_STATE`; both green on 2026-10-23.
 
 ## Slice 22 / v3.0.0 (owner, 2026-10-26)
 
-Owner acceptance for the last v3 slice, per `docs/acceptance-slice22.md`.
+Owner acceptance for the last v3 slice, per `docs/archive/v3/acceptance-slice22.md`.
 One-line verdicts, same standing as the v2 soak one-liners; no per-box
 numbers were recorded.
 

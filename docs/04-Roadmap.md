@@ -180,7 +180,7 @@ All user-verified on the Tab E 2026-10-05, logged in `docs/archive/v1/soak-log.m
 
 Embed the EPUB/PDF in the app so the device runs its own TTS (Kokoro or Piper).
 
-*Status: shipped as Player `2.1.6` (Slices 9-13 device-passed; tag `v2.1.6` at `d678ef1`, which supersedes the stale `v2.1.0` tag that had pointed at `dcd43f4` before the ST7 fixes). Detail lives in `docs/09-V2Roadmap.md`.*
+*Status: shipped as Player `2.1.6` (Slices 9-13 device-passed; tag `v2.1.6` at `d678ef1`, which supersedes the stale `v2.1.0` tag that had pointed at `dcd43f4` before the ST7 fixes). Detail lives in `docs/archive/v2/09-V2Roadmap.md`.*
 
 - [x] Benchmark spike first: measure real-time factor of Piper and Kokoro on target devices
 - [x] Engine interface so voices are pluggable
@@ -190,11 +190,11 @@ Embed the EPUB/PDF in the app so the device runs its own TTS (Kokoro or Piper).
 
 ## v3
 
-Scribe desktop app (D-133, amended by D-147): a native Rust UI (`scribe-rs/`, toolkit egui per D-159) drives the packaged Python Scribe over its documented localhost API, on Windows 11. The Python Scribe stays canonical, the full-logic Rust rewrite is cancelled and Tauri stays the reserve option; the UI honors `spec/` unchanged. **Shipped as `v3.0.0` (2026-10-26, tag on `dev/v3`)**: Slices 14-22 closed, portable zips built, NOTICE/SBOM/licenses generated, soak run good. Windows only (D-190); clean machine documented setup only (D-157). Full plan: `docs/10-V3Roadmap.md`.
+Scribe desktop app (D-133, amended by D-147): a native Rust UI (`scribe-rs/`, toolkit egui per D-159) drives the packaged Python Scribe over its documented localhost API, on Windows 11. The Python Scribe stays canonical, the full-logic Rust rewrite is cancelled and Tauri stays the reserve option; the UI honors `spec/` unchanged. **Shipped as `v3.0.0` (2026-10-26, tag on `dev/v3`)**: Slices 14-22 closed, portable zips built, NOTICE/SBOM/licenses generated, soak run good. Windows only (D-190); clean machine documented setup only (D-157). Full plan: `docs/archive/v3/10-V3Roadmap.md`.
 
 ## v4
 
-Android platform work (D-133), placeholder until v3 ships:
+Android platform work (D-133), next up after v3:
 
 - [ ] Update `targetSdk` and handle newer background-service and notification permission rules
 - [ ] Test on current Android versions and a range of devices
