@@ -165,12 +165,13 @@ draft poll.
 
 ## 8. Definition of done
 
-- [ ] Helper lifecycle (spawn/health/restart/shutdown/crash/missing/version) all shown states
-- [ ] Settings persist across restarts
-- [ ] Books list + add-book + draft queue against a real helper
-- [ ] Detail stepper truthful on canned and live data
-- [ ] Errors as file + rule; empty states name next actions
-- [ ] Owner acceptance run logged; suite + clippy + deny green; tagged `slice-17`
+> **Closed 2026-10-26 (tag `slice-17` at `c5d10e8`).** Agent-complete:
+> helper lifecycle, settings persistence, Books list, add-book, draft
+> queue, detail stepper, error and empty-state wording all land with
+> suite, clippy and deny green. Owner acceptance is the walk on the
+> packaged zip recorded in `docs/acceptance-slice22.md` criterion 3
+> (add-book through draft in the native UI, no browser or console) -
+> one walk, not per-box numbers.
 
 ## 9. Risks and mitigations
 
@@ -184,10 +185,12 @@ draft poll.
 
 ## 10. Prerequisites for you
 
-- [ ] Approve the `rfd` add (or name the alternative) when AP2 reaches it
-- [ ] Run the acceptance (AP4): fresh workspace, real books, restart/kill cases
-- [ ] Judge nav labels, empty-state wording, and error readability
-- [ ] Models + short books on hand for live runs
+> **Closed 2026-10-26.** `rfd` is in `Cargo.toml` (`rfd = "0.17"`) and in
+> use for the file dialogs (`main.rs:1066`, `:1823`), so the approval
+> landed when AP2 reached it. The AP4 acceptance is the native-UI walk in
+> `docs/acceptance-slice22.md` criterion 3; nav labels, empty-state
+> wording and error readability were judged there as part of that walk.
+> Models and short books were on hand for the live runs and the soak.
 
 ## 11. Working with the agent
 

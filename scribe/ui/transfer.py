@@ -108,15 +108,27 @@ def list_drives() -> list[dict[str, Any]]:
     return sorted(drives, key=lambda d: str(d.get("path", "")))
 
 
-def validate_destination(raw: Any) -> Path:
+def _is_within(child: Path, parent: Path) -> bool:
+    """True when ``child`` is ``parent`` or sits under it (case-aware)."""
+    try:
+        child_parts = os.path.normcase(os.path.abspath(str(child)))
+        parent_parts = os.path.normcase(os.path.abspath(str(parent)))
+        return os.path.commonpath([child_parts, parent_parts]) == parent_parts
+    except ValueError:
+        # Different drives (``commonpath`` raises); never contained.
+        return False
+
+
+def validate_destination(raw: Any, workspace: Path | str | None = None) -> Path:
     """Validate a typed transfer destination (outside the workspace).
 
     Returns the absolute ``Path`` (not resolved against the workspace).
     Raises ``ValueError`` shaped ``dest: bad-destination: ...`` when the
     destination is relative, contains ``..``, NUL/newline, shell
-    metachars, or sits on no real drive. The source side stays confined
-    via ``safe_join`` by callers; this function never touches the
-    workspace.
+    metachars, sits on no real drive, or (when ``workspace`` is given)
+    IS the workspace or sits inside it. Callers that copy a workspace
+    bundle pass their workspace so a destination can never overlap the
+    source tree; the source side also stays confined via ``safe_join``.
     """
     text = raw if isinstance(raw, str) else str(raw) if raw is not None else ""
     if not isinstance(raw, str) or not text.strip():
@@ -161,6 +173,11 @@ def validate_destination(raw: Any) -> Path:
             raise ValueError(
                 f"{stripped}: bad-destination: cannot check drive: {exc}"
             ) from exc
+    if workspace is not None and _is_within(candidate, Path(workspace)):
+        raise ValueError(
+            f"{stripped}: bad-destination: destination is inside the workspace "
+            "(choose a location outside it)"
+        )
     return candidate
 
 

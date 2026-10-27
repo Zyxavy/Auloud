@@ -485,6 +485,41 @@ def test_build_bad_device_wording_matches_cli(tmp_path: Path) -> None:
     assert resp.json()["message"] == "'tpu' must be one of ['auto', 'cpu', 'cuda']"
 
 
+def test_build_render_speed_reaches_the_child_and_bad_tier_is_400(tmp_path: Path) -> None:
+    """RP1: `render_speed` is a build request field; missing means balanced."""
+    from draft import book_id_for_file
+
+    spawner = _RecordingSpawner()
+    client, token = _api_client(tmp_path, spawner=spawner)
+    headers = _auth(token)
+    src = _make_epub(tmp_path / "src.epub", ["Chapter One"])
+    book_id, _ = book_id_for_file(src)
+    # Unknown tier: CLI-identical wording, refused before a job is queued.
+    bad = client.post(
+        f"/api/books/{book_id}/build",
+        json={"render_speed": "ludicrous"},
+        headers=headers,
+    )
+    assert bad.status_code == 400, bad.text
+    assert bad.json()["rule"] == "bad-speed"
+    assert bad.json()["message"] == "'ludicrous' must be one of ['slow', 'balanced', 'fast']"
+    assert spawner.calls == []
+    # A tier rides the job into the child.
+    ok = client.post(
+        f"/api/books/{book_id}/build", json={"render_speed": "fast"}, headers=headers
+    )
+    assert ok.status_code == 202, ok.text
+    # Missing tier on a second book records the CLI default.
+    other = _make_epub(tmp_path / "other.epub", ["Chapter One"], title="Other")
+    other_id, _ = book_id_for_file(other)
+    defaulted = client.post(f"/api/books/{other_id}/build", json={}, headers=headers)
+    assert defaulted.status_code == 202, defaulted.text
+    assert [c["render_speed"] for c in spawner.calls if c.get("kind") == "build"] == [
+        "fast",
+        "balanced",
+    ]
+
+
 # --- frontend -------------------------------------------------------------------
 
 
@@ -514,6 +549,7 @@ def test_frontend_render_step_offline_tokens_and_empty_states() -> None:
         'id="render-start"',
         'id="render-live"',
         'id="render-device"',
+        'id="render-speed"',
         'renderLiveStep',
         'latestBuildJob',
         "whole covering chapters",

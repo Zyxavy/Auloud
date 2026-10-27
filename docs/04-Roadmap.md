@@ -17,32 +17,41 @@ Goal: everything ready so Slice 1 starts clean.
 
 **Tablet (Galaxy Tab E, Android 7.1.1)**
 
-- [ ] Developer options enabled (tap Build number 7 times); USB debugging on
-- [ ] Samsung USB driver installed on the laptop; data-capable USB cable
-- [ ] `adb devices` lists the tablet as `device` (not `unauthorized`); "always allow" accepted
-- [ ] Verified on the unit: Android 7.1.1, actual RAM, free internal storage, microSD present with enough free space (about 430 MB per 15-hour book)
-- [ ] Battery holds a charge for long tests; charger and Bluetooth headset available
-- [ ] Noted where Samsung's battery-optimization settings live (for WP8)
-- [ ] microSD read test: put a text file on the card and read it by file path from a test app (decides the WP3 approach)
+- [x] Developer options enabled (tap Build number 7 times); USB debugging on
+- [x] Samsung USB driver installed on the laptop; data-capable USB cable
+- [x] `adb devices` lists the tablet as `device` (not `unauthorized`); "always allow" accepted
+- [x] Verified on the unit: Android 7.1.1, actual RAM, free internal storage, microSD present with enough free space (about 430 MB per 15-hour book)
+- [x] Battery holds a charge for long tests; charger and Bluetooth headset available
+- [x] Noted where Samsung's battery-optimization settings live (for WP8)
+- [x] microSD read test: put a text file on the card and read it by file path from a test app (decides the WP3 approach)
 
 **Laptop**
 
-- [ ] Android Studio (latest stable, bundled JDK), Android SDK platform and platform tools
-- [ ] Git installed; private repo created; docs 01-09, README and DECISIONS copied into `docs/`
-- [ ] Python, `uv` and ffmpeg installed (`winget install ffmpeg`)
+- [x] Android Studio (latest stable, bundled JDK), Android SDK platform and platform tools
+- [x] Git installed; private repo created; docs 01-09, README and DECISIONS copied into `docs/`
+- [x] Python, `uv` and ffmpeg installed (`winget install ffmpeg`)
 
 **Project**
 
-- [ ] Repo layout created: `scribe/`, `player/`, `spec/`, `docs/`; `03-BundleSpec.md` copied to `spec/bundle.md`
-- [ ] Package name chosen (for example `app.auloud.player`)
-- [ ] Android Studio project created with `minSdk 24`
-- [ ] Empty app installed and launched on the Tab E
+- [x] Repo layout created: `scribe/`, `player/`, `spec/`, `docs/`; `03-BundleSpec.md` copied to `spec/bundle.md`
+- [x] Package name chosen (for example `app.auloud.player`)
+- [x] Android Studio project created with `minSdk 24`
+- [x] Empty app installed and launched on the Tab E
 
 **Test content**
 
-- [ ] Two 5-minute chapters from public-domain or self-made audio (no copyrighted audio)
-- [ ] Hand-made test bundle built per section 9 of the spec, MP3s encoded CBR
-- [ ] Test bundle copied to the microSD card
+- [x] Two 5-minute chapters from public-domain or self-made audio (no copyrighted audio)
+- [x] Hand-made test bundle built per section 9 of the spec, MP3s encoded CBR
+- [x] Test bundle copied to the microSD card
+
+> **Closed at Slice 0 start.** Every item above was satisfied before Slice 1
+> began and is re-verified by later slices rather than by a Slice 0 box
+> tick: the repo layout, `app.auloud.player` on `minSdk 24`, the
+> toolchain (Android Studio, JDK 17, Python, `uv`, ffmpeg), the tablet
+> identity (Android 7.1.1, about 1.5 GB RAM, microSD), the
+> battery-optimization note for WP8, the microSD read test, and the test
+> bundle on the card. Evidence: the `v1.0.0` build and the soak in
+> `docs/test-log.md`.
 
 **Done when:** a hello-world APK runs on the Tab E, the microSD read test has a known result, and the test bundle is on the card.
 
@@ -171,7 +180,7 @@ All user-verified on the Tab E 2026-10-05, logged in `docs/archive/v1/soak-log.m
 
 Embed the EPUB/PDF in the app so the device runs its own TTS (Kokoro or Piper).
 
-*Status: shipped as Player `2.1.0` (Slices 9-13 device-passed and tagged). Detail lives in `docs/09-V2Roadmap.md`.*
+*Status: shipped as Player `2.1.6` (Slices 9-13 device-passed; tag `v2.1.6` at `d678ef1`, which supersedes the stale `v2.1.0` tag that had pointed at `dcd43f4` before the ST7 fixes). Detail lives in `docs/archive/v2/09-V2Roadmap.md`.*
 
 - [x] Benchmark spike first: measure real-time factor of Piper and Kokoro on target devices
 - [x] Engine interface so voices are pluggable
@@ -181,17 +190,17 @@ Embed the EPUB/PDF in the app so the device runs its own TTS (Kokoro or Piper).
 
 ## v3
 
-Scribe desktop port (D-133): port Scribe to Rust with a Tauri v2 app for Windows 11 and Linux. The Python Scribe stays canonical until parity; the port honors `spec/` unchanged. Full plan: `docs/10-V3Roadmap.md` (KittenTTS engine first, then the port in Slices 15-22).
+Scribe desktop app (D-133, amended by D-147): a native Rust UI (`scribe-rs/`, toolkit egui per D-159) drives the packaged Python Scribe over its documented localhost API, on Windows 11. The Python Scribe stays canonical, the full-logic Rust rewrite is cancelled and Tauri stays the reserve option; the UI honors `spec/` unchanged. **Shipped as `v3.0.0` (2026-10-26, tag on `dev/v3`)**: Slices 14-22 closed, portable zips built, NOTICE/SBOM/licenses generated, soak run good. Windows only (D-190); clean machine documented setup only (D-157). Full plan: `docs/archive/v3/10-V3Roadmap.md`.
 
 ## v4
 
-Android platform work (D-133), placeholder until v3 ships:
+Android platform work (D-133), next up after v3:
 
 - [ ] Update `targetSdk` and handle newer background-service and notification permission rules
 - [ ] Test on current Android versions and a range of devices
 - [ ] Revisit `minSdk` and the tablet-only assumptions
 - [ ] Word-level highlight callbacks (needs API 26+)
-- [ ] Scribe on Android (Tauri mobile targets)
+- [ ] Scribe on Android (placeholder; the egui toolkit's mobile target is unproven)
 
 ## Risks to watch per slice
 

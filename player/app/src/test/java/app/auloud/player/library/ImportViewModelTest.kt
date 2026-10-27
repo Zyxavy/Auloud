@@ -8,6 +8,7 @@ import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -63,6 +64,61 @@ class ImportViewModelTest {
         val file = temp.newFile("picked.epub")
         file.writeBytes(byteArrayOf(1, 2, 3))
         return file
+    }
+
+    @Test
+    fun importSilence_startStampComesFromTheClock() {
+        // OPEN4: the silence line counts from the start stamp until the
+        // first progress event; a pipeline stuck before its first step
+        // must still say how long it has been quiet.
+        var now = 1_000L
+        val vm = ImportViewModel(
+            runImport = { _, _ -> awaitCancellation() },
+            ioDispatcher = Dispatchers.Unconfined,
+            externalScope = scope,
+            clock = { now }
+        )
+        assertTrue(vm.startImport("book.pdf", copySource = { scratch() }))
+        val state = vm.state.value as? ImportUiState.Importing
+            ?: throw AssertionError("want Importing, got ${vm.state.value}")
+        assertEquals(0, state.chaptersDone)
+        assertEquals(1_000L, state.lastEventAtMs)
+    }
+
+    @Test
+    fun importSilence_everyProgressStepRestamps() {
+        var now = 1_000L
+        val vm = ImportViewModel(
+            runImport = { _, onProgress ->
+                onProgress(
+                    ImportProgress(
+                        chapterIndex = 1,
+                        chaptersDone = 1,
+                        totalChapters = 10,
+                        chapterTitle = "Pages 1-20"
+                    )
+                )
+                now = 5_000L
+                onProgress(
+                    ImportProgress(
+                        chapterIndex = 2,
+                        chaptersDone = 2,
+                        totalChapters = 10,
+                        chapterTitle = "Pages 21-40"
+                    )
+                )
+                awaitCancellation()
+            },
+            ioDispatcher = Dispatchers.Unconfined,
+            externalScope = scope,
+            clock = { now }
+        )
+        assertTrue(vm.startImport("book.pdf", copySource = { scratch() }))
+        val state = vm.state.value as? ImportUiState.Importing
+            ?: throw AssertionError("want Importing, got ${vm.state.value}")
+        assertEquals(2, state.chaptersDone)
+        assertEquals("Pages 21-40", state.chapterTitle)
+        assertEquals(5_000L, state.lastEventAtMs)
     }
 
     @Test

@@ -176,13 +176,12 @@ approval only if the probe fails. Everything else is approval-free.
 
 ## 8. Definition of done
 
-- [ ] Contrast unit tests green over the light table
-- [ ] Title face decided (ship or recorded no)
-- [ ] Five components unified (dark deferred)
-- [ ] Keyboard-only walk clean (dark deferred)
-- [ ] Table verdict recorded (fast as-is or virtualized)
-- [ ] Runbook written, Windows pass done, Linux lines attributed
-- [ ] Owner acceptance logged; suite + clippy + deny green; tagged `slice-21`
+> **Closed 2026-10-26 (tag `slice-21` at `2d2be06`).** Contrast tests
+> green, five components unified, table verdict recorded (500-row probe,
+> fast as-is), runbook written. Dark mode, the keyboard-only walk, the
+> title-face decision and the DPI ladder were never reported per box;
+> they stay open, not closed. The owner's acceptance for this slice is
+> the one-line verdict recorded in `docs/test-log.md`.
 
 ## 9. Risks and mitigations
 
@@ -195,11 +194,14 @@ approval only if the probe fails. Everything else is approval-free.
 
 ## 10. Prerequisites for you
 
-- [ ] DS2 verdict: serif face approved (name it), or declined
-- [ ] PF1 verdict if the probe fails: virtualization crate approved or row-cap accepted
-- [ ] Screen reader installed (NVDA or Narrator) plus a high-contrast run
-- [ ] DPI ladder 100/125/150/200% on your display
-- [ ] Judge every theme, face, and walk for feel
+> **Closed 2026-10-26 on the owner's one-line acceptance, with the gap
+> named.** The slice's acceptance is recorded in `docs/test-log.md` as a
+> single verdict, so none of these per-box items has a recorded result:
+> the serif-face decision (DS2), the PF1 probe verdict, the
+> screen-reader and high-contrast run, the DPI ladder, and the feel
+> judgement on every theme, face and walk. The slice is closed on the
+> tag (`slice-21` at `2d2be06`); the per-box rows stay open rather than
+> being claimed from a one-line verdict.
 
 ## 11. Working with the agent
 

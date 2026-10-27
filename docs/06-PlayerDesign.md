@@ -132,7 +132,7 @@ Check that the versions you pick still support `minSdk 24`.
 
 - Build variants: `debug` (with logging overlay: position, current `sid`, chapter), `release` (minified with keep rules, `versionName 2.1.0`, `versionCode 3`, `core` and `full` flavors per D-126/D-128, ARM-only native libs per D-129). Preview/debug entries are gated behind `BuildConfig.DEBUG` and absent in release.
 - Sideload the APK first; publish to F-Droid or GitHub releases when open-sourcing (see licenses doc, later).
-- Permissions: `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE` (shared-internal `/Auloud` default), `FOREGROUND_SERVICE` (declared, harmless on API 24), `WAKE_LOCK`. No internet permission in v1+v2 (merged release manifest and `aapt dump badging` both confirm no `INTERNET`).
+- Permissions: `READ_EXTERNAL_STORAGE`, `WRITE_EXTERNAL_STORAGE` (shared-internal `/Auloud` default), `FOREGROUND_SERVICE` (declared, harmless on API 24), `WAKE_LOCK`, and `INTERNET` for the LAN-only Wi-Fi bundle receiver (Slice 20 TR1, D-167; no cloud, receiver only while its screen is open, no `ACCESS_WIFI_STATE`). v1 and early v2 shipped without `INTERNET`; the merged core/full release manifests and `aapt dump permissions` confirm the current set. `ACCESS_NETWORK_STATE` comes from an AndroidX dependency (accepted since v1).
 
 ## 10. On-device TTS (v2 Slice 8)
 

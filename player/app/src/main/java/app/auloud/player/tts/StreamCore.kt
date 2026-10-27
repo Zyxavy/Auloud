@@ -266,7 +266,10 @@ class StreamCore(
         attempt++
         active.clear()
         started.clear()
+        // OPEN7: before anything starts, keep the start sentence (a
+        // mid-chapter start must not resume from the chapter's first).
         resumeSid = inProgressSid
+            ?: (if (currentSid == null) resumeSid else null)
             ?: sentences.firstOrNull { it.sid !in heard }?.sid
             ?: currentSid
         heard.clear()
@@ -306,11 +309,13 @@ class StreamCore(
 
     /**
      * Re-plan from the current sentence (speed change; voice/volume
-     * changes update [volumes] first). Playing only, else empty.
+     * changes update [volumes] first). Before the first sentence started,
+     * [resumeSid] holds the start sentence: the player drops [start]'s
+     * plan and requeues on play. Playing only, else empty.
      */
     fun requeue(): List<StreamUtterance> {
         if (status != Status.Playing) return emptyList()
-        val sid = inProgressSid ?: currentSid ?: return emptyList()
+        val sid = inProgressSid ?: currentSid ?: resumeSid ?: return emptyList()
         val index = indexOfSid(sid)
         if (index < 0) return emptyList()
         attempt++

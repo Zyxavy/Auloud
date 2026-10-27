@@ -442,7 +442,8 @@ mod tests {
         let mut archive = zip::ZipArchive::new(file).unwrap();
         assert_eq!(archive.len(), 2);
         let mut names: Vec<String> = (0..archive.len())
-            .map(|i| archive.by_index(i).unwrap().name().to_owned())
+            // zip 9: `name` is fallible (non-UTF8 entries); ours are ASCII paths.
+            .map(|i| archive.by_index(i).unwrap().name().unwrap().into_owned())
             .collect();
         names.sort();
         assert_eq!(names, vec!["manifest.json", "text/ch001.json"]);

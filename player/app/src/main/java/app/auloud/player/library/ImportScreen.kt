@@ -15,9 +15,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 
 /**
  * IN8: EPUB import progress + result screen (Slice 9).
@@ -86,8 +92,32 @@ private fun ImportingContent(state: ImportUiState.Importing, onCancel: () -> Uni
         LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
         Text(text = "Starting…", style = MaterialTheme.typography.bodyMedium)
     }
+    ImportSilenceLine(state)
     Spacer(Modifier.height(16.dp))
     Button(onClick = onCancel) { Text("Cancel") }
+}
+
+/**
+ * OPEN4: the progress line freezes without a word when the pipeline sits
+ * inside one long step (one big PDF page range on the Tab E). This line
+ * counts the silence, so a frozen bar names how long and which step; it
+ * appears only after 10 quiet seconds and resets on every progress event.
+ */
+@Composable
+private fun ImportSilenceLine(state: ImportUiState.Importing) {
+    var secs by remember(state.lastEventAtMs) { mutableIntStateOf(0) }
+    LaunchedEffect(state.lastEventAtMs) {
+        while (true) {
+            delay(1_000L)
+            secs++
+        }
+    }
+    if (secs < 10) return
+    val last = state.chapterTitle.ifBlank { "starting up" }
+    Text(
+        text = "No progress for ${secs}s (last: $last)",
+        style = MaterialTheme.typography.bodySmall
+    )
 }
 
 @Composable

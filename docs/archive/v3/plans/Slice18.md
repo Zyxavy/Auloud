@@ -142,13 +142,16 @@ several jobs, preflight estimate accuracy on real books, and whether the
 
 ## 8. Definition of done
 
-- [ ] Tray always visible with live progress, RTF, ETA, cache hits + history
-- [ ] Pause/resume/cancel from the tray with shaped errors
-- [ ] Render panel (chapters/range, PDF pages + preview, preflight,
-  device, keep-awake, start) against real books
-- [ ] Quit confirm with running jobs; closed window never kills a render
-- [ ] Window-closed multi-chapter render reattaches on relaunch
-- [ ] Owner acceptance logged; suite + clippy + deny green; tagged `slice-18`
+> **Closed 2026-10-26 (tag `slice-18` at `3e17bf2`).** Jobs tray with
+> pause/resume/cancel, render panel with preflight, all agent-complete
+> with suite, clippy and deny green. Two items need a real render and
+> were covered by the soak in `docs/acceptance-slice22.md` criterion 4
+> (mid-render app kill and resume, pause and resume, range re-render),
+> run good: the window-closed multi-chapter render reattaching on
+> relaunch, and pause/resume/cancel each pressed live.
+> **Not done: "quit with running jobs both ways (quit + stay)".** The
+> soak's mid-render kill is a kill, not a quit; the quit confirm with
+> running jobs was never pressed by anyone here.
 
 ## 9. Risks and mitigations
 
@@ -162,11 +165,15 @@ several jobs, preflight estimate accuracy on real books, and whether the
 
 ## 10. Prerequisites for you
 
-- [ ] A multi-chapter book + models for the window-closed render proof
-- [ ] Pause/resume/cancel each pressed live at least once
-- [ ] Quit with running jobs both ways (quit + stay)
-- [ ] Overnight keep-awake evidence if you render long (optional, noted)
-- [ ] Judge tray density, preflight honesty, and error wording
+> **Closed 2026-10-26, with one named gap.** A multi-chapter book and
+> models were on hand; pause/resume/cancel were each pressed during the
+> soak (mid-render kill and resume, pause and resume, range re-render);
+> tray density, preflight honesty and error wording were judged as part
+> of the native-UI walk in `docs/acceptance-slice22.md` criterion 3.
+> Overnight keep-awake evidence is optional and was not reported.
+> **Not done: "quit with running jobs both ways (quit + stay)".** The
+> soak's mid-render kill and resume is a kill, not a quit; the quit
+> confirm with running jobs was never pressed by anyone here.
 
 ## 11. Working with the agent
 

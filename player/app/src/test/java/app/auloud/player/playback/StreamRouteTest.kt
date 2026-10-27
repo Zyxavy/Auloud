@@ -79,6 +79,32 @@ class StreamRouteTest {
     }
 
     @Test
+    fun sameChapterRequestResumesAttachedStream() {
+        assertEquals(
+            true,
+            StreamRoute.resumesAttachedStream("book", 2, "book", 2, true),
+        )
+        // Different chapter, different book, no player yet, or no stream:
+        // the request is a real jump, not a resume.
+        assertEquals(
+            false,
+            StreamRoute.resumesAttachedStream("book", 1, "book", 2, true),
+        )
+        assertEquals(
+            false,
+            StreamRoute.resumesAttachedStream("book", 2, "other", 2, true),
+        )
+        assertEquals(
+            false,
+            StreamRoute.resumesAttachedStream("book", 2, "book", 2, false),
+        )
+        assertEquals(
+            false,
+            StreamRoute.resumesAttachedStream("book", 2, null, -1, true),
+        )
+    }
+
+    @Test
     fun systemVoiceNameStripsNamespace() {
         assertEquals("en-us-x-sfg#female", StreamRoute.systemVoiceNameOrNull("system:en-us-x-sfg#female"))
         assertNull(StreamRoute.systemVoiceNameOrNull("piper:en_US-lessac-low"))

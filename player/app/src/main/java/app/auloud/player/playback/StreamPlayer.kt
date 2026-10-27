@@ -166,12 +166,13 @@ class StreamPlayer(
                         .build()
                 )
                 .build()
-        ).build()
+        ).setIsSeekable(true).build()
         return State.Builder()
             .setAvailableCommands(
                 Player.Commands.Builder()
                     .add(COMMAND_PLAY_PAUSE)
                     .add(COMMAND_STOP)
+                    .add(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
                     .add(COMMAND_SEEK_TO_NEXT)
                     .add(COMMAND_SEEK_TO_PREVIOUS)
                     .add(COMMAND_SET_SPEED_AND_PITCH)
@@ -227,8 +228,21 @@ class StreamPlayer(
                     ?.getOrNull(positionMs.toInt().coerceAtLeast(0))
                 if (chapter != null && target != null) {
                     driver.stop()
-                    feed(core?.seek(target.sid).orEmpty())
-                    if (!playing) startSpeaking()
+                    // After a chapter end the seek is a no-op in the core
+                    // (terminal state), so fall back to restarting it.
+                    if (ended) {
+                        startSpeaking()
+                    } else {
+                        // seek() already planned the target sentence, so a
+                        // paused player only needs the state to match;
+                        // startSpeaking() would requeue from the stale
+                        // currentSid and replay the old sentence.
+                        playing = true
+                        requestFocus()
+                        wakeLock.acquire()
+                        feed(core?.seek(target.sid).orEmpty())
+                        invalidateState()
+                    }
                 }
             }
         }

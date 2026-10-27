@@ -84,15 +84,19 @@ one of the two is wrong (contract-first rule, Slice16 decision 1).
   `400 bad-extension | path-traversal | empty-file | draft-failed`,
   `409 name-taken` past 1000 copies, `413 too-large`.
 - `POST /api/books/{book_id}/build` (token required; optional JSON
-  `{chapters?, pages?, device?}`, present fields must be strings) ->
-  `202 {job_id, book_id, state}`. `409 work-lock-held` when the book is busy;
+  `{chapters?, pages?, device?, render_speed?}`, present fields must be
+  strings) -> `202 {job_id, book_id, state}`. `render_speed` is
+  `slow|balanced|fast` and paces the build's parallel chapter workers;
+  missing means `balanced` (the CLI default), and an unknown tier is
+  `400 bad-speed`. `409 work-lock-held` when the book is busy;
   `404 book-not-found`.
 - `DELETE /api/books/{book_id}` (token required; cancels live jobs first,
   then removes sources, work dir, bundles, job dirs, transfer record, and
   the in-memory draft entry) -> `200 {book_id, removed}`. `400
   path-traversal` on a bad id; `404 book-not-found` when nothing matched.
-- `POST /api/books/{book_id}/plan` (token required; same selection fields;
-  pure, no lock, no writes) -> `200` preflight `{book_id (range-aware id when
+- `POST /api/books/{book_id}/plan` (token required; same `chapters`/`pages`
+  selection fields, and any `device`/`render_speed` is ignored: the estimate
+  does not depend on the tier; pure, no lock, no writes) -> `200` preflight `{book_id (range-aware id when
   chapters/pages select a range, else the book id), title,
   source_chapters_total: int, selected_chapters: [int], cached_chapters: int,
   to_render_chapters: int, cached_sentences: int, to_render_sentences: int,

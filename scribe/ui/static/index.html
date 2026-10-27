@@ -562,6 +562,7 @@ function setupRenderStep(data) {
   }
   html += '<div id="render-preflight" aria-live="polite"><p class="muted">Checking preflight…</p></div>';
   html += '<p><label for="render-device">Device</label> <select id="render-device" aria-label="Compute device"><option value="auto">auto</option><option value="cpu">cpu</option><option value="cuda">cuda</option></select> <span class="muted">Saved per machine.</span></p>';
+  html += '<p><label for="render-speed">Render speed</label> <select id="render-speed" aria-label="Render speed"><option value="slow">slow</option><option value="balanced" selected>balanced</option><option value="fast">fast</option></select> <span class="muted">Chapters rendered at once; not saved, per render.</span></p>';
   html += '<p class="row-actions"><button id="render-start" type="button">Start render</button></p>';
   html += '<p class="muted" id="render-error" role="alert"></p>';
   html += '<div id="render-live" aria-live="polite"></div>';
@@ -720,6 +721,8 @@ async function startRender() {
   const made = renderPayload();
   const devEl = document.getElementById("render-device");
   made.payload.device = devEl ? devEl.value : "auto";
+  const spdEl = document.getElementById("render-speed");
+  made.payload.render_speed = spdEl ? spdEl.value : "balanced";
   if (err) err.textContent = "Starting…";
   const { ok, status, data } = await api("/api/books/" + encodeURIComponent(renderBookId) + "/build", {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(made.payload)

@@ -1,6 +1,6 @@
 # Slice 14 Implementation Plan: KittenTTS Engine (Player `full` flavor)
 
-Project: Auloud Player, `full` flavor only. Follows `docs/10-V3Roadmap.md` (Slice 14) and builds on Slice 8 (`TtsEngine`, registry, sherpa engines, model-pack discovery, Voice lab, benchmark), Slice 10 and 11 (rendering, fingerprints, stale detection, recommendation). Decision numbers continue from D-141. The audit fix plan (FP1-FP7) is done; the 2.1.0 smoke test, the 2.0 to 2.1 over-install proof and the release page are still open and are not blockers for this slice.
+Project: Auloud Player, `full` flavor only. Follows `docs/10-V3Roadmap.md` (Slice 14) and builds on Slice 8 (`TtsEngine`, registry, sherpa engines, model-pack discovery, Voice lab, benchmark), Slice 10 and 11 (rendering, fingerprints, stale detection, recommendation). Decision numbers continue from D-141. The audit fix plan (FP1-FP7) is done; the release smoke test ran on the 2.1.6 build, the 2.0-to-2.1.6 over-install proof is still open, and the GitHub release page is owner-side. None are blockers for this slice.
 
 ## 1. Goal
 
@@ -131,13 +131,13 @@ The agent prepares the materials; you listen.
 
 ## 7. Definition of done
 
-- [ ] KT0 findings documented: 32-bit result, voice mapping evidence, license terms per tested variant
-- [ ] Engine, pack discovery and registry built; all JVM tests green in both flavors; lint clean
-- [ ] `core` flavor scans green; no `INTERNET` permission in any release manifest
-- [ ] Benchmarks for nano int8 and micro on the Tab E recorded (or an explicit, documented "does not load")
-- [ ] A/B scores and the recommendation decision logged
-- [ ] One chapter rendered on-device with Kitten and checked for sync, level and stale behavior
-- [ ] Docs, licenses and decisions updated; roadmap ticked only for verified items; tagged `slice-14`
+> **Closed 2026-10-26 (tag `slice-14` at `84d4aef`).** The agent half of
+> this slice is done and recorded (`docs/archive/v2/kitten.md`, desk
+> research; model licenses Apache-2.0, checked). The device half was never
+> run: the Kitten listening protocol in `docs/archive/v2/kitten-ab.md` is
+> still empty. The slice is closed on the tag, not on per-box device
+> results; the v3 release criterion that names Kitten stands as partial
+> (see `docs/acceptance-slice22.md` criterion 1).
 
 ## 8. Risks and mitigations
 

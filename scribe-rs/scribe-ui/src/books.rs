@@ -74,6 +74,17 @@ pub fn book_status(book: &scribe_client::BookSummary) -> String {
     }
 }
 
+/// DS3: chip tone for the state `book_status` names. A failed or
+/// cancelled draft is the only bad news (the stepper marks that same
+/// state `FAILED`); rendering and every other draft state read neutral.
+pub fn book_status_tone(book: &scribe_client::BookSummary) -> crate::components::Tone {
+    if book.rendering || !matches!(book.draft_status.as_str(), "failed" | "cancelled") {
+        crate::components::Tone::Neutral
+    } else {
+        crate::components::Tone::Warn
+    }
+}
+
 /// One stepper row (extract, draft, cast, render, validate, transfer).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StepState {
@@ -307,6 +318,29 @@ mod tests {
         assert_eq!(book_status(&book), "rendering");
         book.rendering = false;
         assert_eq!(book_status(&book), "draft: done");
+    }
+
+    #[test]
+    fn only_a_failed_or_cancelled_draft_warns() {
+        let mut book = scribe_client::BookSummary {
+            draft_status: "failed".to_owned(),
+            ..Default::default()
+        };
+        assert_eq!(book_status_tone(&book), crate::components::Tone::Warn);
+        book.draft_status = "cancelled".to_owned();
+        assert_eq!(book_status_tone(&book), crate::components::Tone::Warn);
+        // A render in flight reads neutral even when a past draft failed.
+        book.rendering = true;
+        assert_eq!(book_status_tone(&book), crate::components::Tone::Neutral);
+        for state in ["done", "drafting", "queued", ""] {
+            book.rendering = false;
+            book.draft_status = state.to_owned();
+            assert_eq!(
+                book_status_tone(&book),
+                crate::components::Tone::Neutral,
+                "{state}"
+            );
+        }
     }
 
     fn fixture(name: &str) -> serde_json::Value {

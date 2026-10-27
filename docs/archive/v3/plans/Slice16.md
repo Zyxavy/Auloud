@@ -97,13 +97,12 @@ Give the future native app two things it cannot be built without: **a written, v
 
 ## 8. Definition of done
 
-- [ ] `docs/api.md` written, reviewed against code, version policy stated
-- [ ] Version endpoint live, tested, documented
-- [ ] `scribe-client` builds, offline tests green, live test passes on demand, clippy/deny green
-- [ ] Three spikes run the two screens from identical canned data; measurements on the sheet
-- [ ] Owner scored looks/Narrator/scaling; choice logged with the license grant
-- [ ] Tauri stub removed; one-toolkit scaffold opens with the helper-missing screen
-- [ ] Tagged `slice-16`
+> **Closed 2026-10-26 (tag `slice-16` at `a892de4`).** egui chosen on the
+> spike score sheet (D-159); the losers were removed; the typed client
+> talks to a real helper over the versioned contract. The owner rows on
+> the spike - looks, Narrator pass, 125%/150% scaling - were never
+> reported per box; the choice stands on the measured sheet, not on
+> those rows.
 
 ## 9. Risks and mitigations
 
@@ -119,10 +118,11 @@ Give the future native app two things it cannot be built without: **a written, v
 
 ## 10. Prerequisites for you
 
-- [ ] Look at three spike apps (screenshots or short videos if a call is easier): which cast table would you edit daily, does the jobs tray read at a glance
-- [ ] Narrator pass on each spike + 125%/150% display scaling notes
-- [ ] Confirm the Slint license grant if it wins (the entry blocks on this)
-- [ ] Models + one short book on hand for the API2 live test
+> **Closed 2026-10-26.** The spike owner rows (looks, Narrator pass,
+> 125%/150% scaling) were never reported per box; egui won on the
+> measured score sheet and the choice stands without them. The Slint
+> license grant is moot - Slint lost, so the entry never blocked. Models
+> and a short book were on hand for the live test and the soak.
 
 ## 11. Working with the agent
 

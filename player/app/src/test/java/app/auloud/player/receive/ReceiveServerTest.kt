@@ -31,9 +31,11 @@ class ReceiveServerTest {
 
     private class FakeLibrary : LibraryRepository {
         val imported = mutableListOf<Pair<String, Manifest>>()
+        var failImport = false
         override fun books(): Flow<List<BookEntity>> = emptyFlow()
-        override suspend fun importBundle(bundleDir: String, manifest: Manifest) =
-            Result.success(
+        override suspend fun importBundle(bundleDir: String, manifest: Manifest): Result<BookEntity> {
+            if (failImport) return Result.failure(IllegalStateException("library upsert failed"))
+            return Result.success(
                 BookEntity(
                     id = manifest.id,
                     title = manifest.title,
@@ -44,6 +46,7 @@ class ReceiveServerTest {
                     addedAt = 0L
                 )
             ).also { imported.add(bundleDir to manifest) }
+        }
         override suspend fun refreshMissing(presentBundleDirs: Collection<String>) =
             Result.success(Unit)
         override suspend fun deleteBook(bookId: String) = Result.success(Unit)
@@ -400,6 +403,82 @@ class ReceiveServerTest {
         } finally {
             server.stop()
         }
+    }
+
+    @Test
+    fun failedReplacementRestoresPreviousBundle() {
+        val root = booksRoot()
+        val first = zipBytes(validEntries())
+        val server = ReceiveServer(0, code, root, storage, library)
+        server.start()
+        try {
+            val (one, _) = post(server.listeningPort, code, sha256Hex(first), first)
+            assertEquals(200, one)
+            val v1 = java.io.File(root, "wifi-book-1/manifest.json").readText()
+
+            // New bytes, then the library write fails: the old bundle must
+            // come back instead of the book disappearing.
+            val entries = validEntries().toMutableMap()
+            entries["manifest.json"] = String(entries.getValue("manifest.json"), Charsets.UTF_8)
+                .replace("Wi-Fi Book", "Wi-Fi Book v2")
+                .toByteArray(Charsets.UTF_8)
+            val second = zipBytes(entries)
+            library.failImport = true
+            val (two, text) = post(server.listeningPort, code, sha256Hex(second), second)
+            assertEquals(400, two)
+            assertTrue(text.contains("library upsert failed"))
+            assertEquals(v1, java.io.File(root, "wifi-book-1/manifest.json").readText())
+            assertTrue(strayTemps(root).isEmpty())
+            val backups = java.io.File(root).listFiles()
+                ?.filter { it.name.startsWith(ReceivePipeline.BACKUP_PREFIX) } ?: emptyList()
+            assertTrue(backups.isEmpty())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun unsafeChapterTextPathIsRejected() {
+        val root = booksRoot()
+        val entries = validEntries().toMutableMap()
+        entries["manifest.json"] = String(entries.getValue("manifest.json"), Charsets.UTF_8)
+            .replace("\"text\":\"text/ch001.json\"", "\"text\":\"../evil.json\"")
+            .toByteArray(Charsets.UTF_8)
+        val body = zipBytes(entries)
+        val server = ReceiveServer(0, code, root, storage, library)
+        server.start()
+        try {
+            val (status, text) = post(server.listeningPort, code, sha256Hex(body), body)
+            assertEquals(400, status)
+            assertTrue(text.contains("path escapes bundle"))
+            assertTrue(strayTemps(root).isEmpty())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun wrongCodeIsCappedAtTooManyAttempts() {
+        val root = booksRoot()
+        val server = ReceiveServer(0, code, root, storage, library, badCodeDelayMs = 0L)
+        server.start()
+        try {
+            var last = 0
+            for (i in 0..ReceiveServer.MAX_BAD_GUESSES) {
+                last = post(server.listeningPort, "000000", null, ByteArray(0)).first
+            }
+            assertEquals(429, last)
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun oversizeDeclaredLengthIsDetected() {
+        assertTrue(ReceiveServer.oversizeDeclaredLength("${ReceiveServer.MAX_UPLOAD_BYTES + 1}"))
+        assertTrue(!ReceiveServer.oversizeDeclaredLength("${ReceiveServer.MAX_UPLOAD_BYTES}"))
+        assertTrue(!ReceiveServer.oversizeDeclaredLength(null))
+        assertTrue(!ReceiveServer.oversizeDeclaredLength("not-a-number"))
     }
 
     @Test

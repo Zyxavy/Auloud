@@ -5,7 +5,8 @@
 //! show which slice builds them.
 
 use eframe::egui;
-use scribe_ui::books::book_status;
+use scribe_ui::books::{book_status, book_status_tone};
+use scribe_ui::components::{self, Tone};
 use scribe_ui::helper::{self, WorkerCmd, WorkerEvent};
 use scribe_ui::machine::{self, Action, Event, State};
 use scribe_ui::send::SendOutcome;
@@ -15,12 +16,19 @@ use scribe_ui::theme;
 /// Book list refresh cadence while running.
 const BOOKS_POLL: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// Theme token to an egui color (tokens stay plain RGB triples in one place).
-fn rgb(color: (u8, u8, u8)) -> egui::Color32 {
-    egui::Color32::from_rgb(color.0, color.1, color.2)
+/// DS3: the tone of a job state chip. Failed is the only warn, done the
+/// only ok; running, paused, interrupted and cancelled read neutral.
+fn job_state_tone(state: &str) -> Tone {
+    match state {
+        "done" => Tone::Ok,
+        "failed" => Tone::Warn,
+        _ => Tone::Neutral,
+    }
 }
 
-/// Top-level screens; order matches the Book detail stepper.
+/// Top-level screens; order matches the Book detail stepper. Licenses is
+/// the one screen outside the stepper: Settings opens it, the nav keeps
+/// its order (the Player does the same).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Screen {
     Books,
@@ -30,6 +38,7 @@ enum Screen {
     Models,
     Validate,
     Settings,
+    Licenses,
 }
 
 impl Screen {
@@ -41,7 +50,7 @@ impl Screen {
             Self::Voices => "Voices",
             Self::Models => "Models",
             Self::Validate => "Validate",
-            Self::Settings => "Settings",
+            Self::Settings | Self::Licenses => "Settings",
         }
     }
 
@@ -54,7 +63,7 @@ impl Screen {
             Self::Voices => "audition voices (list below)",
             Self::Models => "Kokoro model files (status, download, sideload)",
             Self::Validate => "Slice 20: validate list, transfer",
-            Self::Settings => "here: workspace, device, helper path",
+            Self::Settings | Self::Licenses => "here: workspace, device, helper path",
         }
     }
 
@@ -134,6 +143,9 @@ struct App {
     voices_note: String,
     audio: Option<AudioOut>,
     pending_remove: Option<String>,
+    /// LG1: the generated license files, loaded the first time the screen
+    /// opens (they never change while the app runs).
+    licenses: Option<Vec<scribe_ui::licenses::Document>>,
 }
 
 /// Audition playback (CS3): the device handle must outlive the player.
@@ -218,6 +230,7 @@ impl App {
             voices_note: String::new(),
             audio: None,
             pending_remove: None,
+            licenses: None,
         }
     }
 
@@ -503,6 +516,10 @@ impl App {
             self.settings_ui(ui);
             return;
         }
+        if self.screen == Screen::Licenses {
+            self.licenses_ui(ui);
+            return;
+        }
         if self.screen == Screen::Books {
             self.books_ui(ui);
             return;
@@ -519,7 +536,7 @@ impl App {
             self.models_ui(ui);
             return;
         }
-        ui.heading(egui::RichText::new(self.screen.title()).color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new(self.screen.title()).color(theme::color(theme::OXBLOOD)));
         ui.label(self.screen.lands_in());
     }
 
@@ -542,7 +559,7 @@ impl App {
     /// Voices screen (CS3): engine selector, voice list with audition,
     /// sample sentence. Clips fetch on Play (queued jobs seed them).
     fn voices_ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading(egui::RichText::new("Voices").color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new("Voices").color(theme::color(theme::OXBLOOD)));
         if !self.voices_note.is_empty() {
             ui.label(&self.voices_note);
         }
@@ -617,7 +634,7 @@ impl App {
 
     /// Jobs screen (JP1): the tray expanded (live rows + full history).
     fn jobs_ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading(egui::RichText::new("Jobs").color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new("Jobs").color(theme::color(theme::OXBLOOD)));
         if !self.jobs_note.is_empty() {
             ui.label(&self.jobs_note);
         }
@@ -691,7 +708,7 @@ impl App {
         ui.group(|ui| {
             ui.horizontal(|ui| {
                 ui.label(format!("{}: {}", progress::job_label(job), title));
-                ui.label(&job.state);
+                components::chip(ui, job.state.clone(), job_state_tone(&job.state));
                 ui.label(format!(
                     "{} sentences ({} cached)",
                     progress::done_sentences(&job.summary),
@@ -756,7 +773,7 @@ impl App {
 
     /// Books list with status chips + add-book (AP2).
     fn books_ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading(egui::RichText::new("Books").color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new("Books").color(theme::color(theme::OXBLOOD)));
         if ui.button("Add book").clicked() {
             self.add_book();
         }
@@ -787,7 +804,7 @@ impl App {
                         {
                             picked = Some(book.id.clone());
                         }
-                        ui.label(book_status(book));
+                        components::chip(ui, book_status(book), book_status_tone(book));
                         if let Some(progress) =
                             scribe_ui::books::draft_progress(&self.jobs, &book.id)
                         {
@@ -891,7 +908,7 @@ impl App {
         };
         ui.separator();
         let Some(detail) = self.detail.as_ref().filter(|detail| detail.id == id) else {
-            ui.heading(egui::RichText::new("Detail").color(rgb(theme::OXBLOOD)));
+            ui.heading(egui::RichText::new("Detail").color(theme::color(theme::OXBLOOD)));
             if !self.detail_note.is_empty() {
                 ui.label(&self.detail_note);
             }
@@ -904,19 +921,19 @@ impl App {
         } else {
             format!("Detail: {}", detail.title)
         };
-        ui.heading(egui::RichText::new(heading).color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new(heading).color(theme::color(theme::OXBLOOD)));
         if !self.detail_note.is_empty() {
             ui.label(&self.detail_note);
         }
         let cast_edited = detail.cast_edited;
         for step in scribe_ui::books::stepper(detail, cast_edited) {
-            let mark = match step.status {
-                scribe_ui::books::StepStatus::Done => "done",
-                scribe_ui::books::StepStatus::Pending => "pending",
-                scribe_ui::books::StepStatus::Failed => "FAILED",
+            let (mark, tone) = match step.status {
+                scribe_ui::books::StepStatus::Done => ("done", Tone::Ok),
+                scribe_ui::books::StepStatus::Pending => ("pending", Tone::Neutral),
+                scribe_ui::books::StepStatus::Failed => ("FAILED", Tone::Warn),
             };
             ui.horizontal(|ui| {
-                ui.label(format!("[{}]", mark));
+                components::chip(ui, mark, tone);
                 ui.label(step.label);
                 ui.label(step.note);
             });
@@ -936,7 +953,7 @@ impl App {
         let Some(step) = self.wizard else {
             return;
         };
-        ui.heading(egui::RichText::new("Welcome to Auloud Scribe").color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new("Welcome to Auloud Scribe").color(theme::color(theme::OXBLOOD)));
         match step {
             WizardStep::Welcome => {
                 ui.label("Turn ebooks into audiobooks: add a book, draft it, render it, send it to the tablet.");
@@ -1006,7 +1023,7 @@ impl App {
             self.models
                 .begin(scribe_ui::models::ModelOp::Refresh, dir.clone());
         }
-        ui.heading(egui::RichText::new("Models").color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new("Models").color(theme::color(theme::OXBLOOD)));
         ui.label(format!("Folder: {}", dir.display()));
         ui.label(scribe_ui::models::LICENSE_LINE);
         ui.separator();
@@ -1108,7 +1125,7 @@ impl App {
             return;
         };
         ui.separator();
-        ui.heading(egui::RichText::new("Validate").color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new("Validate").color(theme::color(theme::OXBLOOD)));
         if !self.validation_note.is_empty() {
             ui.label(&self.validation_note);
         }
@@ -1158,7 +1175,7 @@ impl App {
             None => return,
         };
         ui.separator();
-        ui.heading(egui::RichText::new("Send to tablet").color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new("Send to tablet").color(theme::color(theme::OXBLOOD)));
         let bundle = match bundles.iter().find(|entry| entry.valid).or(bundles.first()) {
             Some(entry) => entry.clone(),
             None => {
@@ -1226,7 +1243,7 @@ impl App {
             .and_then(|row| row.source_type.clone())
             .is_some_and(|kind| kind == "pdf");
         ui.separator();
-        ui.heading(egui::RichText::new("Render").color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new("Render").color(theme::color(theme::OXBLOOD)));
         if !self.render_note.is_empty() {
             ui.label(&self.render_note);
         }
@@ -1300,6 +1317,17 @@ impl App {
                     &mut self.render_form.device_override,
                     Some(device.to_owned()),
                     device,
+                );
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.label("Render speed:");
+            ui.radio_value(&mut self.render_form.speed_override, None, "App default (balanced)");
+            for speed in scribe_ui::render::SPEEDS {
+                ui.radio_value(
+                    &mut self.render_form.speed_override,
+                    Some(speed.to_owned()),
+                    speed,
                 );
             }
         });
@@ -1385,8 +1413,14 @@ impl App {
         if !self.quit_confirm {
             return;
         }
+        // AX1: Esc takes the safe choice (Stay), so the dialog cannot
+        // become a keyboard trap for a keyboard-only user.
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            self.quit_confirm = false;
+            return;
+        }
         ui.separator();
-        ui.heading(egui::RichText::new("Quit with running jobs?").color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new("Quit with running jobs?").color(theme::color(theme::OXBLOOD)));
         if live.is_empty() {
             ui.label("No running jobs anymore. Quitting is safe.");
         } else {
@@ -1424,7 +1458,7 @@ impl App {
             .filter(|detail| detail.id == id)
             .is_some_and(|detail| detail.drafted);
         ui.separator();
-        ui.heading(egui::RichText::new("Cast").color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new("Cast").color(theme::color(theme::OXBLOOD)));
         if !drafted {
             ui.label("cast appears after drafting");
             return;
@@ -1594,7 +1628,7 @@ impl App {
     /// atomic PATCH; the echo's affected count is the rebuild preflight.
     fn quotes_ui(&mut self, ui: &mut egui::Ui, book_id: &str, mtime: f64, speakers: &[String]) {
         ui.separator();
-        ui.heading(egui::RichText::new("Overrides").color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new("Overrides").color(theme::color(theme::OXBLOOD)));
         ui.horizontal(|ui| {
             let mut low = self.quotes_low_only;
             ui.checkbox(&mut low, "Low confidence only");
@@ -1751,7 +1785,7 @@ impl App {
     /// Read-only cast report (CS2): markdown text behind one button.
     fn report_ui(&mut self, ui: &mut egui::Ui, book_id: &str) {
         ui.separator();
-        ui.heading(egui::RichText::new("Report").color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new("Report").color(theme::color(theme::OXBLOOD)));
         if self.report_md.is_none() {
             if ui.button("Load report").clicked() {
                 self.worker_tx
@@ -1804,7 +1838,7 @@ impl App {
     /// Settings editor, reachable from any machine state (a bad helper path
     /// must stay fixable: the halt screens route here, never past it).
     fn settings_ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading(egui::RichText::new("Settings").color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new("Settings").color(theme::color(theme::OXBLOOD)));
         ui.horizontal(|ui| {
             ui.label("Workspace:");
             ui.text_edit_singleline(&mut self.workspace_edit);
@@ -1825,16 +1859,48 @@ impl App {
         if ui.button("First-run wizard").clicked() {
             self.wizard = Some(WizardStep::Welcome);
         }
+        if ui.button("Licenses").clicked() {
+            self.screen = Screen::Licenses;
+        }
         if !self.notice.is_empty() {
             ui.label(&self.notice);
         }
     }
 
+    /// LG1: the generated notice, third-party list and source offer, read
+    /// from beside the executable. Needs no helper, so it works in every
+    /// state.
+    fn licenses_ui(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.heading(egui::RichText::new("Licenses").color(theme::color(theme::OXBLOOD)));
+            if ui.button("Back to Settings").clicked() {
+                self.screen = Screen::Settings;
+            }
+        });
+        let exe = std::env::current_exe().unwrap_or_default();
+        let dir = scribe_ui::licenses::dir_for(&exe);
+        ui.label(format!("from {}", dir.display()));
+        let texts = scribe_ui::licenses::texts(&dir);
+        if !texts.is_empty() {
+            ui.label(format!("license texts: {}", texts.join(", ")));
+        }
+        let documents = self
+            .licenses
+            .get_or_insert_with(|| scribe_ui::licenses::load(&dir));
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for document in documents.iter() {
+                ui.heading(egui::RichText::new(document.title).color(theme::color(theme::SAGE)));
+                ui.label(&document.body);
+                ui.separator();
+            }
+        });
+    }
+
     /// Halt screens (missing/crashed/version): reason + Retry.
     fn halt_ui(&mut self, ui: &mut egui::Ui, title: &str, reason: &str) {
-        ui.heading(egui::RichText::new(title).color(rgb(theme::OXBLOOD)));
+        ui.heading(egui::RichText::new(title).color(theme::color(theme::OXBLOOD)));
         ui.group(|ui| {
-            ui.label(egui::RichText::new(reason).color(rgb(theme::SAGE)));
+            ui.label(egui::RichText::new(reason).color(theme::color(theme::SAGE)));
         });
         if ui.button("Retry").clicked() {
             self.retry();
@@ -1848,9 +1914,9 @@ impl eframe::App for App {
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_millis(500));
         self.pump();
-        ui.visuals_mut().extreme_bg_color = rgb(theme::PAPER);
+        ui.visuals_mut().extreme_bg_color = theme::color(theme::PAPER);
         ui.horizontal(|ui| {
-            ui.heading(egui::RichText::new("Auloud Scribe").color(rgb(theme::OXBLOOD)));
+            ui.heading(egui::RichText::new("Auloud Scribe").color(theme::color(theme::OXBLOOD)));
             for screen in Screen::all() {
                 ui.selectable_value(&mut self.screen, screen, screen.title());
             }
@@ -1870,6 +1936,7 @@ impl eframe::App for App {
                 self.tray_ui(ui);
                 self.quit_intercept(ui);
             }
+            _ if self.screen == Screen::Licenses => self.licenses_ui(ui),
             _ if self.screen == Screen::Settings => self.settings_ui(ui),
             State::Starting { .. } => {
                 ui.spinner();
@@ -1923,9 +1990,25 @@ fn main() {
                 vec![scribe_ui::theme::SERIF_FAMILY.to_owned()],
             );
             cc.egui_ctx.set_fonts(fonts);
-            cc.egui_ctx.all_styles_mut(scribe_ui::theme::serif_titles);
+            cc.egui_ctx.all_styles_mut(scribe_ui::theme::apply);
             Ok(Box::new(App::new()))
         }),
     )
     .expect("auloud scribe runs");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn job_state_tone_reads_failure_and_done_only() {
+        assert_eq!(job_state_tone("done"), Tone::Ok);
+        assert_eq!(job_state_tone("failed"), Tone::Warn);
+        // The helper's other real states (see `progress`): live or
+        // user-stopped work is neither good news nor bad news.
+        for state in ["running", "paused", "interrupted", "cancelled"] {
+            assert_eq!(job_state_tone(state), Tone::Neutral, "{state}");
+        }
+    }
 }

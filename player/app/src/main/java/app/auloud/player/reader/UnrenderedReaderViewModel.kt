@@ -3,6 +3,7 @@ package app.auloud.player.reader
 import app.auloud.player.bundle.ChapterTextLoader
 import app.auloud.player.bundle.ChapterTextPdfForm
 import app.auloud.player.bundle.ChapterTextUnavailable
+import app.auloud.player.bundle.Sentence
 import app.auloud.player.data.ProgressRepository
 import app.auloud.player.storage.BundleStorage
 import kotlinx.coroutines.CoroutineDispatcher
@@ -35,12 +36,17 @@ import kotlinx.coroutines.launch
  *   no-op) and loads the chapter start, saving it on success. Failures
  *   keep the error state and do not overwrite the last good position.
  *   [nextChapter] and [previousChapter] step through it (ends no-op).
- * - [onSentenceTap] moves the reading position immediately (no confirm
- *   prompt: there is no audio to lose) and saves it; unknown sids are
- *   ignored. [onTopVisibleSid] debounces rapid scroll reports and settles
- *   the last one the same way.
- * - Follow reuses the shared machine: manual scroll detaches, back-to-now
- *   and chapter changes re-attach.
+ * - [onSentenceTap] moves the reading position immediately when no live
+ *   voice is attached (there is no audio to lose) and saves it; with a
+ *   live voice it arms the same confirm prompt as the rendered reader
+ *   ([confirmTapJump]/[dismissTapJump]), so an accidental tap never moves
+ *   the stream. Unknown sids are ignored. [onTopVisibleSid] debounces rapid
+ *   scroll reports and settles the last one the same way.
+ * - Follow reuses the shared machine: manual scroll detaches, back-to-now,
+ *   chapter changes and confirmed jumps re-attach. A live jump re-attaches
+ *   only when the voice actually reaches the tapped sentence (the restart
+ *   takes time, and scrolling to the old spot first would be a visible
+ *   double jump).
  * - The voice leads across chapter ends: a service chapter advance loads
  *   the new chapter's text here with no command back (it is already
  *   there), so highlight and text keep going ReadEra-style, including
@@ -83,12 +89,31 @@ class UnrenderedReaderViewModel(
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private var loadJob: Job? = null
     private var settleJob: Job? = null
+    /**
+     * ST7-fix: tapped sid whose voice restart is in flight. The follow
+     * state re-attaches when [live] reports this sid, not at confirm time:
+     * the old sentence stays highlighted until the stream restarts.
+     */
+    @Volatile
+    private var pendingFollowSid: Int? = null
 
     init {
         live?.let { stream ->
             scope.launch {
                 stream.sid.collect { sid ->
-                    _state.value = _state.value.copy(liveSid = sid)
+                    val current = _state.value
+                    // ST7-fix: a confirmed tap re-attaches follow once the
+                    // restarted voice reaches the tapped sentence.
+                    val reached = sid != null && sid == pendingFollowSid
+                    if (reached) pendingFollowSid = null
+                    _state.value = current.copy(
+                        liveSid = sid,
+                        follow = if (reached) {
+                            reduceFollow(current.follow, FollowEvent.TextJump)
+                        } else {
+                            current.follow
+                        }
+                    )
                 }
             }
             // The voice leads across chapter ends (ReadEra-style follow):
@@ -180,19 +205,70 @@ class UnrenderedReaderViewModel(
     }
 
     /**
-     * Tap moves the reading position (no confirm: there is no audio to
-     * lose). Unknown sids are ignored. ST5: a live stream restarts
-     * audibly from the tapped sentence.
+     * Tap arms the jump prompt while a live voice is attached (mirrors the
+     * rendered reader's confirm step: an accidental tap never loses the
+     * place). With no live voice there is no audio to lose, so the reading
+     * position moves immediately. Unknown sids are ignored.
      */
     fun onSentenceTap(sid: Int) {
-        val chapter = _state.value.chapter ?: return
-        val sentences = chapter.sentencesInOrder()
-        val index = sentences.indexOfFirst { it.sid == sid }
-        if (index < 0) return
-        _state.value = _state.value.copy(currentSid = sid)
-        live?.restartAt(index)
-        saveReadingPosition(_state.value.chapterIndex, sid)
+        val current = _state.value
+        val chapter = current.chapter ?: return
+        if (chapter.sentencesInOrder().none { it.sid == sid }) return
+        if (current.liveSid != null) {
+            _state.value = current.copy(pendingTapSid = sid)
+            return
+        }
+        moveReadingPosition(sid)
     }
+
+    /** Prompt confirmed: move the reading position and restart the voice there. */
+    fun confirmTapJump() {
+        val current = _state.value
+        val pending = current.pendingTapSid ?: return
+        val sentences = current.chapter?.sentencesInOrder().orEmpty()
+        if (sentences.none { it.sid == pending }) {
+            _state.value = current.copy(pendingTapSid = null)
+            return
+        }
+        _state.value = current.copy(currentSid = pending, pendingTapSid = null)
+        val streamIndex = streamIndexOf(sentences, pending)
+        if (streamIndex >= 0) {
+            // Re-attach only when the voice gets there: the old sentence
+            // stays highlighted while the stream restarts.
+            pendingFollowSid = pending
+            live?.restartAt(streamIndex)
+        }
+        saveReadingPosition(current.chapterIndex, pending)
+    }
+
+    /** Prompt dismissed: close it, playback and position untouched. */
+    fun dismissTapJump() {
+        if (_state.value.pendingTapSid != null) {
+            _state.value = _state.value.copy(pendingTapSid = null)
+        }
+    }
+
+    private fun moveReadingPosition(sid: Int) {
+        val current = _state.value
+        _state.value = current.copy(
+            currentSid = sid,
+            // An explicit tap is a text jump: re-attach like the rendered
+            // reader (a manual scroll had detached follow).
+            follow = reduceFollow(current.follow, FollowEvent.TextJump)
+        )
+        val sentences = current.chapter?.sentencesInOrder().orEmpty()
+        val streamIndex = streamIndexOf(sentences, sid)
+        if (streamIndex >= 0) live?.restartAt(streamIndex)
+        saveReadingPosition(current.chapterIndex, sid)
+    }
+
+    /**
+     * Stream index for [sid]: the service drops blank sentences
+     * (`PlaybackService.buildStreamChapter`), so the reading index is not
+     * the stream index.
+     */
+    private fun streamIndexOf(sentences: List<Sentence>, sid: Int): Int =
+        sentences.filter { it.text.isNotBlank() }.indexOfFirst { it.sid == sid }
 
     /**
      * The screen reports the top visible sentence on every scroll; when
@@ -220,11 +296,13 @@ class UnrenderedReaderViewModel(
 
     private fun loadChapter(chapterIndex: Int, restoreSid: Int?) {
         loadJob?.cancel()
+        pendingFollowSid = null
         _state.value = _state.value.copy(
             chapterIndex = chapterIndex,
             chapter = null,
             follow = reduceFollow(_state.value.follow, FollowEvent.ChapterChanged),
             currentSid = null,
+            pendingTapSid = null,
             isTextLoading = true,
             textError = null,
             textKind = null

@@ -7,7 +7,7 @@ Target device: Samsung Galaxy Tab E (SM-T560NU), Android 7.1.1, `minSdk 24`, abo
 ## Read first
 - `docs/03-BundleSpec.md` (or `spec/bundle.md`): the contract between Scribe and Player. Treat as law.
 - `docs/04-Roadmap.md`: the current slice and its checklist.
-- `docs/10-V3Roadmap.md`: the v3 plan (Scribe Rust/Tauri port plus KittenTTS).
+- `docs/archive/v3/10-V3Roadmap.md`: the v3 plan (Scribe Rust/Tauri port plus KittenTTS).
 - `docs/plans/` holds the slice plans (`docs/archive/v1/plans/` for v1, `docs/archive/v2/plans/` for v2).
 - `docs/06-PlayerDesign.md`, `docs/05-ScribeDesign.md`: design for each side.
 - `docs/DECISIONS.md`: past decisions. Do not contradict them without asking.
@@ -25,7 +25,7 @@ docs/     PRD, architecture, designs, roadmap, test plan, decisions
 ## Hard constraints
 **Player**
 - `minSdk 24`. Never use APIs above 24 without a version guard. `java.time` is not available on API 24 without desugaring.
-- No `INTERNET` permission. No cloud TTS. The tablet renders and streams with on-device voices only (System TTS everywhere, Piper packs in `full`); Scribe on the PC stays the multi-voice path.
+- `INTERNET` permission only for the LAN-only Wi-Fi bundle receiver (TR1, D-167); no cloud TTS or other network use. The tablet renders and streams with on-device voices only (System TTS everywhere, Piper packs in `full`); Scribe on the PC stays the multi-voice path.
 - Only Apache-2.0/MIT/BSD-compatible dependencies in `core`. No GPL code in `core`; the `full` flavor is GPL-3.0 by decision (D-126 option A) and carries its notices.
 - Stream audio; load only one chapter's JSON at a time; assume 1.5 GB RAM.
 - Storage goes through the `BundleStorage` interface.

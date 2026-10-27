@@ -84,10 +84,11 @@ class UnrenderedLiveStreamTest {
     private fun viewModel(
         dao: FakeProgressDao,
         dispatcher: CoroutineDispatcher,
-        live: LiveStream?
+        live: LiveStream?,
+        bundleFiles: Map<String, String> = files()
     ): UnrenderedReaderViewModel = UnrenderedReaderViewModel(
         bookId = "book-live",
-        storage = FakeStorage(files()),
+        storage = FakeStorage(bundleFiles),
         textPathForChapter = { "text/ch001.json" },
         chapterCount = 1,
         progress = RoomProgressRepository(dao),
@@ -124,7 +125,7 @@ class UnrenderedLiveStreamTest {
     }
 
     @Test
-    fun tap_restartsStreamAtSentenceIndex() = runTest {
+    fun tap_armsPromptThenConfirmRestartsStreamAtSentenceIndex() = runTest {
         val dao = FakeProgressDao()
         val fake = FakeLive()
         val vm = viewModel(dao, StandardTestDispatcher(testScheduler), fake.stream)
@@ -133,7 +134,165 @@ class UnrenderedLiveStreamTest {
                 testScheduler.advanceUntilIdle()
                 var state = awaitItem()
                 while (state.chapter == null) state = awaitItem()
+                // A live voice is attached: a tap must ask before moving it.
+                fake.sids.value = 1
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.liveSid == null) state = awaitItem()
                 vm.onSentenceTap(3)
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.pendingTapSid != 3) state = awaitItem()
+                assertEquals(1, state.currentSid)
+                assertTrue(fake.restarts.isEmpty())
+                vm.confirmTapJump()
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.currentSid != 3) state = awaitItem()
+                assertNull(state.pendingTapSid)
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            vm.clear()
+        }
+        // Sids 1,2,3: sid 3 is index 2.
+        assertEquals(listOf(2), fake.restarts)
+    }
+
+    @Test
+    fun confirmTapJump_reattachesOnlyWhenVoiceReachesTarget() = runTest {
+        val dao = FakeProgressDao()
+        val fake = FakeLive()
+        val vm = viewModel(dao, StandardTestDispatcher(testScheduler), fake.stream)
+        try {
+            vm.state.test {
+                testScheduler.advanceUntilIdle()
+                var state = awaitItem()
+                while (state.chapter == null) state = awaitItem()
+                fake.sids.value = 1
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.liveSid == null) state = awaitItem()
+                vm.onUserScrolled()
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.follow != FollowState.Detached) state = awaitItem()
+                vm.onSentenceTap(3)
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.pendingTapSid != 3) state = awaitItem()
+                vm.confirmTapJump()
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.currentSid != 3) state = awaitItem()
+                // The old sentence is still the voice position: re-attaching
+                // now would scroll there first.
+                assertEquals(FollowState.Detached, state.follow)
+                fake.sids.value = 3
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.liveSid != 3) state = awaitItem()
+                assertEquals(FollowState.Following, state.follow)
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            vm.clear()
+        }
+    }
+
+    @Test
+    fun dismissTapJump_keepsVoiceAndReadingPosition() = runTest {
+        val dao = FakeProgressDao()
+        val fake = FakeLive()
+        val vm = viewModel(dao, StandardTestDispatcher(testScheduler), fake.stream)
+        try {
+            vm.state.test {
+                testScheduler.advanceUntilIdle()
+                var state = awaitItem()
+                while (state.chapter == null) state = awaitItem()
+                fake.sids.value = 1
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.liveSid == null) state = awaitItem()
+                vm.onSentenceTap(3)
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.pendingTapSid != 3) state = awaitItem()
+                vm.dismissTapJump()
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.pendingTapSid != null) state = awaitItem()
+                assertEquals(1, state.currentSid)
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            vm.clear()
+        }
+        assertTrue(fake.restarts.isEmpty())
+    }
+
+    @Test
+    fun tap_withoutLiveVoice_movesReadingPositionImmediately() = runTest {
+        val dao = FakeProgressDao()
+        val repo = RoomProgressRepository(dao)
+        val vm = viewModel(dao, StandardTestDispatcher(testScheduler), live = null)
+        try {
+            vm.state.test {
+                testScheduler.advanceUntilIdle()
+                var state = awaitItem()
+                while (state.chapter == null) state = awaitItem()
+                // A manual scroll detached follow; the tap is an explicit
+                // jump, so it re-attaches like the rendered reader.
+                vm.onUserScrolled()
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.follow != FollowState.Detached) state = awaitItem()
+                vm.onSentenceTap(3)
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.currentSid != 3) state = awaitItem()
+                assertNull(state.pendingTapSid)
+                assertEquals(FollowState.Following, state.follow)
+                cancelAndIgnoreRemainingEvents()
+            }
+        } finally {
+            vm.clear()
+        }
+        assertEquals(3, repo.load("book-live").getOrThrow()?.sentenceSid)
+    }
+
+    @Test
+    fun tap_mapsSidOntoFilteredStreamIndex() = runTest {
+        val dao = FakeProgressDao()
+        val fake = FakeLive()
+        // Sid 1 is blank: the service skips it on the stream path, so sid 3
+        // is stream index 1 even though it is reading index 2.
+        val payload =
+            """{"spec_version": "2.0", "chapter": 1, "title": "Ch 1",
+                "blocks": [{"id": 1, "type": "para", "sentences": [
+                {"sid": 1, "speaker": "narrator", "text": " "},
+                {"sid": 2, "speaker": "narrator", "text": "Two. "},
+                {"sid": 3, "speaker": "narrator", "text": "Three."}]}]}"""
+        val vm = viewModel(
+            dao,
+            StandardTestDispatcher(testScheduler),
+            fake.stream,
+            bundleFiles = mapOf("text/ch001.json" to payload)
+        )
+        try {
+            vm.state.test {
+                testScheduler.advanceUntilIdle()
+                var state = awaitItem()
+                while (state.chapter == null) state = awaitItem()
+                fake.sids.value = 1
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.liveSid == null) state = awaitItem()
+                vm.onSentenceTap(3)
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.pendingTapSid != 3) state = awaitItem()
+                vm.confirmTapJump()
                 testScheduler.advanceUntilIdle()
                 state = awaitItem()
                 while (state.currentSid != 3) state = awaitItem()
@@ -142,8 +301,7 @@ class UnrenderedLiveStreamTest {
         } finally {
             vm.clear()
         }
-        // Sids 1,2,3: sid 3 is index 2.
-        assertEquals(listOf(2), fake.restarts)
+        assertEquals(listOf(1), fake.restarts)
     }
 
     @Test
@@ -156,8 +314,13 @@ class UnrenderedLiveStreamTest {
                 testScheduler.advanceUntilIdle()
                 var state = awaitItem()
                 while (state.chapter == null) state = awaitItem()
+                fake.sids.value = 1
+                testScheduler.advanceUntilIdle()
+                state = awaitItem()
+                while (state.liveSid == null) state = awaitItem()
                 vm.onSentenceTap(99)
                 testScheduler.advanceUntilIdle()
+                assertNull(vm.state.value.pendingTapSid)
                 cancelAndIgnoreRemainingEvents()
             }
         } finally {

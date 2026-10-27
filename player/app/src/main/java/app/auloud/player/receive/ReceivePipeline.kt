@@ -54,6 +54,17 @@ object ReceivePipeline {
      */
     const val TEMP_PREFIX = ".tmp-rcv-"
 
+    /**
+     * Prefix of the sibling folder holding the old bundle during a
+     * replacement swap. Deliberately not the stray-temp prefix: a crash must
+     * not let the sweeper delete the only remaining copy. The parked
+     * manifest is renamed to [MANIFEST_BAK] so a rescan does not list it.
+     */
+    const val BACKUP_PREFIX = ".bak-rcv-"
+
+    /** Parked manifest name inside [BACKUP_PREFIX] dirs (see above). */
+    const val MANIFEST_BAK = "manifest.json.auloud-bak"
+
     private const val BUFFER_SIZE = 8192
 
     suspend fun receive(
@@ -111,12 +122,29 @@ object ReceivePipeline {
                 )
             )
         }
-        val problems = BundleValidator.validate(bundleDir, manifest)
+        // CP4: the receive path must run the same text checks as import, so a
+        // pushed bundle with bad chapter JSON is refused here instead of
+        // failing later at open. The bundle is on disk under the file root.
+        val problems = BundleValidator.validate(
+            bundleDir,
+            manifest,
+            readText = { path -> File(path).takeIf { it.isFile }?.readText() }
+        )
         if (problems.isNotEmpty()) {
             storage.deleteRecursively(tempDir.path)
             return ReceiveOutcome.Failed(problems)
         }
         val finalDir = File(root, manifest.id)
+        val backupDir = File(root, BACKUP_PREFIX + manifest.id)
+        // Crash recovery: a previous replacement may have parked the old
+        // bundle in the backup (manifest renamed so a rescan does not list
+        // it) and died before the new one landed. Put it back first.
+        if (!finalDir.exists() && backupDir.exists()) {
+            restoreBackup(storage, backupDir, finalDir)
+        } else if (finalDir.exists() && backupDir.exists()) {
+            storage.deleteRecursively(backupDir.path)
+        }
+        var replacedExisting = false
         if (finalDir.exists()) {
             val installed = readManifestText(finalDir)
             val incoming = readManifestText(bundleDir)
@@ -124,21 +152,36 @@ object ReceivePipeline {
                 storage.deleteRecursively(tempDir.path)
                 return ReceiveOutcome.Duplicate(manifest.id, manifest.title)
             }
-            // Updated bundle (same id, new bytes; already validated
-            // above): replace the old folder. A failure here is reported
-            // and the PC resends (the old bits are gone, never half-kept).
-            storage.deleteRecursively(finalDir.path)
-            if (finalDir.exists()) {
+            // Updated bundle (same id, new bytes; already validated above):
+            // move the old folder aside first, never delete it, so a failed
+            // replace (move error, crash, library write error) restores the
+            // previous bundle instead of leaving the book gone.
+            try {
+                storage.movePath(finalDir.path, backupDir.path)
+            } catch (e: IOException) {
                 storage.deleteRecursively(tempDir.path)
                 return ReceiveOutcome.Failed(
-                    listOf("${manifest.id}: cannot replace old bundle (still on tablet)")
+                    listOf(e.message ?: "${manifest.id}: cannot replace old bundle")
                 )
             }
+            // Park the old manifest under a name a rescan ignores until the
+            // swap completes.
+            try {
+                storage.movePath(
+                    File(backupDir, "manifest.json").path,
+                    File(backupDir, MANIFEST_BAK).path
+                )
+            } catch (_: IOException) {
+                // Unreadable backup manifest: keep going; recovery renames
+                // it back best-effort.
+            }
+            replacedExisting = true
         }
         try {
             storage.movePath(bundleDir.path, finalDir.path)
         } catch (e: IOException) {
             storage.deleteRecursively(tempDir.path)
+            if (replacedExisting) restoreBackup(storage, backupDir, finalDir)
             return ReceiveOutcome.Failed(
                 listOf(e.message ?: "${finalDir.name}: cannot move book into place")
             )
@@ -147,11 +190,30 @@ object ReceivePipeline {
         val upserted = library.importBundle(finalDir.path, manifest)
         if (upserted.isFailure) {
             storage.deleteRecursively(finalDir.path)
+            if (replacedExisting) restoreBackup(storage, backupDir, finalDir)
             return ReceiveOutcome.Failed(
                 listOf(upserted.exceptionOrNull()?.message ?: "library upsert failed")
             )
         }
+        if (replacedExisting) storage.deleteRecursively(backupDir.path)
         return ReceiveOutcome.Imported(manifest.id, manifest.title)
+    }
+
+    /** Puts a parked backup back at [finalDir] (best effort, never throws). */
+    private fun restoreBackup(storage: BundleStorage, backupDir: File, finalDir: File) {
+        if (!backupDir.exists() || finalDir.exists()) return
+        val parked = File(backupDir, MANIFEST_BAK)
+        val live = File(backupDir, "manifest.json")
+        if (!live.exists() && parked.exists()) {
+            try {
+                storage.movePath(parked.path, live.path)
+            } catch (_: IOException) {
+            }
+        }
+        try {
+            storage.movePath(backupDir.path, finalDir.path)
+        } catch (_: IOException) {
+        }
     }
 
     internal fun sha256Hex(file: File): String? {

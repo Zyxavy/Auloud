@@ -40,6 +40,7 @@ import app.auloud.player.playback.ReaderDebugOverlay
 import app.auloud.player.playback.SleepOption
 import app.auloud.player.playback.SleepTimerButton
 import app.auloud.player.playback.SpeedButton
+import app.auloud.player.playback.StreamSidMonitor
 import app.auloud.player.playback.TransientNotice
 import app.auloud.player.playback.cycleSleepOption
 import app.auloud.player.playback.sleepCycleBase
@@ -101,6 +102,27 @@ fun BookScreen(
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
+    // Opening another book stops the previous book's live voice. Record
+    // this reader even before a stream exists: a load that finishes after
+    // the user moved on must not start talking under the new book. The
+    // monitor claims a start before its TTS build, so the check below also
+    // cancels one that has not begun speaking. Same-book opens are left
+    // alone.
+    LaunchedEffect(book.id) {
+        StreamSidMonitor.opened(book.id)
+        val streaming = StreamSidMonitor.bookId
+        if (streaming != null && streaming != book.id) {
+            try {
+                appContext.startService(
+                    PlaybackIntents.serviceIntent(appContext)
+                        .putExtra(PlaybackIntents.EXTRA_BOOK_ID, book.id)
+                        .putExtra(PlaybackIntents.EXTRA_STOP_STREAM_IF_OTHER, true)
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "stop other book's stream: ${e.message}")
+            }
+        }
+    }
     val modeStore = remember(appContext) { PrefsReaderModeStore.fromContext(appContext) }
     var mode by remember(book.id) { mutableStateOf(modeStore.mode()) }
     // CP3: shared chapter list for both branches (null = not loaded yet,
@@ -119,6 +141,9 @@ fun BookScreen(
     // the load below.
     var chapterError by remember(book.id) { mutableStateOf<String?>(null) }
     var loadTick by remember(book.id) { mutableIntStateOf(0) }
+    // OPEN5: effect-run counters for the gate diagnostics (shown when a
+    // gate sits with no error: proves whether the loader ran at all).
+    var loadSignals by remember(book.id) { mutableStateOf(LoadSignals()) }
     var showChapters by remember(book.id) { mutableStateOf(false) }
     // VS5: staleness for complete books (null = not loaded yet, or no
     // stale UI: read-only, legacy, or nothing rendered). Reloaded with
@@ -151,6 +176,7 @@ fun BookScreen(
         }
     }
     LaunchedEffect(book.id, staleTick, loadTick) {
+        loadSignals = loadSignals.copy(started = loadSignals.started + 1)
         Log.d(TAG, "chapter load start id=${book.id} dir=${book.bundleDir}")
         val started = android.os.SystemClock.uptimeMillis()
         val result = loadChapterList(storage, book.bundleDir)
@@ -158,6 +184,7 @@ fun BookScreen(
             Log.w(TAG, "chapter load failed id=${book.id} timedOut=${result.timedOut}")
             chapterError = result.message
             chapters = emptyList()
+            loadSignals = loadSignals.copy(finished = loadSignals.finished + 1)
             return@LaunchedEffect
         }
         result as ChapterLoadResult.Ready
@@ -192,6 +219,7 @@ fun BookScreen(
         } else {
             null
         }
+        loadSignals = loadSignals.copy(finished = loadSignals.finished + 1)
     }
     // IN9: read-only routing. The manifest wins once loaded; before that the
     // library map decides (a just-imported book shows read-only immediately
@@ -210,6 +238,7 @@ fun BookScreen(
             modifier = modifier,
             chapters = chapters,
             loadingError = chapterError,
+            loadSignals = loadSignals,
             onRetryLoading = { loadTick++ },
             onBookChanged = onBookChanged
         )
@@ -224,6 +253,8 @@ fun BookScreen(
             modifier = modifier,
             chapters = chapters,
             showChapters = showChapters,
+            loadSignals = loadSignals,
+            onRetryLoading = { loadTick++ },
             onOpenChapters = { showChapters = true },
             onDismissChapters = { showChapters = false }
         )

@@ -31,6 +31,8 @@ data class PlaybackState(
     val streamSid: Int? = null,
     /** Live voice chapter position (null when no stream chapter is live). */
     val streamChapterPos: Int? = null,
+    /** Book that owns the live stream (null when nothing is streaming). */
+    val streamBookId: String? = null,
     /**
      * CP4: transient skip/storage notice ("Skipped ..." or
      * "Storage unavailable - playback paused"). Null when nothing is

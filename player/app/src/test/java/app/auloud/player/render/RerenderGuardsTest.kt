@@ -415,6 +415,9 @@ class RerenderGuardsTest {
             onStartRerender = { chapter, mode -> rerenderStarts.add(chapter to mode) },
             registry = registry,
             freeBytes = { free },
+            // OPEN3: the guarded manifest read runs inline here so the
+            // panel state is settled when the harness returns.
+            readDispatcher = Dispatchers.Unconfined,
             dispatcher = Dispatchers.Unconfined
         )
     }

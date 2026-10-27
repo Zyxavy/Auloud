@@ -189,6 +189,39 @@ class StreamCoreTest {
     }
 
     @Test
+    fun requeueAfterSeekReplansFromThePreSeekSentence() {
+        val core = core()
+        core.start(1)
+        core.onStart("s0:1")
+        core.onDone("s0:1")
+        val jumped = core.seek(4)
+        assertEquals(listOf(4, 5, 6), speaks(jumped).map { it.sid })
+        // StreamPlayer.handleSeek() must feed the seek plan and, while
+        // paused, must not also start through startSpeaking(): a requeue
+        // replans from the last started sentence, not from the seek.
+        assertEquals(listOf(1, 2, 3, 4), speaks(core.requeue()).map { it.sid })
+    }
+
+    @Test
+    fun requeueBeforeFirstSentenceReplansFromStartSid() {
+        val core = core()
+        val initial = core.start(3)
+        // StreamPlayer.load() drops start()'s plan; play() calls requeue().
+        val requeued = core.requeue()
+        assertEquals(speaks(initial).map { it.sid }, speaks(requeued).map { it.sid })
+        assertEquals("s1:3", requeued[0].id)
+        assertEquals(StreamCore.Status.Playing, core.status)
+    }
+
+    @Test
+    fun pauseBeforeFirstSentenceKeepsTheStartSid() {
+        val core = core()
+        core.start(3)
+        assertEquals(3, core.pause())
+        assertEquals(listOf(3, 4, 5, 6), speaks(core.resume()).map { it.sid })
+    }
+
+    @Test
     fun pauseMidSentenceResumesSameSentence() {
         val core = core()
         core.start(1)

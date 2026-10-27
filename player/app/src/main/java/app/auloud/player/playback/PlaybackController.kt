@@ -287,8 +287,16 @@ class PlaybackController(
                 // An active sleep timer keeps ticking while paused so the
                 // remaining display stays live (one volatile read). A
                 // pending skip/storage notice does the same so a paused
-                // error still reaches the UI.
-                if (c.isPlaying || SleepTimerMonitor.active || SkipNoticeMonitor.hasPending) refresh("tick")
+                // error still reaches the UI. A claimed stream with no sid
+                // yet keeps ticking so the preparing state appears before
+                // the TTS build finishes.
+                val preparing = StreamSidMonitor.bookId != null &&
+                    StreamSidMonitor.sid == null
+                if (c.isPlaying || SleepTimerMonitor.active ||
+                    SkipNoticeMonitor.hasPending || preparing
+                ) {
+                    refresh("tick")
+                }
             }
         }
     }
@@ -315,6 +323,8 @@ class PlaybackController(
                 streamSid = StreamSidMonitor.sid,
                 // Reader follows the voice across chapter ends.
                 streamChapterPos = StreamSidMonitor.chapterPos.takeIf { it >= 0 },
+                // A different book's reader must never adopt this stream.
+                streamBookId = StreamSidMonitor.bookId,
                 // WP9: the overlay's save time comes from the service's
                 // saver, never the UI clock. Gated so release behavior is
                 // unchanged (stays 0, overlay absent); a volatile read,

@@ -962,6 +962,13 @@ def _voice_speed_for(cast: dict[str, Any], character: str) -> tuple[str, float]:
         raw_voice = entry.get("voice")
         if isinstance(raw_voice, str) and raw_voice.strip():
             voice = raw_voice
+        elif isinstance(raw_voice, list) and any(
+            isinstance(v, str) and v.strip() for v in raw_voice
+        ):
+            # A multi-voice pool picks one voice per quote at resolution time;
+            # the per-character row shows the first member as a label.
+            pool = [v for v in raw_voice if isinstance(v, str) and v.strip()]
+            voice = pool[0]
         raw_speed = entry.get("speed", 1.0)
         if isinstance(raw_speed, (int, float)) and not isinstance(raw_speed, bool):
             speed = float(raw_speed)
@@ -1006,25 +1013,33 @@ def build_cast_stats(
         voice, speed = _voice_speed_for(cast, character)
         count = narration_lines if character == NARRATOR else lines.get(character, 0)
         ms = int(speaker_ms.get(character, 0))
-        rows.append(
-            {
-                "character": character,
-                "kind": (
-                    "narrator"
-                    if character == NARRATOR
-                    else (
-                        "generic"
-                        if character in (DEFAULT_FEMALE_KEY, DEFAULT_MALE_KEY)
-                        else "character"
-                    )
-                ),
-                "voice": voice,
-                "speed": speed,
-                "lines": count,
-                "minutes": round(ms / 60000.0, 1),
-                "low": 0 if character == NARRATOR else low.get(character, 0),
-            }
-        )
+        row: dict[str, Any] = {
+            "character": character,
+            "kind": (
+                "narrator"
+                if character == NARRATOR
+                else (
+                    "generic"
+                    if character in (DEFAULT_FEMALE_KEY, DEFAULT_MALE_KEY)
+                    else "character"
+                )
+            ),
+            "voice": voice,
+            "speed": speed,
+            "lines": count,
+            "minutes": round(ms / 60000.0, 1),
+            "low": 0 if character == NARRATOR else low.get(character, 0),
+        }
+        entry = cast.get(character)
+        if (
+            character in (DEFAULT_FEMALE_KEY, DEFAULT_MALE_KEY)
+            and isinstance(entry, dict)
+            and isinstance(entry.get("voice"), list)
+        ):
+            row["pool"] = [
+                v for v in entry["voice"] if isinstance(v, str) and v.strip()
+            ]
+        rows.append(row)
 
     by_surface: dict[str, int] = {}
     for entry in quotes:

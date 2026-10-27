@@ -25,6 +25,26 @@ object StreamSidMonitor {
     var sid: Int? = null
         private set
 
+    /**
+     * Reader currently on screen. A stream start for any other book is
+     * discarded, even when its load finishes after the user moved on.
+     */
+    @Volatile
+    var openedBookId: String? = null
+        private set
+
+    /** Record the reader that is now on screen. */
+    fun opened(bookId: String) {
+        openedBookId = bookId
+    }
+
+    /** Claim the stream before its first sentence starts (preparing UI). */
+    fun start(bookId: String, chapterPos: Int) {
+        this.bookId = bookId
+        this.chapterPos = chapterPos
+        sid = null
+    }
+
     fun publish(bookId: String, chapterPos: Int, sid: Int) {
         this.bookId = bookId
         this.chapterPos = chapterPos

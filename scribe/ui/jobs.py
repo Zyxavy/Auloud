@@ -97,6 +97,10 @@ TAIL_POLL_S = 0.5
 
 _VALID_DEVICES = frozenset({"auto", "cpu", "cuda"})
 
+#: Render-speed tiers (RP1). Mirrors ``build.workers_for_speed``; the CLI
+#: owns the names, this only rejects a typo before a child spawns.
+_VALID_RENDER_SPEEDS = frozenset({"slow", "balanced", "fast"})
+
 #: Slice 6 UI7: audition-clip generation jobs (detached ``scribe voices``).
 VOICES_KIND = "voices-sample"
 #: Sentinel book id for global voices jobs (no per-book lock, no work dir).
@@ -109,6 +113,11 @@ VOICES_ACTIVE = frozenset({"queued", "running", "paused"})
 #: outside the workspace), queue on the same global FIFO, support
 #: cancel/resume but never pause (copies finish in seconds).
 TRANSFER_KIND = "transfer"
+
+#: Suffix of the sibling folder holding the old destination bundle during a
+#: swap. Kept out of the stray-temp prefix so a mid-swap crash never lets the
+#: sweeper delete the only copy; the next transfer restores it.
+TRANSFER_BACKUP_SUFFIX = ".auloud-bak"
 
 
 def check_job_id(job_id: str) -> str:
@@ -337,23 +346,26 @@ def _book_locked(workspace: Path, book_id: str) -> bool:
         return False
 
 
-def _checked_transfer_delete_target(job: dict[str, Any], src: Path) -> Path:
+def _checked_transfer_target(job: dict[str, Any], src: Path, workspace: Path) -> Path:
     """Validated ``dest_bundle`` for a transfer job (raises ``bad-destination``).
 
     Re-runs :func:`transfer.validate_destination` on the stored destination
     (the drive may have moved since the job was queued) and requires the
     stored ``dest_bundle`` to be exactly ``<destination>/<bundle-dirname>``.
+    Also refuses a destination that overlaps the source tree: the same path
+    as the source bundle, an ancestor of it (forcing would delete the
+    workspace), or a descendant of it (the copy would recurse into itself).
     Anything else — edited job, moved drive, renamed bundle — refuses with
     ``ValueError`` shaped ``bad-destination`` so callers fail the job
-    instead of deleting an unchecked absolute path.
+    instead of deleting or copying over an unchecked absolute path.
     """
     stored = Path(str(job.get("dest_bundle") or ""))
     try:
-        from .transfer import validate_destination as _validate_dest
+        from .transfer import _is_within, validate_destination as _validate_dest
     except ImportError as exc:
         raise ValueError(f"{stored}: bad-destination: transfer helpers missing: {exc}")
     try:
-        dest = _validate_dest(job.get("destination"))
+        dest = _validate_dest(job.get("destination"), workspace)
     except ValueError as exc:
         raise ValueError(str(exc)) from exc
     expected = Path(str(dest)) / src.name
@@ -361,6 +373,11 @@ def _checked_transfer_delete_target(job: dict[str, Any], src: Path) -> Path:
         raise ValueError(
             f"{stored}: bad-destination: destination moved "
             f"(expected {expected}; not deleting)"
+        )
+    if stored == src or _is_within(stored, src) or _is_within(src, stored):
+        raise ValueError(
+            f"{stored}: bad-destination: destination overlaps the source bundle "
+            f"({src}; choose another folder)"
         )
     return stored
 
@@ -412,7 +429,9 @@ class JobManager:
         self.workspace = Path(workspace).resolve()
         self._spawn = spawn_fn or self._spawn_detached
         self._pid_alive = pid_alive_fn or _default_pid_alive
-        self._mu = threading.Lock()
+        # RLock: _pump_queue holds it across _start_job (which takes it too)
+        # so two pumps cannot both claim the same queued job.
+        self._mu = threading.RLock()
         self._live: dict[str, Any] = {}
         self._pausing: set[str] = set()
         self._cancelling: set[str] = set()
@@ -549,12 +568,19 @@ class JobManager:
         chapters: str | None = None,
         pages: str | None = None,
         device: str = "cpu",
+        render_speed: str = "balanced",
     ) -> dict[str, Any]:
         """Queue a build job (202 shape via the API; raises ``ValueError``)."""
         normalized_device = str(device or "cpu").strip().lower()
         if normalized_device not in _VALID_DEVICES:
             raise ValueError(
                 f"{source_file}: bad-device: {device!r} must be one of ['auto', 'cpu', 'cuda']"
+            )
+        normalized_speed = str(render_speed or "balanced").strip().lower()
+        if normalized_speed not in _VALID_RENDER_SPEEDS:
+            raise ValueError(
+                f"render-speed: bad-speed: {render_speed!r} must be one of "
+                f"['slow', 'balanced', 'fast']"
             )
         if chapters and pages:
             raise ValueError(
@@ -578,6 +604,7 @@ class JobManager:
             "chapters": chapters,
             "pages": pages,
             "device": normalized_device,
+            "render_speed": normalized_speed,
             "source_file": source_file,
         }
         folder = job_dir(self.workspace, job_id)
@@ -761,7 +788,7 @@ class JobManager:
         except ImportError as exc:
             raise ValueError(f"{book_id}: bad-destination: transfer helpers missing: {exc}")
         try:
-            dest = _validate_dest(destination_abs)
+            dest = _validate_dest(destination_abs, self.workspace)
         except ValueError:
             raise
         # Source confinement: only inside the workspace, must be a bundle.
@@ -776,6 +803,16 @@ class JobManager:
             )
         bundle_dirname = src.name
         dest_bundle = Path(str(dest)) / bundle_dirname
+        # The copy target must never overlap the source bundle: forcing an
+        # equal path would delete the source, and a nested target would copy
+        # the bundle into itself.
+        from .transfer import _is_within
+
+        if _is_within(dest_bundle, src) or _is_within(src, dest_bundle):
+            raise ValueError(
+                f"{dest_bundle}: bad-destination: destination overlaps the source "
+                f"bundle ({src}; choose another folder)"
+            )
         if dest_bundle.exists() and not force:
             raise ValueError(
                 f"{dest_bundle}: exists: destination bundle dir already exists "
@@ -854,7 +891,12 @@ class JobManager:
         return queued[0]
 
     def _pump_queue(self) -> None:
-        """Start the oldest queued job when nothing runs (idempotent)."""
+        """Start the oldest queued job when nothing runs (idempotent).
+
+        The queue lock is held across [_start_job] so two concurrent pumps
+        (finish callbacks, resume, request threads) cannot both claim the
+        same queued job before it flips to ``running``.
+        """
         with self._mu:
             if self._running_id() is not None:
                 return
@@ -864,7 +906,7 @@ class JobManager:
             job_id = str(nxt["id"])
             if job_id in self._live:
                 return
-        self._start_job(job_id)
+            self._start_job(job_id)
 
     def _start_job(self, job_id: str) -> None:
         job = self._load(job_id)
@@ -998,6 +1040,7 @@ class JobManager:
         if job.get("pages"):
             cmd += ["--pages", str(job["pages"])]
         cmd += ["--device", str(job.get("device") or "cpu")]
+        cmd += ["--render-speed", str(job.get("render_speed") or "balanced")]
         cmd += models_arg
         return _detached_popen(cmd, log_path)
 
@@ -1043,43 +1086,64 @@ class JobManager:
             )
             self._pump_queue()
             return
-        # Explicit overwrite only: force deletes the one dest bundle dir,
-        # re-validated here (the drive may have moved between resume and
-        # this run). Any mismatch fails the job; nothing is deleted.
-        if force and dest_bundle.exists():
-            try:
-                dest_bundle = _checked_transfer_delete_target(job, src)
-            except ValueError as exc:
-                self._finish_failed(
-                    {**job, "id": job_id},
-                    folder,
-                    exit_code=-1,
-                    error={
-                        "file": str(dest_bundle),
-                        "rule": "bad-destination",
-                        "message": str(exc),
-                    },
-                )
-                self._pump_queue()
-                return
-            try:
-                if dest_bundle.is_file():
-                    dest_bundle.unlink()
-                else:
-                    shutil.rmtree(dest_bundle)
-            except OSError as exc:
-                self._finish_failed(
-                    {**self._load(job_id), "id": job_id} if self._load(job_id) else job,
-                    folder,
-                    exit_code=-1,
-                    error={
-                        "file": str(dest_bundle),
-                        "rule": "unwritable",
-                        "message": f"{dest_bundle}: unwritable: {exc}",
-                    },
-                )
-                self._pump_queue()
-                return
+        # Re-validate the copy target on every run (the drive may have moved
+        # between queue and resume). A mismatch fails the job; nothing is
+        # deleted or copied over an unchecked path.
+        try:
+            dest_bundle = _checked_transfer_target(job, src, self.workspace)
+        except ValueError as exc:
+            self._finish_failed(
+                {**job, "id": job_id},
+                folder,
+                exit_code=-1,
+                error={
+                    "file": str(dest_bundle),
+                    "rule": "bad-destination",
+                    "message": str(exc),
+                },
+            )
+            self._pump_queue()
+            return
+        backup = dest_bundle.with_name(dest_bundle.name + TRANSFER_BACKUP_SUFFIX)
+        # Crash recovery: a previous run may have moved the old bundle to the
+        # backup and died before swapping the new one in. Put the old bundle
+        # back first so an overwrite never loses it and a non-force retry
+        # still sees it as existing.
+        try:
+            if not dest_bundle.exists() and backup.exists():
+                backup.replace(dest_bundle)
+            elif dest_bundle.exists() and backup.exists():
+                shutil.rmtree(backup, ignore_errors=True)
+        except OSError:
+            pass
+        had_existing = dest_bundle.exists()
+        if had_existing and not force:
+            current = self._load(job_id) or job
+            self._finish_failed(
+                current,
+                folder,
+                exit_code=-1,
+                error={
+                    "file": str(dest_bundle),
+                    "rule": "exists",
+                    "message": (
+                        f"{dest_bundle}: exists: destination bundle dir already "
+                        "exists (pass force=true to overwrite)"
+                    ),
+                },
+            )
+            self._pump_queue()
+            return
+        # Stage the copy next to the destination. The old bundle stays in
+        # place until the staged copy verifies, then swaps in; a cancel or a
+        # crash leaves the previous bundle untouched (or recoverable from
+        # the backup above).
+        staging = dest_bundle.with_name(dest_bundle.name + f".tmp-{job_id}")
+        try:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+        except OSError:
+            pass
 
         def _cancelled() -> bool:
             with self._mu:
@@ -1096,21 +1160,20 @@ class JobManager:
             except OSError:
                 pass
 
+        def _discard_staging() -> None:
+            try:
+                if staging.exists():
+                    shutil.rmtree(staging, ignore_errors=True)
+            except OSError:
+                pass
+
         try:
             copy_bundle_with_hashes(
-                src, dest_bundle, progress_cb=_progress, cancel_cb=_cancelled
+                src, staging, progress_cb=_progress, cancel_cb=_cancelled
             )
         except InterruptedError:
             current = self._load(job_id) or job
-            # Best-effort cleanup of the partial copy we created.
-            try:
-                if dest_bundle.exists():
-                    if dest_bundle.is_file():
-                        dest_bundle.unlink()
-                    else:
-                        shutil.rmtree(dest_bundle)
-            except OSError:
-                pass
+            _discard_staging()
             with self._mu:
                 self._cancelling.discard(job_id)
             self._finish_cancelled(current, folder, -1)
@@ -1135,6 +1198,7 @@ class JobManager:
             return
         except OSError as exc:
             current = self._load(job_id) or job
+            _discard_staging()
             self._finish_failed(
                 current,
                 folder,
@@ -1147,26 +1211,61 @@ class JobManager:
             )
             self._pump_queue()
             return
-        ok, verify_errors = verify_transfer(src, dest_bundle)
+        ok, verify_errors = verify_transfer(src, staging)
         current = self._load(job_id) or job
-        # Cancel racing the verify still cancels (partial dest already cleaned
-        # above only on copy-cancel; a verify-time cancel cleans here).
+        # Cancel racing the verify still cancels; the old destination was
+        # never touched, so only the staged copy is discarded.
         with self._mu:
             was_cancelling = job_id in self._cancelling
             if was_cancelling:
                 self._cancelling.discard(job_id)
         if was_cancelling:
-            try:
-                if dest_bundle.exists():
-                    if dest_bundle.is_file():
-                        dest_bundle.unlink()
-                    else:
-                        shutil.rmtree(dest_bundle)
-            except OSError:
-                pass
+            _discard_staging()
             self._finish_cancelled(current, folder, -1)
             self._pump_queue()
             return
+        if ok:
+            # Swap: old bundle to the backup, staged copy into place, then
+            # drop the backup. Any failure restores the old bundle.
+            try:
+                if had_existing:
+                    if backup.exists():
+                        shutil.rmtree(backup, ignore_errors=True)
+                    dest_bundle.replace(backup)
+                staging.replace(dest_bundle)
+            except OSError as exc:
+                restored = True
+                if had_existing and not dest_bundle.exists() and backup.exists():
+                    try:
+                        backup.replace(dest_bundle)
+                    except OSError:
+                        restored = False
+                elif not had_existing and dest_bundle.exists() and not staging.exists():
+                    try:
+                        shutil.rmtree(dest_bundle, ignore_errors=True)
+                    except OSError:
+                        pass
+                _discard_staging()
+                self._finish_failed(
+                    current,
+                    folder,
+                    exit_code=-1,
+                    error={
+                        "file": str(dest_bundle),
+                        "rule": "unwritable",
+                        "message": (
+                            f"{dest_bundle}: unwritable: {exc}"
+                            if restored
+                            else f"{dest_bundle}: unwritable: {exc} "
+                            f"(previous bundle also unrestored at {backup})"
+                        ),
+                    },
+                )
+                self._pump_queue()
+                return
+            shutil.rmtree(backup, ignore_errors=True)
+        else:
+            _discard_staging()
         current["bytes_total"] = current.get("bytes_total")
         verification: dict[str, Any] = {"ok": ok, "errors": verify_errors}
         current["verification"] = verification
@@ -1540,7 +1639,7 @@ class JobManager:
                 src = safe_join(self.workspace, str(job.get("bundle") or ""))
             except ValueError as exc:
                 raise ValueError(str(exc)) from exc
-            _checked_transfer_delete_target(job, src)
+            _checked_transfer_target(job, src, self.workspace)
             folder = job_dir(self.workspace, job_id)
             try:
                 (folder / STOP_FILENAME).unlink(missing_ok=True)

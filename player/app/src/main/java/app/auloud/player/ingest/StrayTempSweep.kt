@@ -57,13 +57,15 @@ object StrayTempSweep {
         val paths = ArrayList<String>(manifest.chapters.size * 2 + 3)
         for (chapter in manifest.chapters) {
             if (chapter.audio.isNotBlank()) {
-                paths.add(join(root, chapter.audio) + RENDER_TMP_SUFFIX)
+                if (safeRel(chapter.audio)) {
+                    paths.add(join(root, chapter.audio) + RENDER_TMP_SUFFIX)
+                }
             } else {
                 // Unrendered chapters carry no audio rel yet; the device
                 // render target is still a predictable temp candidate.
                 paths.add(join(root, renderAudioRel(chapter.index)) + RENDER_TMP_SUFFIX)
             }
-            if (chapter.text.isNotBlank()) {
+            if (chapter.text.isNotBlank() && safeRel(chapter.text)) {
                 paths.add(join(root, chapter.text) + RENDER_TMP_SUFFIX)
             }
         }
@@ -104,6 +106,19 @@ object StrayTempSweep {
 
     private fun join(dir: String, rel: String): String =
         dir.trimEnd('/') + '/' + rel.trimStart('/')
+
+    /**
+     * Lexical containment check for a manifest rel: rejects absolute paths,
+     * Windows drive paths and any `..` segment (backslashes count), so a
+     * crafted manifest cannot make the sweep delete temps outside its own
+     * bundle. Mirrors `BundleValidator.safeJoin`.
+     */
+    private fun safeRel(rel: String): Boolean {
+        if (rel.isBlank() || rel.indexOf('\u0000') >= 0) return false
+        if (rel.startsWith('/') || rel.startsWith('\\')) return false
+        if (rel.length >= 2 && rel[1] == ':') return false
+        return rel.replace('\\', '/').split('/').none { it == ".." }
+    }
 
     /**
      * Deletes every stray temp under [root] via [storage]. Best effort

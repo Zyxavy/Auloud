@@ -22,7 +22,11 @@ serde = { version = "1", features = ["derive"] }
 # roots; the `rustls` bundle failed the deny gate on webpki-roots
 # CDLA-Permissive-2.0, and Linux builds will need OpenSSL headers).
 ureq = { version = "3", default-features = false, features = ["multipart", "native-tls-no-default"] }
-zip = "2"
+# AC 2026-10-18 (D-182, owner-approved): zip 2.4.2 carried advisory
+# GHSA-4684-h2q9-2vcp, so zip moved to 9. Bundles are written Stored
+# only, so the codec backends stay off: zip 9's defaults pull bzip2
+# (bzip2-1.0.6, not on the deny allow-list) for nothing we use.
+zip = { version = "9", default-features = false }
 sha2 = "0.10"
 # CS3: audition playback (owner-approved D-162; MIT OR Apache-2.0, deny green).
 # wav-only: the helper serves clips as wav, so no mp3/flac/vorbis decoders.

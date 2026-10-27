@@ -658,3 +658,86 @@ def test_override_to_character_still_wins_and_garbage_still_generic() -> None:
         text="...",
     )
     assert hit.character == "default_female"
+
+
+def test_pool_voice_picks_one_deterministically() -> None:
+    """A list-form voice picks one voice per quote, keyed on the text."""
+    from text.cast import DEFAULT_FEMALE_POOL, _pool_index
+
+    cast = _cast()
+    cast["default_female"]["voice"] = list(DEFAULT_FEMALE_POOL)
+    pool = list(DEFAULT_FEMALE_POOL)
+    for text in ("alpha", "bravo", "charlie", "delta", "echo", "foxtrot"):
+        hit = resolve_speaker(cast, raw_speaker="X", gender="female", text=text)
+        assert hit.character == "default_female"
+        assert hit.voice in pool
+    # The same text always maps to the same voice; two different texts are not
+    # correlated, so the pool actually spreads across quotes.
+    picks = {_pool_index(pool, t) for t in ("alpha", "bravo", "charlie", "delta")}
+    assert len(picks) >= 2
+
+
+def test_pool_resolution_is_reproducible() -> None:
+    """Re-resolving the same quote text yields the identical voice."""
+    cast = _cast()
+    cast["default_male"]["voice"] = ["am_adam", "am_eric", "am_michael"]
+    texts = [f"quote number {i}" for i in range(50)]
+    first = [resolve_speaker(cast, raw_speaker="Y", gender="male", text=t).voice for t in texts]
+    second = [resolve_speaker(cast, raw_speaker="Y", gender="male", text=t).voice for t in texts]
+    assert first == second
+    assert len(set(first)) == 3  # all three voices actually appear
+
+
+def test_pool_legacy_single_string_form_unchanged() -> None:
+    """One string still resolves to that voice; the list form is opt-in."""
+    cast = _cast()
+    single = resolve_speaker(cast, raw_speaker="X", gender="female", text="anything")
+    assert single.voice == "af_bella"
+    cast["default_female"]["voice"] = ["af_jessica", "af_nicole", "af_river"]
+    pooled = resolve_speaker(cast, raw_speaker="X", gender="female", text="anything")
+    assert pooled.voice in ("af_jessica", "af_nicole", "af_river")
+
+
+def test_pool_unknown_voice_rejected_in_validation() -> None:
+    cast = _cast()
+    cast["default_female"]["voice"] = ["af_jessica", "xx_nope"]
+    errors = _errors(cast)
+    assert any("default_female.voice" in e and "xx_nope" in e for e in errors)
+
+
+def test_pool_empty_list_rejected_in_validation() -> None:
+    cast = _cast()
+    cast["default_female"]["voice"] = []
+    assert any("default_female.voice" in e for e in _errors(cast))
+
+
+def test_pool_non_string_entries_rejected() -> None:
+    cast = _cast()
+    cast["default_male"]["voice"] = ["am_adam", 42]
+    errors = _errors(cast)
+    assert any("default_male.voice" in e for e in errors)
+
+
+def test_pool_does_not_touch_narrator_or_characters() -> None:
+    """The pool form is only for generics; characters keep one string."""
+    cast = _cast()
+    cast["default_male"]["voice"] = ["am_adam", "am_eric", "am_michael"]
+    assert resolve_speaker(cast, raw_speaker="narrator").voice == "am_onyx"
+    assert resolve_speaker(cast, raw_speaker="Alice").voice == "bf_isabella"
+    assert resolve_speaker(cast, raw_speaker="Bob").voice == "bm_lewis"
+
+
+def test_pool_falls_back_to_single_when_text_empty() -> None:
+    """An empty quote text still resolves (falls back to the first pool voice)."""
+    cast = _cast()
+    cast["default_male"]["voice"] = ["am_adam", "am_eric", "am_michael"]
+    hit = resolve_speaker(cast, raw_speaker="Y", gender="male", text="")
+    assert hit.voice in ("am_adam", "am_eric", "am_michael")
+
+
+def test_pool_validate_accepts_list_form() -> None:
+    """Every pool member must be a real voice in the engine's allow-list."""
+    cast = _cast()
+    cast["default_female"]["voice"] = ["af_bella", "bf_isabella", "zf_xiaoxiao"]
+    cast["default_male"]["voice"] = ["am_eric", "im_nicola", "bm_lewis"]
+    assert _errors(cast) == []

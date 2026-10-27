@@ -311,6 +311,82 @@ def test_transfer_exists_needs_force(tmp_path: Path) -> None:
     _wait_job(client, forced.json()["job_id"], headers, {"done"})
 
 
+def _make_valid_transfer_book(tmp_path: Path) -> tuple[Path, str]:
+    """One book whose bundle passes validation (source file present)."""
+    ws, book_id = _make_book_with_bundle(tmp_path)
+    (ws / "bundles" / "b1" / "source").mkdir(parents=True, exist_ok=True)
+    (ws / "bundles" / "b1" / "source" / "book.epub").write_bytes(b"")
+    from draft import sha256_of_file
+
+    manifest_path = ws / "bundles" / "b1" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["source"] = {
+        "file": "source/book.epub",
+        "sha256": sha256_of_file(ws / "bundles" / "b1" / "source" / "book.epub"),
+    }
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return ws, book_id
+
+
+def test_transfer_destination_inside_workspace_rejected(tmp_path: Path) -> None:
+    ws, book_id = _make_valid_transfer_book(tmp_path)
+    client, token = _api_client(ws)
+    headers = _auth(token)
+    for bad in (str(ws), str(ws / "bundles"), str(ws / "bundles" / "b1")):
+        resp = client.post(
+            f"/api/books/{book_id}/transfer",
+            json={"destination": bad},
+            headers=headers,
+        )
+        assert resp.status_code == 400, (bad, resp.text)
+        assert resp.json()["rule"] == "bad-destination", (bad, resp.text)
+
+
+def test_forced_transfer_failure_keeps_old_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ws, book_id = _make_valid_transfer_book(tmp_path)
+    client, token = _api_client(ws)
+    headers = _auth(token)
+    dest = tmp_path / "usb-keep"
+    dest.mkdir()
+    first = client.post(
+        f"/api/books/{book_id}/transfer", json={"destination": str(dest)}, headers=headers
+    )
+    assert first.status_code == 202, first.text
+    _wait_job(client, first.json()["job_id"], headers, {"done"})
+    before = (dest / "b1" / "manifest.json").read_bytes()
+
+    # Retitle so the forced transfer is a real overwrite, then make the copy
+    # fail. The old bundle must survive (no delete-before-copy).
+    manifest_path = ws / "bundles" / "b1" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["title"] = "Changed Title"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    from ui import transfer as transfer_mod
+
+    def _boom(*_args: object, **_kwargs: object) -> object:
+        raise OSError("simulated disk full")
+
+    monkeypatch.setattr(transfer_mod, "copy_bundle_with_hashes", _boom)
+    forced = client.post(
+        f"/api/books/{book_id}/transfer",
+        json={"destination": str(dest), "force": True},
+        headers=headers,
+    )
+    assert forced.status_code == 202, forced.text
+    final = _wait_job(client, forced.json()["job_id"], headers, {"failed"})
+    assert final["error"]["rule"] == "unwritable"
+    assert (dest / "b1" / "manifest.json").read_bytes() == before
+    leftovers = [
+        p.name
+        for p in dest.iterdir()
+        if p.name.endswith(".auloud-bak") or ".tmp-" in p.name
+    ]
+    assert leftovers == []
+
+
 def test_transfer_typed_path_rejected(tmp_path: Path) -> None:
     ws, book_id = _make_book_with_bundle(tmp_path)
     client, token = _api_client(ws)

@@ -311,6 +311,35 @@ def test_killed_rebuild_keeps_old_bundle_valid(
     assert validate_bundle(bundle).ok
 
 
+def test_publish_failure_restores_previous_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure during the final swap leaves the prior bundle in place."""
+    _needs_ffmpeg()
+    epub_path = _make_epub(tmp_path / "mini.epub")
+    timed, mp3s = _build_inputs(_mini_chapters(), tmp_path / "mp3")
+    bundle = tmp_path / "bundle"
+    write_bundle(timed, mp3s, epub_path, bundle)
+    before = (bundle / "manifest.json").read_text(encoding="utf-8")
+
+    real_replace = Path.replace
+    calls = {"n": 0}
+
+    def _flaky(self: Path, target: Path) -> Path:
+        calls["n"] += 1
+        if calls["n"] == 2:  # staging -> bundle fails after the old moved aside
+            raise OSError("simulated publish failure")
+        return real_replace(self, target)
+
+    monkeypatch.setattr(Path, "replace", _flaky)
+    with pytest.raises(BundleWriteError):
+        write_bundle(timed, mp3s, epub_path, bundle)
+
+    assert (bundle / "manifest.json").read_text(encoding="utf-8") == before
+    assert validate_bundle(bundle).ok
+    assert not (bundle.parent / f"{bundle.name}.bak").exists()
+
+
 # ---------------------------------------------------------------------------
 # Cover: present, sniff fallback, invalid input
 # ---------------------------------------------------------------------------

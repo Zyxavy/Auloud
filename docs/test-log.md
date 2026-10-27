@@ -461,15 +461,15 @@ requirements, core/full flavors plus model packs, offline System TTS
 voice prep, limitations, OWNER-RUN walkthrough with unchecked boxes);
 new `docs/07-TestPlan.md` holds the v2 test plan (suites, owner device
 rounds, VC8 gate) so the `07-TestPlan.md` pointers in
-`docs/plans/Slice12.md` resolve; short v2
+`docs/archive/v2/plans/Slice12.md` resolve; short v2
 addendum appended to `docs/01-PRD.md`; Slice 12 status plus the decided
-DCO box in `docs/09-V2Roadmap.md`; v2 status notes in `README.md` and
+DCO box in `docs/archive/v2/09-V2Roadmap.md`; v2 status notes in `README.md` and
 `docs/04-Roadmap.md`; the open `08-Licenses.md` box annotated, none
 ticked. No new DECISIONS entry (no new product decision). Link check:
 every path named above exists at head (`docs/07-TestPlan.md`,
 `docs/ReleaseSigning.md`, `docs/constants.md`, `docs/test-log.md`,
-`docs/plans/Slice12.md`, `docs/08-Licenses.md`,
-`docs/09-V2Roadmap.md`, `docs/04-Roadmap.md`, `docs/01-PRD.md`,
+`docs/archive/v2/plans/Slice12.md`, `docs/08-Licenses.md`,
+`docs/archive/v2/09-V2Roadmap.md`, `docs/04-Roadmap.md`, `docs/01-PRD.md`,
 `docs/archive/v1/07-Testplan.md`). The README walkthrough is written
 for a fresh install but unrun: do not claim it until the owner ticks
 its boxes on the Tab E.
@@ -552,7 +552,7 @@ a live architecture, gated on Slice 13 design plus measurement
 Owner verdict: smoke checklist and over-install procedure both
 "good and complete" (flavor not specified). Boxes ticked in
 `docs/ReleaseSigning.md` on that verdict (the conditional fallback
-box marked N/A, nothing lost). Release criteria (`09-V2Roadmap.md`
+box marked N/A, nothing lost). Release criteria (`archive/v2/09-V2Roadmap.md`
 section 6) all ticked with evidence bases; `07-TestPlan.md` device
 rounds ticked. Release APKs at head: core 3.5 MB, full 55.4 MB,
 `licenseScan` + `releaseManifestCheck` green, suites green both
@@ -650,6 +650,12 @@ re-tags at 7444632 (the actual end state); #19 closes.
 
 ## V2.1 release build (agent, 2026-10-10, commit 64efd81)
 
+> **Superseded 2026-10-26.** This was the 2.1.0 build. The release tag for
+> the v2 line is now `v2.1.6` (tagged at `d678ef1`, the ST7 follow-up
+> plus the SOURCE_OFFER fix); `v2.1.0` was deleted because it pointed at
+> `dcd43f4`, before the three ST7 fixes. The shipped APK is the 2.1.6
+> one in the section below. The numbers here stand as the 2.1.0 record.
+
 Version `2.1.0`, `versionCode` 3 (bump + source-offer tag v2.1.0).
 Signed release APKs (release key CN=Auloud, V2 signature; both flavors
 share cert `985d45a2...28c9041611`, so either upgrades a v1/v2 install
@@ -666,3 +672,83 @@ Not claimed: 2.0.0-to-2.1.0 over-install proof and release smoke on
 the tablet (owner device work, same checklist as VC3/VC8). Push +
 tags, GitHub release page, and PR are owner-side (this environment
 has no git push auth; no MCP release/upload tools exist).
+
+## V2.1.6 release build (agent, 2026-10-26; tag `v2.1.6` at `d678ef1`, the ST7 fixes plus the SOURCE_OFFER fix)
+
+The shipped v2 build. `versionName` "2.1.6", `versionCode` 11 (bump from
+2.1.0 code 3). Signed release APK (release key CN=Auloud, V2 signature;
+the `full` flavor upgrades a v1/v2 install in place on the same cert
+`985d45a2...28c9041611`): `full` 64,592,736 B.
+
+- full SHA256: `72F52FBAA1A57562234A8DC41E3E391AF9D2BF5AF905F3DAE0CADFC7E146D8C0`
+  (`player/app/build/outputs/apk/full/release/app-full-release.apk`,
+  built 2026-10-26 11:39, after the ST7 fixes)
+  - The 10:52 build (sha256 `80156D74…`) carried `assets/SOURCE_OFFER.txt`
+    naming `tag v2.1.0`, which had been deleted. Rebuilt with the offer
+    pointing at `v2.1.6`; verified by unzipping the APK.
+- `:app:lintFullDebug`, `:app:assembleFullRelease`, `:app:releaseManifestCheck`
+  BUILD SUCCESSFUL; `licenseScan` PASS (INTERNET present in `full`, absent
+  in `core`; no `ACCESS_WIFI_STATE`)
+- `:app:testFullDebugUnitTest` 1576 pass, `:app:testCoreDebugUnitTest`
+  1553 pass on the tagged tree
+- Tag: `v2.1.6` at `d678ef1` (the SOURCE_OFFER fix moved it off `ec3b84d`).
+  Replaces the stale `v2.1.0` tag, which had pointed at `dcd43f4` (before
+  the ST7 fixes).
+
+Owner device round on the 2.1.6 full build (2026-10-26, no adb):
+
+- **Imported books open (issue #25, closed).** The spinner-past-120-s
+  symptom on imported EPUBs and PDFs is gone on the current build. The
+  fix it asked for was already shipped: the render-panel load runs under
+  a stall budget that names the stage it stopped in
+  (`RenderPanelViewModel.kt:82-106`), the chapter-list load is its own
+  guarded path (`ChapterLoad.kt:36-70`), and `BookScreen.kt` sets
+  `chapters` before the stale scan runs on `Dispatchers.IO`. The report
+  was confirming the fix on device, not finding a new defect.
+
+Still open in the 2.1.6 device round: cross-book stop, Listen on B after
+A, highlight, preparing state, chapter-end or failure during a switch,
+forced re-send replacement, progress save across a book switch, and the
+2.0.0-to-2.1.6 over-install proof.
+(cross-book stop, Listen on B after A, highlight, preparing state,
+chapter-end or failure during a switch, forced re-send replacement,
+progress save across a book switch) - owner device work. Push, the
+GitHub release page and the PR are owner-side (this environment has no
+git push auth).
+
+## TR1 manifest-check scope fix (agent, 2026-10-23)
+
+`releaseManifestCheck` now scans only the merged `coreRelease` and
+`fullRelease` manifests. Run from `player/` after the release build:
+
+    .\gradlew.bat --no-daemon :app:releaseManifestCheck
+
+Result: PASS on `processCoreReleaseMainManifest` and
+`processFullReleaseMainManifest` with `android.permission.INTERNET`
+present. The stale `release/processReleaseMainManifest` output from
+2026-10-05 is excluded. The both-flavor unit suites include
+`ReleaseManifestTest`, which asserts the source `INTERNET` permission
+and no `ACCESS_WIFI_STATE`; both green on 2026-10-23.
+
+## Slice 22 / v3.0.0 (owner, 2026-10-26)
+
+Owner acceptance for the last v3 slice, per `docs/archive/v3/acceptance-slice22.md`.
+One-line verdicts, same standing as the v2 soak one-liners; no per-box
+numbers were recorded.
+
+- Soak (SO1): run, good. A full multi-voice novel from add-book through
+  a transferred bundle, including a mid-render app kill and resume, pause
+  and resume, and a range re-render; `scribe validate` clean against the
+  Python workflow's bundle.
+- Render speed tiers: render good. The tier-vs-worker-count check (8
+  workers on `fast`, 1 on `slow`) was not separately recorded.
+- Licenses screen (`Settings` > `Licenses`): fair.
+- Clean machine: still documented setup only (D-157); no verified
+  clean-machine claim.
+- Linux: still no artifact (D-190).
+
+`v3.0.0` tagged at the commit below. Agent gates on the tagged tree
+(`cargo test`, `cargo clippy --workspace --all-targets -D warnings`,
+`cargo deny check`, `uv run pytest`, `uv run ruff check .`, both packer
+runs) were green on 2026-10-19 and are not re-run here; the audit commits
+since then are Player-side (v2 line) and do not touch the Scribe tree.

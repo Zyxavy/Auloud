@@ -40,6 +40,49 @@ LOCAL = {"host": "127.0.0.1:8137"}
 SENTENCE = "The quiet alder fox crosses the mossy hill at dawn."
 
 
+def test_pump_queue_starts_queued_job_exactly_once(tmp_path: Path) -> None:
+    """Concurrent pumps cannot both claim the same queued job."""
+    from ui.jobs import JobManager, job_dir
+
+    manager = JobManager(tmp_path)
+    folder = job_dir(tmp_path, "job-one")
+    folder.mkdir(parents=True, exist_ok=True)
+    job_path = folder / "job.json"
+    job_path.write_text(
+        json.dumps(
+            {
+                "id": "job-one",
+                "kind": "build",
+                "state": "queued",
+                "created": "2026-01-01T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    calls: list[str] = []
+
+    def _start(job_id: str) -> None:
+        calls.append(job_id)
+        data = json.loads(job_path.read_text(encoding="utf-8"))
+        data["state"] = "running"
+        job_path.write_text(json.dumps(data), encoding="utf-8")
+        time.sleep(0.1)
+
+    manager._start_job = _start  # type: ignore[method-assign]
+    barrier = threading.Barrier(8)
+
+    def _worker() -> None:
+        barrier.wait()
+        manager._pump_queue()
+
+    threads = [threading.Thread(target=_worker) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert calls == ["job-one"]
+
+
 def _make_epub(path: Path, titles: list[str], title: str = "UI4 Test Book") -> Path:
     book = epub.EpubBook()
     book.set_identifier("test-ui4-book")
@@ -365,7 +408,11 @@ def test_pause_then_resume_completes(tmp_path: Path) -> None:
     src = _make_epub(tmp_path / "src.epub", ["Chapter One"])
     uploaded = _upload_epub(client, headers, src)
     _draft_done_client(client, headers, uploaded)
-    resp = client.post(f"/api/books/{uploaded['book_id']}/build", json={}, headers=headers)
+    resp = client.post(
+        f"/api/books/{uploaded['book_id']}/build",
+        json={"render_speed": "fast"},
+        headers=headers,
+    )
     job_id = resp.json()["job_id"]
     # Let it start (at least one event), then pause gracefully.
     deadline = time.monotonic() + 10.0
@@ -386,6 +433,9 @@ def test_pause_then_resume_completes(tmp_path: Path) -> None:
     assert final["state"] == "done"
     builds = [c for c in spawner.calls if c.get("kind") == "build"]
     assert len(builds) == 2  # resume is a new process
+    # RP1: resume rebuilds the argv from the stored record, so the tier
+    # a job started with survives pause and resume.
+    assert [c["render_speed"] for c in builds] == ["fast", "fast"]
 
 
 def test_cancel_running_cleans_partial_output(tmp_path: Path) -> None:
@@ -864,6 +914,63 @@ def test_spawn_voices_sample_passes_engine(tmp_path: Path, monkeypatch: pytest.M
     # Sample children get the same explicit models dir (they failed the
     # same way: CWD `models` is the helper's, not the workspace's).
     assert "--models-dir" in seen[1]
+
+
+def test_spawn_build_passes_render_speed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """RP1: the detached build child gets the job's --render-speed tier."""
+    from ui import jobs as _jobs
+    from ui.jobs import JobManager
+
+    seen: list[list[str]] = []
+
+    class _DummyProc:
+        pass
+
+    def _fake_popen(cmd: list[str], log_path: Path) -> _DummyProc:
+        seen.append(list(cmd))
+        return _DummyProc()
+
+    monkeypatch.setattr(_jobs, "_detached_popen", _fake_popen)
+    (tmp_path / "alice.epub").write_bytes(b"")
+    manager = JobManager(tmp_path, pid_alive_fn=lambda _pid: False)
+    for tier in ("slow", "balanced", "fast"):
+        manager._spawn_detached(
+            {
+                "kind": "build",
+                "book_id": "book-1",
+                "source_file": "alice.epub",
+                "device": "cpu",
+                "render_speed": tier,
+            },
+            tmp_path / "jobs" / f"job-{tier}",
+        )
+    # A job written before RP1 (no field) spawns the CLI default.
+    manager._spawn_detached(
+        {"kind": "build", "book_id": "book-1", "source_file": "alice.epub", "device": "cpu"},
+        tmp_path / "jobs" / "job-old",
+    )
+    assert [cmd[cmd.index("--render-speed") + 1] for cmd in seen] == [
+        "slow",
+        "balanced",
+        "fast",
+        "balanced",
+    ]
+
+
+def test_render_speed_tiers_stay_the_cli_list() -> None:
+    """RP1: the helper's tiers stay the CLI's, so an accepted tier renders.
+
+    ``_VALID_RENDER_SPEEDS`` is a deliberate copy of the CLI's names (the
+    manager must not import the numpy-heavy ``build`` module); this ties
+    the two lists together so adding a tier in one place cannot leave the
+    other rejecting it.
+    """
+    from build import RENDER_SPEED_WORKERS, workers_for_speed
+    from ui.jobs import _VALID_RENDER_SPEEDS
+
+    assert _VALID_RENDER_SPEEDS == set(RENDER_SPEED_WORKERS) | {"fast"}
+    for tier in _VALID_RENDER_SPEEDS:
+        assert workers_for_speed(tier) >= 1
 
 
 def test_child_argv_frozen_reenters_exe(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -3,14 +3,17 @@ package app.auloud.player.reader
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -26,21 +29,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import app.auloud.player.bundle.BundleParser
 import app.auloud.player.data.ProgressRepository
 import app.auloud.player.ingest.IngestPipeline
 import app.auloud.player.library.BookUiModel
 import app.auloud.player.playback.PlaybackController
 import app.auloud.player.playback.PlaybackIntents
+import app.auloud.player.playback.SpeedButton
 import app.auloud.player.playback.StreamRoute
+import app.auloud.player.playback.nextSpeed
 import app.auloud.player.settings.PrefsReaderModeStore
 import app.auloud.player.storage.BundleStorage
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.withContext
 
 /**
  * IN9: read-only book screen for unrendered (2.0 `none`/`partial`) books.
@@ -54,8 +56,9 @@ import kotlinx.coroutines.withContext
  *
  * Chapter text paths resolve from the bundle manifest; a manifest read
  * failure means every chapter reports "text unavailable" (same RA10 rule as
- * the timed reader). [chapters] arrives from [BookScreen] (null = not
- * loaded yet); text paths load here once per book.
+ * the timed reader). [chapters] arrives from the host ([BookScreen], or the
+ * hub passing the same list through; null = not loaded yet); text paths load
+ * here once per book.
  *
  * API 24 safe: Compose + coroutines only.
  */
@@ -66,7 +69,13 @@ fun UnrenderedBookScreen(
     progress: ProgressRepository,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
-    chapters: List<ChapterEntry>? = null,
+    // OPEN6: required, not defaulted: a host that omits these leaves the
+    // gate waiting on a list nobody loads (the hub's reader route did).
+    chapters: List<ChapterEntry>?,
+    /** OPEN5: chapter-load run counters for the gate diagnostic. */
+    loadSignals: LoadSignals,
+    /** OPEN5: retry for the chapter-list gate (the host's load). */
+    onRetryLoading: () -> Unit,
     showChapters: Boolean = false,
     onOpenChapters: () -> Unit = {},
     onDismissChapters: () -> Unit = {},
@@ -85,23 +94,72 @@ fun UnrenderedBookScreen(
     val appContext = remember(context) { context.applicationContext }
     val modeStore = remember(appContext) { PrefsReaderModeStore.fromContext(appContext) }
     var textPaths by remember(book.id) { mutableStateOf<List<String>?>(null) }
-    LaunchedEffect(book.id) {
-        textPaths = withContext(Dispatchers.IO) {
-            try {
+    // OPEN3: a bare read here (no timeout) was the last gate that could
+    // spin `Loading book…` forever; it now shares the guarded load and
+    // shows its named failure with a retry.
+    var pathsError by remember(book.id) { mutableStateOf<String?>(null) }
+    var pathsTick by remember(book.id) { mutableIntStateOf(0) }
+    LaunchedEffect(book.id, pathsTick) {
+        pathsError = null
+        when (val loaded = loadChapterList(storage, book.bundleDir)) {
+            is ChapterLoadResult.Ready -> {
                 val root = book.bundleDir.trimEnd('/')
-                val raw = storage.readText("$root/manifest.json")
-                BundleParser.parseText(raw).getOrThrow().chapters.map { chapter ->
+                textPaths = loaded.manifest?.chapters?.map { chapter ->
                     "$root/${chapter.text}"
-                }
-            } catch (_: Exception) {
-                emptyList()
+                } ?: emptyList()
             }
+            is ChapterLoadResult.Failed -> pathsError = loaded.message
         }
     }
     val paths = textPaths
     val entries = chapters
+    val loadError = pathsError
+    // OPEN5: the same ticking-seconds watchdog as the hub (either load
+    // can be the one this gate waits on: the host's chapter list or
+    // this screen's paths).
+    var loadingSecs by remember(book.id) { mutableIntStateOf(0) }
+    LaunchedEffect(book.id, paths == null || entries == null) {
+        loadingSecs = 0
+        while (paths == null || entries == null) {
+            delay(1_000L)
+            loadingSecs++
+        }
+    }
+    if (loadError != null) {
+        UnrenderedLoadError(
+            message = loadError,
+            onRetry = { pathsTick++ },
+            onBack = onBack,
+            modifier = modifier
+        )
+        return
+    }
     if (paths == null || entries == null) {
-        UnrenderedLoading(onBack = onBack, modifier = modifier)
+        val stuck = stuckWaitText(
+            loadingSecs,
+            listOf(
+                if (entries == null) {
+                    "chapter list: still waiting (${loadSignalText(loadSignals)}; no error)"
+                } else {
+                    "chapter list: ready (${entries.size} chapters)"
+                },
+                if (paths == null) "text paths: still waiting (no error)" else "text paths: ready",
+                "folder: ${book.bundleDir}"
+            )
+        )
+        if (stuck != null) {
+            UnrenderedLoadError(
+                message = stuck,
+                onRetry = {
+                    onRetryLoading()
+                    pathsTick++
+                },
+                onBack = onBack,
+                modifier = modifier
+            )
+            return
+        }
+        UnrenderedLoading(onBack = onBack, secs = loadingSecs, modifier = modifier)
         return
     }
     UnrenderedContent(
@@ -138,6 +196,7 @@ private fun UnrenderedContent(
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
     val modeStore = remember(appContext) { PrefsReaderModeStore.fromContext(appContext) }
+    var speed by remember(book.id) { mutableStateOf(modeStore.playbackSpeed()) }
     // ST5: live audio attachment (dormant until the ST0 gate passes).
     val streamingAvailable = StreamRoute.GATE_PASSED
     val scope = rememberCoroutineScope()
@@ -150,13 +209,23 @@ private fun UnrenderedContent(
             null
         } else {
             LiveStream(
-                sid = controller.state.map { it.streamSid }
-                    .stateIn(scope, SharingStarted.Eagerly, null),
-                chapterPos = controller.state.map { it.streamChapterPos }
-                    .stateIn(scope, SharingStarted.Eagerly, null),
+                // Another book's stream must not drive this reader, even for
+                // the moment before the service stops it.
+                sid = controller.state.map { state ->
+                    state.streamSid.takeIf { state.streamBookId == book.id }
+                }.stateIn(scope, SharingStarted.Eagerly, null),
+                chapterPos = controller.state.map { state ->
+                    state.streamChapterPos.takeIf { state.streamBookId == book.id }
+                }.stateIn(scope, SharingStarted.Eagerly, null),
                 restartAt = { index ->
-                    controller.seekToSentence(index)
-                    controller.play()
+                    // The session can still hold another book's rendered
+                    // queue; only seek when this book's live stream is the
+                    // thing attached.
+                    val state = controller.state.value
+                    if (state.streamBookId == book.id && state.streamSid != null) {
+                        controller.seekToSentence(index)
+                        controller.play()
+                    }
                 },
                 seekToChapter = { pos ->
                     appContext.startService(
@@ -199,8 +268,14 @@ private fun UnrenderedContent(
     val playerState by controller.state.collectAsState()
     // ST7-fix: one shared "start the stream here" for the live bar and
     // the mode row (the service auto-plays fresh loads and jumps, so
-    // this is safe before the controller connects).
+    // this is safe before the controller connects). A stream already
+    // attached to this book resumes where it is: re-sending the chapter
+    // extra would restart the chapter from sentence 1 after every pause.
     fun playLive() {
+        if (playerState.streamBookId == book.id) {
+            if (playerState.streamSid != null) controller.play()
+            return
+        }
         appContext.startService(
             PlaybackIntents.serviceIntent(appContext)
                 .putExtra(PlaybackIntents.EXTRA_BOOK_ID, book.id)
@@ -249,15 +324,22 @@ private fun UnrenderedContent(
         )
         return
     }
+    val liveHere = playerState.streamBookId == book.id
     Column(modifier = modifier.fillMaxSize()) {
         // ST5: live voice bar (streaming only; the mode row below is
         // untouched, so gate-closed builds render exactly as before).
         if (streamingAvailable) {
             val sentences = unrendered.chapter?.sentencesInOrder().orEmpty()
             LiveListenBar(
-                isPlaying = playerState.isPlaying,
-                preparing = playerState.isPlaying && unrendered.liveSid == null,
+                isPlaying = liveHere && playerState.isPlaying,
+                preparing = liveHere && unrendered.liveSid == null,
                 fraction = liveFractionOf(unrendered.liveSid, sentences),
+                speed = speed,
+                onSpeed = {
+                    val next = nextSpeed(speed)
+                    controller.setSpeed(next)
+                    speed = next
+                },
                 onPlay = ::playLive,
                 onPause = controller::pause
             )
@@ -271,10 +353,10 @@ private fun UnrenderedContent(
                 // ST5: the highlight follows the voice when live.
                 currentSid = unrendered.liveSid ?: unrendered.currentSid,
                 positionMs = 0L,
-                isPlaying = streamingAvailable && playerState.isPlaying,
+                isPlaying = streamingAvailable && liveHere && playerState.isPlaying,
                 isTextLoading = unrendered.isTextLoading,
                 textError = unrendered.textError,
-                pendingTapSid = null,
+                pendingTapSid = unrendered.pendingTapSid,
                 textKind = unrendered.textKind
             ),
             onBack = onBack,
@@ -283,6 +365,8 @@ private fun UnrenderedContent(
             onBackToNow = viewModel::onBackToNow,
             onSentenceTap = viewModel::onSentenceTap,
             onTopVisibleSentence = viewModel::onTopVisibleSid,
+            onConfirmTapJump = viewModel::confirmTapJump,
+            onDismissTapJump = viewModel::dismissTapJump,
             onOpenChapters = onOpenChapters,
             onOpenRender = onOpenRender,
             onSpeak = if (streamingAvailable) ::playLive else null,
@@ -315,22 +399,38 @@ private fun UnrenderedContent(
 @Composable
 private fun UnrenderedLoading(
     onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-    message: String = "Loading book…"
+    secs: Int,
+    modifier: Modifier = Modifier
 ) {
-    var secs by remember { mutableIntStateOf(0) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(1_000L)
-            secs++
-        }
-    }
     ReaderScreen(
         state = ReaderState(isTextLoading = true),
         onBack = onBack,
         modifier = modifier,
-        loadingText = "$message ${secs}s"
+        loadingText = "Loading book… ${secs}s"
     )
+}
+
+/**
+ * OPEN3: the guarded book load failed (stalled read or a rogue throw).
+ * Same shape as the hub's gate error: the named reason, Retry, Back.
+ */
+@Composable
+private fun UnrenderedLoadError(
+    message: String,
+    onRetry: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(text = message, style = MaterialTheme.typography.bodyLarge)
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onRetry) { Text("Retry") }
+        TextButton(onClick = onBack) { Text("Back") }
+    }
 }
 
 /**
@@ -343,6 +443,8 @@ private fun LiveListenBar(
     isPlaying: Boolean,
     preparing: Boolean,
     fraction: Float?,
+    speed: Float,
+    onSpeed: () -> Unit,
     onPlay: () -> Unit,
     onPause: () -> Unit,
     modifier: Modifier = Modifier
@@ -356,8 +458,10 @@ private fun LiveListenBar(
             CircularProgressIndicator(modifier = Modifier.size(24.dp))
             Text(
                 text = "Preparing live voice…",
-                style = MaterialTheme.typography.bodyMedium
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f)
             )
+            SpeedButton(speed = speed, onClick = onSpeed)
             return
         }
         Button(onClick = { if (isPlaying) onPause() else onPlay() }) {
@@ -369,7 +473,9 @@ private fun LiveListenBar(
             } else {
                 "Live voice, not saved - ${(fraction * 100).toInt()}%"
             },
-            style = MaterialTheme.typography.bodyMedium
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f)
         )
+        SpeedButton(speed = speed, onClick = onSpeed)
     }
 }

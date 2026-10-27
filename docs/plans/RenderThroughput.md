@@ -4,7 +4,7 @@ Status: decisions accepted 2026-10-18; RT1 to RT4, the RT5 gate probe and
 the production append (RT6) are done, with their numbers and as-built
 corrections below. RT5 itself
 stays gated on a model export that reports durations. Not yet a roadmap
-slice (`10-V3Roadmap.md` stops at Slice 22, Installers). No bundle-format
+slice (`archive/v3/10-V3Roadmap.md` stops at Slice 22, Installers). No bundle-format
 change, no spec change, no new dependency. The book's cast is not part of
 this work.
 
@@ -310,7 +310,8 @@ Code facts (verified):
 - **Verify:** `validate` clean; tablet copy, import, read-along and
   screen-off playback stay listed as needs device test.
 - Numbers, the cost of later appends and the open cast item are in
-  `docs/DECISIONS.md` (D-179).
+  `docs/DECISIONS.md` (D-179). The cast item is since closed by D-189, which
+  also moved the artifact to source 94-203.
 
 ## 6. GPU utilization in fast mode (measured)
 

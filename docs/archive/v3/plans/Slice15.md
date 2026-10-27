@@ -150,13 +150,13 @@ Fill the sheet in `docs/archive/v3/packaging.md`:
 
 ## 8. Definition of done
 
-- [ ] Helper entry point built and tested; `scribe ui` unchanged; Python suite green
-- [ ] Reproducible embedded bundle for Windows and Linux; a frozen comparison build or documented blockers
-- [ ] Clean-machine runs recorded for every variant and extra case
-- [ ] Output equivalence report passes (or differences explained)
-- [ ] Lifecycle behaviors recorded, including job survival and reattach
-- [ ] Metrics sheet complete; decision logged against the thresholds; `docs/archive/v3/packaging.md` final
-- [ ] Tagged `slice-15`
+> **Closed 2026-10-26 (tag `slice-15` at `6d8f4c8`).** Gate run on the
+> dev machine: embedded helper builds, doctor green, draft and build a
+> short book end to end, bundle validates. Never run on a machine without
+> Python - that is D-157, documented setup only, and no clean-machine
+> claim is made. Linux feasibility was not tested; `package_helper.py` is
+> Windows-only and WSL2 was not used for the gate. Tagged; see
+> `docs/acceptance-slice22.md` criterion 2.
 
 ## 9. Risks and mitigations
 
@@ -174,9 +174,19 @@ Fill the sheet in `docs/archive/v3/packaging.md`:
 
 ## 10. Prerequisites for you
 
-- [ ] Windows 11 edition: Windows Sandbox needs Pro, Enterprise or Education with virtualization enabled; Home needs another clean-machine route (a VirtualBox VM or a spare machine)
-- [ ] Models available for sideloading: Kokoro files and one Piper voice
-- [ ] The short test books (Alice fragment, C&P fragment, PDF golden); Ubuntu in WSL or a container for HP7
+> **Not run (D-157, D-190).** All three items below are inputs to the
+> clean-machine gate, which was never run on a machine without Python or
+> on Linux. They are recorded here as the named gap, not closed:
+>
+> - Windows 11 edition - the edition determines whether Windows Sandbox
+>   is available or whether the clean-machine route needs a Hyper-V /
+>   VirtualBox VM or a spare machine. Never checked.
+> - Models for sideloading - Kokoro files and one Piper voice were on
+>   hand for the dev-machine gate, not for a clean one.
+> - Short test books (Alice fragment, C&P fragment, PDF golden) and
+>   Ubuntu in WSL or a container for HP7 - present for the dev run; the
+>   HP7 Linux container was never stood up (`package_helper.py` is
+>   Windows-only).
 
 ## 11. Working with the agent
 
