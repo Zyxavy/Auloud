@@ -2,6 +2,8 @@
 .agents
 logs/
 scratch
+skills-lock.json
+debug.log
 
 # Rust generated: never commit
 target/
