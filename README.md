@@ -2,7 +2,7 @@
 
 Turn your ebooks into multi-voice audiobooks, then read along or just listen.
 
-Everything runs on your own hardware: the PC renders, and the tablet receives bundles over your own Wi-Fi (LAN only). Nothing is uploaded to any cloud.
+Everything runs on your own hardware: the PC renders, and the Android device receives bundles over your own Wi-Fi (LAN only). Nothing is uploaded to any cloud.
 
 ## Get the app
 
@@ -12,20 +12,20 @@ Both downloads are on [Releases](https://github.com/Zyxavy/Auloud/releases).
 
 The zip carries its generated license notice, third-party list and source offer under `licenses\`, and the app shows them under `Settings` > `Licenses`; see [Licenses](docs/08-Licenses.md).
 
-**Auloud Player (the tablet).** Download the APK and sideload it (allow unknown sources for the install):
+**Auloud Player (the Android device).** Download the APK and sideload it (allow unknown sources for the install):
 
-- **core** (most people): renders with the tablet's own System TTS voices.
+- **core** (most people): renders with the device's own System TTS voices.
 - **full**: adds on-device Piper voices. Only pick this if you sideload Piper packs too (below).
 
 Developed for a Samsung Galaxy Tab E (Android 7.1.1). Needs free storage: about 430 MB per 15 hours of audio for PC-made books.
 
 ## Two ways to make books
 
-**A. The PC renders (best quality, multi-voice).** Scribe on Windows turns an EPUB or PDF into a finished bundle with a narrator plus a voice per character. Copy the bundle to the tablet and play.
+**A. The PC renders (best quality, multi-voice).** Scribe on Windows turns an EPUB or PDF into a finished bundle with a narrator plus a voice per character. Copy the bundle to the Android device and play.
 
-**B. The tablet renders (no PC).** Import a DRM-free EPUB on the tablet, pick two voices, render overnight, listen with read-along.
+**B. The Android device renders (no PC).** Import a DRM-free EPUB on the device, pick two voices, render overnight, listen with read-along.
 
-## Path A: PC to tablet in 5 steps
+## Path A: PC to Android device in 5 steps
 
 With the app this is the [first-run guide](docs/ui-runbook.md): add a book, cast it, render, validate, send. From the source tree:
 
@@ -40,15 +40,15 @@ uv run scribe build ..\MyBook.epub
 uv run scribe validate bundles\<book-id>
 ```
 
-Then copy the bundle folder onto the tablet (`/Auloud/` on internal storage, or an `Auloud/` folder on the microSD card), add it as a watch folder in the library, and press play. Or skip the cable: open Receive via Wi-Fi in the tablet library and push the bundle straight from the Scribe UI on the same network.
+Then copy the bundle folder onto the Android device (`/Auloud/` on internal storage, or an `Auloud/` folder on the microSD card), add it as a watch folder in the library, and press play. Or skip the cable: open Receive via Wi-Fi in the device library and push the bundle straight from the Scribe UI on the same network.
 
 Handy extras: `uv run scribe ui` (same flow in a browser, no CLI needed), `scribe voices --sample` (hear voices first), `scribe doctor` (checks your setup). PDFs work the same way; scanned PDFs with no text layer fail with a clear message. A 10-hour novel takes hours, so run builds detached and poll.
 
 Details: [Scribe design](docs/05-ScribeDesign.md), [Web UI walkthrough](docs/archive/v1/14-ScribeWebUI-Spec.md), [bundle spec](docs/03-BundleSpec.md).
 
-## Path B: render on the tablet
+## Path B: render on the Android device
 
-1. Install offline voice data: tablet Settings -> Language and input -> Text-to-speech output, pick an engine and install its English voices. The Player uses the network for Wi-Fi bundle receive only (your own LAN, no cloud), so this step is what makes rendering work.
+1. Install offline voice data: Android device Settings -> Language and input -> Text-to-speech output, pick an engine and install its English voices. The Player uses the network for Wi-Fi bundle receive only (your own LAN, no cloud), so this step is what makes rendering work.
 2. In the library tap Import EPUB and pick the file. The book opens with readable text.
 3. Choose voices (narrator + dialogue) and audition each role.
 4. Start the render (works unplugged). You can listen to early chapters while later ones still render.
@@ -56,7 +56,7 @@ Details: [Scribe design](docs/05-ScribeDesign.md), [Web UI walkthrough](docs/arc
 
 `full` flavor only: copy each Piper pack folder (with its `.onnx` files) into `/Auloud/models/` (internal or microSD), then pick the `piper` engine per role. Each pack has its own license, check its `MODEL_CARD` first.
 
-Limits: two voices (narrator + dialogue; a PC book re-rendered on-device collapses extra speakers into dialogue), English only, renders take a while (charge while rendering). Tested on one tablet; other devices may differ.
+Limits: two voices (narrator + dialogue; a PC book re-rendered on-device collapses extra speakers into dialogue), English only, renders take a while (charge while rendering). Tested on one Android device; other devices may differ.
 
 Details: [v2 roadmap](docs/09-V2Roadmap.md), [render tuning notes](docs/constants.md).
 
