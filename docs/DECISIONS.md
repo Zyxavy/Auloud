@@ -1724,3 +1724,12 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: phonemize + split + encode together are about 3.9% of wall time, well under the ~15% decision gate, so parallelising prep (Task 2) cannot pay for itself. Inference dominates (91%), but GPU is only ~19% average utilised, so the remaining wins are inference concurrency (Task 3) and overlapping encode (Task 4); Stage A parallel prep is skipped.
 - Alternatives considered: running Task 2 anyway (rejected: prep is <1% of wall, spawn/IPC overhead on Windows would erase it); forcing CPU to compare (not needed; CUDA is confirmed active and is the recommended path).
 - Consequences / revisit when: `scribe/dev/bench_render.py` is the reusable harness and `scribe/tests/fixtures/bench_chapter.epub` the fast-iteration fixture. Task 2 is skipped; effort goes to Task 3 (inference concurrency) and Task 4 (encode overlap). Re-run the benchmark after Task 3 to set the success-criteria X and confirm GPU util rises.
+
+### D-204: Scribe render pipeline optimization (Option A)
+
+- Date: 2026-10-31
+- Status: Accepted
+- Decision: Implement a staged render pipeline (inference concurrency K=2 on CUDA, overlap MP3 encoding via thread pool cap 2, atomic cache writes, resource governance). Prep parallelization (Stage A) is skipped because phonemize + split + encode together are ~3.9% of wall time, well under the ~15% gate. Sequential path remains available via `--workers 1` / `--inference-workers 1`.
+- Why: Task 0 baseline showed inference dominates (91% of wall time) and GPU is underutilized (~19% avg). The biggest win comes from inference concurrency (Option B2: K=2 sessions on CUDA) and overlapping encode. GPU path was already active (CUDAExecutionProvider), so the 1.28x vs 1.38x gap was not a provider issue.
+- Alternatives considered: (1) Parallel prep (Stage A) — rejected, prep is <1% of wall time, spawn/IPC overhead on Windows would erase it. (2) Disabling D-192 serialization — rejected, risks GPU driver crashes and memory corruption. (3) Rust orchestrator (Option B) — deferred, would be a larger architectural shift.
+- Consequences / revisit when: (1) Default `--inference-workers` is now 2 on CUDA, 1 on CPU. (2) Cache writes are atomic (temp + fsync + os.replace). (3) Memory guard auto-reduces workers above 70% of available RAM. (4) Cancellation kills the full process tree. (5) Per-stage timings are logged for regression detection. (6) Re-run the benchmark matrix (workers 1/2/4 × device cpu/cuda) after any engine change to confirm speedup holds.

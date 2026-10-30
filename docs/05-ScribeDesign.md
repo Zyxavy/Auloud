@@ -24,9 +24,17 @@ Typical flow: `draft`, edit `cast.yaml`, `build`, `validate`, copy to the tablet
 
 ```
 EPUB/PDF -> extract -> clean -> split sentences -> detect dialogue -> attribute speakers
-   -> cast.yaml (edit) -> synthesize per sentence -> assemble chapter buffer
-   -> encode CBR MP3 -> write text JSON + manifest -> validate
+   -> cast.yaml (edit) -> [Stage A: prep (phonemize/cache-key, optional workers)]
+   -> [Stage B: inference workers (K sessions, device auto/cpu/cuda)]
+   -> [Stage C: encode pool (ffmpeg, cap 2)] -> [Stage D: ordered assembler]
+   -> write text JSON + manifest -> validate
 ```
+
+Staged render (Option A): prep is skipped by default (phonemize <1% of wall
+time); inference runs K sessions (default 2 on CUDA, 1 on CPU); MP3 encoding
+overlaps synthesis via a 2-process pool; assembly stays single-process and
+in order. Sequential path remains available with `--workers 1` /
+`--inference-workers 1`.
 
 Work folder (`.scribe/<book-id>/`):
 
@@ -136,7 +144,7 @@ scribe/
   cli.py            # typer commands
   extract/          # epub.py, pdf.py, clean.py
   text/             # sentences.py, dialogue.py, speakers.py, cast.py
-  tts/              # base.py, kokoro.py, piper.py, cache.py
+  tts/              # base.py, kokoro.py, piper.py, cache.py, inference.py
   audio/            # assemble.py, encode.py
   bundle/           # writer.py, validate.py, models.py
   tests/

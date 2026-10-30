@@ -652,10 +652,11 @@ def build(
         "fast (up to 8; the measured GPU knee). One render owns the machine.",
     ),
     inference_workers: int = typer.Option(
-        1,
+        2,
         "--inference-workers",
         help="Number of inference sessions (K) for multi-session inference "
-        "(Option B2). Default 1.",
+        "(Option B2). Default 2 (matrix: CUDA K=2/4 ~10-15% faster than K=1; "
+        "CPU stays at 1).",
     ),
     prep_workers: int = typer.Option(
         0,
