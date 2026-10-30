@@ -285,6 +285,7 @@ class ChapterOutcome:
     skipped_sentences: int = 0
     wall_s: float = 0.0
     error: str | None = None  # chapter-level failure reason (non-strict)
+    encode_future: Any = None  # async MP3 encode future (Stage C)
 
 
 @dataclass
@@ -1828,15 +1829,27 @@ def _run_build_locked(
                 sample_count=assembled.sample_count,
                 sample_rate=assembled.sample_rate,
             )
-            try:
-                encode_assembled_chapter(to_encode, mp3_path, chapter_label=stem)
-            except Exception:
-                mp3_path.unlink(missing_ok=True)
-                raise
             timed_chapter = _with_timings(chapter, assembled.timings, assembled.duration_ms)
             payload = dict(timed_chapter.to_dict())
             payload[RENDER_FINGERPRINT_KEY] = fingerprint
             _write_json(json_path, payload)
+
+            # Stage C: encode asynchronously so MP3 encoding overlaps with
+            # synthesis of later chapters. Cap is enforced by encode_pool.
+            encode_future = None
+            try:
+                def _do_encode() -> None:
+                    try:
+                        encode_assembled_chapter(to_encode, mp3_path, chapter_label=stem)
+                    except Exception:
+                        mp3_path.unlink(missing_ok=True)
+                        raise
+
+                encode_future = encode_pool.submit(_do_encode)
+                chapter_encode_futures[index] = encode_future
+            except Exception:
+                mp3_path.unlink(missing_ok=True)
+                raise
             chapter_wall_s = time.monotonic() - chapter_wall
         except BuildStoppedError:
             # Atomicity: partial chapter output removed so resume
@@ -1881,6 +1894,7 @@ def _run_build_locked(
             sentences=len(timed_chapter.sentences_in_order()),
             skipped_sentences=chapter_skipped,
             wall_s=chapter_wall_s,
+            encode_future=encode_future,
         )
 
     def _fold(outcome: ChapterOutcome) -> None:
@@ -1941,42 +1955,69 @@ def _run_build_locked(
                 f"simulated failure after {hook} chapter(s) (test hook; rerun resumes)"
             )
 
-    rich_ctx = rich_bar if show_progress else None
-    # Enter Rich context manually so events flow even when disabled.
-    if rich_ctx is not None:
-        rich_ctx.__enter__()
+    # Stage C encode pool: caps concurrent ffmpeg processes at 2. Created
+    # before rendering so _render_chapter can submit as soon as a chapter's
+    # sentences are assembled.
+    encode_pool = ThreadPoolExecutor(max_workers=2)
+    chapter_encode_futures: dict[int, Any] = {}
     try:
-        if workers <= 1:
-            # Serial path stays inline on the calling thread, so Ctrl-C and
-            # exception flow at n=1 behave exactly as before the pool.
-            for chapter in render_chapters:
-                _fold(_render_chapter(chapter))
-                _check_hook()
-        else:
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = [
-                    pool.submit(_render_chapter, chapter) for chapter in render_chapters
-                ]
-                try:
-                    for future in as_completed(futures):
-                        _fold(future.result())
-                        _check_hook()
-                except BaseException:
-                    # Stop/strict abort: drop the queued chapters; in-flight
-                    # ones clean up and return at their next sentence boundary
-                    # (the pool's exit waits for them).
-                    for future in futures:
-                        future.cancel()
-                    raise
-    finally:
+        rich_ctx = rich_bar if show_progress else None
+        # Enter Rich context manually so events flow even when disabled.
         if rich_ctx is not None:
-            rich_ctx.__exit__(None, None, None)
+            rich_ctx.__enter__()
+        try:
+            if workers <= 1:
+                # Serial path stays inline on the calling thread, so Ctrl-C and
+                # exception flow at n=1 behave exactly as before the pool.
+                for chapter in render_chapters:
+                    _fold(_render_chapter(chapter))
+                    _check_hook()
+            else:
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futures = [
+                        pool.submit(_render_chapter, chapter) for chapter in render_chapters
+                    ]
+                    try:
+                        for future in as_completed(futures):
+                            _fold(future.result())
+                            _check_hook()
+                    except BaseException:
+                        # Stop/strict abort: drop the queued chapters; in-flight
+                        # ones clean up and return at their next sentence boundary
+                        # (the pool's exit waits for them).
+                        for future in futures:
+                            future.cancel()
+                        raise
+        finally:
+            if rich_ctx is not None:
+                rich_ctx.__exit__(None, None, None)
 
-    if failed:
-        details = ", ".join(f"chapter {i}: {failure_reasons[i]}" for i in failed)
-        log_lines.append(f"build failed: {len(failed)} chapter(s) failed: {details}")
-        _log_now()
-        raise BuildError(f"{len(failed)} chapter(s) failed, no bundle written: {details}")
+        if failed:
+            details = ", ".join(f"chapter {i}: {failure_reasons[i]}" for i in failed)
+            log_lines.append(f"build failed: {len(failed)} chapter(s) failed: {details}")
+            _log_now()
+            raise BuildError(f"{len(failed)} chapter(s) failed, no bundle written: {details}")
+
+        # Wait for any in-flight MP3 encodes to finish before writing the
+        # bundle (and surface their failures loudly).
+        encode_failures: list[tuple[int, str]] = []
+        for idx, fut in list(chapter_encode_futures.items()):
+            try:
+                fut.result()
+            except Exception as exc:  # noqa: BLE001
+                encode_failures.append((idx, f"{type(exc).__name__}: {exc}"))
+        if encode_failures:
+            details = ", ".join(f"chapter {i}: {r}" for i, r in encode_failures)
+            for idx, _ in encode_failures:
+                stem = f"ch{idx:0{width}d}"
+                (render_audio / f"{stem}.mp3").unlink(missing_ok=True)
+                (render_text / f"{stem}.json").unlink(missing_ok=True)
+            log_lines.append(f"build failed: {len(encode_failures)} chapter(s) failed to encode: {details}")
+            _log_now()
+            raise BuildError(f"{len(encode_failures)} chapter(s) failed to encode, no bundle written: {details}")
+    finally:
+        encode_pool.shutdown(wait=True)
+
     ordered_audio = [audio_paths[i] for i in selected]
     ordered_plans = [plans[i] for i in selected]
     # MV8: bundle speakers are the RESOLVED character keys (reuse the exact

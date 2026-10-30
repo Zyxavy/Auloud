@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 import numpy as np
@@ -161,23 +162,57 @@ def encode_chapter_pcm(
     except OSError as exc:
         raise EncodeError(f"{chapter_label}: could not start ffmpeg: {exc}") from exc
     assert proc.stdin is not None
+    assert proc.stderr is not None
+
+    # Drain stderr on a separate thread while this thread streams PCM to
+    # stdin: this avoids the Windows pipe deadlock where ffmpeg blocks on a
+    # full stderr buffer while we block on a full stdin buffer.
+    stderr_chunks: list[bytes] = []
+
+    def _drain() -> None:
+        try:
+            while True:
+                data = proc.stderr.read(4096)
+                if not data:
+                    break
+                stderr_chunks.append(data)
+        except Exception:
+            pass
+
+    drain_thread = threading.Thread(target=_drain, daemon=True)
+    drain_thread.start()
+
+    write_exc: list[BaseException] = []
     try:
         for start in range(0, audio.size, CHUNK_SAMPLES):
-            try:
-                proc.stdin.write(_float_to_int16_bytes(audio[start : start + CHUNK_SAMPLES]))
-            except BrokenPipeError as exc:
-                _drain_and_raise(proc, chapter_label, exc)
+            proc.stdin.write(
+                _float_to_int16_bytes(audio[start : start + CHUNK_SAMPLES])
+            )
         proc.stdin.close()
-        _, stderr = proc.communicate(timeout=300)
-    except DurationMismatchError:
-        raise
-    except EncodeError:
-        raise
-    except Exception as exc:  # timeouts, broken pipes mid-stream
+    except BaseException as exc:  # noqa: BLE001 - recorded for caller
+        write_exc.append(exc)
+        try:
+            proc.stdin.close()
+        except Exception:
+            pass
+
+    drain_thread.join(timeout=300)
+    try:
+        proc.wait(timeout=300)
+    except Exception as exc:
         proc.kill()
         raise EncodeError(f"{chapter_label}: ffmpeg encode failed: {exc}") from exc
+
+    stderr = b"".join(stderr_chunks)
+    if write_exc:
+        exc = write_exc[0]
+        detail = stderr.decode("utf-8", "replace").strip().splitlines()
+        raise EncodeError(
+            f"{chapter_label}: ffmpeg stdin broke "
+            f"(exit {proc.returncode}): {detail[0] if detail else 'unknown error'}"
+        ) from exc
     if proc.returncode != 0:
-        detail = (stderr or b"").decode("utf-8", "replace").strip().splitlines()
+        detail = stderr.decode("utf-8", "replace").strip().splitlines()
         raise EncodeError(
             f"{chapter_label}: ffmpeg failed "
             f"(exit {proc.returncode}): {detail[0] if detail else 'unknown error'}"
