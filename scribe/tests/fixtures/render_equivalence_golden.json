@@ -1,0 +1,1021 @@
+{
+  "engine_version": "kokoro-onnx 0.6.1 model=325505369:1793329240268191200 voices=28214398:1793329244317567000",
+  "sentence_order": [
+    [
+      1,
+      1
+    ],
+    [
+      1,
+      2
+    ],
+    [
+      1,
+      3
+    ],
+    [
+      1,
+      4
+    ],
+    [
+      1,
+      5
+    ],
+    [
+      1,
+      6
+    ],
+    [
+      1,
+      7
+    ],
+    [
+      1,
+      8
+    ],
+    [
+      1,
+      9
+    ],
+    [
+      1,
+      10
+    ],
+    [
+      1,
+      11
+    ],
+    [
+      1,
+      12
+    ],
+    [
+      1,
+      13
+    ],
+    [
+      1,
+      14
+    ],
+    [
+      1,
+      15
+    ],
+    [
+      1,
+      16
+    ],
+    [
+      1,
+      17
+    ],
+    [
+      1,
+      18
+    ],
+    [
+      1,
+      19
+    ],
+    [
+      1,
+      20
+    ],
+    [
+      1,
+      21
+    ],
+    [
+      1,
+      22
+    ],
+    [
+      1,
+      23
+    ],
+    [
+      1,
+      24
+    ],
+    [
+      1,
+      25
+    ],
+    [
+      1,
+      26
+    ],
+    [
+      2,
+      1
+    ],
+    [
+      2,
+      2
+    ],
+    [
+      2,
+      3
+    ],
+    [
+      2,
+      4
+    ],
+    [
+      2,
+      5
+    ],
+    [
+      2,
+      6
+    ],
+    [
+      2,
+      7
+    ],
+    [
+      2,
+      8
+    ],
+    [
+      2,
+      9
+    ],
+    [
+      2,
+      10
+    ],
+    [
+      2,
+      11
+    ],
+    [
+      2,
+      12
+    ],
+    [
+      2,
+      13
+    ],
+    [
+      2,
+      14
+    ],
+    [
+      2,
+      15
+    ],
+    [
+      2,
+      16
+    ],
+    [
+      2,
+      17
+    ],
+    [
+      2,
+      18
+    ],
+    [
+      2,
+      19
+    ],
+    [
+      2,
+      20
+    ],
+    [
+      2,
+      21
+    ],
+    [
+      2,
+      22
+    ],
+    [
+      2,
+      23
+    ],
+    [
+      2,
+      24
+    ],
+    [
+      2,
+      25
+    ],
+    [
+      2,
+      26
+    ],
+    [
+      3,
+      1
+    ],
+    [
+      3,
+      2
+    ],
+    [
+      3,
+      3
+    ],
+    [
+      3,
+      4
+    ],
+    [
+      3,
+      5
+    ],
+    [
+      3,
+      6
+    ],
+    [
+      3,
+      7
+    ],
+    [
+      3,
+      8
+    ],
+    [
+      3,
+      9
+    ],
+    [
+      3,
+      10
+    ],
+    [
+      3,
+      11
+    ],
+    [
+      3,
+      12
+    ],
+    [
+      3,
+      13
+    ],
+    [
+      3,
+      14
+    ],
+    [
+      3,
+      15
+    ],
+    [
+      3,
+      16
+    ],
+    [
+      3,
+      17
+    ],
+    [
+      3,
+      18
+    ],
+    [
+      3,
+      19
+    ],
+    [
+      3,
+      20
+    ],
+    [
+      3,
+      21
+    ],
+    [
+      3,
+      22
+    ],
+    [
+      3,
+      23
+    ],
+    [
+      3,
+      24
+    ],
+    [
+      3,
+      25
+    ],
+    [
+      3,
+      26
+    ]
+  ],
+  "sentences": [
+    {
+      "chapter": 1,
+      "sid": 1,
+      "text": "Chapter One",
+      "cache_key": "4ed36931b97b5c719136a60cbc0b74945e36185687a043b670f7b10ee5f87053",
+      "pcm_hash": "aa23c71947894b4b46db9bf84b54d87c76a01e2d20e55af6b0e05934a5e5be21",
+      "start_ms": 0,
+      "end_ms": 1003
+    },
+    {
+      "chapter": 1,
+      "sid": 2,
+      "text": "brown and river the the quick jumps quick lazy the lazy lazy (1000). ",
+      "cache_key": "9e93b5b1b632f54f58fd892b12352716fc804c92d976c03ad8e85a94c91c6087",
+      "pcm_hash": "1a43763083f3e483434332230b642019633bfb825f8155280870d1874c79294f",
+      "start_ms": 1803,
+      "end_ms": 6828
+    },
+    {
+      "chapter": 1,
+      "sid": 3,
+      "text": "rests the the fox quick lazy the river the the and the (1001). ",
+      "cache_key": "b9cc16db608b7d360ccfc23a3dfe9ad2b2a1d1c8e471c10303a7f4158948beaa",
+      "pcm_hash": "4a8abc88b8a804add09b01a7f0094399226fb49016d873e0736094365eaccc65",
+      "start_ms": 7078,
+      "end_ms": 11755
+    },
+    {
+      "chapter": 1,
+      "sid": 4,
+      "text": "the the by lazy jumps by the fox and quick over the (1002). ",
+      "cache_key": "0c0dbf9a49ce0170f9f6144f20bc6973afe2fcced8e491adfd3e55345dfd49ec",
+      "pcm_hash": "0587fa2ae09206439cc2d322bf6de22478d5b9b3e3ec2d7b2321765ac3942972",
+      "start_ms": 12005,
+      "end_ms": 16650
+    },
+    {
+      "chapter": 1,
+      "sid": 5,
+      "text": "the the rests dog the the rests fox the by the dog (1003). ",
+      "cache_key": "c84c81c8458a56a1963c541f5eb968967d620ef9410f0b53f20b52fe71ab18aa",
+      "pcm_hash": "40bffa74c8839908356a715d868152ec8e05d67237909ecaf8aa76470da0f6b6",
+      "start_ms": 16900,
+      "end_ms": 21477
+    },
+    {
+      "chapter": 1,
+      "sid": 6,
+      "text": "fox the lazy lazy dog fox over fox rests fox the lazy (1004). ",
+      "cache_key": "588419926b0ff47984acf33b28a54650abc5e40646b677852e3f00c3ab83f185",
+      "pcm_hash": "3281578c8563e5b7d49545c4a54289038dd21bab5c5f9c67439e824ef36bea3e",
+      "start_ms": 21727,
+      "end_ms": 27610
+    },
+    {
+      "chapter": 1,
+      "sid": 7,
+      "text": "jumps the the river dog rests quick brown rests by river jumps (1005). ",
+      "cache_key": "8f2aa2245c7bd5683e583c907df14245ece0285de591fc58a03ca94fbe7c758e",
+      "pcm_hash": "5f87fc3188ec6d0cfcee9ec259c83cbafa719f6c5ebc9b8ebb09abf5b1d881cd",
+      "start_ms": 27860,
+      "end_ms": 33193
+    },
+    {
+      "chapter": 1,
+      "sid": 8,
+      "text": "quick by over by by dog the dog river rests fox jumps (1006). ",
+      "cache_key": "ad708d6bd7d66895f1df62f2e9e61393f38f67be2fa982f7ecaf8eca673914cc",
+      "pcm_hash": "bb4184df265c687e2d32e8472a954ce8fc1c276dade15e8330062ad73cecde81",
+      "start_ms": 33443,
+      "end_ms": 38583
+    },
+    {
+      "chapter": 1,
+      "sid": 9,
+      "text": "jumps and lazy river dog the and river the lazy fox by (1007). ",
+      "cache_key": "7382afe00a123c0723c1d8113ff663d478cd9005fa35a73f82e80949e21093e4",
+      "pcm_hash": "522c7d0531a6d3b529aa2ff544c8bc78b271baa3eff2d80b5cbc193de360012f",
+      "start_ms": 38833,
+      "end_ms": 44295
+    },
+    {
+      "chapter": 1,
+      "sid": 10,
+      "text": "the the the rests brown over dog by the rests by over (1008). ",
+      "cache_key": "c7fbb438940ec41c075811bfb677cc7ab5a152be03bce234105a343bae95e084",
+      "pcm_hash": "71c1407bb2a1d89ae88aba3e8736744a690fe2d5fd4135f313a5b64ec41a5350",
+      "start_ms": 44545,
+      "end_ms": 49040
+    },
+    {
+      "chapter": 1,
+      "sid": 11,
+      "text": "quick lazy rests dog quick the brown dog river the over lazy (1009). ",
+      "cache_key": "2545385c5d1a73184cd4b39a92ddb1486524daa534e8bcd93708f29078c4369a",
+      "pcm_hash": "d3a21cf39991a1ea47d879f77a51bfeeb473f6762322b0cc23cdc65cf9453f92",
+      "start_ms": 49290,
+      "end_ms": 54789
+    },
+    {
+      "chapter": 1,
+      "sid": 12,
+      "text": "by the lazy the jumps by river and and and the rests (1010). ",
+      "cache_key": "6067b1b4349cbbe95d031c1373c51528985c05440b81e1839d75ebc3f5cf3798",
+      "pcm_hash": "b3259a9252402246d068e5537386b461c787f130091becde6f5007fb37c23698",
+      "start_ms": 55039,
+      "end_ms": 59730
+    },
+    {
+      "chapter": 1,
+      "sid": 13,
+      "text": "brown brown dog fox the the fox dog river dog fox the (1011). ",
+      "cache_key": "b4dd13b5fe95e0a8ec160bb45eeb7544ab81759543f1c5e7c781f3dd31466844",
+      "pcm_hash": "e711c923a9c78768f1561b7b516358cdb3a7c2ddc7b5c90202dfd11ab5955262",
+      "start_ms": 59980,
+      "end_ms": 65466
+    },
+    {
+      "chapter": 1,
+      "sid": 14,
+      "text": "dog over river and over lazy jumps rests dog and by the (1012). ",
+      "cache_key": "c1f1cced5eabaa4973bef88d8d96c06dac142166a173e2a028690fc00398ac4f",
+      "pcm_hash": "d8fc5991f5a1e187e80044089a878b6a7c808697ab25e54d1efec69bbfe201d3",
+      "start_ms": 65716,
+      "end_ms": 70999
+    },
+    {
+      "chapter": 1,
+      "sid": 15,
+      "text": "the the river river by dog the brown dog the dog fox (1013). ",
+      "cache_key": "e5f6b4fe838100358e5cef753fad00402623cfa4b2397997af7eeea7833c632c",
+      "pcm_hash": "61872fc2f5886034d4b0fb351c884543e14bc9673a56a6174d070c704a9ae1d0",
+      "start_ms": 71249,
+      "end_ms": 76398
+    },
+    {
+      "chapter": 1,
+      "sid": 16,
+      "text": "the the lazy river over and dog fox dog the lazy river (1014). ",
+      "cache_key": "dbc90dc60549db9932bb3ebba87d79dd872609764a8e182488d889d853b845ff",
+      "pcm_hash": "a3869ee379420ab9ff66c17e2b6adb4560b8744145cad4a6848d0798dc256da7",
+      "start_ms": 76648,
+      "end_ms": 82042
+    },
+    {
+      "chapter": 1,
+      "sid": 17,
+      "text": "over the over the dog dog and the and over lazy and (1015). ",
+      "cache_key": "fd30cb13d0c988f0a89cd824b75dda665d6797b3024b69ca0aca19f491d9ec42",
+      "pcm_hash": "5f69c99111176997e730c426669515d32f9bc95575d2a7a0e5d9238ee36ab817",
+      "start_ms": 82292,
+      "end_ms": 87134
+    },
+    {
+      "chapter": 1,
+      "sid": 18,
+      "text": "the the fox rests brown dog and brown river quick the dog (1016). ",
+      "cache_key": "b9412a79187d0699703667bc16abdf097b031367edbe0e1a49f929a5963ccb2e",
+      "pcm_hash": "93d15943f0d88d4d905a175e57a8d55fbcc836e027e65cfda17501545ccfa0b9",
+      "start_ms": 87384,
+      "end_ms": 92724
+    },
+    {
+      "chapter": 1,
+      "sid": 19,
+      "text": "the river river jumps the river rests quick quick river the lazy (1017). ",
+      "cache_key": "7ecdd723c7404d62a65b0c72c118503d4427f9bf47fbac9d086f6c91101a3499",
+      "pcm_hash": "3b73ebaa7de8d84309e30d1b3b1314fd7c9a5c470b05d3102b810f9d8f534155",
+      "start_ms": 92974,
+      "end_ms": 98444
+    },
+    {
+      "chapter": 1,
+      "sid": 20,
+      "text": "the the the jumps fox jumps quick the and brown over jumps (1018). ",
+      "cache_key": "2f238e7288b3cac2a4cda5ef3f9b889ab06c5e1229d2eb010254d4c2ac27a5de",
+      "pcm_hash": "138130afbcad9170563a7e724a3ca3fc573c39c2f68b78c65ec48679462316b9",
+      "start_ms": 98694,
+      "end_ms": 103692
+    },
+    {
+      "chapter": 1,
+      "sid": 21,
+      "text": "quick brown brown jumps dog brown rests jumps rests by jumps lazy (1019). ",
+      "cache_key": "ac940cb151ab557a94c9c526534a1532b502ab43375da8c864d6d674a5adfcfd",
+      "pcm_hash": "0f33b3b49d2e4ee75f51a1f8e3c1ee287e3e47d3c11995be6e8f198c35e4556c",
+      "start_ms": 103942,
+      "end_ms": 110192
+    },
+    {
+      "chapter": 1,
+      "sid": 22,
+      "text": "by over lazy lazy quick the jumps the over the the fox (1020). ",
+      "cache_key": "1d098f1352118c5a79119229420bf663129eeae0e38ef128799188d1061eed17",
+      "pcm_hash": "7c59e853f53940fa3f9683bae4f227ca89e181464188c23e5feed1ae1b50a7d4",
+      "start_ms": 110442,
+      "end_ms": 115740
+    },
+    {
+      "chapter": 1,
+      "sid": 23,
+      "text": "jumps quick jumps by dog fox and the river the fox the (1021). ",
+      "cache_key": "a39acce13d3cfad31359ec3f3925e009aaf570c5d7bea5a50e41d2fb2e9f39ff",
+      "pcm_hash": "2f4aa8b274f404148ae9eca731ebc4362031291cb052bf37c7e5c23e7ff5571f",
+      "start_ms": 115990,
+      "end_ms": 121324
+    },
+    {
+      "chapter": 1,
+      "sid": 24,
+      "text": "the brown the by brown lazy by dog rests the dog river (1022). ",
+      "cache_key": "a7d663c63473ecd9c620497aae0f0d6fb2ecfd0738c3ea217ddc8249e1b27efe",
+      "pcm_hash": "08a46571b00ecfc1c990f043fa63b7a40777de07b6381ac1a473c3431dbc8f3a",
+      "start_ms": 121574,
+      "end_ms": 126987
+    },
+    {
+      "chapter": 1,
+      "sid": 25,
+      "text": "fox rests the by dog lazy fox dog rests the the rests (1023). ",
+      "cache_key": "b12edc5424d0e7d30be857d204fd5505842970ee2a79c1cea310a3a15454d4b3",
+      "pcm_hash": "7cb658f3213c605f6cc93f2e48ebc7e2ee3df2e620da77943bfb1c7be1d8cbab",
+      "start_ms": 127237,
+      "end_ms": 132914
+    },
+    {
+      "chapter": 1,
+      "sid": 26,
+      "text": "and the over rests rests the the by jumps brown fox the (1024).",
+      "cache_key": "05d6cbe0807cf95fc58bb18bae66b1b7b0384a49ac6bfd862981de899a826f37",
+      "pcm_hash": "ee6ed330a37e9cf15c32cb588d307711bccb35423c5a8824c4f513ad5f900b07",
+      "start_ms": 133164,
+      "end_ms": 138240
+    },
+    {
+      "chapter": 2,
+      "sid": 1,
+      "text": "Chapter Two",
+      "cache_key": "89de640e84cef0ba629ffba6e8ffba16dc32beb1a5c0c3835328008b2a9b3dfa",
+      "pcm_hash": "bc84c2d7e6c81c3c43b64331a82af4cfa2fca8523fa79ae6b576f3de4e2b9b7b",
+      "start_ms": 0,
+      "end_ms": 1054
+    },
+    {
+      "chapter": 2,
+      "sid": 2,
+      "text": "jumps quick river quick jumps jumps by brown the and jumps brown (2000). ",
+      "cache_key": "3dbac4685ea440b91e4498222f80b7078dbef44faeb2bfef9f6d1229be751e62",
+      "pcm_hash": "fe69af4b69a5e6e67f3201cbe7844e7b27b7a67de44a796fbb2c33b5e9ab6952",
+      "start_ms": 1854,
+      "end_ms": 7148
+    },
+    {
+      "chapter": 2,
+      "sid": 3,
+      "text": "the dog river the and river fox and lazy brown river river (2001). ",
+      "cache_key": "ac0d08ed15184d9a1e93eb7fd9a6601f9362841271ecad02aac9eb926e69a42f",
+      "pcm_hash": "12695826bbeb3451ffd6d91530dc816789af2e19c04fb904f5048b1cb5ac34f6",
+      "start_ms": 7398,
+      "end_ms": 12454
+    },
+    {
+      "chapter": 2,
+      "sid": 4,
+      "text": "river the by and dog the the fox over quick fox and (2002). ",
+      "cache_key": "15380cc788173b2951ec9e5f91f23b5465bcfb57c4e904ece5b8101db740295e",
+      "pcm_hash": "f4e6b16ec48a47a4ff756dc46051fa306c7f16e04604c8d6441cbce4f2131ab3",
+      "start_ms": 12704,
+      "end_ms": 17323
+    },
+    {
+      "chapter": 2,
+      "sid": 5,
+      "text": "rests the and fox lazy quick rests the jumps dog lazy the (2003). ",
+      "cache_key": "bf01a089dbcb947e763eff2e2f68ab790d5c0e6b8c21c7b72d1694af2276c7cb",
+      "pcm_hash": "29c5e417bf9595f578c972dbc08aa99ec8490f0ebdfb386602b7af6ad55f91b6",
+      "start_ms": 17573,
+      "end_ms": 22816
+    },
+    {
+      "chapter": 2,
+      "sid": 6,
+      "text": "over and river the jumps the brown fox river over the and (2004). ",
+      "cache_key": "aebba753104dd04434c2d1ed412d5469ff6d17801337a025c00fec81df2a7306",
+      "pcm_hash": "68cc9e69af2d62d3a1148debcc8c9944a88a67d98e5ac891a98a05dcacde70be",
+      "start_ms": 23066,
+      "end_ms": 28215
+    },
+    {
+      "chapter": 2,
+      "sid": 7,
+      "text": "the brown over the fox jumps rests quick river the dog over (2005). ",
+      "cache_key": "bcbd666df0c9515fee174fb57048693c7d316bc9f95e04c25045e7fa2b4ed62e",
+      "pcm_hash": "0f6b101ffb1068958067c349aa410b3a7fd443ac5c1631941e4e482063780dc6",
+      "start_ms": 28465,
+      "end_ms": 33580
+    },
+    {
+      "chapter": 2,
+      "sid": 8,
+      "text": "river rests dog lazy the dog fox quick by the quick brown (2006). ",
+      "cache_key": "87485b3ffe374ce92d2961f1cef9ef42ea0524ab019807edb0bba3196f5c3267",
+      "pcm_hash": "7d8a986f74c4e4168adc81ac0bd63e14f34428f442e7e41581ca4b6520414118",
+      "start_ms": 33830,
+      "end_ms": 39260
+    },
+    {
+      "chapter": 2,
+      "sid": 9,
+      "text": "brown brown dog fox jumps the over and dog river jumps over (2007). ",
+      "cache_key": "d591ad6aadb5bf35b2c385a455c762c615bc47d04324c5b4223f770e061370d8",
+      "pcm_hash": "4d895e35fa8b5ee59948024b1e3a1c609f24d1cc14a3cd58ef97062c6674eb92",
+      "start_ms": 39510,
+      "end_ms": 45406
+    },
+    {
+      "chapter": 2,
+      "sid": 10,
+      "text": "over over quick jumps fox river and the by lazy brown and (2008). ",
+      "cache_key": "2abb15691f882e584faf1923090dee414e0bdb7f09a5787a44c8a966ccda853b",
+      "pcm_hash": "361f5c89db5eb8cb6f289925eb3b3b310c0d861646a9a47f9dce5f709c11026e",
+      "start_ms": 45656,
+      "end_ms": 50526
+    },
+    {
+      "chapter": 2,
+      "sid": 11,
+      "text": "dog the quick over the the quick the river the brown river (2009). ",
+      "cache_key": "6f0aabbe34164c433c418b19f7cc65bb37cbbf3c3de0100406159c0dc911f935",
+      "pcm_hash": "2ed8844bff5e6e2b240a4cf5ec681b98bb054ec9578fc8e3774093aaf72c831d",
+      "start_ms": 50776,
+      "end_ms": 55422
+    },
+    {
+      "chapter": 2,
+      "sid": 12,
+      "text": "brown over quick and and the the quick and dog fox and (2010). ",
+      "cache_key": "fbc1594fa328acc72a7e23d6117a673ea1c9e0db83d2fc7764e6915efdbc3f2d",
+      "pcm_hash": "47cff5025f68b0edf54aef934dd61ee1385d938cc0d357cc69b86384834867ec",
+      "start_ms": 55672,
+      "end_ms": 60193
+    },
+    {
+      "chapter": 2,
+      "sid": 13,
+      "text": "quick jumps over jumps and dog quick lazy jumps quick the the (2011). ",
+      "cache_key": "c431f013b6395212075f2bb0fdc9b7640de5413e39f19046818dfe2c58159f73",
+      "pcm_hash": "74fa01e3fe491050348c32affbe009ee1c3f4fc6f0ed75bc4efbc38589a539d1",
+      "start_ms": 60443,
+      "end_ms": 65787
+    },
+    {
+      "chapter": 2,
+      "sid": 14,
+      "text": "river jumps the and rests the quick the quick river the the (2012). ",
+      "cache_key": "bc4ad8f66013b3bdef60d0a390230a00aa315446b4ac1d01c68f9a15791c532e",
+      "pcm_hash": "487c64be02df2b675d67abcd86430e0e3dd8f50173ca7f564131fc00f05f603a",
+      "start_ms": 66037,
+      "end_ms": 70884
+    },
+    {
+      "chapter": 2,
+      "sid": 15,
+      "text": "fox fox the and the brown quick lazy brown rests fox brown (2013). ",
+      "cache_key": "05b677e5e56e0cb840c6058d01d950a976d8557c4c9d54fa4bfa1b3e8ae0fc23",
+      "pcm_hash": "f4ef588f78b44fb64bf05f9c5fbea2d4890dffb61ec0b2e69008e47ae84ca14e",
+      "start_ms": 71134,
+      "end_ms": 76875
+    },
+    {
+      "chapter": 2,
+      "sid": 16,
+      "text": "by river quick the the the dog river jumps dog jumps by (2014). ",
+      "cache_key": "12491e38792034cf827e02678c4a7397b145bce2c2ac32aa2c1daf0f388b3aa0",
+      "pcm_hash": "946d5d3af4dfbc4e4a6d999dcd11a39fc598eb7cb4065f6617e0eb7bbf632d04",
+      "start_ms": 77125,
+      "end_ms": 82349
+    },
+    {
+      "chapter": 2,
+      "sid": 17,
+      "text": "lazy over quick fox rests over the the the the jumps by (2015). ",
+      "cache_key": "1895c0a42cfbdf8f42393bb2df2c2a207cfa2c86745b95a4647aa48472e84218",
+      "pcm_hash": "5b6743c9172a7fdd9362dcc1c5dfeb807a53ce826ee1766c970015d3852bdf1a",
+      "start_ms": 82599,
+      "end_ms": 87759
+    },
+    {
+      "chapter": 2,
+      "sid": 18,
+      "text": "and over lazy the over the quick quick over and lazy quick (2016). ",
+      "cache_key": "8d9818b146e638d94714d7de02132da58cd37e43b29cbee58b2df5958edf3f4d",
+      "pcm_hash": "82381efd7e94994134baa74b6c44e8fddc12fa0303194f061a6b1d46d783b08f",
+      "start_ms": 88009,
+      "end_ms": 93149
+    },
+    {
+      "chapter": 2,
+      "sid": 19,
+      "text": "jumps fox the and the dog river by lazy rests over jumps (2017). ",
+      "cache_key": "da1e45174f8da62b753ba8f8d08b41d4d46c7f449cd9959aef9ac8e398b365db",
+      "pcm_hash": "aebaeba535bc5ce80513d78b450fe6991058a1cbe7ec5d969d61c42a1bb3ca1e",
+      "start_ms": 93399,
+      "end_ms": 98869
+    },
+    {
+      "chapter": 2,
+      "sid": 20,
+      "text": "brown dog fox jumps fox fox over quick river jumps quick the (2018). ",
+      "cache_key": "25d0c648011baf5491423624be8417921364c28c31e0ab5eb79e502052e43482",
+      "pcm_hash": "a3e394f50afb7860b1695804ce4d1ba999604099efd348a1b1206e88a888501e",
+      "start_ms": 99119,
+      "end_ms": 104798
+    },
+    {
+      "chapter": 2,
+      "sid": 21,
+      "text": "lazy quick rests and rests over fox the jumps the over brown (2019). ",
+      "cache_key": "ae69b380096b0eb8ef71e6b56457a283d60bef975f4f8fb9c294ae56299721f4",
+      "pcm_hash": "348e981f85ecc40ceba86409f9902dae92e4468091bb7003914aaa00965cbb63",
+      "start_ms": 105048,
+      "end_ms": 110539
+    },
+    {
+      "chapter": 2,
+      "sid": 22,
+      "text": "over the river and jumps fox over quick dog and and the (2020). ",
+      "cache_key": "9f35f8829472ecfe6fc2de1f18b45fd1c3e0cbc2f15bcdcd97ad9b88fa921611",
+      "pcm_hash": "2d6ddf4ac57aa01b89d2bdb0da3be1a239953c600b2acbf787844981fd8ff02e",
+      "start_ms": 110789,
+      "end_ms": 115865
+    },
+    {
+      "chapter": 2,
+      "sid": 23,
+      "text": "and quick fox fox the the fox the quick jumps dog river (2021). ",
+      "cache_key": "d378583505254a0f745923e38055f628a555a28a07ccbd8ec62507cbcc9bf490",
+      "pcm_hash": "4cdb770c2706bbbb52a5a8ca4fa4ca324c17baa28f46bf26d24c5bc165c2fb3d",
+      "start_ms": 116115,
+      "end_ms": 121458
+    },
+    {
+      "chapter": 2,
+      "sid": 24,
+      "text": "quick by quick the rests the jumps the the over lazy lazy (2022). ",
+      "cache_key": "05c1a39f9b0134298dfaea55bd94a5b97782c787578df6bd541e1bc5bab3d491",
+      "pcm_hash": "b834096d8f522d7edf26d480366a27399a88c54c85b12f9dd6cbf6194eba5755",
+      "start_ms": 121708,
+      "end_ms": 126972
+    },
+    {
+      "chapter": 2,
+      "sid": 25,
+      "text": "river river brown quick dog the the over quick dog rests brown (2023). ",
+      "cache_key": "6adc2d1be3564122562e8b6a52f058802ea7a81ae0770bd77f5334bff994f6e1",
+      "pcm_hash": "2fa1229aa998f2663cb6a5b407d866e4191e65a1be8c52c4054f65b952b5fc0b",
+      "start_ms": 127222,
+      "end_ms": 132845
+    },
+    {
+      "chapter": 2,
+      "sid": 26,
+      "text": "brown the brown brown river river over jumps quick by dog river (2024).",
+      "cache_key": "e535e29477aacc3d49b1fd803be2bd6682c47c4e30b8758c3ac02d12fdac2ecc",
+      "pcm_hash": "ec639e5d6da5b66c0f0760b05041e29f313d036057d20d76e0571cedf420b26c",
+      "start_ms": 133095,
+      "end_ms": 138985
+    },
+    {
+      "chapter": 3,
+      "sid": 1,
+      "text": "Chapter Three",
+      "cache_key": "38fd12046847763cbf7ee15d6495384db8ee9b73593d2518f810a3045746d768",
+      "pcm_hash": "5c1ce31e4ab8a89c623528f388b0ad3dd5e60cea525deb819cf133e7dc309a33",
+      "start_ms": 0,
+      "end_ms": 1054
+    },
+    {
+      "chapter": 3,
+      "sid": 2,
+      "text": "and jumps brown fox brown dog by the the over river and (3000). ",
+      "cache_key": "f78ec6cca0481eb638a9d5bd2ef4dd297d825f6af36534d676cf238d65480fec",
+      "pcm_hash": "88b67c0bce41a02a5b428c7a4d6bbd2e4411152d45b93f2ed46fc3ebb6f03141",
+      "start_ms": 1854,
+      "end_ms": 6649
+    },
+    {
+      "chapter": 3,
+      "sid": 3,
+      "text": "the rests dog river by by fox brown jumps the dog brown (3001). ",
+      "cache_key": "c75b4248bac24a216009730d05bd5d85b5bcace12cc2852fe64f528593817bf6",
+      "pcm_hash": "c16d156bdfaae2218e1c2f95ede68391ddd1b02ee797bff5d53a921dfc22d254",
+      "start_ms": 6899,
+      "end_ms": 12348
+    },
+    {
+      "chapter": 3,
+      "sid": 4,
+      "text": "the by river rests fox jumps the quick rests lazy the the (3002). ",
+      "cache_key": "53b9b33d71e27c566175fba339a76e4dd423652ad49491e887b31dbbf7973f7d",
+      "pcm_hash": "bb95dd27b6f7cfd3eb85e2c2ed6d3604a6cda997fd8cd62ea1d4057068f1ae0c",
+      "start_ms": 12598,
+      "end_ms": 17811
+    },
+    {
+      "chapter": 3,
+      "sid": 5,
+      "text": "dog jumps dog lazy river dog lazy the the river over brown (3003). ",
+      "cache_key": "4aef9d232a68254a0119f7148382f73ac49594964f40e37a8ed55323d6d71d8e",
+      "pcm_hash": "cd7e89768e76eb58586c55cc3041ce6ad401fe21521c65dda592edb04596748f",
+      "start_ms": 18061,
+      "end_ms": 23759
+    },
+    {
+      "chapter": 3,
+      "sid": 6,
+      "text": "jumps lazy the the rests the and the the by over and (3004). ",
+      "cache_key": "806a163bcf3c60879f4a6ad0ef0a5ebcc54fea260c11589c390bc11ccb98c835",
+      "pcm_hash": "1fbfc59148bf08a660e630c44d9ee513d3163bf0c1ca3b78bf8c861e46c4dec3",
+      "start_ms": 24009,
+      "end_ms": 28579
+    },
+    {
+      "chapter": 3,
+      "sid": 7,
+      "text": "brown and brown brown jumps river jumps the and the brown and (3005). ",
+      "cache_key": "458d42653ac3af16773cb216616d8a47b436e71d152ba2222b2293d50d290a98",
+      "pcm_hash": "acc294bfa11d963bc09c5e9d85f6f86f16cb6025283c806106beda600d3494d6",
+      "start_ms": 28829,
+      "end_ms": 34018
+    },
+    {
+      "chapter": 3,
+      "sid": 8,
+      "text": "quick fox lazy the brown dog over dog rests lazy rests rests (3006). ",
+      "cache_key": "91de65754b7fe7d06dc0a72428027502a525dc26e4a9856e253582a58b910da2",
+      "pcm_hash": "49a61852b9e33f5e1f045f9e81978a2dbe2fd035daa327174b442c40e021a12e",
+      "start_ms": 34268,
+      "end_ms": 40092
+    },
+    {
+      "chapter": 3,
+      "sid": 9,
+      "text": "by fox fox over lazy rests lazy fox by the over dog (3007). ",
+      "cache_key": "3aafb69ff9f5ea12f0a3db0f12a2107320b6b962da822d6429d9dc38d28350be",
+      "pcm_hash": "d486add5172a2395d422159abd3d049ecd43a2f93e692eeac57a86fbbe3eb146",
+      "start_ms": 40342,
+      "end_ms": 46106
+    },
+    {
+      "chapter": 3,
+      "sid": 10,
+      "text": "and by rests jumps rests fox the quick the dog rests over (3008). ",
+      "cache_key": "d3842f4cabce17644f85a427730f0d347eaf97c8d8e028b2e735fc299d98cfbb",
+      "pcm_hash": "e24beab223f53385cf69b57cece3b155a88d9c502c4a130abe956658247d39a8",
+      "start_ms": 46356,
+      "end_ms": 51595
+    },
+    {
+      "chapter": 3,
+      "sid": 11,
+      "text": "brown dog the the fox jumps jumps by jumps river dog over (3009). ",
+      "cache_key": "dea3e88af02338acda1144d51867680384c6012474d115fb62179c05cb5602db",
+      "pcm_hash": "4fada1db9eab793e131ee00de2f261ef4ed6461408527337b44d9016694de867",
+      "start_ms": 51845,
+      "end_ms": 57306
+    },
+    {
+      "chapter": 3,
+      "sid": 12,
+      "text": "brown by by by lazy and quick river quick and dog and (3010). ",
+      "cache_key": "8f1e0e315b10bf9deb22a36923152f6822a3adb55286ed034e2e1fb3535c5d4a",
+      "pcm_hash": "e2eb0e7306dd62dd0a60034f9553ae3471d79ba644ebe1370bee7458ffa097ea",
+      "start_ms": 57556,
+      "end_ms": 62499
+    },
+    {
+      "chapter": 3,
+      "sid": 13,
+      "text": "the brown brown jumps the fox and by the the the lazy (3011). ",
+      "cache_key": "0e1c77c79f4d4bb8abedacece179134f17d5d0e4882760ddc26f9d7e0aab93a9",
+      "pcm_hash": "0e2deff28f0c6f85ac923101d7919e890bc8d685aa2cba67697826fe02611279",
+      "start_ms": 62749,
+      "end_ms": 67622
+    },
+    {
+      "chapter": 3,
+      "sid": 14,
+      "text": "rests the by rests over the dog river brown dog by the (3012). ",
+      "cache_key": "9db08e9bcf8622dfee3cb1aaca705086d12d06dba4e2dfd9bcdaaf5daa1bb9cd",
+      "pcm_hash": "02e8dd9c3de23d023e6bb8f384a9b916632cd410cbf4e94c16001be3dad75b55",
+      "start_ms": 67872,
+      "end_ms": 72991
+    },
+    {
+      "chapter": 3,
+      "sid": 15,
+      "text": "dog quick the jumps rests quick jumps by quick brown the and (3013). ",
+      "cache_key": "c12a5ce180cd8bb10b37b53795a254e66b51f814938125c51970d0d368bb5009",
+      "pcm_hash": "7fbbb82ac9c8eb4e177cfadb115bcc4065d2cea398bb440a12409c76318f2884",
+      "start_ms": 73241,
+      "end_ms": 78370
+    },
+    {
+      "chapter": 3,
+      "sid": 16,
+      "text": "river rests rests by quick lazy river fox river the the the (3014). ",
+      "cache_key": "e0c76bd846f3c3f438ddb2d1026366fefc7af012ad2af874d6a384bee2ac6d48",
+      "pcm_hash": "af2ec54b0f78f5bd9b691e81d3027ff17840510741accc524df2151541775904",
+      "start_ms": 78620,
+      "end_ms": 84262
+    },
+    {
+      "chapter": 3,
+      "sid": 17,
+      "text": "the brown over lazy brown and lazy fox quick the and dog (3015). ",
+      "cache_key": "42cfa6bc50dd85d54f8993abf8a33b4266275d198fd40ffb4850890aea7c34e3",
+      "pcm_hash": "8ca9398aaf2cbab918d344c93db5da8b0192b8496ec07745a1970ebec2316265",
+      "start_ms": 84512,
+      "end_ms": 89832
+    },
+    {
+      "chapter": 3,
+      "sid": 18,
+      "text": "the quick rests jumps jumps fox the by dog the fox dog (3016). ",
+      "cache_key": "93a66ec0fb4012dfac385dc557b3597536af4363cd0b8ab8d388770e9d69a668",
+      "pcm_hash": "99c5897a72139750dd290bb1db20d801768d3baae200297e676e39b01fd3fdc1",
+      "start_ms": 90082,
+      "end_ms": 95522
+    },
+    {
+      "chapter": 3,
+      "sid": 19,
+      "text": "lazy and the the rests and fox river jumps fox brown jumps (3017). ",
+      "cache_key": "fe73d2986cb70f550a62ddf3f8ceb922e469d8899a1397e24920ca92c8f01bfd",
+      "pcm_hash": "77bbfb39b10449f711c8b2d22f4b0bf4cb85e26c0607a0b6dda3c77fd12313f6",
+      "start_ms": 95772,
+      "end_ms": 101477
+    },
+    {
+      "chapter": 3,
+      "sid": 20,
+      "text": "brown dog fox jumps jumps and the jumps river rests lazy the (3018). ",
+      "cache_key": "2afd374a4ab79a1cb56769897be7a621f3809177636f9dfb0c7d17ebc5c3986b",
+      "pcm_hash": "34bc3e74b0eb56eb66322be561240f2901ea323ad9314f9d1767fffde221a717",
+      "start_ms": 101727,
+      "end_ms": 107442
+    },
+    {
+      "chapter": 3,
+      "sid": 21,
+      "text": "river the river brown dog over lazy the river quick the fox (3019). ",
+      "cache_key": "1a6e57bae430d72c1796027a35df0f158616564570ae8634b2074d62aff5a507",
+      "pcm_hash": "1ca7452f76a8df1cf6e754c9c377b3fd2e5933a3c72daaabfab3034fc8c326e0",
+      "start_ms": 107692,
+      "end_ms": 113214
+    },
+    {
+      "chapter": 3,
+      "sid": 22,
+      "text": "and the fox jumps the quick the the quick and by the (3020). ",
+      "cache_key": "9f62e72752b52cf2254f6bfb5afb8d5736fb43c38d0e1a25657a3456f0a8cfa7",
+      "pcm_hash": "657d6c7080a68b288752a736b7056d50875a4a7676a465e4631c35d60f9bfa5c",
+      "start_ms": 113464,
+      "end_ms": 118220
+    },
+    {
+      "chapter": 3,
+      "sid": 23,
+      "text": "dog jumps rests the by rests brown quick dog over and the (3021). ",
+      "cache_key": "01145cba1533de3c2056e9486c7e5fd5fab9d2e7a44ff6e0c91c9acf0888dd17",
+      "pcm_hash": "cb78d765896567b2fe28477ccc7fee07f46896a6f2657d1c9c5b2e53cd8391c4",
+      "start_ms": 118470,
+      "end_ms": 124015
+    },
+    {
+      "chapter": 3,
+      "sid": 24,
+      "text": "jumps the dog rests over the dog over the quick lazy by (3022). ",
+      "cache_key": "e5ad537d2c8bb80bd312cc2e971070d8d18ea4ea6261099ee6bc5cb7495d3ac7",
+      "pcm_hash": "f436c13d68d508e4e5efd163fe5fd5b385b35d2f667f3e5046b38b888de991cf",
+      "start_ms": 124265,
+      "end_ms": 129593
+    },
+    {
+      "chapter": 3,
+      "sid": 25,
+      "text": "lazy over jumps dog the over the by rests and lazy quick (3023). ",
+      "cache_key": "0f771d319835dd513883f467e2c4c43135b43ed07f89979fae3e54dd73f6110b",
+      "pcm_hash": "ba86c7cd815e70780c1366a85e8795ad9d29fba963c4f8adf77c937b639b9836",
+      "start_ms": 129843,
+      "end_ms": 135466
+    },
+    {
+      "chapter": 3,
+      "sid": 26,
+      "text": "rests the the fox dog the jumps rests and by by river (3024).",
+      "cache_key": "2ba1dd58901190e10848844135ac8424dd722c43aa6012ccbe9a037d4e89952d",
+      "pcm_hash": "05cf1ab06980ae615aa024dd3ea47d228efc42a95f7b0284fdbda1fbbcddad4a",
+      "start_ms": 135716,
+      "end_ms": 141132
+    }
+  ]
+}
