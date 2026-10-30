@@ -142,6 +142,16 @@ def _read_flac(path: Path, sample_rate: int) -> np.ndarray:
 #: part and the engine is thread-safe.
 _IO_LOCK = threading.Lock()
 
+#: Gates the actual engine call (D-192). Chapter workers (RT2) share one
+#: engine object, and onnxruntime's CUDA provider is not thread-safe: seven
+#: threads calling ``engine.synth`` at once did not parallelize, they
+#: contended, and each carried its own CPU-side growth until the process hit
+#: 6 GB after 8 chapters with the GPU idle. Serializing the synth call keeps
+#: cache reads/writes parallel (they are I/O, and ``_IO_LOCK`` already guards
+#: them) while only the expensive inference is exclusive. A cache HIT never
+#: takes this lock, so warm resumes stay fully parallel.
+_SYNTH_LOCK = threading.Lock()
+
 
 def _read_cached(path: Path, sample_rate: int) -> np.ndarray | None:
     """Decode a cache entry, or ``None`` when it is not a usable hit.
@@ -245,9 +255,10 @@ def get_or_synth(
             stats.hits += 1
         return cached
 
-    audio = np.asarray(engine.synth(text, voice, speed), dtype=np.float32).ravel()
-    audio = audio.astype(np.float32, copy=False)
-    _store_cached(path, audio, engine.sample_rate)
+    with _SYNTH_LOCK:
+        audio = np.asarray(engine.synth(text, voice, speed), dtype=np.float32).ravel()
+        audio = audio.astype(np.float32, copy=False)
+        _store_cached(path, audio, engine.sample_rate)
     if stats is not None:
         stats.misses += 1
     return audio

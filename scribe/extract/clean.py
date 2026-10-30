@@ -70,15 +70,29 @@ _DIVIDER_MUST_CONTAIN = ("*", "⁂", "•", "◦", "·")
 
 
 def normalize_text(text: str) -> str:
-    """NFC-normalize, drop U+FFFD, and collapse whitespace; keep curly quotes.
+    """NFC-normalize, drop U+FFFD, collapse whitespace, and straighten quotes.
 
     U+FFFD is the replacement character a broken EPUB encoding leaves where
     punctuation used to be (it shows up as a leading ``�`` on dialogue lines
     and as whole ``�`` paragraphs). Left in place it makes sentence splitting
     emit standalone ``�`` fragments that no TTS engine can phonemize, which
     fails the whole chapter render.
+
+    Curly quotes (``"``/``"``/``'``/``'``) are mapped to their ASCII
+    equivalents. The dialogue detector in :mod:`text.dialogue` handles both
+    shapes, but a paragraph holding ONLY curly quotes used to fall through to
+    the single-quote scanner, which knows nothing of ``"``/``"`` -- every
+    line of dialogue in such a book was logged as "unbalanced" and flipped to
+    narration. Straightening here is safe for span offsets: spans are computed
+    on the cleaned text downstream, and the mapping is one-for-one.
     """
-    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", text.replace("\ufffd", ""))).strip()
+    straight = (
+        text.replace("\u201c", '"')
+        .replace("\u201d", '"')
+        .replace("\u2018", "'")
+        .replace("\u2019", "'")
+    )
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFC", straight.replace("\ufffd", ""))).strip()
 
 
 def is_boilerplate(text: str) -> bool:
