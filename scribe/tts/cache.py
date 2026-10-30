@@ -150,7 +150,6 @@ _IO_LOCK = threading.Lock()
 #: cache reads/writes parallel (they are I/O, and ``_IO_LOCK`` already guards
 #: them) while only the expensive inference is exclusive. A cache HIT never
 #: takes this lock, so warm resumes stay fully parallel.
-_SYNTH_LOCK = threading.Lock()
 
 
 def _read_cached(path: Path, sample_rate: int) -> np.ndarray | None:
@@ -204,6 +203,9 @@ def _write_flac_atomic(path: Path, audio: np.ndarray, sample_rate: int) -> None:
     tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}-{threading.get_ident()}.flac")
     try:
         sf.write(str(tmp), audio, sample_rate, format="FLAC", subtype="PCM_24")
+        with open(tmp, "r+b") as handle:
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(tmp, path)
     except BaseException:
         tmp.unlink(missing_ok=True)
@@ -255,10 +257,9 @@ def get_or_synth(
             stats.hits += 1
         return cached
 
-    with _SYNTH_LOCK:
-        audio = np.asarray(engine.synth(text, voice, speed), dtype=np.float32).ravel()
-        audio = audio.astype(np.float32, copy=False)
-        _store_cached(path, audio, engine.sample_rate)
+    audio = np.asarray(engine.synth(text, voice, speed), dtype=np.float32).ravel()
+    audio = audio.astype(np.float32, copy=False)
+    _store_cached(path, audio, engine.sample_rate)
     if stats is not None:
         stats.misses += 1
     return audio

@@ -346,7 +346,7 @@ def create_engine(
                 return KokoroEngine(model_path, voices_path)
             except (ImportError, FileNotFoundError, ValueError, OSError) as exc:
                 raise BuildError(f"cannot init TTS engine: {exc}") from exc
-    from device import create_engine_with_device
+    from tts.inference import create_engine_with_device
 
     try:
         return create_engine_with_device(models_dir, device=normalized)
@@ -1349,6 +1349,7 @@ def run_build(
     chapters: str | None = None,
     pages: str | None = None,
     device: str = "auto",
+    inference_workers: int = 1,
     progress_listener: Callable[[dict[str, Any]], None] | None = None,
     stop_event: Any | None = None,
     stop_file: Path | str | None = None,
@@ -1469,6 +1470,7 @@ def run_build(
             chapters=chapters,
             pages=pages,
             device=device,
+            inference_workers=inference_workers,
             progress_listener=progress_listener,
             stop_event=stop_event,
             wall_start=wall_start,
@@ -1497,6 +1499,7 @@ def _run_build_locked(
     chapters: str | None,
     pages: str | None,
     device: str,
+    inference_workers: int,
     progress_listener: Callable[[dict[str, Any]], None] | None,
     stop_event: Any | None,
     wall_start: float,
@@ -1517,6 +1520,10 @@ def _run_build_locked(
         )
     if workers < 1:
         raise BuildError(f"workers: bad-workers: {workers!r} must be >= 1")
+    if inference_workers < 1:
+        raise BuildError(
+            f"inference-workers: bad-workers: {inference_workers!r} must be >= 1"
+        )
     selected, page_resolution = _resolve_selection(
         all_chapters, chapters_spec=chapters, pages_spec=pages
     )
@@ -1700,7 +1707,7 @@ def _run_build_locked(
     )
     log_lines = [
         f"build start: book {script.book_id} source {Path(source).name} "
-        f"strict={strict} workers={workers} chapters={len(all_chapters)} "
+        f"strict={strict} workers={workers} inference_workers={inference_workers} chapters={len(all_chapters)} "
         f"selected={(format_range_compact(selected) if is_range else 'all')} "
         f"bundle_id={bundle_id} device={device}",
         f"script: {'redrafted' if script.redrafted else 'fresh'} ({len(all_chapters)} chapters)",
