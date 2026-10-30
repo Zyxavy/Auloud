@@ -449,6 +449,65 @@ def check_gpu() -> CheckResult:
     return CheckResult(name="gpu", status=PASS, detail=short)
 
 
+def _doctor_resource_detail() -> str:
+    # Detected providers.
+    try:
+        import onnxruntime as _rt  # type: ignore[import-untyped]
+
+        providers = list(_rt.get_available_providers())
+    except Exception:
+        providers = ["CPUExecutionProvider"]
+    # Physical cores.
+    try:
+        from tts.engine import physical_cores as _pc
+
+        cores = _pc()
+    except Exception:
+        import os as _os
+
+        cores = _os.cpu_count() or 1
+    # Free RAM.
+    try:
+        from tts.engine import _available_memory_bytes as _amb
+
+        free_bytes = _amb()
+    except Exception:
+        free_bytes = 8 * 1024 * 1024 * 1024
+    free_mb = free_bytes // (1024 * 1024)
+    # Recommended workers.
+    try:
+        from tts.engine import recommended_workers as _rw
+
+        rec_prep, rec_inf = _rw()
+    except Exception:
+        rec_prep, rec_inf = 1, 2
+    return (
+        f"providers={providers}; physical_cores={cores}; "
+        f"free_ram={free_mb} MB; "
+        f"recommended --prep-workers={rec_prep} --inference-workers={rec_inf}"
+    )
+
+
+def _check_resources(name: str) -> CheckResult:
+    return CheckResult(name=name, status=PASS, detail=_doctor_resource_detail())
+
+
+def check_workers() -> CheckResult:
+    return _check_resources("workers")
+
+
+def check_resources() -> CheckResult:
+    return _check_resources("resources")
+
+
+def check_memory() -> CheckResult:
+    return _check_resources("memory")
+
+
+def check_concurrency() -> CheckResult:
+    return _check_resources("concurrency")
+
+
 def run_checks(models_dir: Path) -> list[CheckResult]:
     """Run every `doctor` check in display order."""
     return [
@@ -463,6 +522,10 @@ def run_checks(models_dir: Path) -> list[CheckResult]:
         check_pymupdf(),
         check_ui(),
         check_gpu(),
+        check_workers(),
+        check_resources(),
+        check_memory(),
+        check_concurrency(),
     ]
 
 
@@ -594,6 +657,11 @@ def build(
         help="Number of inference sessions (K) for multi-session inference "
         "(Option B2). Default 1.",
     ),
+    prep_workers: int = typer.Option(
+        0,
+        "--prep-workers",
+        help="Number of prep workers (N). Default 0 (prep skipped per Task 0).",
+    ),
     plan: bool = typer.Option(
         False,
         "--plan",
@@ -669,6 +737,7 @@ def build(
             device=device,
             workers=workers,
             inference_workers=inference_workers,
+            prep_workers=prep_workers,
             progress_listener=jsonl_writer,
             stop_file=stop_file,
         )

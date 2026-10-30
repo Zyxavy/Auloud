@@ -1712,6 +1712,20 @@ class JobManager:
             pass
         if proc is not None:
             try:
+                import os as _os_mod
+                import subprocess as _sp
+
+                pid = getattr(proc, "pid", None)
+                if pid is not None and _os_mod.name == "nt":
+                    _sp.run(
+                        ["taskkill", "/PID", str(pid), "/T", "/F"],
+                        stdout=_sp.DEVNULL,
+                        stderr=_sp.DEVNULL,
+                        check=False,
+                    )
+            except Exception:
+                pass
+            try:
                 term = getattr(proc, "terminate", None)
                 if callable(term):
                     term()

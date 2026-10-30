@@ -1351,6 +1351,7 @@ def run_build(
     pages: str | None = None,
     device: str = "auto",
     inference_workers: int = 1,
+    prep_workers: int = 0,
     progress_listener: Callable[[dict[str, Any]], None] | None = None,
     stop_event: Any | None = None,
     stop_file: Path | str | None = None,
@@ -1472,6 +1473,7 @@ def run_build(
             pages=pages,
             device=device,
             inference_workers=inference_workers,
+            prep_workers=prep_workers,
             progress_listener=progress_listener,
             stop_event=stop_event,
             wall_start=wall_start,
@@ -1501,6 +1503,7 @@ def _run_build_locked(
     pages: str | None,
     device: str,
     inference_workers: int,
+    prep_workers: int,
     progress_listener: Callable[[dict[str, Any]], None] | None,
     stop_event: Any | None,
     wall_start: float,
@@ -1509,7 +1512,10 @@ def _run_build_locked(
     """Inner build (lock already held); see :func:`run_build`."""
     from progress import FanoutProgress, RichProgressListener, make_event
 
+    _stage_times = {st: 0.0 for st in ("draft", "phonemize", "inference", "assemble", "encode", "cache_read", "cache_write", "synth_total", "total")}
+    _t_draft = time.monotonic()
     script = ensure_script(source, work_root=work_root)
+    _stage_times["draft"] += time.monotonic() - _t_draft
     all_chapters = script.chapters
     work_dir = script.work_dir
     # UI1 device shape check first (invalid names fail even with an
@@ -1525,6 +1531,18 @@ def _run_build_locked(
         raise BuildError(
             f"inference-workers: bad-workers: {inference_workers!r} must be >= 1"
         )
+    if prep_workers < 0:
+        raise BuildError(f"prep-workers: bad-workers: {prep_workers!r} must be >= 0")
+    # Task 5 memory guard: auto-reduce workers if estimated RSS exceeds 70%.
+    try:
+        from tts.engine import memory_guard as _memory_guard
+        prep_workers, inference_workers = _memory_guard(
+            prep_workers, inference_workers
+        )
+        if inference_workers < 1:
+            inference_workers = 1
+    except Exception:
+        pass
     selected, page_resolution = _resolve_selection(
         all_chapters, chapters_spec=chapters, pages_spec=pages
     )
@@ -1565,6 +1583,51 @@ def _run_build_locked(
         raise BuildError("; ".join(cast_errors))
     voice, speed, narrator_engine = _narrator_entry(cast_path)
 
+    # Task 5: per-stage timing instrumentation.
+    try:
+        _orig_assemble = assemble_chapter
+        def _timed_assemble(*a, **k):
+            _t = time.monotonic()
+            _r = _orig_assemble(*a, **k)
+            _stage_times["assemble"] += time.monotonic() - _t
+            return _r
+        globals()["assemble_chapter"] = _timed_assemble
+        _orig_encode = encode_assembled_chapter
+        def _timed_encode(*a, **k):
+            _t = time.monotonic()
+            _r = _orig_encode(*a, **k)
+            _stage_times["encode"] += time.monotonic() - _t
+            return _r
+        globals()["encode_assembled_chapter"] = _timed_encode
+        import tts.cache as _cache_mod_stage
+        _orig_cache_read = _cache_mod_stage._read_cached
+        _orig_cache_store = _cache_mod_stage._store_cached
+        def _timed_cache_read(*a, **k):
+            _t = time.monotonic()
+            _r = _orig_cache_read(*a, **k)
+            _stage_times["cache_read"] += time.monotonic() - _t
+            return _r
+        def _timed_cache_store(*a, **k):
+            _t = time.monotonic()
+            _r = _orig_cache_store(*a, **k)
+            _stage_times["cache_write"] += time.monotonic() - _t
+            return _r
+        _cache_mod_stage._read_cached = _timed_cache_read
+        _cache_mod_stage._store_cached = _timed_cache_store
+        for _eng in engines.values():
+            if hasattr(_eng, "synth"):
+                _orig_synth = _eng.synth
+                def _make_synth(_orig):
+                    def _synth(*a, **k):
+                        _t = time.monotonic()
+                        try:
+                            return _orig(*a, **k)
+                        finally:
+                            _stage_times["synth_total"] += time.monotonic() - _t
+                    return _synth
+                _eng.synth = _make_synth(_orig_synth)
+    except Exception:
+        pass
     cache_dir = work_dir / CACHE_DIRNAME
     render_audio = work_dir / RENDER_DIRNAME / "audio"
     render_text = work_dir / RENDER_DIRNAME / "text"
@@ -2016,7 +2079,7 @@ def _run_build_locked(
             _log_now()
             raise BuildError(f"{len(encode_failures)} chapter(s) failed to encode, no bundle written: {details}")
     finally:
-        encode_pool.shutdown(wait=True)
+        encode_pool.shutdown(wait=True, cancel_futures=True)
 
     ordered_audio = [audio_paths[i] for i in selected]
     ordered_plans = [plans[i] for i in selected]
@@ -2085,6 +2148,11 @@ def _run_build_locked(
 
     removed = [p.name for p in (*stale_render, *stale_bundle)]
     log_lines.append(f"orphans removed: {', '.join(removed) if removed else 'none'}")
+    _stage_times["total"] = wall_seconds
+    log_lines.append(
+        "stage timings (s): "
+        + ", ".join(f"{k}={v:.2f}" for k, v in _stage_times.items())
+    )
     log_lines.append(
         f"build done: chapters={len(selected)} rendered={rendered} "
         f"skipped={skipped} failed=0 total_audio_ms={total_audio_ms} "
