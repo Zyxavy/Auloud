@@ -44,8 +44,41 @@ STAGES = ("draft", "phonemize", "inference", "assemble", "encode",
 times = {s: 0.0 for s in STAGES}
 counts = {s: 0 for s in STAGES}
 
+BENCH_SESSION_INPUTS = None
+ORT_PROFILE_PREFIX = "bench_ort_profile"
+
 
 def _patch():
+    import onnxruntime as _rt
+    _OrigSession = _rt.InferenceSession
+    _orig_run = _OrigSession.run
+
+    def _timed_run(self, *a, **k):
+        t = time.perf_counter()
+        try:
+            return _orig_run(self, *a, **k)
+        finally:
+            times["inference"] += time.perf_counter() - t
+            counts["inference"] += 1
+
+    _OrigSession.run = _timed_run
+
+    def _profiled_inference_session(*a, **k):
+        if not k.get("sess_options"):
+            so = _rt.SessionOptions()
+            so.enable_profiling = True
+            so.profile_file_prefix = ORT_PROFILE_PREFIX
+            k["sess_options"] = so
+        sess = _OrigSession(*a, **k)
+        global BENCH_SESSION_INPUTS
+        try:
+            BENCH_SESSION_INPUTS = [(i.name, list(i.shape), str(i.type)) for i in sess.get_inputs()]
+        except Exception as exc:
+            BENCH_SESSION_INPUTS = "unavailable: %s" % exc
+        return sess
+
+    _rt.InferenceSession = _profiled_inference_session
+
     import kokoro_onnx
     import audio.assemble
     import audio.encode
@@ -297,6 +330,7 @@ def main():
         providers = list(eng._kokoro.sess.get_providers()) if hasattr(eng._kokoro, "sess") else "n/a"
     except Exception as exc:
         providers = f"error: {exc}"
+    session_inputs = BENCH_SESSION_INPUTS
 
     stage_list = ("draft", "phonemize", "inference", "cache_read", "cache_write", "concat", "encode")
     total_stage = sum(times[s] for s in stage_list)
@@ -306,6 +340,7 @@ def main():
     print()
     print(f"wall time: {wall:.2f}s   audio: {result.total_audio_ms/1000:.1f}s   RTF: {result.rtf:.2f}x")
     print(f"providers: {providers}")
+    print(f"session inputs: {session_inputs}")
     print()
     header = f"{'stage':<14}{'seconds':>10}{'%total':>9}{'calls':>8}"
     print(header)
@@ -320,11 +355,33 @@ def main():
     print(f"peak RSS (bench proc): {sampler.peak_rss:.1f} MB  last: {sampler.rss_samples[-1] if sampler.rss_samples else 0:.1f} MB")
     print(f"cache hits: {result.cache_hits}  misses: {result.cache_misses}")
 
+    import glob, json as _json
+    profile_files = sorted(glob.glob(ORT_PROFILE_PREFIX + "*"))
+    op_totals = {}
+    for pf in profile_files:
+        try:
+            data = _json.loads(Path(pf).read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                for ev in data:
+                    if isinstance(ev, dict) and "dur" in ev:
+                        op_totals[ev.get("name", "?")] = op_totals.get(ev.get("name", "?"), 0) + ev["dur"]
+        except Exception:
+            pass
+    top_ops = sorted(op_totals.items(), key=lambda x: -x[1])[:15]
+    print()
+    print("ORT profile files:", profile_files)
+    print("Top ops (microseconds):")
+    for name, dur in top_ops:
+        print(f"  {name:<40} {dur/1e6:>8.3f}s")
+
     report = {
         "wall_s": wall,
         "audio_s": result.total_audio_ms / 1000.0,
         "rtf": result.rtf,
         "providers": providers,
+        "session_inputs": session_inputs,
+        "ort_profile_files": profile_files,
+        "ort_top_ops_us": {n: d for n, d in top_ops},
         "stages_s": {s: times[s] for s in stage_list},
         "stage_calls": {s: counts.get(s, 0) for s in stage_list},
         "stage_pct": {s: (100.0 * times[s] / total_stage if total_stage else 0.0) for s in stage_list},

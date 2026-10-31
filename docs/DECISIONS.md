@@ -1733,3 +1733,19 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Why: Task 0 baseline showed inference dominates (91% of wall time) and GPU is underutilized (~19% avg). The biggest win comes from inference concurrency (Option B2: K=2 sessions on CUDA) and overlapping encode. GPU path was already active (CUDAExecutionProvider), so the 1.28x vs 1.38x gap was not a provider issue.
 - Alternatives considered: (1) Parallel prep (Stage A) — rejected, prep is <1% of wall time, spawn/IPC overhead on Windows would erase it. (2) Disabling D-192 serialization — rejected, risks GPU driver crashes and memory corruption. (3) Rust orchestrator (Option B) — deferred, would be a larger architectural shift.
 - Consequences / revisit when: (1) Default `--inference-workers` is now 2 on CUDA, 1 on CPU. (2) Cache writes are atomic (temp + fsync + os.replace). (3) Memory guard auto-reduces workers above 70% of available RAM. (4) Cancellation kills the full process tree. (5) Per-stage timings are logged for regression detection. (6) Re-run the benchmark matrix (workers 1/2/4 × device cpu/cuda) after any engine change to confirm speedup holds.
+
+
+### D-205: Refined render profile (ORT detail) and decision gate for Performance-Quality plan
+
+- Date: 2026-10-31
+- Status: Accepted
+- Decision: Re-profiled one chapter of scribe/tests/fixtures/bench_chapter.epub (26 sentences, cold cache) on the CUDA path with ORT profiling enabled. Results:
+  - Wall: 26.83 s for 138.7 s audio, RTF 5.39x.
+  - Stage breakdown (non-overlapping): inference (session.run) 38.07 s (96.5%), cache write 0.65 s (1.6%), encode (ffmpeg PCM->MP3) 0.69 s (1.7%), draft 0.05 s (0.1%), cache read 0.001 s (~0%), concat ~0 s, phonemize derived 0 s.
+  - CPU util avg 32.0% (max 40%), GPU util avg 17.4% (max 37%), peak RSS 1438.6 MB (bench process).
+  - Execution provider actually running: CUDAExecutionProvider (+ CPUExecutionProvider).
+  - ORT session inputs: input_ids shape [1, input_ids_len] (int64), style [1, 256] (float), speed [1] (float). Batch axis is fixed at 1, so the model has no dynamic batch axis; real batching (dynamic batch axis) is not feasible without re-exporting the model.
+  - ORT operator hotspots: SequentialExecutor::Execute 20.41 s, model_run 19.03 s, /text_encoder/cnn.0/.../Conv 9.94 s, /Loop 4.22 s, /SequenceInsert 0.85 s. Inference is dominated by the text encoder conv and the decoder loop.
+- Why: Inference is 96.5% of wall time (>50% gate), so Task 6 (throughput) is justified. GPU util is 17.4% (<80% gate), so concurrent sessions (Task 6 Step 1, K=2) remain justified and are not skipped. Because the batch axis is fixed at 1, Task 6 Step 5 (real dynamic batching) is skipped unless the model is re-exported with a dynamic batch axis. TensorRT (Task 6 Step 6) is likewise gated on dynamic shape support and stays skipped. IO binding (Step 2) and ORT provider-option tuning (Step 3) and fp16 (Step 4) remain candidates.
+- Alternatives considered: (1) Real dynamic batching now (rejected: fixed batch axis confirmed; would need model re-export). (2) Skipping Task 6 (rejected: inference is 96.5%). (3) Skipping concurrent sessions (rejected: GPU util 17.4% < 80%).
+- Consequences / revisit when: scribe/dev/bench_render.py now records ORT session inputs, providers, CPU/GPU util, peak RSS and (post-process) operator hotspots. Task 6 Step 5 and Step 6 remain gated on dynamic batch-axis support. Re-run after IO binding / provider tuning / fp16 to measure speedup.
