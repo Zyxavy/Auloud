@@ -7,17 +7,14 @@ Web UI) import one module for both engine construction and device policy.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
-from device import create_engine_with_device, resolve_device_providers  # type: ignore[import-not-found]
+from device import (  # type: ignore[import-not-found]
+    DEVICE_CHOICES,
+    create_engine_with_device,
+    resolve_device_providers,
+)
 
 from tts.base import TTSEngine
-from tts.inference import (  # noqa: F401  (re-exported for convenience)
-    DEVICE_CHOICES,
-    create_workers,
-    device_policy,
-    resolve_device_providers as resolve_providers,
-)
 
 __all__ = [
     "DEVICE_CHOICES",
@@ -32,7 +29,6 @@ def create_engine(
     models_dir: Path | str = Path("models"),
     *,
     device: str = "auto",
-    inference_workers: int = 1,
     iobinding: bool | None = None,
 ) -> TTSEngine:
     """Build a TTS engine honoring ``device`` (delegates to ``device``).
@@ -40,7 +36,6 @@ def create_engine(
     ``iobinding`` is a Task 6 CUDA opt-in; ``None`` reads the
     ``AULOUD_IO_BINDING`` env flag (default off).
     """
-    _ = inference_workers  # policy is applied by the caller/pool; kept for API parity
     normalized = str(device or "auto").strip().lower()
     if normalized == "cpu":
         # Preserve the byte-identical CPU constructor path.

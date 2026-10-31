@@ -108,7 +108,6 @@ from __future__ import annotations
 import json
 import os
 import re
-import sys
 import threading
 import time
 from collections.abc import Callable, Collection, Mapping
@@ -1381,8 +1380,6 @@ def run_build(
     chapters: str | None = None,
     pages: str | None = None,
     device: str = "auto",
-    inference_workers: int = 1,
-    prep_workers: int = 0,
     progress_listener: Callable[[dict[str, Any]], None] | None = None,
     stop_event: Any | None = None,
     stop_file: Path | str | None = None,
@@ -1509,8 +1506,6 @@ def run_build(
             chapters=chapters,
             pages=pages,
             device=device,
-            inference_workers=inference_workers,
-            prep_workers=prep_workers,
             progress_listener=progress_listener,
             stop_event=stop_event,
             wall_start=wall_start,
@@ -1540,8 +1535,6 @@ def _run_build_locked(
     chapters: str | None,
     pages: str | None,
     device: str,
-    inference_workers: int,
-    prep_workers: int,
     progress_listener: Callable[[dict[str, Any]], None] | None,
     stop_event: Any | None,
     wall_start: float,
@@ -1566,23 +1559,6 @@ def _run_build_locked(
         )
     if workers < 1:
         raise BuildError(f"workers: bad-workers: {workers!r} must be >= 1")
-    if inference_workers < 1:
-        raise BuildError(
-            f"inference-workers: bad-workers: {inference_workers!r} must be >= 1"
-        )
-    if prep_workers < 0:
-        raise BuildError(f"prep-workers: bad-workers: {prep_workers!r} must be >= 0")
-    # Task 5 memory guard: auto-reduce workers if estimated RSS exceeds 70%.
-    try:
-        from tts.governance import memory_guard as _memory_guard
-        prep_workers, inference_workers = _memory_guard(
-            prep_workers, inference_workers
-        )
-        if inference_workers < 1:
-            inference_workers = 1
-    except Exception as exc:
-        # log_lines is not defined yet at this point; surface via stderr.
-        print(f"memory guard failed (ignored): {exc}", file=sys.stderr, flush=True)
     selected, page_resolution = _resolve_selection(
         all_chapters, chapters_spec=chapters, pages_spec=pages
     )
@@ -1819,7 +1795,7 @@ def _run_build_locked(
     )
     log_lines = [
         f"build start: book {script.book_id} source {Path(source).name} "
-        f"strict={strict} workers={workers} inference_workers={inference_workers} chapters={len(all_chapters)} "
+        f"strict={strict} workers={workers} chapters={len(all_chapters)} "
         f"selected={(format_range_compact(selected) if is_range else 'all')} "
         f"bundle_id={bundle_id} device={device}",
         f"script: {'redrafted' if script.redrafted else 'fresh'} ({len(all_chapters)} chapters)",

@@ -648,18 +648,6 @@ def build(
         help="How many chapters render at once: slow (1), balanced (4), "
         "fast (up to 8; the measured GPU knee). One render owns the machine.",
     ),
-    inference_workers: int = typer.Option(
-        2,
-        "--inference-workers",
-        help="Number of inference sessions (K) for multi-session inference "
-        "(Option B2). Default 2 (matrix: CUDA K=2/4 ~10-15% faster than K=1; "
-        "CPU stays at 1).",
-    ),
-    prep_workers: int = typer.Option(
-        0,
-        "--prep-workers",
-        help="Number of prep workers (N). Default 0 (prep skipped per Task 0).",
-    ),
     plan: bool = typer.Option(
         False,
         "--plan",
@@ -704,9 +692,6 @@ def build(
     except BuildError as exc:
         typer.echo(f"build failed: {exc}", err=True)
         raise typer.Exit(code=1)
-    if inference_workers < 1:
-        typer.echo("build failed: inference-workers must be >= 1", err=True)
-        raise typer.Exit(code=1)
 
     if plan:
         try:
@@ -741,8 +726,6 @@ def build(
             pages=pages,
             device=device,
             workers=workers,
-            inference_workers=inference_workers,
-            prep_workers=prep_workers,
             progress_listener=jsonl_writer,
             stop_file=stop_file,
             force_chapters=force_chapters,

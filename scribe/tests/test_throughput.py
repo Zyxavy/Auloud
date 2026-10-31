@@ -1,8 +1,8 @@
 # Auloud Scribe — Task 6 throughput: inference concurrency + IO binding.
 #
-# Fast tests (no model) cover the fallback contract, the worker pool's
-# ordering, and the env opt-in. GPU tests are skipped unless the Kokoro models
-# are present and the CUDA provider actually engages.
+# Fast tests (no model) cover the IOBindingSession fallback contract and the
+# env opt-in. GPU tests are skipped unless the Kokoro models are present and
+# the CUDA provider actually engages.
 #
 # Note on "bit-identical": Kokoro-82M synthesis is *not* reproducible run to
 # run (the waveform differs between two identical calls; the duration output
@@ -12,9 +12,7 @@
 
 from __future__ import annotations
 
-import os
 import sys
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -23,15 +21,10 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from tts.base import TTSEngine
 from tts.inference import (
-    IO_BINDING_ENV,
     IOBindingSession,
-    InferenceTask,
-    create_workers,
     enable_iobinding,
     env_flag,
-    run_inference,
 )
 
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
@@ -91,31 +84,6 @@ class _FakeSession:
         return [np.zeros(4, np.float32), np.array([1, 2], np.int64)]
 
 
-class _FakeEngine(TTSEngine):
-    """Deterministic engine: audio = text length, so order bugs are visible."""
-
-    def __init__(self, fail_times: int = 0) -> None:
-        self.fail_times = fail_times
-        self.seen: list[str] = []
-        self._lock = threading.Lock()
-
-    @property
-    def sample_rate(self) -> int:
-        return 24_000
-
-    @property
-    def engine_version(self) -> str:
-        return "fake-throughput"
-
-    def synth(self, text, voice, speed):
-        with self._lock:
-            if self.fail_times > 0:
-                self.fail_times -= 1
-                raise RuntimeError("worker crash")
-            self.seen.append(text)
-        return np.full(len(text), float(len(text)), np.float32)
-
-
 # ---------------------------------------------------------------------------
 # Fast tests
 # ---------------------------------------------------------------------------
@@ -162,31 +130,6 @@ def test_enable_iobinding_wraps_once():
     assert isinstance(engine._kokoro.sess, IOBindingSession)
     assert enable_iobinding(engine) is False  # already wrapped
     assert enable_iobinding(SimpleNamespace()) is False  # no session
-
-
-def test_create_workers_makes_k_distinct_engines():
-    workers = create_workers(2, _FakeEngine)
-    assert [w.worker_id for w in workers] == [0, 1]
-    assert workers[0].engine is not workers[1].engine
-
-
-def test_run_inference_k2_matches_k1_in_order():
-    """Step 1: concurrent K=2 workers return the same ordered results as K=1."""
-    tasks = [InferenceTask(index=i, text="x" * (i + 1), voice="v", speed=1.0) for i in range(12)]
-    serial = run_inference(tasks, create_workers(1, _FakeEngine))
-    concurrent = run_inference(tasks, create_workers(2, _FakeEngine))
-
-    assert [r.index for r in concurrent] == [t.index for t in tasks]
-    assert all(r.error is None for r in concurrent)
-    assert [r.audio.tolist() for r in concurrent] == [r.audio.tolist() for r in serial]
-
-
-def test_run_inference_retries_failed_task():
-    engine = _FakeEngine(fail_times=1)
-    tasks = [InferenceTask(index=0, text="abc", voice="v", speed=1.0)]
-    results = run_inference(tasks, create_workers(2, lambda: engine), max_retries=1)
-    assert results[0].error is None
-    assert results[0].audio.tolist() == [3.0, 3.0, 3.0]
 
 
 # ---------------------------------------------------------------------------
