@@ -1147,6 +1147,13 @@ def helper(
         raise typer.Exit(code=1)
 
 
+@app.command("worker", hidden=True)
+def worker() -> None:
+    \"\"\"Run the long-lived orchestrator worker (hidden).\"\"\"
+    from worker import main as worker_main
+    worker_main()
+
+
 # Nested `export` subcommands (M4B, ...).
 export_app = typer.Typer(help="Export a bundle to another format.")
 
