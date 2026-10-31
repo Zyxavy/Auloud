@@ -415,7 +415,7 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Alternatives considered: heartbeat lock file (rejected: thread + Windows lifetime complexity); cache-metadata RTF (rejected: lacks wall/audio); full builds writing 1.2 (rejected: breaks the byte-identical proof); Player model change for `source_index` (rejected: ignoring suffices).
 - Consequences / revisit when: UI4 tails `events.jsonl` and wires `stop_event`; UI5 uses `plan_build()` and the resolutions; revisit the RTF window only with 3-hour-build evidence.
 
-### D-053: Option B prerequisite gate: orchestrator-only overhead is the ceiling on Rust recovery
+### D-207: Option B prerequisite gate: orchestrator-only overhead is the ceiling on Rust recovery
 - Date: 2026-11-01
 - Status: Accepted
 - Decision: Defer pure-speed justification; proceed with Option B only for architecture (Tauri reuse) reasons. The Python path stays default. Inference dominates (96.5% of stage time, GPU 17.4% util, RTF 5.39x, peak RSS 1438.6 MB, per Option A profiling, D-205/D-206), so Rust orchestration can recover at most the few percent spent outside run() (prep/draft, ffmpeg encode, cache IO, scheduling). Orchestrator-only overhead measured in the current build path is the small remainder; it does not justify a rewrite on speed alone.
