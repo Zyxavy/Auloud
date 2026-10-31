@@ -142,9 +142,16 @@ def _cuda_fallback_reason(obtained: list[str]) -> str:
 
 
 def create_engine_with_device(
-    models_dir: Path | str = Path("models"), *, device: str = "auto"
+    models_dir: Path | str = Path("models"),
+    *,
+    device: str = "auto",
+    iobinding: bool | None = None,
 ) -> Any:
     """Build the Kokoro engine on ``device`` providers (no packaging change).
+
+    ``iobinding`` is a Task 6 opt-in (CUDA only); ``None`` reads the
+    ``AULOUD_IO_BINDING`` env flag, default off, so the default path is
+    unchanged.
 
     :raises ValueError: bad ``device`` or unavailable CUDA (clean, no
         traceback at the CLI; wraps as :class:`build.BuildError` there).
@@ -181,6 +188,12 @@ def create_engine_with_device(
             "device: cuda-unavailable: onnxruntime not importable "
             "(use --device auto or cpu)"
         ) from exc
+    from tts.inference import IO_BINDING_ENV, enable_iobinding, env_flag
+
+    # provider options are deliberately left at ORT defaults: Task 6 measured
+    # arena/algo/copy tuning as neutral-or-slower for Kokoro-82M (see report).
+    if iobinding is None:
+        iobinding = env_flag(IO_BINDING_ENV)
     session = rt.InferenceSession(str(model_path), providers=providers)
     obtained = list(session.get_providers())
     if "CUDAExecutionProvider" not in obtained:
@@ -193,4 +206,7 @@ def create_engine_with_device(
     backend = Kokoro.from_session(session, str(voices_path))
     from tts.kokoro import KokoroEngine as _KokoroEngine
 
-    return _KokoroEngine.from_session(backend, str(model_path), str(voices_path))
+    engine = _KokoroEngine.from_session(backend, str(model_path), str(voices_path))
+    if iobinding:
+        enable_iobinding(engine)
+    return engine
