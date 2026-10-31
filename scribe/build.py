@@ -435,6 +435,28 @@ def _resolve_selection(
     return list(range(1, total + 1)), ""
 
 
+def _parse_forced_chapters(force_chapters: Any, total: int) -> set[int]:
+    """Source chapters whose resume-cache read is bypassed (``--force-chapters``).
+
+    Accepts the CLI's comma/range string (validated by
+    :func:`selection.parse_range_spec`, so a bad range raises ``ValueError``
+    with the ``chapters: bad-range: ...`` shape the CLI prints) or an
+    iterable of chapter numbers. ``None``/empty = nothing forced.
+    """
+    if force_chapters is None:
+        return set()
+    if isinstance(force_chapters, str):
+        if not force_chapters.strip():
+            return set()
+        from selection import parse_range_spec
+
+        return set(parse_range_spec(force_chapters, total=total, kind="chapters"))
+    try:
+        return {int(x) for x in force_chapters}
+    except (TypeError, ValueError):
+        return set()
+
+
 def _load_build_stats(work_dir: Path) -> list[dict[str, Any]]:
     """Recent chapter timings from ``build_stats.json`` (empty when absent)."""
     path = Path(work_dir) / BUILD_STATS_FILENAME
@@ -1207,6 +1229,7 @@ def plan_build(
     extra_engines: dict[str, TTSEngine] | None = None,
     models_dir: Path | str = Path("models"),
     device: str = "auto",
+    force_chapters: Any = None,
 ) -> PlanResult:
     """Dry run: cached vs to-render counts plus a time estimate (no audio).
 
@@ -1224,6 +1247,9 @@ def plan_build(
     audio estimate is chars/15 seconds of AUDIO; wall estimate is audio /
     RTF. When no RTF history, wall estimate is unknown (None).
 
+    :param force_chapters: ``--force-chapters`` spec; listed chapters count
+        as to-render regardless of the resume cache (mirrors
+        :func:`run_build`).
     :raises BuildError: bad selection (same shapes as :func:`run_build`).
     """
     from text.cast import read_cast as _read_cast
@@ -1257,6 +1283,8 @@ def plan_build(
         # still correct, estimate may be None).
         engines = {}
 
+    forced_set = _parse_forced_chapters(force_chapters, len(script.chapters))
+
     width = 4 if len(script.chapters) > 999 else 3
     cached_ch = to_render_ch = 0
     cached_sent = to_render_sent = 0
@@ -1274,7 +1302,9 @@ def plan_build(
             except Exception:
                 fingerprint = None
         hit = None
-        if fingerprint is not None:
+        if chapter.chapter in forced_set:
+            hit = None
+        elif fingerprint is not None:
             try:
                 hit = chapter_up_to_date(chapter, json_path, mp3_path, fingerprint)
             except Exception:
@@ -1355,6 +1385,7 @@ def run_build(
     progress_listener: Callable[[dict[str, Any]], None] | None = None,
     stop_event: Any | None = None,
     stop_file: Path | str | None = None,
+    force_chapters: Any = None,
 ) -> BuildResult:
     """Render ``source`` EPUB or PDF to a validated bundle; return the totals.
 
@@ -1414,6 +1445,11 @@ def run_build(
         :class:`BuildStoppedError`). The file is never created or deleted
         here; the job manager creates it to request a graceful stop and
         removes it before a resume. Checked alongside ``stop_event``.
+    :param force_chapters: ``--force-chapters`` spec (``"5,10"`` or an
+        iterable of source chapter numbers); listed chapters bypass the
+        resume-cache read and re-render, other chapters stay cached. The
+        shared sentence-audio cache is never deleted. ``None`` = normal
+        resume.
     :raises BuildError: missing source, bad cast, bad selection/device,
         work-lock held, chapter failure(s), strict abort, simulated kill.
     :raises BuildStoppedError: cooperative stop (subclass of BuildError).
@@ -1478,6 +1514,7 @@ def run_build(
             stop_event=stop_event,
             wall_start=wall_start,
             stopped_fn=_stopped,
+            force_chapters=force_chapters,
         )
     finally:
         if lock is not None:
@@ -1508,6 +1545,7 @@ def _run_build_locked(
     stop_event: Any | None,
     wall_start: float,
     stopped_fn: Callable[[], bool],
+    force_chapters: Any = None,
 ) -> BuildResult:
     """Inner build (lock already held); see :func:`run_build`."""
     from progress import FanoutProgress, RichProgressListener, make_event
@@ -1549,6 +1587,8 @@ def _run_build_locked(
     is_range = selected != list(range(1, len(all_chapters) + 1))
     selected_set = set(selected)
     render_chapters = [c for c in all_chapters if c.chapter in selected_set]
+    # Force-chapters: bypass the resume-cache read for these source chapters.
+    forced_chapters_set = _parse_forced_chapters(force_chapters, len(all_chapters))
     bundle_id = book_id_for_range(script.sha256, selected) if is_range else script.book_id
 
     cast_path = work_dir / CAST_FILENAME
@@ -1834,7 +1874,10 @@ def _run_build_locked(
             narrator_engine=narrator_engine,
         )
         fingerprint = _fingerprint(cast, engines, chapter)
-        hit = chapter_up_to_date(chapter, json_path, mp3_path, fingerprint)
+        if index in forced_chapters_set:
+            hit = None
+        else:
+            hit = chapter_up_to_date(chapter, json_path, mp3_path, fingerprint)
         if hit is not None:
             return ChapterOutcome(
                 index=index,

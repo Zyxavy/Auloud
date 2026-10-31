@@ -679,6 +679,12 @@ def build(
         help="Cross-process stop sentinel (UI4 pause): when the file exists, "
         "the build stops at the next sentence boundary (partial cleaned).",
     ),
+    force_chapters: str | None = typer.Option(
+        None,
+        "--force-chapters",
+        help="Comma list of chapters to re-render (bypass cache reads), "
+        "e.g. --force-chapters 5,10.",
+    ),
 ) -> None:
     """Render audio chapter by chapter (resumable) and write the bundle."""
     from build import (
@@ -711,6 +717,7 @@ def build(
                 pages=pages,
                 models_dir=models_dir,
                 device=device,
+                force_chapters=force_chapters,
             )
         except (BuildError, DraftError, BundleWriteError, ValueError) as exc:
             typer.echo(f"build failed: {exc}", err=True)
@@ -738,6 +745,7 @@ def build(
             prep_workers=prep_workers,
             progress_listener=jsonl_writer,
             stop_file=stop_file,
+            force_chapters=force_chapters,
         )
     except (BuildError, DraftError, BundleWriteError, ValueError) as exc:
         typer.echo(f"build failed: {exc}", err=True)
