@@ -1197,6 +1197,34 @@ def export_m4b_subcommand(
     _run_export_m4b(bundle, output, title, author, narrator)
 
 
+def _run_export_audacity(bundle, output) -> None:
+    from export.audacity import AudacityError, export_audacity
+    try:
+        result = export_audacity(bundle, output=output)
+    except AudacityError as exc:
+        typer.echo(f"export audacity failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"wrote {result.path}")
+
+
+@export_app.command("audacity")
+def export_audacity_subcommand(
+    bundle: Path = typer.Argument(..., exists=True, file_okay=False, readable=True, help="Bundle directory to export."),
+    output: Path | None = typer.Option(None, "--output", "-o", help="Output zip path."),
+) -> None:
+    """Export a bundle as Audacity project (zip)."""
+    _run_export_audacity(bundle, output)
+
+
+@app.command("export-audacity")
+def export_audacity_top(
+    bundle: Path = typer.Argument(..., exists=True, file_okay=False, readable=True, help="Bundle directory to export."),
+    output: Path | None = typer.Option(None, "--output", "-o", help="Output zip path."),
+) -> None:
+    """Export a bundle as Audacity project (zip)."""
+    _run_export_audacity(bundle, output)
+
+
 @app.command("export-m4b")
 def export_m4b_top(
     bundle: Path = typer.Argument(
