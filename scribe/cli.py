@@ -1019,6 +1019,48 @@ def bench(
 
 
 @app.command()
+def qc(
+    bundle: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=False,
+        readable=True,
+        help="Bundle directory to quality-check.",
+    ),
+    model: str = typer.Option(
+        "tiny",
+        "--model",
+        help="Whisper model size: tiny or base.",
+    ),
+    threshold: float = typer.Option(
+        0.15,
+        "--threshold",
+        help="WER threshold above which a chapter is flagged.",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Report output path (default: <bundle>/qc_report.json).",
+    ),
+) -> None:
+    """Run Whisper-based quality control and write a JSON report (report-only)."""
+    from qc import QCError, run_qc
+
+    try:
+        result = run_qc(bundle, model=model, threshold=threshold, output_path=output)
+    except QCError as exc:
+        typer.echo(f"qc failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"wrote {result.output_path}")
+    s = result.report.get("summary", {})
+    typer.echo(
+        f"chapters: {s.get('chapters', 0)}  flagged: {s.get('flagged_chapters', 0)}  "
+        f"mean WER: {s.get('mean_wer', 0.0):.3f}"
+    )
+
+
+@app.command()
 def version() -> None:
     """Print the Scribe version."""
     typer.echo(__version__)
