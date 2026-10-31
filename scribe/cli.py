@@ -474,17 +474,12 @@ def _doctor_resource_detail() -> str:
     except Exception:
         free_bytes = 8 * 1024 * 1024 * 1024
     free_mb = free_bytes // (1024 * 1024)
-    # Recommended workers.
-    try:
-        from tts.governance import recommended_workers as _rw
-
-        rec_prep, rec_inf = _rw()
-    except Exception:
-        rec_prep, rec_inf = 1, 2
+    # Recommended concurrency: `--workers` (chapters sharing one ORT session).
+    rec_workers = min(8, max(1, cores))
     return (
         f"providers={providers}; physical_cores={cores}; "
         f"free_ram={free_mb} MB; "
-        f"recommended --prep-workers={rec_prep} --inference-workers={rec_inf}"
+        f"recommended --workers={rec_workers}"
     )
 
 
