@@ -48,11 +48,12 @@ def export_audacity(bundle, output=None, out_path=None, out=None, output_path=No
 
     with tempfile.TemporaryDirectory() as td:
         td_path = Path(td)
-        # collect speakers
+        # collect speakers and cache text JSON reads (avoid O(n²) file reads)
+        text_cache: dict[str, dict] = {}
         speakers = set()
         for c in rendered:
-            text_data = json.loads((bundle / c["text"]).read_text(encoding="utf-8"))
-            for b in text_data.get("blocks", []):
+            td = text_cache.setdefault(c["text"], json.loads((bundle / c["text"]).read_text(encoding="utf-8")))
+            for b in td.get("blocks", []):
                 for s in b.get("sentences", []):
                     speakers.add(s.get("speaker", "narrator"))
         speakers = sorted(speakers)
@@ -64,7 +65,7 @@ def export_audacity(bundle, output=None, out_path=None, out=None, output_path=No
             seg_files = []
             for c in rendered:
                 audio = bundle / c["audio"]
-                text_data = json.loads((bundle / c["text"]).read_text(encoding="utf-8"))
+                text_data = text_cache[c["text"]]
                 for b in text_data.get("blocks", []):
                     for s in b.get("sentences", []):
                         if s.get("speaker") != sp:
@@ -74,10 +75,12 @@ def export_audacity(bundle, output=None, out_path=None, out=None, output_path=No
                         if end <= start:
                             continue
                         seg = td_path / f"{sp}_{c['index']}_{s['sid']}.wav"
-                        subprocess.run(
+                        proc = subprocess.run(
                             [ffmpeg, "-y", "-i", str(audio), "-ss", str(start), "-to", str(end), "-ar", "24000", "-ac", "1", str(seg)],
                             capture_output=True, check=False,
                         )
+                        if proc.returncode != 0:
+                            raise AudacityError(f"ffmpeg segment extraction failed (exit {proc.returncode}): {proc.stderr.decode('utf-8', 'replace').strip()[:200]}")
                         if seg.is_file():
                             seg_files.append(seg)
                         labels_lines.append(f"{start:.3f}\t{end:.3f}\t{sp}: {s.get('text','').strip()}")
@@ -86,13 +89,17 @@ def export_audacity(bundle, output=None, out_path=None, out=None, output_path=No
             if seg_files:
                 concat_file = td_path / f"{sp}_concat.txt"
                 concat_file.write_text("\n".join(f"file '{p.resolve()}'" for p in seg_files) + "\n", encoding="utf-8")
-                subprocess.run(
+                proc = subprocess.run(
                     [ffmpeg, "-y", "-f", "concat", "-safe", "0", "-i", str(concat_file), "-c", "pcm_s16le", str(out_wav)],
                     capture_output=True, check=False,
                 )
+                if proc.returncode != 0:
+                    raise AudacityError(f"ffmpeg concat failed (exit {proc.returncode}): {proc.stderr.decode('utf-8', 'replace').strip()[:200]}")
             if not out_wav.is_file():
                 # empty placeholder
-                subprocess.run([ffmpeg, "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", "0.1", str(out_wav)], capture_output=True, check=False)
+                proc = subprocess.run([ffmpeg, "-y", "-f", "lavfi", "-i", "anullsrc=r=24000:cl=mono", "-t", "0.1", str(out_wav)], capture_output=True, check=False)
+                if proc.returncode != 0:
+                    raise AudacityError(f"ffmpeg placeholder failed (exit {proc.returncode}): {proc.stderr.decode('utf-8', 'replace').strip()[:200]}")
 
         # LOF project file
         lof = td_path / "project.lof"
