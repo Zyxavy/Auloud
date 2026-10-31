@@ -1119,5 +1119,81 @@ def helper(
         raise typer.Exit(code=1)
 
 
+# Nested `export` subcommands (M4B, ...).
+export_app = typer.Typer(help="Export a bundle to another format.")
+
+
+def _run_export_m4b(
+    bundle: Path,
+    output: Path | None,
+    title: str | None,
+    author: str | None,
+    narrator: str | None,
+) -> None:
+    from export.m4b import M4BError, export_m4b
+
+    try:
+        result = export_m4b(
+            bundle,
+            output=output,
+            title=title,
+            author=author,
+            narrator=narrator,
+        )
+    except M4BError as exc:
+        typer.echo(f"export m4b failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"wrote {result.path} ({result.chapter_count} chapters)")
+
+
+@export_app.command("m4b")
+def export_m4b_subcommand(
+    bundle: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=False,
+        readable=True,
+        help="Bundle directory to export.",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output M4B path (default: <bundle>.m4b next to bundle).",
+    ),
+    title: str | None = typer.Option(None, "--title", help="Override title metadata."),
+    author: str | None = typer.Option(None, "--author", help="Override author metadata."),
+    narrator: str | None = typer.Option(None, "--narrator", help="Override narrator metadata."),
+) -> None:
+    """Export a bundle as an M4B audiobook with chapter markers."""
+    _run_export_m4b(bundle, output, title, author, narrator)
+
+
+@app.command("export-m4b")
+def export_m4b_top(
+    bundle: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=False,
+        readable=True,
+        help="Bundle directory to export.",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output M4B path (default: <bundle>.m4b next to bundle).",
+    ),
+    title: str | None = typer.Option(None, "--title", help="Override title metadata."),
+    author: str | None = typer.Option(None, "--author", help="Override author metadata."),
+    narrator: str | None = typer.Option(None, "--narrator", help="Override narrator metadata."),
+) -> None:
+    """Export a bundle as an M4B audiobook with chapter markers."""
+    _run_export_m4b(bundle, output, title, author, narrator)
+
+
+app.add_typer(export_app, name="export")
+
+
 if __name__ == "__main__":
     app()
