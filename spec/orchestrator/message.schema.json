@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OrchestratorProtocolMessage",
+  "type": "object",
+  "required": ["v", "id"],
+  "properties": {
+    "v": { "type": "integer" },
+    "id": { "type": "string" }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/hello" },
+    { "$ref": "#/$defs/prepare_batch" },
+    { "$ref": "#/$defs/synth_batch" },
+    { "$ref": "#/$defs/cancel" },
+    { "$ref": "#/$defs/shutdown" },
+    { "$ref": "#/$defs/ready" },
+    { "$ref": "#/$defs/batch_done" },
+    { "$ref": "#/$defs/batch_error" },
+    { "$ref": "#/$defs/heartbeat" }
+  ],
+  "$defs": {
+    "hello": { "required": ["protocol_version"], "properties": { "protocol_version": { "type": "integer" } } },
+    "prepare_batch": { "required": ["batch_id", "items"], "properties": { "batch_id": { "type": "string" }, "items": { "type": "array" } } },
+    "synth_batch": { "required": ["batch_id", "items"], "properties": { "batch_id": { "type": "string" }, "items": { "type": "array" } } },
+    "cancel": { "required": ["batch_id"], "properties": { "batch_id": { "type": "string" } } },
+    "shutdown": { "type": "object" },
+    "ready": { "required": ["providers", "model_hash", "rss"], "properties": { "providers": { "type": "array", "items": { "type": "string" } }, "model_hash": { "type": "string" }, "rss": { "type": "integer" } } },
+    "batch_done": { "required": ["batch_id", "results"], "properties": { "batch_id": { "type": "string" }, "results": { "type": "array" } } },
+    "batch_error": { "required": ["batch_id", "kind", "message", "retryable"], "properties": { "batch_id": { "type": "string" }, "kind": { "type": "string" }, "message": { "type": "string" }, "retryable": { "type": "boolean" } } },
+    "heartbeat": { "required": ["rss", "inflight"], "properties": { "rss": { "type": "integer" }, "inflight": { "type": "integer" } } }
+  }
+}
