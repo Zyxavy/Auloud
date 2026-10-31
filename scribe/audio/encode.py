@@ -189,7 +189,7 @@ def encode_chapter_pcm(
                 _float_to_int16_bytes(audio[start : start + CHUNK_SAMPLES])
             )
         proc.stdin.close()
-    except BaseException as exc:  # noqa: BLE001 - recorded for caller
+    except Exception as exc:  # noqa: BLE001 - recorded for caller
         write_exc.append(exc)
         try:
             proc.stdin.close()

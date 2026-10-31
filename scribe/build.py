@@ -1535,14 +1535,14 @@ def _run_build_locked(
         raise BuildError(f"prep-workers: bad-workers: {prep_workers!r} must be >= 0")
     # Task 5 memory guard: auto-reduce workers if estimated RSS exceeds 70%.
     try:
-        from tts.engine import memory_guard as _memory_guard
+        from tts.governance import memory_guard as _memory_guard
         prep_workers, inference_workers = _memory_guard(
             prep_workers, inference_workers
         )
         if inference_workers < 1:
             inference_workers = 1
-    except Exception:
-        pass
+    except Exception as exc:
+        log_lines.append(f"memory guard failed (ignored): {exc}")
     selected, page_resolution = _resolve_selection(
         all_chapters, chapters_spec=chapters, pages_spec=pages
     )
@@ -1584,6 +1584,11 @@ def _run_build_locked(
     voice, speed, narrator_engine = _narrator_entry(cast_path)
 
     # Task 5: per-stage timing instrumentation.
+    _orig_assemble = None
+    _orig_encode = None
+    _orig_cache_read = None
+    _orig_cache_store = None
+    _orig_synths: dict[int, Any] = {}
     try:
         _orig_assemble = assemble_chapter
         def _timed_assemble(*a, **k):
@@ -1616,7 +1621,8 @@ def _run_build_locked(
         _cache_mod_stage._store_cached = _timed_cache_store
         for _eng in engines.values():
             if hasattr(_eng, "synth"):
-                _orig_synth = _eng.synth
+                _orig = _eng.synth
+                _orig_synths[id(_eng)] = _orig
                 def _make_synth(_orig):
                     def _synth(*a, **k):
                         _t = time.monotonic()
@@ -1625,7 +1631,7 @@ def _run_build_locked(
                         finally:
                             _stage_times["synth_total"] += time.monotonic() - _t
                     return _synth
-                _eng.synth = _make_synth(_orig_synth)
+                _eng.synth = _make_synth(_orig)
     except Exception:
         pass
     cache_dir = work_dir / CACHE_DIRNAME
@@ -1792,6 +1798,11 @@ def _run_build_locked(
     stats_entries: list[dict[str, Any]] = []
 
     hook = fail_after if fail_after is not None and fail_after >= 1 else None
+
+    # Stage C encode pool: created before _render_chapter so the closure can
+    # submit as soon as a chapter's sentences are assembled.
+    encode_pool = ThreadPoolExecutor(max_workers=2)
+    chapter_encode_futures: dict[int, Any] = {}
 
     def _render_chapter(chapter: ChapterFile) -> ChapterOutcome:
         """Render one chapter (one unit of work) without touching run state.
@@ -2021,8 +2032,6 @@ def _run_build_locked(
     # Stage C encode pool: caps concurrent ffmpeg processes at 2. Created
     # before rendering so _render_chapter can submit as soon as a chapter's
     # sentences are assembled.
-    encode_pool = ThreadPoolExecutor(max_workers=2)
-    chapter_encode_futures: dict[int, Any] = {}
     try:
         rich_ctx = rich_bar if show_progress else None
         # Enter Rich context manually so events flow even when disabled.
@@ -2075,10 +2084,27 @@ def _run_build_locked(
                 stem = f"ch{idx:0{width}d}"
                 (render_audio / f"{stem}.mp3").unlink(missing_ok=True)
                 (render_text / f"{stem}.json").unlink(missing_ok=True)
-            log_lines.append(f"build failed: {len(encode_failures)} chapter(s) failed to encode: {details}")
+            log_lines.append(f"build failed: {len(encode_failures)} chapter(s) FAILED to encode: {details}")
             _log_now()
             raise BuildError(f"{len(encode_failures)} chapter(s) failed to encode, no bundle written: {details}")
     finally:
+        # Restore monkeypatched functions so repeated builds in one process
+        # (e.g. web UI retry) don't stack wrappers.
+        try:
+            if _orig_assemble is not None:
+                globals()["assemble_chapter"] = _orig_assemble
+            if _orig_encode is not None:
+                globals()["encode_assembled_chapter"] = _orig_encode
+            if _orig_cache_read is not None:
+                import tts.cache as _cm
+                _cm._read_cached = _orig_cache_read
+            if _orig_cache_store is not None:
+                import tts.cache as _cm2
+                _cm2._store_cached = _orig_cache_store
+            for _eng, _orig in _orig_synths.items():
+                _eng.synth = _orig
+        except Exception:
+            pass
         encode_pool.shutdown(wait=True, cancel_futures=True)
 
     ordered_audio = [audio_paths[i] for i in selected]

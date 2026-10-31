@@ -459,7 +459,7 @@ def _doctor_resource_detail() -> str:
         providers = ["CPUExecutionProvider"]
     # Physical cores.
     try:
-        from tts.engine import physical_cores as _pc
+        from tts.governance import physical_cores as _pc
 
         cores = _pc()
     except Exception:
@@ -468,7 +468,7 @@ def _doctor_resource_detail() -> str:
         cores = _os.cpu_count() or 1
     # Free RAM.
     try:
-        from tts.engine import _available_memory_bytes as _amb
+        from tts.governance import _available_memory_bytes as _amb
 
         free_bytes = _amb()
     except Exception:
@@ -476,7 +476,7 @@ def _doctor_resource_detail() -> str:
     free_mb = free_bytes // (1024 * 1024)
     # Recommended workers.
     try:
-        from tts.engine import recommended_workers as _rw
+        from tts.governance import recommended_workers as _rw
 
         rec_prep, rec_inf = _rw()
     except Exception:
@@ -523,9 +523,6 @@ def run_checks(models_dir: Path) -> list[CheckResult]:
         check_ui(),
         check_gpu(),
         check_workers(),
-        check_resources(),
-        check_memory(),
-        check_concurrency(),
     ]
 
 

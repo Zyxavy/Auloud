@@ -96,11 +96,14 @@ def run_inference(
     """Run ``tasks`` across ``workers``, preserving input order.
 
     Each task is handed to the next free worker. A worker exception is
-    recorded on the result, the worker is replaced once (respawn is the
-    caller's responsibility via ``respawn_worker``), and the task is retried
-    on another worker. After ``max_retries`` failures the task stays failed
-    and ``on_failure`` is called; the run continues so the resumable cache
-    keeps finished work. Set ``max_retries=0`` to fail fast.
+    recorded on the result and the task is retried on another worker (up to
+    ``max_retries`` times). After ``max_retries`` failures the task stays
+    failed and ``on_failure`` is called; the run continues so the resumable
+    cache keeps finished work. Set ``max_retries=0`` to fail fast.
+
+    Note: worker respawn (creating a fresh engine after a crash) is the
+    caller's responsibility via ``respawn_worker``. This function retries
+    on surviving workers only.
     """
     task_list = list(tasks)
     if not task_list:
@@ -111,21 +114,26 @@ def run_inference(
     # Results keyed by original position.
     results: dict[int, InferenceResult] = {}
     worker_list = list(workers)
-
-    def _pick_worker(i: int) -> InferenceWorker:
-        return worker_list[i % len(worker_list)]
+    n_workers = len(worker_list)
 
     remaining = list(task_list)
     attempts: dict[int, int] = {t.index: 0 for t in task_list}
+    # Track which worker index ran each task, so retries avoid that worker.
+    last_worker: dict[int, int] = {}
 
     while remaining:
         batch = remaining
         remaining = []
-        with ThreadPoolExecutor(max_workers=len(worker_list)) as pool:
-            future_to_task = {
-                pool.submit(_pick_worker(i).infer, task): task
-                for i, task in enumerate(batch)
-            }
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            future_to_task: dict[Any, InferenceTask] = {}
+            for i, task in enumerate(batch):
+                prev = last_worker.get(task.index)
+                if prev is None:
+                    w_idx = i % n_workers
+                else:
+                    w_idx = (prev + 1) % n_workers
+                last_worker[task.index] = w_idx
+                future_to_task[pool.submit(worker_list[w_idx].infer, task)] = task
             for future in as_completed(future_to_task):
                 task = future_to_task[future]
                 try:
