@@ -282,78 +282,100 @@ def _max(xs):
     return max(xs) if xs else 0.0
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser()
-    parser.add_argument("source", help="EPUB/PDF source to build")
+    parser.add_argument("source", nargs="?", help="EPUB/PDF source to build")
+    parser.add_argument("--fixture", default=None, help="Fixture EPUB/PDF to benchmark (alias for source)")
+    parser.add_argument("--devices", default=None, help="Comma list of devices to benchmark (cpu,cuda)")
     parser.add_argument("--work-root", default=".scribe")
     parser.add_argument("--out-dir", default=None)
     parser.add_argument("--chapters", default=None)
     parser.add_argument("--device", default="auto")
     parser.add_argument("--report", default="bench_report.json")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
-    source = Path(args.source)
+    if args.fixture:
+        source_path = args.fixture
+    elif args.source:
+        source_path = args.source
+    else:
+        source_path = str(Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "bench_chapter.epub")
+    source = Path(source_path)
     out_dir = Path(args.out_dir) if args.out_dir else None
 
-    sampler = Sampler(interval=1.0)
-    sampler.start()
-    wall_start = time.perf_counter()
-    try:
-        result = run_build(
-            source,
-            work_root=args.work_root,
-            out_dir=out_dir,
-            device=args.device,
-            chapters=args.chapters,
-            show_progress=False,
+    devices = [d.strip() for d in (args.devices or args.device).split(",") if d.strip()]
+    if not devices:
+        devices = [args.device]
+
+    for device in devices:
+        # reset per-device timings
+        for s in STAGES:
+            times[s] = 0.0
+            counts[s] = 0
+        global BENCH_SESSION_INPUTS
+        BENCH_SESSION_INPUTS = None
+
+        print()
+        print(f"=== device: {device} ===")
+        sampler = Sampler(interval=1.0)
+        sampler.start()
+        wall_start = time.perf_counter()
+        try:
+            result = run_build(
+                source,
+                work_root=args.work_root,
+                out_dir=out_dir,
+                device=device,
+                chapters=args.chapters,
+                show_progress=False,
+            )
+        finally:
+            sampler.stop()
+        wall = time.perf_counter() - wall_start
+
+        # phonemize = synth_total - inference
+        times["phonemize"] = max(0.0, times["synth_total"] - times["inference"])
+        # concat/timing assembly = assemble_chapter wall minus the synthesis and
+        # cache work that happens inside its synth_fn pass (non-overlapping).
+        times["concat"] = max(
+            0.0,
+            times["assemble"]
+            - (times["phonemize"] + times["inference"])
+            - times["cache_read"]
+            - times["cache_write"],
         )
-    finally:
-        sampler.stop()
-    wall = time.perf_counter() - wall_start
+        counts["concat"] = counts["assemble"]
 
-    # phonemize = synth_total - inference
-    times["phonemize"] = max(0.0, times["synth_total"] - times["inference"])
-    # concat/timing assembly = assemble_chapter wall minus the synthesis and
-    # cache work that happens inside its synth_fn pass (non-overlapping).
-    times["concat"] = max(
-        0.0,
-        times["assemble"]
-        - (times["phonemize"] + times["inference"])
-        - times["cache_read"]
-        - times["cache_write"],
-    )
-    counts["concat"] = counts["assemble"]
+        # provider check
+        try:
+            eng = create_engine("models", device=device)
+            providers = list(eng._kokoro.sess.get_providers()) if hasattr(eng._kokoro, "sess") else "n/a"
+        except Exception as exc:
+            providers = f"error: {exc}"
+        session_inputs = BENCH_SESSION_INPUTS
 
-    # provider check
-    try:
-        eng = create_engine("models", device=args.device)
-        providers = list(eng._kokoro.sess.get_providers()) if hasattr(eng._kokoro, "sess") else "n/a"
-    except Exception as exc:
-        providers = f"error: {exc}"
-    session_inputs = BENCH_SESSION_INPUTS
+        stage_list = ("draft", "phonemize", "inference", "cache_read", "cache_write", "concat", "encode")
+        total_stage = sum(times[s] for s in stage_list)
+        if total_stage <= 0:
+            total_stage = wall
 
-    stage_list = ("draft", "phonemize", "inference", "cache_read", "cache_write", "concat", "encode")
-    total_stage = sum(times[s] for s in stage_list)
-    if total_stage <= 0:
-        total_stage = wall
-
-    print()
-    print(f"wall time: {wall:.2f}s   audio: {result.total_audio_ms/1000:.1f}s   RTF: {result.rtf:.2f}x")
-    print(f"providers: {providers}")
-    print(f"session inputs: {session_inputs}")
-    print()
-    header = f"{'stage':<14}{'seconds':>10}{'%total':>9}{'calls':>8}"
-    print(header)
-    print("-" * len(header))
-    for s in stage_list:
-        pct = 100.0 * times[s] / total_stage if total_stage else 0.0
-        print(f"{s:<14}{times[s]:>10.3f}{pct:>8.1f}%{counts.get(s,0):>8}")
-    print(f"{'TOTAL(stages)':<14}{total_stage:>10.3f}{'100.0':>8}%")
-    print()
-    print(f"CPU util avg: {_avg(sampler.cpu_samples):.1f}%  max: {_max(sampler.cpu_samples):.1f}%")
-    print(f"GPU util avg: {_avg(sampler.gpu_samples):.1f}%  max: {_max(sampler.gpu_samples):.1f}%")
-    print(f"peak RSS (bench proc): {sampler.peak_rss:.1f} MB  last: {sampler.rss_samples[-1] if sampler.rss_samples else 0:.1f} MB")
-    print(f"cache hits: {result.cache_hits}  misses: {result.cache_misses}")
+        print()
+        print(f"wall time: {wall:.2f}s   audio: {result.total_audio_ms/1000:.1f}s   RTF: {result.rtf:.2f}x")
+        print(f"providers: {providers}")
+        print(f"session inputs: {session_inputs}")
+        print()
+        header = f"{'stage':<14}{'seconds':>10}{'%total':>9}{'calls':>8}"
+        print(header)
+        print("-" * len(header))
+        for s in stage_list:
+            pct = 100.0 * times[s] / total_stage if total_stage else 0.0
+            print(f"{s:<14}{times[s]:>10.3f}{pct:>8.1f}%{counts.get(s,0):>8}")
+        print(f"{'TOTAL(stages)':<14}{total_stage:>10.3f}{'100.0':>8}%")
+        print()
+        print(f"CPU util avg: {_avg(sampler.cpu_samples):.1f}%  max: {_max(sampler.cpu_samples):.1f}%")
+        print(f"GPU % avg: {_avg(sampler.gpu_samples):.1f}%  max: {_max(sampler.gpu_samples):.1f}%")
+        print(f"peak RSS: {sampler.peak_rss:.1f} MB  last: {sampler.rss_samples[-1] if sampler.rss_samples else 0:.1f} MB")
+        print(f"cache hits: {result.cache_hits}  misses: {result.cache_misses}")
 
     import glob, json as _json
     profile_files = sorted(glob.glob(ORT_PROFILE_PREFIX + "*"))

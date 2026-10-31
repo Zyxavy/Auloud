@@ -965,6 +965,60 @@ def export_timing_vectors(
 
 
 @app.command()
+def bench(
+    devices: str = typer.Option(
+        "cpu",
+        "--devices",
+        help="Comma list of devices to benchmark (cpu,cuda).",
+    ),
+    fixture: Path | None = typer.Option(
+        None,
+        "--fixture",
+        help="Fixture EPUB/PDF to benchmark (default tests/fixtures/bench_chapter.epub).",
+    ),
+    work_root: Path = typer.Option(
+        Path(".scribe"),
+        "--work-root",
+        help="Work folder root.",
+    ),
+    out_dir: Path | None = typer.Option(
+        None,
+        "--out-dir",
+        help="Bundle output dir (default derived).",
+    ),
+    chapters: str | None = typer.Option(
+        None,
+        "--chapters",
+        help="Chapter selection 1-based.",
+    ),
+    report: Path = typer.Option(
+        Path("bench_report.json"),
+        "--report",
+        help="JSON report output path.",
+    ),
+) -> None:
+    """Benchmark render throughput on the given device(s)."""
+    dev_dir = Path(__file__).resolve().parent / "dev"
+    if str(dev_dir) not in sys.path:
+        sys.path.insert(0, str(dev_dir))
+    import bench_render
+
+    argv: list[str] = []
+    if fixture is not None:
+        argv.append(str(fixture))
+    argv += ["--devices", devices, "--work-root", str(work_root), "--report", str(report)]
+    if out_dir is not None:
+        argv += ["--out-dir", str(out_dir)]
+    if chapters is not None:
+        argv += ["--chapters", chapters]
+    try:
+        bench_render.main(argv)
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+        raise typer.Exit(code=code)
+
+
+@app.command()
 def version() -> None:
     """Print the Scribe version."""
     typer.echo(__version__)
