@@ -108,6 +108,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import sys
 import threading
 import time
 from collections.abc import Callable, Collection, Mapping
@@ -1580,7 +1581,8 @@ def _run_build_locked(
         if inference_workers < 1:
             inference_workers = 1
     except Exception as exc:
-        log_lines.append(f"memory guard failed (ignored): {exc}")
+        # log_lines is not defined yet at this point; surface via stderr.
+        print(f"memory guard failed (ignored): {exc}", file=sys.stderr, flush=True)
     selected, page_resolution = _resolve_selection(
         all_chapters, chapters_spec=chapters, pages_spec=pages
     )
