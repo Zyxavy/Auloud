@@ -306,17 +306,45 @@ def canonicalize_speaker(
     want = normalize_name(raw_speaker or "")
     if not want:
         return None
-    for key in characters:
-        if isinstance(key, str) and normalize_name(key) == want:
-            return key
-    for key, surfaces in aliases.items():
-        if not isinstance(key, str) or key not in characters:
+    if not isinstance(characters, dict):
+        characters = {}
+    if not isinstance(aliases, dict):
+        aliases = {}
+
+    char_keys = {
+        normalize_name(key): key for key in characters if isinstance(key, str)
+    }
+
+    alias_map: dict[str, str] = {}
+    for key, value in aliases.items():
+        if isinstance(value, list):
+            if not isinstance(key, str):
+                continue
+            for surface in value:
+                if isinstance(surface, str):
+                    alias_map.setdefault(normalize_name(surface), key)
+        elif isinstance(value, str):
+            if isinstance(key, str):
+                alias_map.setdefault(normalize_name(key), value)
+        elif isinstance(value, dict):
+            target = value.get("canonical") or value.get("target") or value.get("character")
+            if isinstance(key, str) and isinstance(target, str):
+                alias_map.setdefault(normalize_name(key), target)
+
+    current = want
+    visited: set[str] = set()
+    for _ in range(10):
+        if current in visited:
+            return None
+        visited.add(current)
+        if current in char_keys:
+            return char_keys[current]
+        if current in alias_map:
+            current = normalize_name(alias_map[current])
+            if not current:
+                return None
             continue
-        if not isinstance(surfaces, list):
-            continue
-        for surface in surfaces:
-            if isinstance(surface, str) and normalize_name(surface) == want:
-                return key
+        return None
     return None
 
 
