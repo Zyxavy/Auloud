@@ -14,4 +14,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-"""Sentence splitting, dialogue, speakers, cast (SW4+). Stub: no code yet."""
+"""Sentence splitting, dialogue, speakers, cast (SW4+)."""
+
+from text.emotion import detect_emotion
+
+__all__ = ["detect_emotion"]
