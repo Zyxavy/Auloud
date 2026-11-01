@@ -10,3 +10,9 @@ impl Supervisor {
         Self {}
     }
 }
+
+impl Default for Supervisor {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::str::FromStr;
 use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
@@ -18,7 +19,7 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
-    let filter = EnvFilter::try_from_str(&args.log_level).unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::from_str(&args.log_level).unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(filter).init();
     tracing::info!("scribe-orchestrator starting, manifest={}", args.manifest);
     // TODO: implement orchestration (Task 5)

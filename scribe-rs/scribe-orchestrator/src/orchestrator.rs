@@ -10,3 +10,9 @@ impl Orchestrator {
         Self {}
     }
 }
+
+impl Default for Orchestrator {
+    fn default() -> Self {
+        Self::new()
+    }
+}

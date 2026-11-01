@@ -10,3 +10,9 @@ impl ProgressAggregator {
         Self {}
     }
 }
+
+impl Default for ProgressAggregator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
