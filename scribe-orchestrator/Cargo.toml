@@ -1,0 +1,26 @@
+[package]
+name = "scribe-orchestrator"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+clap = { version = "4", features = ["derive"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+bytes = "1"
+
+[dev-dependencies]
+# (none yet)
+
+[lib]
+name = "scribe_orchestrator"
+path = "src/lib.rs"
+
+[[bin]]
+name = "scribe-orchestrator"
+path = "src/main.rs"
