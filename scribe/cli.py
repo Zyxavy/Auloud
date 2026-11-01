@@ -491,6 +491,27 @@ def check_workers() -> CheckResult:
     return _check_resources("workers")
 
 
+def check_orchestrator() -> CheckResult:
+    import os
+    import shutil
+
+    binary = os.environ.get("SCRIBE_ORCHESTRATOR")
+    if binary is None:
+        # Try packaged path.
+        candidate = Path(__file__).resolve().parent.parent / "scribe-orchestrator" / "target" / "debug" / "scribe-orchestrator.exe"
+        if candidate.is_file():
+            binary = str(candidate)
+    if binary is None:
+        binary = shutil.which("scribe-orchestrator")
+    if binary and Path(binary).is_file():
+        return CheckResult(name="orchestrator", status=PASS, detail=f"binary: {binary}")
+    return CheckResult(
+        name="orchestrator",
+        status=INFO,
+        detail="not found (set SCRIBE_ORCHESTRATOR or build with cargo); --engine rust unavailable",
+    )
+
+
 def check_resources() -> CheckResult:
     return _check_resources("resources")
 
@@ -518,6 +539,7 @@ def run_checks(models_dir: Path) -> list[CheckResult]:
         check_ui(),
         check_gpu(),
         check_workers(),
+        check_orchestrator(),
     ]
 
 
@@ -619,6 +641,11 @@ def build(
         "--no-progress",
         help="Disable the rich progress bar.",
     ),
+    engine: str = typer.Option(
+        "python",
+        "--engine",
+        help="Orchestration engine: python (default) or rust.",
+    ),
     chapters: str | None = typer.Option(
         None,
         "--chapters",
@@ -688,6 +715,12 @@ def build(
         typer.echo(f"build failed: {exc}", err=True)
         raise typer.Exit(code=1)
 
+    if engine not in ("python", "rust"):
+        typer.echo(f"build failed: engine must be python or rust (got {engine!r})", err=True)
+        raise typer.Exit(code=1)
+    if engine == "rust":
+        typer.echo("build failed: --engine rust is not yet implemented (Rust orchestrator is scaffolding only)", err=True)
+        raise typer.Exit(code=1)
     if plan:
         try:
             preflight = plan_build(
@@ -1149,7 +1182,7 @@ def helper(
 
 @app.command("worker", hidden=True)
 def worker() -> None:
-    \"\"\"Run the long-lived orchestrator worker (hidden).\"\"\"
+    """Run the long-lived orchestrator worker (hidden)."""
     from worker import main as worker_main
     worker_main()
 
