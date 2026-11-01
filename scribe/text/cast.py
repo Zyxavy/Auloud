@@ -517,6 +517,30 @@ def _voice_for_canonical(
     return None
 
 
+def _modulate_emotion(resolved, cast, emotion):
+    if not isinstance(emotion, str) or not emotion.strip():
+        return resolved
+    tag = emotion.strip().upper()
+    if tag in ('OFF', 'NONE', 'FALSE', 'SPEED', 'SPEED+GAIN'):
+        return resolved
+    try:
+        from text.cast import character_emotion_enabled
+    except Exception:
+        return resolved
+    if not character_emotion_enabled(cast, resolved.character):
+        return resolved
+    try:
+        from text.emotion import apply_speed, EMOTION_MODIFIERS
+    except Exception:
+        return resolved
+    if tag not in EMOTION_MODIFIERS:
+        return resolved
+    new_speed = apply_speed(resolved.speed, tag)
+    if new_speed == resolved.speed:
+        return resolved
+    return ResolvedVoice(character=resolved.character, voice=resolved.voice, speed=new_speed, engine=resolved.engine)
+
+
 def resolve_speaker(
     cast: dict[str, Any],
     *,
@@ -526,6 +550,7 @@ def resolve_speaker(
     block: int | None = None,
     quote: int | None = None,
     text: str = "",
+    emotion: Any = None,
 ) -> ResolvedVoice:
     """Resolve one quote to its final ``(character, voice, speed)``.
 
@@ -568,19 +593,21 @@ def resolve_speaker(
             target = NARRATOR
         resolved = _voice_for_canonical(cast, target, text=text)
         if resolved is not None:
-            return resolved
+            return _modulate_emotion(resolved, cast, emotion)
         entry = cast.get(NARRATOR)
         voice, speed = _entry_voice(entry, fallback_voice=NARRATOR_VOICE, text=text)
-        return ResolvedVoice(
+        _r = ResolvedVoice(
             character=NARRATOR, voice=voice, speed=speed, engine=_entry_engine(entry)
         )
+        return _modulate_emotion(_r, cast, emotion)
 
     if normalize_name(effective) == NARRATOR:
         entry = cast.get(NARRATOR)
         voice, speed = _entry_voice(entry, fallback_voice=NARRATOR_VOICE, text=text)
-        return ResolvedVoice(
+        _r = ResolvedVoice(
             character=NARRATOR, voice=voice, speed=speed, engine=_entry_engine(entry)
         )
+        return _modulate_emotion(_r, cast, emotion)
 
     canonical = canonicalize_speaker(effective, characters, aliases)
     if canonical is not None:
@@ -588,10 +615,11 @@ def resolve_speaker(
         voice, speed = _entry_voice(
             entry, fallback_voice=DEFAULT_FEMALE_VOICE, text=text
         )
-        return ResolvedVoice(
+        _r = ResolvedVoice(
             character=canonical, voice=voice, speed=speed, engine=_entry_engine(entry)
         )
-    return _generic_voice(cast, male=(gender == GENDER_MALE), text=text)
+        return _modulate_emotion(_r, cast, emotion)
+    return _modulate_emotion(_generic_voice(cast, male=(gender == GENDER_MALE), text=text), cast, emotion)
 
 
 def _pick_palette_voice(pool: Collection[str], used: set[str], index: int) -> str:

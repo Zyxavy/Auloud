@@ -688,6 +688,11 @@ def build(
         help="Comma list of chapters to re-render (bypass cache reads), "
         "e.g. --force-chapters 5,10.",
     ),
+    emotion: str = typer.Option(
+        "off",
+        "--emotion",
+        help="Emotion modulation: off, speed, or speed+gain.",
+    ),
 ) -> None:
     """Render audio chapter by chapter (resumable) and write the bundle."""
     from build import (
@@ -766,6 +771,7 @@ def build(
             stop_file=stop_file,
             force_chapters=force_chapters,
             orchestration=engine,
+            emotion=emotion,
         )
     except (BuildError, DraftError, BundleWriteError, ValueError) as exc:
         typer.echo(f"build failed: {exc}", err=True)

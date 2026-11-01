@@ -610,6 +610,10 @@ def resolve_sentence_voice(
     narrator_voice: str,
     narrator_speed: float,
     narrator_engine: str = NARRATOR_ENGINE,
+    emotion: str = "off",
+    emotion_tag: Any = None,
+    emotion_tags: Any = None,
+    cues: Any = None,
 ) -> ResolvedVoice:
     """Resolve one script sentence to its final ``(character, voice, speed)``.
 
@@ -642,6 +646,20 @@ def resolve_sentence_voice(
     if not isinstance(number, int) or isinstance(number, bool):
         number = None
     raw = sentence.speaker if isinstance(sentence.speaker, str) else ""
+    # Compute emotion tag for this sentence (Task 5).
+    tag = "NEUTRAL"
+    if emotion_tag is not None:
+        tag = str(emotion_tag)
+    elif isinstance(emotion_tags, dict) and sentence.sid in emotion_tags:
+        tag = str(emotion_tags[sentence.sid])
+    elif cues is not None:
+        try:
+            from text.emotion import emotion_tag_for_sid
+            tag = emotion_tag_for_sid(sentence.sid, cues)
+        except Exception:
+            tag = "NEUTRAL"
+    if str(emotion).strip().lower() == "off":
+        tag = "NEUTRAL"
     return resolve_speaker(
         cast,
         raw_speaker=raw,
@@ -650,6 +668,7 @@ def resolve_sentence_voice(
         block=block,
         quote=number,
         text=sentence.text,
+        emotion=tag,
     )
 
 
@@ -665,6 +684,9 @@ def resolve_chapter(
     narrator_voice: str,
     narrator_speed: float,
     narrator_engine: str = NARRATOR_ENGINE,
+    emotion: str = "off",
+    emotion_tags: Any = None,
+    cues: Any = None,
 ) -> dict[int, ResolvedVoice]:
     """``sid -> ResolvedVoice`` for a chapter, in document order.
 
@@ -682,6 +704,9 @@ def resolve_chapter(
             narrator_voice=narrator_voice,
             narrator_speed=narrator_speed,
             narrator_engine=narrator_engine,
+            emotion=emotion,
+            emotion_tags=emotion_tags,
+            cues=cues,
         )
     return plan
 
@@ -1391,6 +1416,7 @@ def run_build(
     stop_file: Path | str | None = None,
     force_chapters: Any = None,
     orchestration: str = "python",
+    emotion: str = "off",
 ) -> BuildResult:
     """Render ``source`` EPUB or PDF to a validated bundle; return the totals.
 
@@ -1523,6 +1549,7 @@ def run_build(
             stopped_fn=_stopped,
             force_chapters=force_chapters,
             orchestration=orchestration,
+            emotion=emotion,
         )
     finally:
         if lock is not None:
@@ -1553,6 +1580,7 @@ def _run_build_locked(
     stopped_fn: Callable[[], bool],
     force_chapters: Any = None,
     orchestration: str = "python",
+    emotion: str = "off",
 ) -> BuildResult:
     """Inner build (lock already held); see :func:`run_build`."""
     from progress import FanoutProgress, RichProgressListener, make_event
@@ -1880,6 +1908,7 @@ def _run_build_locked(
             narrator_voice=voice,
             narrator_speed=speed,
             narrator_engine=narrator_engine,
+            emotion=emotion,
         )
         fingerprint = _fingerprint(cast, engines, chapter)
         hit = _up_to_date(chapter)
@@ -2095,6 +2124,7 @@ def _run_build_locked(
                 narrator_voice=voice,
                 narrator_speed=speed,
                 narrator_engine=narrator_engine,
+                emotion=emotion,
             )
             manifest_chapters.append(
                 {
