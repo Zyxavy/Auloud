@@ -652,6 +652,9 @@ def resolve_sentence_voice(
         tag = str(emotion_tag)
     elif isinstance(emotion_tags, dict) and sentence.sid in emotion_tags:
         tag = str(emotion_tags[sentence.sid])
+    elif getattr(sentence, "emotion", None):
+        # Persisted at draft time (Task 5b); script.json carries it.
+        tag = str(sentence.emotion)
     elif cues is not None:
         try:
             from text.emotion import emotion_tag_for_sid

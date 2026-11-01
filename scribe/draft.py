@@ -74,6 +74,20 @@ from extract.pdf import (
     extract_pdf_with_quality,
 )
 from text.attribution import ATTRIBUTION_RULES_VERSION, AttributionCue, attribute_quotes
+from text.emotion import detect_emotion as _detect_emotion
+
+
+def _emotion_for_cue(cue: AttributionCue | None) -> str | None:
+    """Detected emotion tag for a quote's cue, or ``None`` when neutral.
+
+    Persisted in ``script.json`` so a build can re-apply it without
+    re-parsing attribution. ``None`` keeps legacy scripts and untagged
+    quotes identical to a build without the feature.
+    """
+    if cue is None:
+        return None
+    tag = _detect_emotion(cue)[0]
+    return None if tag == "NEUTRAL" else tag
 from text.cast import (
     default_multivoice_cast,
     draft_cast,
@@ -361,8 +375,10 @@ def _apply_attribution(
                     att = att_by_key.get((tagged.chapter, tagged.block, tagged.quote))
                     if att is None:
                         speaker, confidence, gender = "unknown", "low", "unknown"
+                        emotion = None
                     else:
                         speaker, confidence, gender = att.speaker, att.confidence, att.gender
+                        emotion = _emotion_for_cue(att.cue)
                     quote_key = {
                         "block": tagged.block,
                         "chapter": tagged.chapter,
@@ -381,6 +397,7 @@ def _apply_attribution(
                             quote=quote_key,
                             split_pair=tagged.split_pair,
                             page=tagged.page,
+                            emotion=emotion,
                         )
                     )
                     if normalize_name(speaker) and normalize_name(speaker) != "unknown":

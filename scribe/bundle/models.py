@@ -514,6 +514,7 @@ class Sentence:
     quote: dict[str, int] | None = None
     split_pair: int | None = None
     page: int | None = None
+    emotion: str | None = None
 
     @classmethod
     def from_dict(cls, data: Any) -> Sentence:
@@ -562,6 +563,7 @@ class Sentence:
             quote=quote,
             split_pair=split_pair,
             page=_optional_int(data, "page"),
+            emotion=data.get("emotion") if isinstance(data.get("emotion"), str) else None,
         )
 
     def to_dict(self, *, include_draft: bool = False) -> dict[str, Any]:
@@ -593,6 +595,8 @@ class Sentence:
             out["confidence"] = self.confidence
             out["quote"] = dict(self.quote) if self.quote is not None else None
             out["split_pair"] = self.split_pair
+            if self.emotion is not None:
+                out["emotion"] = self.emotion
         return out
 
 
