@@ -73,7 +73,7 @@ so crowded blocks stay review candidates via confidence.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from text.dialogue import (
@@ -85,6 +85,7 @@ from text.dialogue import (
 from text.speakers import (
     GENDER_UNKNOWN,
     SOURCE_PERSON_ENTITY,
+    SPEECH_VERBS,
     Candidate,
     QuoteContext,
     extract_candidates,
@@ -132,6 +133,23 @@ RULES_IN_ORDER: tuple[str, ...] = (
 UNKNOWN_SPEAKER = "unknown"
 
 
+@dataclass
+class AttributionCue:
+    """Cues mined from an attribution clause for prosody nudges.
+
+    ``verb_lemma`` is the lemma of the speech verb governing the clause (or
+    ``None`` when no speech verb is present). ``adverbs`` holds adverb tokens
+    whose dependency head is that speech verb (``advmod``), in token order.
+    ``clause`` is the narration sentence text carrying the attribution.
+    ``quote_sentence_ids`` lists the sentence ids governed by this cue.
+    """
+
+    verb_lemma: str | None
+    adverbs: list[str] = field(default_factory=list)
+    clause: str = ""
+    quote_sentence_ids: list[int] = field(default_factory=list)
+
+
 @dataclass(frozen=True)
 class Attribution:
     """One attributed quote: surface speaker, confidence, and the rule used.
@@ -151,6 +169,7 @@ class Attribution:
     confidence: str
     rule: str
     gender: str = "unknown"
+    cue: AttributionCue | None = None
 
     @property
     def key(self) -> tuple[str, int, int, int]:
@@ -173,6 +192,64 @@ def _surrounding(context: QuoteContext) -> str:
     return " ".join(
         part for part in (context.prev_text, context.block_text, context.next_text) if part.strip()
     )
+
+
+def _cue_from_one(text: str, *, nlp: Any | None) -> AttributionCue | None:
+    if not text or not text.strip():
+        return None
+    if nlp is None:
+        from text.nlp import load_model
+
+        nlp = load_model()
+    doc = nlp(text.strip())
+    verb_token = None
+    for token in doc:
+        if token.pos_ == "VERB" and token.lemma_.lower() in SPEECH_VERBS:
+            verb_token = token
+            break
+    if verb_token is None:
+        return None
+    adverbs: list[str] = []
+    for child in verb_token.children:
+        if child.dep_ == "advmod":
+            adverbs.append(child.lemma_.lower())
+    return AttributionCue(
+        verb_lemma=verb_token.lemma_.lower(),
+        adverbs=adverbs,
+        clause=text.strip(),
+        quote_sentence_ids=[],
+    )
+
+
+def _cue_from_texts(following_text: str, preceding_text: str, *, nlp: Any | None) -> AttributionCue | None:
+    for text in (following_text, preceding_text):
+        cue = _cue_from_one(text, nlp=nlp)
+        if cue is not None:
+            return cue
+    return None
+
+
+def extract_attribution_cue(
+    text: str, *, quote_sentence_ids: list[int] | None = None, nlp: Any | None = None
+) -> AttributionCue | None:
+    """Build an :class:`AttributionCue` from one attribution-clause text."""
+    cue = _cue_from_one(text, nlp=nlp)
+    if cue is None:
+        return None
+    if quote_sentence_ids is not None:
+        cue = AttributionCue(
+            verb_lemma=cue.verb_lemma,
+            adverbs=list(cue.adverbs),
+            clause=cue.clause,
+            quote_sentence_ids=list(quote_sentence_ids),
+        )
+    return cue
+
+
+extract_cue = extract_attribution_cue
+build_attribution_cue = extract_attribution_cue
+attribution_cue = extract_attribution_cue
+cue_from_text = extract_attribution_cue
 
 
 def _is_dialogue_only(parsed: ParagraphDialogue) -> bool:
@@ -293,8 +370,15 @@ def attribute_quotes(
         span = _quote_span(parsed, context.quote)
         following: list[Candidate] = []
         preceding: list[Candidate] = []
+        following_text = ""
+        preceding_text = ""
         if span is not None:
             following, preceding = _tag_candidates(context, parsed, span, nlp=nlp)
+            first, last = span
+            if last + 1 < len(parsed.sentences) and parsed.sentences[last + 1].kind == NARRATION:
+                following_text = parsed.sentences[last + 1].text
+            if first - 1 >= 0 and parsed.sentences[first - 1].kind == NARRATION:
+                preceding_text = parsed.sentences[first - 1].text
 
         speaker = UNKNOWN_SPEAKER
         confidence = CONFIDENCE_LOW
@@ -364,6 +448,7 @@ def attribute_quotes(
                     previous.gender,
                 )
 
+        cue = _cue_from_texts(following_text, preceding_text, nlp=nlp)
         history.append(
             _HistoryEntry(speaker=speaker, gender=gender, confidence=confidence, rule=rule)
         )
@@ -377,6 +462,7 @@ def attribute_quotes(
                 confidence=confidence,
                 rule=rule,
                 gender=gender,
+                cue=cue,
             )
         )
         prev_context = context
