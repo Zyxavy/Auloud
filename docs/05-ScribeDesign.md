@@ -18,6 +18,8 @@ All flags verified against `scribe <cmd> --help` on Windows 11 (CP10). `<book>` 
 
 There is no `--cast` flag: `draft` writes the draft `cast.yaml` into the work folder and `build` reads your edited copy from there.
 
+`build` accepts `--engine {python,rust}` (default `python`). `rust` fills the same sentence cache through `scribe-orchestrator`, then Python assembles, encodes and validates exactly as usual. The orchestrator binary is located via `SCRIBE_ORCHESTRATOR`, then the packaged path, then a cargo build, and `scribe doctor` reports it.
+
 Typical flow: `draft`, edit `cast.yaml`, `build`, `validate`, copy to the tablet.
 
 ## 2. Pipeline
