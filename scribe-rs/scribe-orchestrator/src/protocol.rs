@@ -11,6 +11,19 @@ pub struct Envelope {
     pub body: MessageBody,
 }
 
+impl Envelope {
+    /// Validate that the protocol version matches.
+    pub fn validate_version(&self) -> Result<(), String> {
+        if self.v != PROTOCOL_VERSION {
+            return Err(format!(
+                "protocol version mismatch: expected {}, got {}",
+                PROTOCOL_VERSION, self.v
+            ));
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MessageBody {

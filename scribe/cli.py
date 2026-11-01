@@ -498,7 +498,7 @@ def check_orchestrator() -> CheckResult:
     binary = os.environ.get("SCRIBE_ORCHESTRATOR")
     if binary is None:
         # Try packaged path.
-        candidate = Path(__file__).resolve().parent.parent / "scribe-orchestrator" / "target" / "debug" / "scribe-orchestrator.exe"
+        candidate = Path(__file__).resolve().parent.parent / "scribe-rs" / "scribe-orchestrator" / "target" / "debug" / "scribe-orchestrator.exe"
         if candidate.is_file():
             binary = str(candidate)
     if binary is None:
@@ -1181,10 +1181,13 @@ def helper(
 
 
 @app.command("worker", hidden=True)
-def worker() -> None:
+def worker(
+    models_dir: Path = typer.Option(Path("models"), "--models-dir"),
+    device: str = typer.Option("auto", "--device"),
+) -> None:
     """Run the long-lived orchestrator worker (hidden)."""
     from worker import main as worker_main
-    worker_main()
+    worker_main(["--models-dir", str(models_dir), "--device", device])
 
 
 # Nested `export` subcommands (M4B, ...).

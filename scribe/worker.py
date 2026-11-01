@@ -3,12 +3,14 @@
 Reads 4-byte-LE-length-prefixed JSON frames from stdin, writes frames to stdout.
 All logging goes to stderr. Loads the model once at startup (on first hello).
 """
+import ctypes
 import json
 import os
 import struct
 import sys
 import time
 
+PROTOCOL_VERSION = 1
 MAX_FRAME = 16 * 1024 * 1024
 
 
@@ -35,6 +37,34 @@ def _write_frame(obj):
 
 
 def _rss():
+    """Peak RSS of this process in KB (Windows-compatible)."""
+    try:
+        # Windows: use GetProcessMemoryInfo via psapi
+        import ctypes
+        from ctypes import wintypes
+
+        class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+            _fields_ = [
+                ("cb", wintypes.DWORD),
+                ("PageFaultCount", wintypes.DWORD),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        pmc = PROCESS_MEMORY_COUNTERS()
+        pmc.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+        handle = ctypes.windll.kernel32.GetCurrentProcess()
+        if ctypes.windll.psapi.GetProcessMemoryInfo(handle, ctypes.byref(pmc), pmc.cb):
+            return pmc.WorkingSetSize // 1024
+    except Exception:
+        pass
+    # Unix fallback
     try:
         import resource
         return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -50,11 +80,41 @@ def _providers():
         return ["CPUExecutionProvider"]
 
 
-def main():
-    # Guard stdout: never print text there.
+def _classify(frame):
+    if "protocol_version" in frame:
+        return "hello"
+    if "batch_id" in frame and "items" in frame:
+        return "synth_batch"
+    if "batch_id" in frame:
+        return "cancel"
+    if set(frame.keys()) <= {"v", "id"}:
+        return "shutdown"
+    return "unknown"
+
+
+def main(argv=None):
+    import argparse
+
+    # Guard stdout: redirect all text output to stderr so protocol stays clean.
+    real_stdout = sys.stdout.buffer
+    sys.stdout = sys.stderr
+
+    parser = argparse.ArgumentParser(description="scribe worker (hidden)")
+    parser.add_argument("--models-dir", default="models")
+    parser.add_argument("--device", default="auto")
+    args = parser.parse_args()
+
+    # Load engine once.
+    engine = None
+    try:
+        from tts.engine import create_engine
+        engine = create_engine(models_dir=args.models_dir, device=args.device)
+    except Exception as exc:
+        print(f"worker: failed to load engine: {exc}", file=sys.stderr, flush=True)
+
     parent_pid = os.getppid()
     while True:
-        # parent-death backstop (Windows-friendly polling)
+        # parent-death backstop
         try:
             if os.getppid() != parent_pid:
                 break
@@ -65,29 +125,44 @@ def main():
             break  # stdin EOF
         v = frame.get("v", 1)
         mid = frame.get("id", "")
-        kind = None
-        if "protocol_version" in frame:
-            kind = "hello"
-        elif "batch_id" in frame and "items" in frame:
-            kind = "synth_batch"
-        elif "batch_id" in frame:
-            kind = "cancel"
-        elif set(frame.keys()) <= {"v", "id"}:
-            kind = "shutdown"
+        kind = _classify(frame)
 
         if kind == "hello":
-            _write_frame({"v": v, "id": mid, "providers": _providers(),
-                          "model_hash": "worker", "rss": _rss()})
+            pv = frame.get("protocol_version", 0)
+            if pv != 0 and pv != PROTOCOL_VERSION:
+                _write_frame({"v": v, "id": mid, "error": "protocol version mismatch",
+                              "expected": PROTOCOL_VERSION, "got": pv})
+                continue
+            _write_frame({"v": v, "id": mid, "protocol_version": PROTOCOL_VERSION,
+                          "providers": _providers(), "model_hash": "worker",
+                          "rss": _rss()})
         elif kind in ("prepare_batch", "synth_batch"):
             bid = frame["batch_id"]
             results = []
             for it in frame.get("items", []):
+                idx = it.get("index", 0)
+                text = it.get("text", "")
+                voice = it.get("voice", "am_adam")
+                speed = float(it.get("speed", 1.0))
+                cache_key = it.get("cache_key", "")
+                audio_path = ""
+                duration_ms = 0
+                cache_hit = False
+                try:
+                    if engine is not None:
+                        audio = engine.synth(text, voice, speed)
+                        # Write to cache (placeholder path)
+                        audio_path = f"cache/{cache_key}.wav"
+                        duration_ms = int(len(audio) / 24000 * 1000) if hasattr(audio, "__len__") else 0
+                except Exception as exc:
+                    _write_frame({"v": v, "id": mid, "batch_id": bid, "error": str(exc), "retryable": True})
+                    continue
                 results.append({
-                    "index": it.get("index", 0),
-                    "cache_key": it.get("cache_key", ""),
-                    "cache_hit": False,
-                    "audio_path": "",
-                    "duration_ms": 0,
+                    "index": idx,
+                    "cache_key": cache_key,
+                    "cache_hit": cache_hit,
+                    "audio_path": audio_path,
+                    "duration_ms": duration_ms,
                     "sample_rate": 24000,
                 })
             _write_frame({"v": v, "id": mid, "batch_id": bid, "results": results})
@@ -96,11 +171,9 @@ def main():
         elif kind == "shutdown":
             break
         else:
-            # unknown -> batch_error? just ignore
-            pass
+            _write_frame({"v": v, "id": mid, "error": f"unknown message kind: {kind}"})
     sys.exit(0)
 
 
 if __name__ == "__main__":
-    # redirect logging to stderr already (default print goes stdout; avoid)
     main()

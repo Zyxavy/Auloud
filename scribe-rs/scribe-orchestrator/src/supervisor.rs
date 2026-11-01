@@ -53,7 +53,7 @@ impl JobObject {
     pub fn assign(&self, pid: u32) -> io::Result<()> {
         unsafe {
             let proc = windows_sys::Win32::System::Threading::OpenProcess(
-                0x001FFFFF, // PROCESS_ALL_ACCESS
+                0x0100 | 0x0001, // PROCESS_SET_QUOTA | PROCESS_TERMINATE
                 0,
                 pid,
             );
