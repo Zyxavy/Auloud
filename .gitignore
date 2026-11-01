@@ -1,7 +1,7 @@
 .opencode
 .agents
 .superpowers
-docs/superpowers
+docs/superpowers/
 logs/
 scratch
 skills-lock.json
