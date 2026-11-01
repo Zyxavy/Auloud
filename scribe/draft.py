@@ -62,7 +62,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from bundle.models import Block, ChapterFile, Sentence
@@ -334,15 +334,21 @@ def _apply_attribution(
 
         # Attach the quote's sentence ids to each attribution cue so emotion
         # tags can propagate to every sentence in the same quote span.
-        for att in attributions:
-            key = (att.chapter, att.block, att.quote)
-            if att.cue is not None:
-                att.cue = AttributionCue(
+        # Attribution is frozen, so rebuild the entry rather than assign.
+        attributions = [
+            replace(
+                att,
+                cue=AttributionCue(
                     verb_lemma=att.cue.verb_lemma,
                     adverbs=list(att.cue.adverbs),
                     clause=att.cue.clause,
-                    quote_sentence_ids=list(quote_sids.get(key, [])),
-                )
+                    quote_sentence_ids=list(quote_sids.get((att.chapter, att.block, att.quote), [])),
+                ),
+            )
+            if att.cue is not None
+            else att
+            for att in attributions
+        ]
 
         new_blocks: list[Block] = []
         for block in dialogue.chapter.blocks or []:
