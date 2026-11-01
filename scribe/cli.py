@@ -716,6 +716,18 @@ def build(
     if engine not in ("python", "rust"):
         typer.echo(f"build failed: engine must be python or rust (got {engine!r})", err=True)
         raise typer.Exit(code=1)
+    if emotion not in ("off", "speed", "speed+gain"):
+        typer.echo(
+            f"build failed: emotion must be off, speed or speed+gain (got {emotion!r})",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if emotion == "speed+gain":
+        # Task 6 (assembly gain) is deferred: per-voice peak leveling would
+        # partly cancel it. Run speed-only and say so rather than silently
+        # pretending gain happened.
+        typer.echo("emotion: gain is not implemented yet; applying speed only.")
+        emotion = "speed"
     if engine == "rust":
         from rust_engine import find_orchestrator_binary
 
