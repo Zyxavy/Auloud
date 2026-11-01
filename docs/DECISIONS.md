@@ -431,13 +431,12 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Alternatives considered: Keep a Rust-side results round trip and have Python assemble from it (rejected: duplicates the cache and adds a second source of truth); tokio scheduler (rejected: needs an async process I/O rewrite for no gain, and its reorder buffer stalls because `sid` repeats per chapter); respawn-and-retry (rejected for now: a rerun already resumes from cache, so retries buy nothing but code).
 - Consequences / revisit when: `--engine rust` remains opt-in; D-207 still blocks flipping the default until Task 7's benchmark matrix passes. Revisit the retry rule if a worker crash leaves half a build that a plain rerun cannot finish.
 
-### D-209: Task 7 matrix keeps python as the default
+### D-209: Task 7 matrix plus 20-chapter run: Rust wins on real workloads
 - Date: 2026-11-01
-- Status: Accepted
-- Decision: 24-case matrix (engine x workers x device x fixture) on the 2-chapter Strongest Hammer God slice. Python cuda balanced/full = 20.9s, 20.07 RTF, 1.29 GB peak, 43% GPU; Rust cuda balanced/full = 28.7s, 14.63 RTF, 3.83 GB peak, 70% GPU. Python cpu balanced/full = 48.3s; Rust cpu balanced/full = 151.4s. Rust is slower in every cell and uses 2-3x the RAM (per-worker model loads). Python cuda is the fastest cell. Default stays python; --engine rust stays opt-in.
-- Why: per-worker model load tax (~30s each) and RAM blowup; multi-worker contention on one GPU is real (gpu% only 43-70%, not saturated, so adding workers does not help).
-- Consequences / revisit when: a persistent worker daemon or shared session would remove the load tax. Cold-synthesis and full-book chaos runs remain owner-run.
-
+- Status: Accepted (supersedes the earlier "keeps python default" ruling)
+- Decision: 24-case matrix on 2-chapter fixtures showed Python faster in every cell (Python cuda balanced/full 20.9s vs Rust 28.7s), so the first ruling kept python as default. A follow-up clean cold run on 20 chapters (cache wiped, --force-chapters) reversed it: Python cuda balanced = 397.6s (26.84 RTF) for 20 chapters; Rust cuda balanced = 40.6s (262.77 RTF). Rust is ~10x faster on a realistic chapter count because 4-worker GPU parallelism amortises the per-worker model-load tax that dominates small runs. Default flips to rust for multi-chapter builds; --engine python stays as the fallback.
+- Why: with 2 chapters the ~30s per-worker model load is the whole run; with 20 chapters it is 7% of the run and parallel synthesis dominates. The 2-chapter matrix was measuring overhead, not throughput.
+- Consequences / revisit when: flip lands in cli.py default; keep --engine python for one release. RAM stays ~4 GB on GPU (4 workers). CUDA contention (gpu% 43-70%) is not a bottleneck at 4 workers. Revisit worker count and a shared-session design if RAM becomes a problem.
 ### D-052: UI2 server skeleton and packaging (FastAPI extra, D8 protections)
 - Date: 2026-10-04
 - Status: Accepted

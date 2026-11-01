@@ -635,9 +635,9 @@ def build(
         help="Disable the rich progress bar.",
     ),
     engine: str = typer.Option(
-        "python",
+        None,
         "--engine",
-        help="Orchestration engine: python (default) or rust.",
+        help="Orchestration engine: rust (default when the binary is present) or python.",
     ),
     chapters: str | None = typer.Option(
         None,
@@ -708,6 +708,12 @@ def build(
         typer.echo(f"build failed: {exc}", err=True)
         raise typer.Exit(code=1)
 
+    if engine is None:
+        from rust_engine import find_orchestrator_binary
+
+        engine = "rust" if find_orchestrator_binary() is not None else "python"
+        if engine == "python":
+            typer.echo("Rust orchestrator not found; falling back to --engine python.")
     if engine not in ("python", "rust"):
         typer.echo(f"build failed: engine must be python or rust (got {engine!r})", err=True)
         raise typer.Exit(code=1)
