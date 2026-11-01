@@ -120,6 +120,8 @@ overrides:
 
 Voice names above are examples; check the names your installed Kokoro version provides. Speed offsets apply; pitch values are accepted and ignored in v1 (no pitch shifting).
 
+Optional emotion nudges (D-210). `scribe build --emotion {off,speed,speed+gain}` (default `off`) multiplies each dialogue sentence's speed by a small factor derived from its attribution cue (`shouted angrily`, `whispered`). Detection uses the speech verb first, then an adverb on that verb; it never reads the dialogue text. The tag is computed at draft time, stored per sentence in `script.json`, and ignored by the bundle format. Users may override with a top-level `emotion_modifiers:` map or disable a character with `emotion: off`. Untagged lines are byte-identical to a build without the feature.
+
 ## 9. Synthesis
 
 ```python
