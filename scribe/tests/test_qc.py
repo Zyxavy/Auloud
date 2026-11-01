@@ -39,7 +39,11 @@ def test_run_qc_mocked(tmp_path, monkeypatch):
 
     monkeypatch.setattr(qc, "transcribe", fake_transcribe)
 
-    result = qc.run_qc(GOLDEN, model="tiny", threshold=0.15)
+    # output_path must be explicit: the default writes qc_report.json into the
+    # committed fixture dir (pollution).
+    result = qc.run_qc(
+        GOLDEN, model="tiny", threshold=0.15, output_path=tmp_path / "rep.json"
+    )
     assert result.output_path.is_file()
     report = result.report
     assert report["summary"]["chapters"] == 2
