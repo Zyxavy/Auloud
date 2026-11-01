@@ -46,6 +46,15 @@ def test_no_tag_no_cue() -> None:
     assert cue is None
 
 
+def test_cried_out_collects_particle() -> None:
+    from text.emotion import detect_emotion
+
+    cue = extract_attribution_cue("he cried out.")
+    assert cue is not None
+    assert "out" in cue.adverbs
+    assert detect_emotion(cue)[0] == "SHOUT"
+
+
 def test_attribute_quotes_attaches_cue() -> None:
     (att,) = attribute_quotes([_ctx('"Stop!" he shouted angrily.')])
     assert att.cue is not None

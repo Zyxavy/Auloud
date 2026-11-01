@@ -518,24 +518,26 @@ def _voice_for_canonical(
 
 
 def _modulate_emotion(resolved, cast, emotion):
+    """Apply the tag's speed modifier from the cast's ``emotion_modifiers``.
+
+    ``emotion`` is the detector tag (``ANGRY``...), not a mode: the ``off``
+    mode arrives as ``NEUTRAL`` here and is a no-op. The cast table defaults
+    to :data:`text.emotion.EMOTION_MODIFIERS` and overrides it per tag, so a
+    ``emotion_modifiers:`` entry actually changes the resolved speed.
+    """
     if not isinstance(emotion, str) or not emotion.strip():
         return resolved
     tag = emotion.strip().upper()
     if tag in ('OFF', 'NONE', 'FALSE', 'SPEED', 'SPEED+GAIN'):
         return resolved
-    try:
-        from text.cast import character_emotion_enabled
-    except Exception:
-        return resolved
     if not character_emotion_enabled(cast, resolved.character):
         return resolved
-    try:
-        from text.emotion import apply_speed, EMOTION_MODIFIERS
-    except Exception:
+    modifiers = parse_emotion_modifiers(cast)
+    if tag not in modifiers:
         return resolved
-    if tag not in EMOTION_MODIFIERS:
-        return resolved
-    new_speed = apply_speed(resolved.speed, tag)
+    from text.emotion import apply_speed
+
+    new_speed = apply_speed(resolved.speed, tag, modifiers)
     if new_speed == resolved.speed:
         return resolved
     return ResolvedVoice(character=resolved.character, voice=resolved.voice, speed=new_speed, engine=resolved.engine)
@@ -1293,10 +1295,6 @@ def character_emotion_enabled(cast, character) -> bool:
     return True
 
 
-def emotion_enabled(cast, character) -> bool:
-    return character_emotion_enabled(cast, character)
-
-
 def parse_emotion_modifiers(cast) -> dict:
     from text.emotion import Modifier, EMOTION_MODIFIERS
 
@@ -1323,7 +1321,3 @@ def parse_emotion_modifiers(cast) -> dict:
         except (TypeError, ValueError):
             continue
     return result
-
-
-def emotion_modifiers_for_cast(cast) -> dict:
-    return parse_emotion_modifiers(cast)

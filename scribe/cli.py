@@ -750,6 +750,7 @@ def build(
                 models_dir=models_dir,
                 device=device,
                 force_chapters=force_chapters,
+                emotion=emotion,
             )
         except (BuildError, DraftError, BundleWriteError, ValueError) as exc:
             typer.echo(f"build failed: {exc}", err=True)

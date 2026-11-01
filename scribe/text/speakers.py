@@ -530,7 +530,11 @@ def _classify_subject(surface: str, token: Any, doc: Any) -> str:
 
 
 def extract_candidates(
-    text: str, *, nlp: Any | None = None, gender_context: str | None = None
+    text: str,
+    *,
+    nlp: Any | None = None,
+    gender_context: str | None = None,
+    doc: Any | None = None,
 ) -> list[Candidate]:
     """Extract speaker candidates from one paragraph of tag text.
 
@@ -541,15 +545,18 @@ def extract_candidates(
     key keeping first occurrence (subjects, then titled, then entities), in
     token order. Paragraphs without speech verbs, names, or titles yield
     ``[]``. ``gender_context`` (default: ``text`` itself) feeds pronoun
-    proximity in :func:`gender_hint_for`.
+    proximity in :func:`gender_hint_for`. ``doc`` is an already-parsed Doc
+    for ``text`` (a caller that also needs the parse, e.g. cue extraction,
+    passes it so spaCy runs once).
     """
     if not text or not text.strip():
         return []
-    if nlp is None:  # blessed cached accessor; never hand-roll loading
-        from text.nlp import load_model
+    if doc is None:
+        if nlp is None:  # blessed cached accessor; never hand-roll loading
+            from text.nlp import load_model
 
-        nlp = load_model()
-    doc = nlp(text)
+            nlp = load_model()
+        doc = nlp(text)
     gender_ctx = text if gender_context is None else gender_context
     chunks = list(doc.noun_chunks)
     chunk_by_root: dict[int, str] = {}

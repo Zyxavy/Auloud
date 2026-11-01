@@ -146,7 +146,6 @@ from text.cast import (
     validate_cast,
 )
 from text.speakers import gender_hint_for
-from text.emotion import propagate_emotion_tags
 from tts.base import TTSEngine
 from tts.cache import CacheStats, get_or_synth
 
@@ -611,9 +610,6 @@ def resolve_sentence_voice(
     narrator_speed: float,
     narrator_engine: str = NARRATOR_ENGINE,
     emotion: str = "off",
-    emotion_tag: Any = None,
-    emotion_tags: Any = None,
-    cues: Any = None,
 ) -> ResolvedVoice:
     """Resolve one script sentence to its final ``(character, voice, speed)``.
 
@@ -627,6 +623,10 @@ def resolve_sentence_voice(
     for why the hint is not threaded through ``script.json``). Total, like
     resolution itself: ``"unknown"`` and any other surface fall through to
     a generic, never raise.
+
+    ``emotion`` is the CLI mode (``off``/``speed``/``speed+gain``). The
+    per-sentence tag is the draft-persisted ``sentence.emotion``; ``off``
+    forces ``NEUTRAL`` (no modulation).
     """
     if sentence.kind != "dialogue":
         return ResolvedVoice(
@@ -646,23 +646,11 @@ def resolve_sentence_voice(
     if not isinstance(number, int) or isinstance(number, bool):
         number = None
     raw = sentence.speaker if isinstance(sentence.speaker, str) else ""
-    # Compute emotion tag for this sentence (Task 5).
+    # The draft persists the tag on the sentence (script.json); "off" mode
+    # forces NEUTRAL so an untagged or opted-out build is byte-identical.
     tag = "NEUTRAL"
-    if emotion_tag is not None:
-        tag = str(emotion_tag)
-    elif isinstance(emotion_tags, dict) and sentence.sid in emotion_tags:
-        tag = str(emotion_tags[sentence.sid])
-    elif getattr(sentence, "emotion", None):
-        # Persisted at draft time (Task 5b); script.json carries it.
+    if str(emotion).strip().lower() != "off" and getattr(sentence, "emotion", None):
         tag = str(sentence.emotion)
-    elif cues is not None:
-        try:
-            from text.emotion import emotion_tag_for_sid
-            tag = emotion_tag_for_sid(sentence.sid, cues)
-        except Exception:
-            tag = "NEUTRAL"
-    if str(emotion).strip().lower() == "off":
-        tag = "NEUTRAL"
     return resolve_speaker(
         cast,
         raw_speaker=raw,
@@ -675,10 +663,6 @@ def resolve_sentence_voice(
     )
 
 
-# Task 3: span propagation helper (alias; implementation lives in text.emotion).
-sentence_emotion_tags = propagate_emotion_tags
-emotion_tag_for_sid = propagate_emotion_tags
-
 
 def resolve_chapter(
     cast: dict[str, Any],
@@ -688,8 +672,6 @@ def resolve_chapter(
     narrator_speed: float,
     narrator_engine: str = NARRATOR_ENGINE,
     emotion: str = "off",
-    emotion_tags: Any = None,
-    cues: Any = None,
 ) -> dict[int, ResolvedVoice]:
     """``sid -> ResolvedVoice`` for a chapter, in document order.
 
@@ -708,8 +690,6 @@ def resolve_chapter(
             narrator_speed=narrator_speed,
             narrator_engine=narrator_engine,
             emotion=emotion,
-            emotion_tags=emotion_tags,
-            cues=cues,
         )
     return plan
 
@@ -925,6 +905,8 @@ def _fingerprint(
     cast: dict[str, Any],
     engines: Mapping[str, TTSEngine | None],
     chapter: ChapterFile,
+    *,
+    emotion: str = "off",
 ) -> dict[str, Any]:
     """Render fingerprint for one chapter: everything (besides sentence
     text) that can change its audio or its shipped JSON. The cast half is
@@ -959,6 +941,7 @@ def _fingerprint(
         narrator_engine=(
             _entry_engine(narrator) if isinstance(narrator, dict) else NARRATOR_ENGINE
         ),
+        emotion=emotion,
     )
     by_sid = {s.sid: s for s in chapter.sentences_in_order()}
     voices = [
@@ -1264,6 +1247,7 @@ def plan_build(
     models_dir: Path | str = Path("models"),
     device: str = "auto",
     force_chapters: Any = None,
+    emotion: str = "off",
 ) -> PlanResult:
     """Dry run: cached vs to-render counts plus a time estimate (no audio).
 
@@ -1332,7 +1316,7 @@ def plan_build(
         fingerprint: dict[str, Any] | None = None
         if engines:
             try:
-                fingerprint = _fingerprint(cast, engines, chapter)
+                fingerprint = _fingerprint(cast, engines, chapter, emotion=emotion)
             except Exception:
                 fingerprint = None
         hit = None
@@ -1880,7 +1864,7 @@ def _run_build_locked(
             chapter,
             render_text / f"{stem}.json",
             render_audio / f"{stem}.mp3",
-            _fingerprint(cast, engines, chapter),
+            _fingerprint(cast, engines, chapter, emotion=emotion),
         )
 
     def _render_chapter(chapter: ChapterFile) -> ChapterOutcome:
@@ -1913,7 +1897,7 @@ def _run_build_locked(
             narrator_engine=narrator_engine,
             emotion=emotion,
         )
-        fingerprint = _fingerprint(cast, engines, chapter)
+        fingerprint = _fingerprint(cast, engines, chapter, emotion=emotion)
         hit = _up_to_date(chapter)
         if hit is not None:
             return ChapterOutcome(

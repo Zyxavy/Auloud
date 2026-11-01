@@ -1,4 +1,11 @@
-"""Evaluation gate for detect_emotion (Task 2)."""
+"""Evaluation gate for detect_emotion (Task 2).
+
+Provisional: ``fixtures/emotion_labels.jsonl`` was hand-built to match the
+verb/adverb tables (the cue is fed in, so spaCy extraction is not exercised).
+It catches table regressions, not detection accuracy on prose. Replace it
+with clauses labelled from the public-domain fixtures and run through
+``attribute_quotes`` before treating the 0.90 precision gate as real.
+"""
 
 from __future__ import annotations
 

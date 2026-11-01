@@ -105,7 +105,10 @@ from text.speakers import (
 #: Version 2: MV7 review fix carries ``split_pair`` onto narration tags in
 #: draft output (previously only dialogue halves kept the link), so old
 #: scripts lose the tag pause without a re-draft.
-ATTRIBUTION_RULES_VERSION = 2
+#: Version 3: draft persists the per-quote ``emotion`` tag mined from the
+#: attribution cue. Older scripts lack the field, so ``--emotion`` would be
+#: inert on them until a manual re-draft; the bump re-drafts once.
+ATTRIBUTION_RULES_VERSION = 3
 
 #: Confidence levels the rules produce (match the eval harness display order).
 CONFIDENCE_HIGH = "high"
@@ -194,14 +197,17 @@ def _surrounding(context: QuoteContext) -> str:
     )
 
 
-def _cue_from_one(text: str, *, nlp: Any | None) -> AttributionCue | None:
-    if not text or not text.strip():
-        return None
+def _parse(text: str, nlp: Any | None) -> Any:
+    """Parse one tag sentence with the blessed cached model."""
     if nlp is None:
         from text.nlp import load_model
 
         nlp = load_model()
-    doc = nlp(text.strip())
+    return nlp(text.strip())
+
+
+def _cue_from_doc(doc: Any, text: str) -> AttributionCue | None:
+    """Build an :class:`AttributionCue` from an already-parsed ``doc``."""
     verb_token = None
     for token in doc:
         if token.pos_ == "VERB" and token.lemma_.lower() in SPEECH_VERBS:
@@ -211,7 +217,9 @@ def _cue_from_one(text: str, *, nlp: Any | None) -> AttributionCue | None:
         return None
     adverbs: list[str] = []
     for child in verb_token.children:
-        if child.dep_ == "advmod":
+        # Particles ("out" in "cried out") count as modifiers too, so the
+        # ``cry out`` rule can fire on real text, not only hand-built cues.
+        if child.dep_ in ("advmod", "prt"):
             adverbs.append(child.lemma_.lower())
     return AttributionCue(
         verb_lemma=verb_token.lemma_.lower(),
@@ -221,12 +229,10 @@ def _cue_from_one(text: str, *, nlp: Any | None) -> AttributionCue | None:
     )
 
 
-def _cue_from_texts(following_text: str, preceding_text: str, *, nlp: Any | None) -> AttributionCue | None:
-    for text in (following_text, preceding_text):
-        cue = _cue_from_one(text, nlp=nlp)
-        if cue is not None:
-            return cue
-    return None
+def _cue_from_one(text: str, *, nlp: Any | None) -> AttributionCue | None:
+    if not text or not text.strip():
+        return None
+    return _cue_from_doc(_parse(text, nlp), text)
 
 
 def extract_attribution_cue(
@@ -244,12 +250,6 @@ def extract_attribution_cue(
             quote_sentence_ids=list(quote_sentence_ids),
         )
     return cue
-
-
-extract_cue = extract_attribution_cue
-build_attribution_cue = extract_attribution_cue
-attribution_cue = extract_attribution_cue
-cue_from_text = extract_attribution_cue
 
 
 def _is_dialogue_only(parsed: ParagraphDialogue) -> bool:
@@ -275,27 +275,39 @@ def _tag_candidates(
     span: tuple[int, int],
     *,
     nlp: Any | None,
-) -> tuple[list[Candidate], list[Candidate]]:
-    """Candidates from the narration sentences around a quote (after, before).
+) -> tuple[list[Candidate], list[Candidate], AttributionCue | None]:
+    """Candidates and cue from the narration sentences around a quote.
 
     Only immediately adjacent narration sentences in the same block count:
     index ``last + 1`` when it is narration (the following tag), then index
     ``first - 1`` when it is narration (the preceding tag). Anything else
-    (dialogue sentences, block edges, other blocks) is out of scope.
+    (dialogue sentences, block edges, other blocks) is out of scope. Each
+    adjacent sentence is parsed once; the candidate extraction and the
+    emotion cue share that parse. The cue is the following tag's, else the
+    preceding tag's (the same following-first order as the tag rules).
     """
     first, last = span
     gender_ctx = _surrounding(context) or None
     following: list[Candidate] = []
     preceding: list[Candidate] = []
-    if last + 1 < len(parsed.sentences) and parsed.sentences[last + 1].kind == NARRATION:
-        following = extract_candidates(
-            parsed.sentences[last + 1].text, nlp=nlp, gender_context=gender_ctx
+    cue: AttributionCue | None = None
+    for idx, is_following in ((last + 1, True), (first - 1, False)):
+        if not 0 <= idx < len(parsed.sentences):
+            continue
+        sentence = parsed.sentences[idx]
+        if sentence.kind != NARRATION:
+            continue
+        doc = _parse(sentence.text, nlp)
+        candidates = extract_candidates(
+            sentence.text, nlp=nlp, gender_context=gender_ctx, doc=doc
         )
-    if first - 1 >= 0 and parsed.sentences[first - 1].kind == NARRATION:
-        preceding = extract_candidates(
-            parsed.sentences[first - 1].text, nlp=nlp, gender_context=gender_ctx
-        )
-    return (following, preceding)
+        if is_following:
+            following = candidates
+        else:
+            preceding = candidates
+        if cue is None:
+            cue = _cue_from_doc(doc, sentence.text)
+    return (following, preceding, cue)
 
 
 def _explicit_tag(following: list[Candidate], preceding: list[Candidate]) -> Candidate | None:
@@ -370,15 +382,9 @@ def attribute_quotes(
         span = _quote_span(parsed, context.quote)
         following: list[Candidate] = []
         preceding: list[Candidate] = []
-        following_text = ""
-        preceding_text = ""
+        cue: AttributionCue | None = None
         if span is not None:
-            following, preceding = _tag_candidates(context, parsed, span, nlp=nlp)
-            first, last = span
-            if last + 1 < len(parsed.sentences) and parsed.sentences[last + 1].kind == NARRATION:
-                following_text = parsed.sentences[last + 1].text
-            if first - 1 >= 0 and parsed.sentences[first - 1].kind == NARRATION:
-                preceding_text = parsed.sentences[first - 1].text
+            following, preceding, cue = _tag_candidates(context, parsed, span, nlp=nlp)
 
         speaker = UNKNOWN_SPEAKER
         confidence = CONFIDENCE_LOW
@@ -448,7 +454,6 @@ def attribute_quotes(
                     previous.gender,
                 )
 
-        cue = _cue_from_texts(following_text, preceding_text, nlp=nlp)
         history.append(
             _HistoryEntry(speaker=speaker, gender=gender, confidence=confidence, rule=rule)
         )

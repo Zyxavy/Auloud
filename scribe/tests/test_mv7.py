@@ -564,6 +564,43 @@ def test_fingerprint_cast_edit_moves_only_affected_sentences(tmp_path: Path) -> 
         assert row[3] in ("bf_isabella", "zf_xiaoxiao")
 
 
+def test_fingerprint_changes_with_emotion_mode() -> None:
+    """A rebuild with ``--emotion speed`` must not skip an off-built chapter."""
+    chapter = ChapterFile(
+        spec_version="1.0",
+        chapter=1,
+        title="Chapter 1",
+        duration_ms=0,
+        blocks=[
+            Block(
+                id=2,
+                type="para",
+                sentences=[
+                    Sentence(
+                        sid=1,
+                        speaker="Alice",
+                        start_ms=0,
+                        end_ms=0,
+                        text='"Hi,"',
+                        kind="dialogue",
+                        confidence="high",
+                        quote=_quote_key(),
+                        emotion="ANGRY",
+                    )
+                ],
+            )
+        ],
+    )
+    engine = VoicesEngine()
+    off = _fingerprint(_cast(), {"kokoro": engine}, chapter, emotion="off")
+    speed = _fingerprint(_cast(), {"kokoro": engine}, chapter, emotion="speed")
+    assert off != speed
+    off_speed = next(row[4] for row in off["voices"] if row[0] == 1)
+    speed_speed = next(row[4] for row in speed["voices"] if row[0] == 1)
+    assert off_speed == 1.1  # Alice's cast speed, unmodulated
+    assert speed_speed != off_speed
+
+
 # ---------------------------------------------------------------------------
 # (f) build: cast-edit round trip, unknown-voice rejection
 # ---------------------------------------------------------------------------

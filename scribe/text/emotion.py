@@ -12,7 +12,6 @@ adverbs modify only neutral verbs. Negated adverbs yield NEUTRAL.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from text.attribution import AttributionCue
 
@@ -74,14 +73,13 @@ EMOTION_MODIFIERS: dict[str, Modifier] = {
 def _negated(clause: str, adverb: str) -> bool:
     words = clause.lower().split()
     for i, w in enumerate(words):
-        if adverb in w.strip(".,!?;:\"'()"):
+        if w.strip(".,!?;:\"'()") == adverb:
             window = words[max(0, i - 3) : i]
             if any(
                 x in ("not", "never", "no") or x.endswith("n't") or x == "n't"
                 for x in window
             ):
                 return True
-            return False
     return False
 
 
@@ -120,50 +118,21 @@ def detect_emotion(cue: AttributionCue, threshold: float = DEFAULT_THRESHOLD) ->
     return ("NEUTRAL", 0.0)
 
 
-def propagate_emotion_tags(cues) -> dict[int, str]:
-    """Map every sentence id in each cue's quote span to its emotion tag.
-
-    A cue's tag is applied to *all* ``quote_sentence_ids`` (multi-sentence
-    quotes), never to the attribution clause (which is narration and stays
-    NEUTRAL because it is never listed in ``quote_sentence_ids``). Cues are
-    processed independently, so adjacent quotes never leak tags across their
-    boundaries.
-    """
-    out: dict[int, str] = {}
-    for cue in cues or []:
-        try:
-            tag = detect_emotion(cue)[0]
-        except Exception:
-            tag = "NEUTRAL"
-        for sid in getattr(cue, "quote_sentence_ids", None) or []:
-            out[int(sid)] = tag
-    return out
-
-
-def emotion_tag_for_sid(sid: int, cues) -> str:
-    return propagate_emotion_tags(cues).get(int(sid), "NEUTRAL")
-
-
-def emotion_tags_for_cue(cue) -> list[str]:
-    tag = detect_emotion(cue)[0] if cue is not None else "NEUTRAL"
-    return [tag for _ in (getattr(cue, "quote_sentence_ids", None) or [])]
-
-
-# Aliases for callers/tests that expect a different name.
-span_tags = propagate_emotion_tags
-tags_for_span = propagate_emotion_tags
-emotion_span_tags = propagate_emotion_tags
-tag_sentences = propagate_emotion_tags
-sentence_emotion_tags = propagate_emotion_tags
-emotion_tags_for_span = propagate_emotion_tags
-
-
 SPEED_CLAMP_MIN = 0.85
 SPEED_CLAMP_MAX = 1.15
 
 
-def apply_speed(base_speed: float, tag: str) -> float:
-    mod = EMOTION_MODIFIERS.get(tag, EMOTION_MODIFIERS["NEUTRAL"])
+def apply_speed(
+    base_speed: float, tag: str, modifiers: dict[str, Modifier] | None = None
+) -> float:
+    """``base_speed`` times the tag's multiplier, clamped to the safety band.
+
+    ``modifiers`` defaults to :data:`EMOTION_MODIFIERS`; the cast can pass
+    its own parsed table (:func:`text.cast.parse_emotion_modifiers`) so a
+    ``emotion_modifiers:`` override actually changes the speed.
+    """
+    table = EMOTION_MODIFIERS if modifiers is None else modifiers
+    mod = table.get(tag, EMOTION_MODIFIERS["NEUTRAL"])
     result = float(base_speed) * mod.speed_mult
     if result < SPEED_CLAMP_MIN:
         return SPEED_CLAMP_MIN
@@ -182,7 +151,4 @@ __all__ = [
     "Modifier",
     "SPEED_CLAMP_MIN",
     "SPEED_CLAMP_MAX",
-    "propagate_emotion_tags",
-    "emotion_tag_for_sid",
-    "emotion_tags_for_cue",
 ]
