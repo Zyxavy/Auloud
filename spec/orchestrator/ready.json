@@ -1,1 +1,1 @@
-{"v":1,"id":"r1","providers":["CPUExecutionProvider"],"model_hash":"abc123","rss":123456}
+{"v":1,"id":"r1","type":"ready","providers":["CPUExecutionProvider"],"model_hash":"abc123","rss_mb":320}

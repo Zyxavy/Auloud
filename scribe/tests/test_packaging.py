@@ -32,7 +32,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 #: Root directories that hold .py files but are not shipped.
-NOT_SHIPPED = {"dev", "tests", "scratch"}
+NOT_SHIPPED = {"dev", "tests", "scratch", "experiments"}
 
 
 def test_force_include_covers_every_flat_module() -> None:

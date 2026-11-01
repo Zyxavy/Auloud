@@ -423,6 +423,14 @@ One entry per decision, newest at the bottom. Status: **Accepted** (you decided)
 - Alternatives considered: Full Rust rewrite of the pipeline (rejected: violates Python-canonical constraint and duplicates logic); skipping Option B entirely (rejected: Tauri shell needs a reusable orchestrator).
 - Consequences / revisit when: Re-run the matrix in Task 7; if orchestrator overhead proves larger than estimated on a full book, revisit. Python fallback (`--engine python`) remains until the Rust path passes the full benchmark matrix.
 
+### D-208: Rust orchestrator shares the Python sentence cache; no scheduler library
+- Date: 2026-11-01
+- Status: Accepted
+- Decision: The Rust orchestrator's only job is to fill the same sentence cache Python reads (`<work_dir>/cache/<cache_key>.flac`, PCM_24, atomic rename via `tts.cache.get_or_synth`). Workers never stream audio back, and the manifest carries no `cache_key`: the worker derives it from `(text, voice, speed, VOICE_PITCH, engine.engine_version)` so it can never drift from Python's key. The manifest and results live inside the per-book work dir, not in `bundles/`, because the build lock is per book and two books may build at once. Batches are dealt round-robin to worker threads that each send and read their own share (real parallelism); no async scheduler library is kept. A `batch_error` ends the run non-zero and the cache is the resume state, so no automatic retry or worker respawn exists. Workers write stderr to the inherited console, never a pipe nobody drains.
+- Why: The first Task 6 cut wrote `.wav` files Python never read, kept a single-worker serial loop behind a `--workers N` flag, stored one shared manifest in `bundles/`, and shipped an unused async scheduler that assumed globally unique sentence ids. It could not have run a real build, and its "verified end-to-end" run was in fact the Python path.
+- Alternatives considered: Keep a Rust-side results round trip and have Python assemble from it (rejected: duplicates the cache and adds a second source of truth); tokio scheduler (rejected: needs an async process I/O rewrite for no gain, and its reorder buffer stalls because `sid` repeats per chapter); respawn-and-retry (rejected for now: a rerun already resumes from cache, so retries buy nothing but code).
+- Consequences / revisit when: `--engine rust` remains opt-in; D-207 still blocks flipping the default until Task 7's benchmark matrix passes. Revisit the retry rule if a worker crash leaves half a build that a plain rerun cannot finish.
+
 ### D-052: UI2 server skeleton and packaging (FastAPI extra, D8 protections)
 - Date: 2026-10-04
 - Status: Accepted

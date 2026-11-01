@@ -1449,6 +1449,10 @@ def run_build(
         resume-cache read and re-render, other chapters stay cached. The
         shared sentence-audio cache is never deleted. ``None`` = normal
         resume.
+    :param orchestration: ``"python"`` (default) synthesises in this process;
+        ``"rust"`` first fills the sentence cache through the Rust
+        orchestrator (``rust_engine``) for chapters resume would render, then
+        assembles here exactly as usual. Same cache files either way.
     :raises BuildError: missing source, bad cast, bad selection/device,
         work-lock held, chapter failure(s), strict abort, simulated kill.
     :raises BuildStoppedError: cooperative stop (subclass of BuildError).
@@ -1825,6 +1829,23 @@ def _run_build_locked(
     encode_pool = ThreadPoolExecutor(max_workers=2)
     chapter_encode_futures: dict[int, Any] = {}
 
+    def _up_to_date(chapter: ChapterFile) -> ChapterFile | None:
+        """The finished chapter on disk when resume can skip it, else ``None``.
+
+        Shared by the Rust-manifest builder and :func:`_render_chapter` so
+        the orchestrator never re-synthesises a chapter resume will skip.
+        """
+        index = chapter.chapter
+        if index in forced_chapters_set:
+            return None
+        stem = f"ch{index:0{width}d}"
+        return chapter_up_to_date(
+            chapter,
+            render_text / f"{stem}.json",
+            render_audio / f"{stem}.mp3",
+            _fingerprint(cast, engines, chapter),
+        )
+
     def _render_chapter(chapter: ChapterFile) -> ChapterOutcome:
         """Render one chapter (one unit of work) without touching run state.
 
@@ -1855,10 +1876,7 @@ def _run_build_locked(
             narrator_engine=narrator_engine,
         )
         fingerprint = _fingerprint(cast, engines, chapter)
-        if index in forced_chapters_set:
-            hit = None
-        else:
-            hit = chapter_up_to_date(chapter, json_path, mp3_path, fingerprint)
+        hit = _up_to_date(chapter)
         if hit is not None:
             return ChapterOutcome(
                 index=index,
@@ -2053,52 +2071,49 @@ def _run_build_locked(
                 f"simulated failure after {hook} chapter(s) (test hook; rerun resumes)"
             )
 
-    # Rust orchestration: if requested, spawn the Rust orchestrator to do
-    # synthesis (writing to cache) before the Python render loop runs.
-    # The render loop then finds cached audio and skips synthesis, doing
-    # assembly + encoding + JSON writing as usual.
+    # Rust orchestration: the orchestrator fills the sentence cache (the same
+    # files Python reads), so the render loop below finds cache hits and only
+    # assembles, encodes and writes. Chapters resume would skip are left out.
     if orchestration == "rust":
-        try:
-            from rust_engine import run_rust_build
+        todo = [c for c in render_chapters if _up_to_date(c) is None]
+    else:
+        todo = []
+    if todo:
+        from rust_engine import run_rust_build
 
-            # Build manifest from resolved chapters.
-            manifest_chapters = []
-            for chapter in render_chapters:
-                plan = resolve_chapter(
-                    cast, chapter,
-                    narrator_voice=voice, narrator_speed=speed,
-                    narrator_engine=narrator_engine,
-                )
-                sentences = []
-                for sentence in chapter.sentences_in_order():
-                    rv = plan.get(sentence.sid)
-                    if rv is None:
-                        continue
-                    from tts.cache import cache_key as _ck
-                    ck = _ck(sentence.text, rv.voice, rv.speed, rv.engine)
-                    sentences.append({
-                        "sid": sentence.sid,
-                        "text": sentence.text,
-                        "speaker": getattr(sentence, "speaker", "narrator"),
-                        "voice": rv.voice,
-                        "speed": rv.speed,
-                        "cache_key": ck,
-                    })
-                manifest_chapters.append({
+        manifest_chapters = []
+        for chapter in todo:
+            plan = resolve_chapter(
+                cast,
+                chapter,
+                narrator_voice=voice,
+                narrator_speed=speed,
+                narrator_engine=narrator_engine,
+            )
+            manifest_chapters.append(
+                {
                     "index": chapter.chapter,
                     "title": chapter.title,
-                    "sentences": sentences,
-                })
-
+                    "sentences": [
+                        {
+                            "sid": sentence.sid,
+                            "text": sentence.text,
+                            "voice": plan[sentence.sid].voice,
+                            "speed": plan[sentence.sid].speed,
+                        }
+                        for sentence in chapter.sentences_in_order()
+                        if sentence.sid in plan
+                    ],
+                }
+            )
+        try:
             run_rust_build(
                 book_id=script.book_id,
                 chapters=manifest_chapters,
                 models_dir=str(models_dir),
                 device=normalized_device,
-                output_dir=str(Path(out_dir) if out_dir is not None else (Path("bundles") / bundle_id)),
+                work_dir=work_dir,
                 cache_dir=str(cache_dir),
-                render_audio_dir=str(render_audio),
-                render_text_dir=str(render_text),
                 workers=workers,
                 batch_size=32,
                 progress_listener=progress_listener,

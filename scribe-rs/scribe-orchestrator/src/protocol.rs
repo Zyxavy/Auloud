@@ -11,34 +11,18 @@ pub struct Envelope {
     pub body: MessageBody,
 }
 
-impl Envelope {
-    /// Validate that the protocol version matches.
-    pub fn validate_version(&self) -> Result<(), String> {
-        if self.v != PROTOCOL_VERSION {
-            return Err(format!(
-                "protocol version mismatch: expected {}, got {}",
-                PROTOCOL_VERSION, self.v
-            ));
-        }
-        Ok(())
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MessageBody {
     // Orchestrator -> Worker
     Hello { protocol_version: u32 },
-    PrepareBatch { batch_id: String, items: Vec<BatchItem> },
     SynthBatch { batch_id: String, items: Vec<BatchItem> },
-    Cancel { batch_id: String },
     Shutdown,
 
     // Worker -> Orchestrator
     Ready { providers: Vec<String>, model_hash: String, rss_mb: u64 },
     BatchDone { batch_id: String, results: Vec<ResultItem> },
     BatchError { batch_id: String, kind: String, message: String, retryable: bool },
-    Heartbeat { rss_mb: u64, inflight: u32 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,7 +31,6 @@ pub struct BatchItem {
     pub text: String,
     pub voice: String,
     pub speed: f32,
-    pub cache_key: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,26 +41,6 @@ pub struct ResultItem {
     pub audio_path: String,
     pub duration_ms: u64,
     pub sample_rate: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProgressEvent {
-    pub done: u64,
-    pub total: u64,
-    pub rtf: f64,
-    pub eta_s: f64,
-    pub cache_hit_rate: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StateEvent {
-    pub state: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ErrorEvent {
-    pub kind: String,
-    pub message: String,
 }
 
 #[cfg(test)]

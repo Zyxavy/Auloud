@@ -492,18 +492,11 @@ def check_workers() -> CheckResult:
 
 
 def check_orchestrator() -> CheckResult:
-    import os
-    import shutil
+    """Doctor row: is the Rust orchestrator binary there?"""
+    from rust_engine import find_orchestrator_binary
 
-    binary = os.environ.get("SCRIBE_ORCHESTRATOR")
-    if binary is None:
-        # Try packaged path.
-        candidate = Path(__file__).resolve().parent.parent / "scribe-rs" / "scribe-orchestrator" / "target" / "debug" / "scribe-orchestrator.exe"
-        if candidate.is_file():
-            binary = str(candidate)
-    if binary is None:
-        binary = shutil.which("scribe-orchestrator")
-    if binary and Path(binary).is_file():
+    binary = find_orchestrator_binary()
+    if binary:
         return CheckResult(name="orchestrator", status=PASS, detail=f"binary: {binary}")
     return CheckResult(
         name="orchestrator",
@@ -766,6 +759,7 @@ def build(
             progress_listener=jsonl_writer,
             stop_file=stop_file,
             force_chapters=force_chapters,
+            orchestration=engine,
         )
     except (BuildError, DraftError, BundleWriteError, ValueError) as exc:
         typer.echo(f"build failed: {exc}", err=True)
@@ -1187,17 +1181,6 @@ def helper(
     except HelperError as exc:
         typer.echo(f"helper failed: {exc}", err=True)
         raise typer.Exit(code=1)
-
-
-@app.command("worker")
-def worker(
-    models_dir: Path = typer.Option(Path("models"), "--models-dir"),
-    device: str = typer.Option("auto", "--device"),
-    cache_dir: Path = typer.Option(Path(".cache"), "--cache-dir"),
-) -> None:
-    """Run the long-lived orchestrator worker (hidden)."""
-    from worker import main as worker_main
-    worker_main(["--models-dir", str(models_dir), "--device", device, "--cache-dir", str(cache_dir)])
 
 
 # Nested `export` subcommands (M4B, ...).
