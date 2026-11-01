@@ -1384,6 +1384,7 @@ def run_build(
     stop_event: Any | None = None,
     stop_file: Path | str | None = None,
     force_chapters: Any = None,
+    orchestration: str = "python",
 ) -> BuildResult:
     """Render ``source`` EPUB or PDF to a validated bundle; return the totals.
 
@@ -1511,6 +1512,7 @@ def run_build(
             wall_start=wall_start,
             stopped_fn=_stopped,
             force_chapters=force_chapters,
+            orchestration=orchestration,
         )
     finally:
         if lock is not None:
@@ -1540,6 +1542,7 @@ def _run_build_locked(
     wall_start: float,
     stopped_fn: Callable[[], bool],
     force_chapters: Any = None,
+    orchestration: str = "python",
 ) -> BuildResult:
     """Inner build (lock already held); see :func:`run_build`."""
     from progress import FanoutProgress, RichProgressListener, make_event
@@ -2049,6 +2052,61 @@ def _run_build_locked(
             raise BuildError(
                 f"simulated failure after {hook} chapter(s) (test hook; rerun resumes)"
             )
+
+    # Rust orchestration: if requested, spawn the Rust orchestrator to do
+    # synthesis (writing to cache) before the Python render loop runs.
+    # The render loop then finds cached audio and skips synthesis, doing
+    # assembly + encoding + JSON writing as usual.
+    if orchestration == "rust":
+        try:
+            from rust_engine import run_rust_build
+
+            # Build manifest from resolved chapters.
+            manifest_chapters = []
+            for chapter in render_chapters:
+                plan = resolve_chapter(
+                    cast, chapter,
+                    narrator_voice=voice, narrator_speed=speed,
+                    narrator_engine=narrator_engine,
+                )
+                sentences = []
+                for sentence in chapter.sentences_in_order():
+                    rv = plan.get(sentence.sid)
+                    if rv is None:
+                        continue
+                    from tts.cache import cache_key as _ck
+                    ck = _ck(sentence.text, rv.voice, rv.speed, rv.engine)
+                    sentences.append({
+                        "sid": sentence.sid,
+                        "text": sentence.text,
+                        "speaker": getattr(sentence, "speaker", "narrator"),
+                        "voice": rv.voice,
+                        "speed": rv.speed,
+                        "cache_key": ck,
+                    })
+                manifest_chapters.append({
+                    "index": chapter.chapter,
+                    "title": chapter.title,
+                    "sentences": sentences,
+                })
+
+            run_rust_build(
+                book_id=script.book_id,
+                chapters=manifest_chapters,
+                models_dir=str(models_dir),
+                device=normalized_device,
+                output_dir=str(Path(out_dir) if out_dir is not None else (Path("bundles") / bundle_id)),
+                cache_dir=str(cache_dir),
+                render_audio_dir=str(render_audio),
+                render_text_dir=str(render_text),
+                workers=workers,
+                batch_size=32,
+                progress_listener=progress_listener,
+            )
+        except Exception as exc:
+            log_lines.append(f"rust orchestration failed: {exc}")
+            _log_now()
+            raise BuildError(f"rust orchestration failed: {exc}") from exc
 
     # Stage C encode pool: caps concurrent ffmpeg processes at 2. Created
     # before rendering so _render_chapter can submit as soon as a chapter's

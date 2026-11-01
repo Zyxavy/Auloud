@@ -144,9 +144,17 @@ fn main() {
     let mut workers: Vec<std::process::Child> = Vec::new();
     for i in 0..worker_count {
         let mut cmd = Command::new(&args.python);
-        cmd.arg("-m").arg("scribe").arg("worker")
+        let manifest_dir = std::path::Path::new(&args.manifest).parent().unwrap_or(std::path::Path::new("."));
+        let manifest_dir = std::path::Path::new(&args.manifest).parent().unwrap_or(std::path::Path::new("."));
+        cmd.arg("-c")
+            .arg(format!(
+                "import sys; sys.path.insert(0, '.'); from worker import main; main(['--models-dir', '{}', '--device', '{}', '--cache-dir', '{}'])",
+                manifest.models_dir, manifest.device, manifest.cache_dir
+            ))
+            .current_dir(manifest_dir)
             .arg("--models-dir").arg(&manifest.models_dir)
             .arg("--device").arg(&manifest.device)
+            .arg("--cache-dir").arg(&manifest.cache_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

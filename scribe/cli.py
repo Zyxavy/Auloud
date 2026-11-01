@@ -719,8 +719,17 @@ def build(
         typer.echo(f"build failed: engine must be python or rust (got {engine!r})", err=True)
         raise typer.Exit(code=1)
     if engine == "rust":
-        typer.echo("build failed: --engine rust is not yet implemented (Rust orchestrator is scaffolding only)", err=True)
-        raise typer.Exit(code=1)
+        from rust_engine import find_orchestrator_binary
+
+        binary = find_orchestrator_binary()
+        if binary is None:
+            typer.echo(
+                "build failed: --engine rust requires scribe-orchestrator binary. "
+                "Set SCRIBE_ORCHESTRATOR or build with cargo in scribe-rs/.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        typer.echo(f"using Rust orchestrator: {binary}")
     if plan:
         try:
             preflight = plan_build(
@@ -1180,14 +1189,15 @@ def helper(
         raise typer.Exit(code=1)
 
 
-@app.command("worker", hidden=True)
+@app.command("worker")
 def worker(
     models_dir: Path = typer.Option(Path("models"), "--models-dir"),
     device: str = typer.Option("auto", "--device"),
+    cache_dir: Path = typer.Option(Path(".cache"), "--cache-dir"),
 ) -> None:
     """Run the long-lived orchestrator worker (hidden)."""
     from worker import main as worker_main
-    worker_main(["--models-dir", str(models_dir), "--device", device])
+    worker_main(["--models-dir", str(models_dir), "--device", device, "--cache-dir", str(cache_dir)])
 
 
 # Nested `export` subcommands (M4B, ...).
