@@ -107,6 +107,7 @@ def test_host_with_port_passes(tmp_path: Path) -> None:
 
 
 def test_blank_token_refused(tmp_path: Path) -> None:
+    pytest.importorskip("fastapi")  # build_helper_app reaches ui.app (ui extra)
     with pytest.raises(HelperError):
         build_helper_app(tmp_path, "")
     with pytest.raises(HelperError):
@@ -175,6 +176,7 @@ def test_lock_refusal_names_the_holder(tmp_path: Path) -> None:
 
 
 def test_run_helper_leaks_no_log_handlers(tmp_path: Path) -> None:
+    pytest.importorskip("fastapi")  # run_helper reaches ui.app (ui extra)
     import logging
 
     before = len(logging.getLogger().handlers)
@@ -190,6 +192,7 @@ def test_run_helper_leaks_no_log_handlers(tmp_path: Path) -> None:
 
 
 def test_run_helper_uses_serve_fn_and_prints_ready(tmp_path: Path, capsys) -> None:
+    pytest.importorskip("fastapi")  # run_helper reaches ui.app (ui extra)
     seen = {}
 
     def fake_serve(app, host, port):
@@ -212,6 +215,7 @@ def test_run_helper_uses_serve_fn_and_prints_ready(tmp_path: Path, capsys) -> No
 
 
 def test_missing_token_fails_loud(tmp_path: Path) -> None:
+    pytest.importorskip("fastapi")  # run_helper reaches ui.app (ui extra)
     with pytest.raises(HelperError):
         run_helper(
             workspace=tmp_path,
