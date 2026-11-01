@@ -216,7 +216,8 @@ DEFAULT_MALE_KEY = "default_male"
 FIRST_PERSON_KEY = "first_person"
 OVERRIDES_KEY = "overrides"
 THOUGHT_KEY = "thought"
-
+EMOTION_MODIFIERS_KEY = "emotion_modifiers"
+EMOTION_KEY = "emotion"
 #: Resolved character keys for the generic fallbacks (the voices-map keys).
 GENERIC_FEMALE = DEFAULT_FEMALE_KEY
 GENERIC_MALE = DEFAULT_MALE_KEY
@@ -877,6 +878,7 @@ def validate_cast(
         FIRST_PERSON_KEY,
         OVERRIDES_KEY,
         THOUGHT_KEY,
+        EMOTION_MODIFIERS_KEY,
     }
     for key in cast:
         if key not in allowed_top:
@@ -891,7 +893,7 @@ def validate_cast(
         errors.append(f"{source}: narrator: must be a mapping (got {type(narrator).__name__})")
     else:
         for key in narrator:
-            if key not in ("engine", "voice", "speed"):
+            if key not in ("engine", "voice", "speed", EMOTION_KEY):
                 errors.append(
                     f"{source}: narrator.{key}: unknown key (expected engine, voice, speed)"
                 )
@@ -922,6 +924,11 @@ def validate_cast(
             errors.append(f"{source}: narrator.speed: missing (must be a number above 0)")
         else:
             _check_speed(narrator["speed"], key="narrator.speed", source=source, errors=errors)
+        if EMOTION_KEY in narrator and narrator[EMOTION_KEY] not in ("off", False, None):
+            errors.append(
+                f"{source}: narrator.{EMOTION_KEY}: must be 'off' to disable modulation "
+                f"(got {narrator[EMOTION_KEY]!r})"
+            )
 
     characters = cast.get(CHARACTERS_KEY, {})
     if CHARACTERS_KEY in cast and not isinstance(characters, dict):
@@ -951,7 +958,7 @@ def validate_cast(
             )
             continue
         for key in entry:
-            if key not in ("engine", "voice", "speed", "pitch", THOUGHT_KEY):
+            if key not in ("engine", "voice", "speed", "pitch", THOUGHT_KEY, EMOTION_KEY):
                 errors.append(
                     f"{source}: characters.{name}.{key}: "
                     "unknown key (expected engine, voice, speed)"
@@ -995,6 +1002,11 @@ def validate_cast(
             errors.append(
                 f"{source}: characters.{name}.pitch: must be a number above 0 "
                 f"(got {entry['pitch']!r}; ignored in v1)"
+            )
+        if EMOTION_KEY in entry and entry[EMOTION_KEY] not in ("off", False, None):
+            errors.append(
+                f"{source}: characters.{name}.{EMOTION_KEY}: must be 'off' to disable modulation "
+                f"(got {entry[EMOTION_KEY]!r})"
             )
 
     aliases = cast.get(ALIASES_KEY, {})
@@ -1044,7 +1056,7 @@ def validate_cast(
             errors.append(f"{source}: {key}: must be a mapping (got {type(entry).__name__})")
             continue
         for sub in entry:
-            if sub not in ("engine", "voice", "speed"):
+            if sub not in ("engine", "voice", "speed", EMOTION_KEY):
                 errors.append(f"{source}: {key}.{sub}: unknown key (expected engine, voice, speed)")
         generic_engine = _check_engine(
             entry.get("engine"),
@@ -1071,6 +1083,11 @@ def validate_cast(
             )
         if "speed" in entry:
             _check_speed(entry["speed"], key=f"{key}.speed", source=source, errors=errors)
+        if EMOTION_KEY in entry and entry[EMOTION_KEY] not in ("off", False, None):
+            errors.append(
+                f"{source}: {key}.{EMOTION_KEY}: must be 'off' to disable modulation "
+                f"(got {entry[EMOTION_KEY]!r})"
+            )
 
     known_speakers = {NARRATOR} | set(characters)
     for surfaces in aliases.values():
@@ -1158,6 +1175,54 @@ def validate_cast(
                 "(needs chapter+block+quote+speaker, or match+speaker)"
             )
 
+    emotion_modifiers = cast.get(EMOTION_MODIFIERS_KEY)
+    if emotion_modifiers is not None:
+        if not isinstance(emotion_modifiers, dict):
+            errors.append(
+                f"{source}: {EMOTION_MODIFIERS_KEY}: must be a mapping "
+                f"(got {type(emotion_modifiers).__name__})"
+            )
+        else:
+            for tag, val in emotion_modifiers.items():
+                if not isinstance(tag, str):
+                    errors.append(
+                        f"{source}: {EMOTION_MODIFIERS_KEY}.{tag!r}: tag must be a string"
+                    )
+                    continue
+                if isinstance(val, dict):
+                    sm = val.get("speed_mult", val.get("speed"))
+                    gd = val.get("gain_db", val.get("gain"))
+                    if sm is not None and (
+                        not isinstance(sm, (int, float))
+                        or isinstance(sm, bool)
+                        or not math.isfinite(float(sm))
+                        or float(sm) <= 0
+                    ):
+                        errors.append(
+                            f"{source}: {EMOTION_MODIFIERS_KEY}.{tag}.speed_mult: "
+                            f"must be a number above 0 (got {sm!r})"
+                        )
+                    if gd is not None and (
+                        not isinstance(gd, (int, float))
+                        or isinstance(gd, bool)
+                        or not math.isfinite(float(gd))
+                    ):
+                        errors.append(
+                            f"{source}: {EMOTION_MODIFIERS_KEY}.{tag}.gain_db: "
+                            f"must be a number (got {gd!r})"
+                        )
+                elif isinstance(val, (int, float)) and not isinstance(val, bool):
+                    if not math.isfinite(float(val)) or float(val) <= 0:
+                        errors.append(
+                            f"{source}: {EMOTION_MODIFIERS_KEY}.{tag}: must be a number above 0 "
+                            f"(got {val!r})"
+                        )
+                else:
+                    errors.append(
+                        f"{source}: {EMOTION_MODIFIERS_KEY}.{tag}: must be a number or mapping "
+                        f"(got {val!r})"
+                    )
+
     thought = cast.get(THOUGHT_KEY)
     if thought is not None and not isinstance(thought, dict):
         errors.append(f"{source}: thought: must be a mapping (got {type(thought).__name__})")
@@ -1172,3 +1237,65 @@ def validate_cast(
                 f"(got {type(entry[THOUGHT_KEY]).__name__})"
             )
     return errors
+
+def _find_entry(cast, character):
+    if not isinstance(cast, dict):
+        return None
+    if character == NARRATOR:
+        entry = cast.get(NARRATOR)
+        if isinstance(entry, dict):
+            return entry
+    characters = cast.get(CHARACTERS_KEY)
+    if isinstance(characters, dict) and character in characters and isinstance(characters[character], dict):
+        return characters[character]
+    if character in (DEFAULT_FEMALE_KEY, DEFAULT_MALE_KEY):
+        entry = cast.get(character)
+        if isinstance(entry, dict):
+            return entry
+    return None
+
+
+def character_emotion_enabled(cast, character) -> bool:
+    entry = _find_entry(cast, character)
+    if not isinstance(entry, dict):
+        return True
+    value = entry.get(EMOTION_KEY, None)
+    if value is False or (isinstance(value, str) and value.strip().lower() == "off"):
+        return False
+    return True
+
+
+def emotion_enabled(cast, character) -> bool:
+    return character_emotion_enabled(cast, character)
+
+
+def parse_emotion_modifiers(cast) -> dict:
+    from text.emotion import Modifier, EMOTION_MODIFIERS
+
+    result = {key: Modifier(m.speed_mult, m.gain_db) for key, m in EMOTION_MODIFIERS.items()}
+    if not isinstance(cast, dict):
+        return result
+    raw = cast.get(EMOTION_MODIFIERS_KEY)
+    if not isinstance(raw, dict):
+        return result
+    for tag, val in raw.items():
+        if not isinstance(tag, str):
+            continue
+        base = result.get(tag, Modifier(1.0, 0.0))
+        if isinstance(val, dict):
+            sm = val.get("speed_mult", val.get("speed", base.speed_mult))
+            gd = val.get("gain_db", val.get("gain", base.gain_db))
+        elif isinstance(val, (int, float)) and not isinstance(val, bool):
+            sm = float(val)
+            gd = base.gain_db
+        else:
+            continue
+        try:
+            result[tag] = Modifier(float(sm), float(gd))
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+def emotion_modifiers_for_cast(cast) -> dict:
+    return parse_emotion_modifiers(cast)

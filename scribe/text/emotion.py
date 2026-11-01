@@ -158,9 +158,18 @@ sentence_emotion_tags = propagate_emotion_tags
 emotion_tags_for_span = propagate_emotion_tags
 
 
+SPEED_CLAMP_MIN = 0.85
+SPEED_CLAMP_MAX = 1.15
+
+
 def apply_speed(base_speed: float, tag: str) -> float:
     mod = EMOTION_MODIFIERS.get(tag, EMOTION_MODIFIERS["NEUTRAL"])
-    return base_speed * mod.speed_mult
+    result = float(base_speed) * mod.speed_mult
+    if result < SPEED_CLAMP_MIN:
+        return SPEED_CLAMP_MIN
+    if result > SPEED_CLAMP_MAX:
+        return SPEED_CLAMP_MAX
+    return result
 
 
 __all__ = [
@@ -171,6 +180,8 @@ __all__ = [
     "apply_speed",
     "EMOTION_MODIFIERS",
     "Modifier",
+    "SPEED_CLAMP_MIN",
+    "SPEED_CLAMP_MAX",
     "propagate_emotion_tags",
     "emotion_tag_for_sid",
     "emotion_tags_for_cue",
