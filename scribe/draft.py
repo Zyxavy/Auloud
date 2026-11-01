@@ -73,7 +73,7 @@ from extract.pdf import (
     ScannedPdfError,
     extract_pdf_with_quality,
 )
-from text.attribution import ATTRIBUTION_RULES_VERSION, attribute_quotes
+from text.attribution import ATTRIBUTION_RULES_VERSION, AttributionCue, attribute_quotes
 from text.cast import (
     default_multivoice_cast,
     draft_cast,
@@ -331,6 +331,18 @@ def _apply_attribution(
                 key = (tagged.chapter, tagged.block, tagged.quote)
                 quote_texts.setdefault(key, []).append(tagged.text)
                 quote_sids.setdefault(key, []).append(tagged.sid)
+
+        # Attach the quote's sentence ids to each attribution cue so emotion
+        # tags can propagate to every sentence in the same quote span.
+        for att in attributions:
+            key = (att.chapter, att.block, att.quote)
+            if att.cue is not None:
+                att.cue = AttributionCue(
+                    verb_lemma=att.cue.verb_lemma,
+                    adverbs=list(att.cue.adverbs),
+                    clause=att.cue.clause,
+                    quote_sentence_ids=list(quote_sids.get(key, [])),
+                )
 
         new_blocks: list[Block] = []
         for block in dialogue.chapter.blocks or []:

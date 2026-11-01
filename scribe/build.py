@@ -146,6 +146,7 @@ from text.cast import (
     validate_cast,
 )
 from text.speakers import gender_hint_for
+from text.emotion import propagate_emotion_tags
 from tts.base import TTSEngine
 from tts.cache import CacheStats, get_or_synth
 
@@ -650,6 +651,11 @@ def resolve_sentence_voice(
         quote=number,
         text=sentence.text,
     )
+
+
+# Task 3: span propagation helper (alias; implementation lives in text.emotion).
+sentence_emotion_tags = propagate_emotion_tags
+emotion_tag_for_sid = propagate_emotion_tags
 
 
 def resolve_chapter(

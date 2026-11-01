@@ -16,6 +16,6 @@
 
 """Sentence splitting, dialogue, speakers, cast (SW4+)."""
 
-from text.emotion import detect_emotion
+from text.emotion import detect_emotion, propagate_emotion_tags
 
-__all__ = ["detect_emotion"]
+__all__ = ["detect_emotion", "propagate_emotion_tags"]
