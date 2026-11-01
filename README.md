@@ -1,129 +1,107 @@
 # Auloud
 
-Turn EPUB and PDF books into multi-voice audiobooks, then read along or listen.
+Auloud turns books into multi-voice audiobooks and lets them play on Android with read-along text.
 
-Everything runs on your own hardware. The PC or the Android device generates the audio, and the only network use is the LAN-only Wi-Fi bundle transfer.
+- Scribe builds the audiobook bundle on a PC.
+- Player plays the bundle on Android.
+- The bundle format is defined in [docs/03-BundleSpec.md](docs/03-BundleSpec.md).
 
-## Download
+## What is in this repo?
 
-Both apps are on [Releases](https://github.com/Zyxavy/Auloud/releases). Scribe
-renders on a PC; the Player plays on Android.
+- [scribe/](scribe/) — Python CLI for drafting, rendering, validating, and exporting bundles.
+- [player/](player/) — Android app for playback and read-along.
+- [spec/](spec/) — shared bundle contract and fixtures.
+- [docs/](docs/) — roadmap, design, test plan, and runbooks.
+- [parity/](parity/) — comparison harness for Python vs. Rust behavior.
 
-### Scribe (Windows 11)
+## Quick start
 
-| File | Size | Needs |
-| --- | --- | --- |
-| `Auloud-Scribe-3.0.0-gpu.zip` | 1.9 GB | NVIDIA GPU with a current driver |
-| `Auloud-Scribe-3.0.0-cpu.zip` | 286 MB | any CPU, slower render |
-
-Unzip anywhere and run `scribe-ui.exe`. The folder carries its own Python, dependencies and ffmpeg, so it runs on a bare Windows 11 install; deleting the folder uninstalls it. First run downloads the Kokoro voice models (about 350 MB) or takes files you already have. 
-
-Step by step:
-[first-run guide](docs/ui-runbook.md). Licenses are in `licenses\` inside the zip and under `Settings` > `Licenses`.
-
-### Player (Android)
-
-Sideload the APK with unknown sources allowed.
-
-| File | Size | Voices |
-| --- | --- | --- |
-| `app-core-release.apk` | 10 MB | the device's own System TTS |
-| `app-full-release.apk` | 64 MB | System TTS plus Piper packs you copy in |
-
-Built for a Samsung Galaxy Tab E (Android 7.1.1), runs on Android 7.0 and later. Budget about 430 MB of storage per 15 hours of PC-made audio.
-
-## PC render
-
-Scribe turns an EPUB or PDF into a bundle with a narrator plus a voice per character. Requirements: Windows 11, Python 3.11+, `uv`, `ffmpeg` and `ffprobe` on `PATH`, espeak-ng 1.52.0, and the Kokoro files `kokoro-v1.0.onnx` plus `voices-v1.0.bin`.
+1. Install the dependencies for Scribe on Windows 11:
+   - Python 3.11+
+   - `uv`
+   - `ffmpeg` and `ffprobe` on `PATH`
+   - `espeak-ng` 1.52.0
+   - Kokoro model files: `kokoro-v1.0.onnx` and `voices-v1.0.bin`
+2. In the repo:
 
 ```powershell
 cd scribe
 uv sync
+uv run scribe doctor
 uv run scribe draft ..\MyBook.epub
-# check .scribe\<book-id>\cast_report.md, tweak voices in cast.yaml
 uv run scribe build ..\MyBook.epub
 uv run scribe validate bundles\<book-id>
 ```
 
-Copy the bundle to `/Auloud/` on internal storage or `Auloud/` on the microSD card, add it as a watch folder, and press play. To skip the cable, open Receive via Wi-Fi in the device library and push the bundle from the Scribe UI on the same network.
+3. Copy the bundle to the Android device and open it in Player.
+4. For the browser UI:
 
-Also useful: `uv run scribe ui` (same flow in a browser), `scribe voices --sample`, `scribe doctor` (checks the setup). A 10-hour novel takes hours, so run builds detached and poll.
-
-## Device render
-
-Import a DRM-free EPUB on the device, pick two voices, render overnight, listen with read-along. This path runs on the device alone.
-
-1. Install English voice data in Android Settings > Language and input > Text-to-speech output.
-2. In the library, tap Import EPUB and pick a file.
-3. Choose a narrator and a dialogue voice, then audition each.
-4. Start the render. It runs unplugged, and early chapters play while later ones render.
-5. Play in any mode below.
-
-`full` flavor only: copy each Piper pack folder (with its `.onnx` files) into `/Auloud/models/`, then pick the `piper` engine per role. Each pack carries its own license; check its `MODEL_CARD` first.
-
-Two voices per book (narrator plus dialogue), English only, and renders take a while, so charge the device.
-
-## Player modes
-
-| Mode | What you get |
-| --- | --- |
-| Read only | Scrollable text |
-| Listen only | Audio with the screen off, plus lock screen and Bluetooth controls |
-| Read + listen | Highlight follows the audio, tap a sentence to jump, "back to now" after free scroll |
-
-One saved position per book across all modes, speed 0.75x to 2.0x, sleep timer, and a chapter list with durations. First launch points you at the battery-optimization screen, because some devices can still kill background apps.
-
-## Repo layout
-
-```
-scribe/     Python PC tool (AGPL-3.0-or-later)
-scribe-rs/  Rust UI for Scribe, drives the packaged Python helper (AGPL-3.0-or-later)
-player/     Android app (core Apache-2.0, full GPL-3.0; see player/NOTICE)
-parity/     Python-vs-Rust parity harness
-spec/       Bundle spec mirror (spec/bundle.md) and shared fixtures
-docs/       PRD, designs, roadmap, test plan, runbooks, signing guide
+```powershell
+uv run scribe ui
 ```
 
-## Docs map
+## CLI commands and flags
 
-- [PRD](docs/01-PRD.md), [Roadmap](docs/04-Roadmap.md): promises and slices
-- [Bundle spec](docs/03-BundleSpec.md): the Scribe to Player contract
-- [Player design](docs/06-PlayerDesign.md), [Scribe design](docs/05-ScribeDesign.md)
-- [First-run guide](docs/ui-runbook.md): unpacked app to first render, plus failures
-- [Test plan](docs/07-TestPlan.md), [test log](docs/test-log.md)
-- [Licenses](docs/08-Licenses.md), [Release signing](docs/ReleaseSigning.md)
-- [Decisions](docs/DECISIONS.md): why things are the way they are
-- [Archive](docs/archive/): frozen records per version ([v1](docs/archive/v1/), [v2](docs/archive/v2/), [v3](docs/archive/v3/))
+The main commands are exposed through the `scribe` CLI.
 
-## Status
-
-| Version | State | Ships |
+| Command | Key flags | What it does |
 | --- | --- | --- |
-| v1 | shipped, `1.0.0` | PC renders MP3 audiobooks with narrator and character voices; read-along player with three modes; soak-passed on the Tab E |
-| v2 | shipped, `2.1.6` | on-device rendering (System TTS, Piper in `full`), two voices, background renders, live streaming of unrendered chapters |
-| v3 | shipped, `3.0.0` | Scribe desktop app: jobs tray, render with preflight, render speed, cast table with audition, voices, validate and transfer, portable Windows zip |
-| v4 | next | Android platform refresh: current `targetSdk`, background-service rules, newer Android versions, word-level highlight |
-| v5 | planned | iOS and iPadOS Player in Swift, import and playback with read-along. See [V5 plan](docs/V5-iOS-support.md) |
+| `doctor` | `--models-dir` | Checks Python, ffmpeg/ffprobe, espeak-ng, TTS engine, model files, and dependencies. |
+| `draft` | `--work-dir` | Parses a book and creates the work folder with script, cast, and report files. |
+| `build` | `--work-dir`, `--out-dir`, `--models-dir`, `--strict`, `--no-progress`, `--engine`, `--chapters`, `--pages`, `--device`, `--render-speed`, `--plan`, `--events-jsonl`, `--stop-file`, `--force-chapters` | Renders chapters and writes the audiobook bundle. |
+| `inspect` | `--speakers` | Prints bundle chapters, speakers, and sample sentences. |
+| `validate` | none | Runs the bundle validation checks against the spec. |
+| `voices` | `--sample`, `--out-dir`, `--models-dir`, `--speed`, `--voice`, `--engine` | Lists TTS voices or audition them. |
+| `ui` | `--port`, `--workspace`, `--no-browser` | Starts the local web UI for the desktop workflow. |
+| `version` | none | Prints the Scribe version. |
+| Global | `--help`, `--install-completion`, `--show-completion` | Shows help or shell completion options. |
 
-## Limitations
+### Common build flags
 
-- Speaker detection is rule-based and sometimes wrong. Fix voices in `cast.yaml` or the cast table, then rebuild.
-- PDFs vary more than EPUBs. A scanned PDF with no text layer fails.
-- English only. Voices are AI-generated.
+- `--out-dir`: where the rendered bundle is written.
+- `--models-dir`: directory containing the Kokoro model files.
+- `--strict`: stop immediately on the first chapter error.
+- `--no-progress`: disable the progress bar.
+- `--engine`: choose `rust` or `python` orchestration.
+- `--chapters`: render only selected chapters, such as `3-5,7`.
+- `--pages`: render a page range from a PDF.
+- `--device`: choose `auto`, `cpu`, or `cuda`.
+- `--render-speed`: choose `slow`, `balanced`, or `fast`.
+- `--plan`: preview work without rendering audio.
+- `--force-chapters`: re-render selected chapters even if cached.
 
-## Books and copyright
+## Use with agents
 
-Use only books you have the right to use (public domain, or books you own), for your own listening. Do not share generated audiobooks of copyrighted works. This repo ships code and test fixtures only.
+Auloud works well with coding agents because the pipeline is simple and command-driven.
+
+Recommended loop:
+
+```powershell
+uv run scribe doctor
+uv run scribe draft MyBook.epub
+uv run scribe build MyBook.epub
+uv run scribe validate bundles\<book-id>
+```
+
+Use one clear objective per run: check setup, draft the book, build the bundle, then validate it. This keeps agent output easy to read, and it makes failures visible at the exact step that broke.
+
+## Docs and more information
+
+- [docs/01-PRD.md](docs/01-PRD.md) — product goals
+- [docs/04-Roadmap.md](docs/04-Roadmap.md) — current roadmap
+- [docs/05-ScribeDesign.md](docs/05-ScribeDesign.md) — Scribe architecture
+- [docs/06-PlayerDesign.md](docs/06-PlayerDesign.md) — Player architecture
+- [docs/ui-runbook.md](docs/ui-runbook.md) — first-run setup and troubleshooting
+- [docs/08-Licenses.md](docs/08-Licenses.md) — licenses and model attribution
+- [docs/DECISIONS.md](docs/DECISIONS.md) — design decisions
+
+## Book and copyright
+
+Use only books you are allowed to process. This repo ships code and test fixtures, not copyrighted books or generated audiobook copies of protected works.
 
 ## License
 
-- Player `core`: Apache-2.0, with Apache-2.0/MIT/BSD dependencies.
-- Player `full`: GPL-3.0, because it bundles the sherpa-onnx native libraries.
-  See `player/NOTICE`. Piper packs carry their own licenses.
-- Scribe: AGPL-3.0-or-later. Voice models carry their own licenses; see
-  [Licenses](docs/08-Licenses.md).
-
-## Contributing
-
-Issues and PRs are welcome. Read the [bundle spec](docs/03-BundleSpec.md) before proposing format changes. Sign off commits with `Signed-off-by`; a CLA is optional. Run the suites first: `uv run pytest` in `scribe/`, and `gradlew.bat :app:testCoreDebugUnitTest :app:testFullDebugUnitTest` plus lint in
-`player/`.
+- Player `core`: Apache-2.0
+- Player `full`: GPL-3.0
+- Scribe: AGPL-3.0-or-later
+- Voice models and packs may carry their own licenses; see [docs/08-Licenses.md](docs/08-Licenses.md).
