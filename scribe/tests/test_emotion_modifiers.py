@@ -24,7 +24,7 @@ def test_defaults():
     assert EMOTION_MODIFIERS["WHISPER"].speed_mult == 0.90
     assert EMOTION_MODIFIERS["SHOUT"].speed_mult == 1.0
     assert EMOTION_MODIFIERS["SHOUT"].gain_db == 3.0
-    assert EMOTION_MODIFIERS["WHISPER"].gain_db == -4.0
+    assert EMOTION_MODIFIERS["WHISPER"].gain_db == -3.0
 
 
 def test_composition_multiplicative():

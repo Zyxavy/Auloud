@@ -109,6 +109,7 @@ import json
 import os
 import re
 import threading
+import math
 import time
 from collections.abc import Callable, Collection, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -144,6 +145,7 @@ from text.cast import (
     read_cast,
     resolve_speaker,
     validate_cast,
+    parse_emotion_modifiers,
 )
 from text.speakers import gender_hint_for
 from tts.base import TTSEngine
@@ -960,6 +962,12 @@ def _fingerprint(
     return {
         "voices": voices,
         "pitch": VOICE_PITCH,
+        "emotion": emotion,
+        "emotion_modifiers": (
+            {k: (v.speed_mult, v.gain_db) for k, v in parse_emotion_modifiers(cast).items()}
+            if isinstance(cast, dict)
+            else {}
+        ),
         "engine_versions": {
             name: (engine.engine_version if engine is not None else "unknown")
             for name, engine in engines.items()
@@ -1954,10 +1962,29 @@ def _run_build_locked(
                 _emit_sentence(index, sentence, chapter_stats, hits0, misses0)
                 return audio
 
+            modifiers = parse_emotion_modifiers(cast)
+
+            def _gain_of(sentence: Sentence) -> float:
+                if str(emotion).strip().lower() != "speed+gain":
+                    return 1.0
+                tag = getattr(sentence, "emotion", None)
+                if not isinstance(tag, str) or not tag.strip():
+                    return 1.0
+                mod = modifiers.get(tag.strip().upper())
+                if mod is None:
+                    return 1.0
+                db = float(getattr(mod, "gain_db", 0.0))
+                if db > 3.0:
+                    db = 3.0
+                elif db < -3.0:
+                    db = -3.0
+                return 10.0 ** (db / 20.0)
+
             assembled = assemble_chapter(
                 chapter,
                 _emit_synth,
                 voice_of=lambda sentence: plan[sentence.sid].voice,
+                gain_of=_gain_of,
             )
             loud = apply_loudness_gain(assembled.pcm)
             to_encode = AssembledChapter(

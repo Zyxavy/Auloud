@@ -277,6 +277,7 @@ def assemble_chapter(
     *,
     sample_rate: int = SAMPLE_RATE,
     voice_of: Callable[[Sentence], str] | None = None,
+    gain_of: Callable[[Sentence], float] | None = None,
 ) -> AssembledChapter:
     """Build one chapter's continuous buffer plus sentence timings.
 
@@ -326,6 +327,15 @@ def assemble_chapter(
                 np.asarray(synth_fn(sentence), dtype=np.float32), sentence, chapter
             )
             voice = voice_of(sentence) if voice_of is not None else None
+            if gain_of is not None:
+                try:
+                    g = float(gain_of(sentence))
+                except (TypeError, ValueError):
+                    g = 1.0
+                if not (g > 0) or not math.isfinite(g):
+                    g = 1.0
+                if g != 1.0:
+                    audio = (audio * g).astype(np.float32, copy=False)
             items.append((sentence, audio, voice))
             seen_sids.append(sentence.sid)
         plans.append((block, items))

@@ -65,7 +65,7 @@ EMOTION_MODIFIERS: dict[str, Modifier] = {
     "FEARFUL": Modifier(1.05, 0.0),
     "SAD": Modifier(0.92, 0.0),
     "GENTLE": Modifier(0.94, 0.0),
-    "WHISPER": Modifier(0.90, -4.0),
+    "WHISPER": Modifier(0.90, -3.0),
     "SHOUT": Modifier(1.0, 3.0),
 }
 
