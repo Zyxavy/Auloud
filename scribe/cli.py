@@ -663,6 +663,12 @@ def build(
         help="How many chapters render at once: slow (1), balanced (4), "
         "fast (up to 8; the measured GPU knee). One render owns the machine.",
     ),
+    workers: int | None = typer.Option(
+        None,
+        "--workers",
+        help="Override the --render-speed worker count (e.g. --workers 3). "
+        "Ignored when omitted.",
+    ),
     plan: bool = typer.Option(
         False,
         "--plan",
@@ -708,10 +714,11 @@ def build(
 
     # Resolved before the plan branch so a typo'd tier fails there too.
     try:
-        workers = workers_for_speed(render_speed)
+        tier_workers = workers_for_speed(render_speed)
     except BuildError as exc:
         typer.echo(f"build failed: {exc}", err=True)
         raise typer.Exit(code=1)
+    workers = workers if workers is not None else tier_workers
 
     if engine not in ("python", "rust"):
         typer.echo(f"build failed: engine must be python or rust (got {engine!r})", err=True)
