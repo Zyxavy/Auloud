@@ -844,4 +844,50 @@ class EpubContainerReaderTest {
             book.warnings.any { it.contains("ghost") && it.contains("skipped") }
         )
     }
+
+    private fun withDoctype(opf: ByteArray, doctype: String): ByteArray =
+        String(opf, Charsets.UTF_8).replaceFirst("?>", "?>" + doctype).toByteArray(Charsets.UTF_8)
+
+    @Test
+    fun entityDeclarationIsRejected() {
+        val target = File(temp.root, "entity.epub")
+        writeZip(
+            target,
+            mapOf(
+                "mimetype" to "application/epub+zip".toByteArray(Charsets.UTF_8),
+                "META-INF/container.xml" to containerXml("OEBPS/content.opf"),
+                "OEBPS/content.opf" to withDoctype(
+                    opfEpub3("Test Book", "Test Author", "en"),
+                    "<!DOCTYPE x [<!ENTITY a \"aaaa\">]>"
+                ),
+                "OEBPS/ch1.xhtml" to chapterXhtml("Chapter One", "Text."),
+                "OEBPS/nav.xhtml" to navXhtml(listOf(Pair("ch1.xhtml", "Chapter One")))
+            )
+        )
+        val result = EpubContainerReader.read(target)
+        assertTrue("entity declarations must refuse the book", result.isFailure)
+        val message = result.exceptionOrNull()?.message ?: ""
+        assertTrue("must name the OPF and the rule, got: $message", message.contains("content.opf"))
+        assertTrue("must name the entity rule, got: $message", message.contains("entity"))
+    }
+
+    @Test
+    fun plainDoctypeWithoutEntitiesStillReads() {
+        val target = File(temp.root, "doctype.epub")
+        writeZip(
+            target,
+            mapOf(
+                "mimetype" to "application/epub+zip".toByteArray(Charsets.UTF_8),
+                "META-INF/container.xml" to containerXml("OEBPS/content.opf"),
+                "OEBPS/content.opf" to withDoctype(
+                    opfEpub3("Test Book", "Test Author", "en"),
+                    "<!DOCTYPE package PUBLIC \"-//IDPF//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\">"
+                ),
+                "OEBPS/ch1.xhtml" to chapterXhtml("Chapter One", "Text."),
+                "OEBPS/nav.xhtml" to navXhtml(listOf(Pair("ch1.xhtml", "Chapter One")))
+            )
+        )
+        val book = EpubContainerReader.read(target).getOrThrow()
+        assertEquals("Test Book", book.title)
+    }
 }
