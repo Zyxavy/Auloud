@@ -20,7 +20,7 @@
 - Bundle format unchanged (`spec/bundle.md` untouched). Storage still goes through `BundleStorage`.
 - Network: INTERNET stays LAN-receiver-only; no other network use.
 - No em-dashes and no arrow characters in code, comments or docs.
-- One commit per task by the implementer: subject `WPn: short summary`, body ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Stage only the files you changed (never `git add -A`; never stage `scribe/tmp/`).
+- One commit per task by the implementer: subject `WPn: short summary`; NO Co-Authored-By or "Generated with Claude" lines (owner rule). Stage only the files you changed (never `git add -A`; never stage `scribe/tmp/`).
 - Never claim device behavior is verified; list "needs device test" items.
 - Player test command (from `player/`): `./gradlew.bat :app:testCoreDebugUnitTest --tests "<Pattern>" :app:testFullDebugUnitTest --tests "<Pattern>" --no-daemon -q` (testFull-only classes: run only the full task).
 - Scribe test command (from `scribe/`): `uv run pytest <path>::<name> -q`.
