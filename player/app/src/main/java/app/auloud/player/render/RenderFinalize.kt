@@ -428,8 +428,9 @@ object RenderFinalize {
     }
 
     /**
-     * Temp-then-rename text write with the RN3 retry loop (20 x 50 ms,
-     * delete-target fallback for the Windows rename case). Readers only
+     * Temp-then-rename text write with the RN3 retry loop (20 x 50 ms).
+     * The live target is never deleted, so a failed rename keeps the old
+     * file; production rename replaces the target on Android. Readers only
      * ever see the old file or the new file, never a torn write.
      */
     internal fun atomicWriteText(
@@ -457,7 +458,6 @@ object RenderFinalize {
                 io.deleteIfExists(tmpPath)
                 return Result.success(Unit)
             }
-            if (io.exists(targetPath)) io.deleteIfExists(targetPath)
             attempt++
             if (attempt >= WRITE_RETRIES) {
                 io.deleteIfExists(tmpPath)

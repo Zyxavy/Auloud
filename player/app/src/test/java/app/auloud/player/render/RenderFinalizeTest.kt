@@ -29,6 +29,7 @@ class RenderFinalizeTest {
         var sleeps = 0
         val sleeper: (Long) -> Unit = { sleeps++ }
         var renameFailuresLeft = 0
+        val deleted = mutableListOf<String>()
 
         override fun exists(path: String): Boolean = files.containsKey(path)
 
@@ -51,6 +52,7 @@ class RenderFinalizeTest {
         }
 
         override fun deleteIfExists(path: String) {
+            deleted += path
             files.remove(path)
         }
     }
@@ -348,6 +350,34 @@ class RenderFinalizeTest {
         assertTrue(result.isSuccess)
         assertEquals("{}", io.files["/b/f.json"])
         assertEquals(2, io.sleeps)
+    }
+
+    @Test
+    fun renameFailureKeepsTarget() {
+        val io = FakeIo()
+        val target = "/b/f.json"
+        io.files[target] = "old"
+        io.renameFailuresLeft = 1
+
+        val result = RenderFinalize.atomicWriteText(target, "new", io, io.sleeper)
+
+        assertTrue(result.isSuccess)
+        assertEquals("new", io.files[target])
+        assertFalse(io.deleted.contains(target))
+    }
+
+    @Test
+    fun renameAlwaysFails_keepsOldTarget() {
+        val io = FakeIo()
+        val target = "/b/f.json"
+        io.files[target] = "old"
+        io.renameFailuresLeft = Int.MAX_VALUE
+
+        val result = RenderFinalize.atomicWriteText(target, "new", io, io.sleeper)
+
+        assertTrue(result.isFailure)
+        assertEquals("old", io.files[target])
+        assertFalse(io.files.containsKey(RenderFinalize.tmpPathFor(target)))
     }
 
     @Test
