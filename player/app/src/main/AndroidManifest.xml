@@ -3,7 +3,8 @@
 
     <!-- Slice 1 WP1: legacy storage + foreground playback on API 24.
          WP3/WP5 refinement (user-approved): WRITE joins READ so first launch
-         can auto-create the shared-internal /Auloud default. -->
+         can auto-create the shared-internal /Auloud default. That holds on
+         API 24-29 only; API 30+ uses the app-specific dir (D-214). -->
     <!-- Legacy storage permissions are capped by maxSdkVersion so that
          newer APIs never receive them. -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />

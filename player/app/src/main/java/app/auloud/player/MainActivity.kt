@@ -3,6 +3,7 @@ package app.auloud.player
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.util.Log
@@ -65,13 +66,15 @@ import kotlinx.coroutines.ensureActive
 /** WP1 shell; WP5 wires the library screen. WP7 adds the player screen. */
 class MainActivity : ComponentActivity() {
 
-    // WP3/WP5 refinement: READ + WRITE together (shared-internal `/Auloud`
-    // needs WRITE on Android 6+). WP5 forwards the result to the
-    // LibraryViewModel so the no-permission state can retry it.
+    // WP3/WP5 refinement: READ + WRITE together below API 30 (shared-internal
+    // `/Auloud` needs WRITE; none from API 30, D-214). WP5 forwards the result
+    // to the LibraryViewModel so the no-permission state can retry it.
     private val storagePermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
-        val granted = StoragePermissions.allGranted { grants[it] == true }
+        val granted = StoragePermissions.allGranted(Build.VERSION.SDK_INT) {
+            grants[it] == true || checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
+        }
         Log.i(TAG, "storage granted=$granted")
         if (granted) {
             ensureDefaultFolder()
@@ -399,11 +402,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestStoragePermissionIfNeeded() {
-        if (!StoragePermissions.allGranted { permission ->
-            checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
-        }
-        ) {
-            storagePermissions.launch(StoragePermissions.required())
+        val request = StoragePermissions.toRequest(Build.VERSION.SDK_INT)
+        if (request.any { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }) {
+            storagePermissions.launch(request)
         }
     }
 
@@ -653,13 +654,13 @@ class MainActivity : ComponentActivity() {
                 libraryRepository = libraryRepository,
                 progressRepository = progressRepository,
                 isPermissionGranted = {
-                    StoragePermissions.allGranted { permission ->
+                    StoragePermissions.allGranted(Build.VERSION.SDK_INT) { permission ->
                         checkSelfPermission(permission) ==
                             PackageManager.PERMISSION_GRANTED
                     }
                 },
                 requestPermission = {
-                    storagePermissions.launch(StoragePermissions.required())
+                    storagePermissions.launch(StoragePermissions.toRequest(Build.VERSION.SDK_INT))
                 },
                 // RN9: render job progress for the library chips
                 // (`render-job.json` per book; best effort, never throws).

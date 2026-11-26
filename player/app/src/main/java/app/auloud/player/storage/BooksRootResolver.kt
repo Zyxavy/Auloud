@@ -1,12 +1,14 @@
 package app.auloud.player.storage
 
 import android.content.Context
+import android.os.Build
 import android.os.Environment
 import java.io.File
 
 /**
  * WP3 default "books folder" resolution, WP3/WP5 refinement: the default is
- * the shared-internal `/Auloud` (user-approved; needs WRITE_EXTERNAL_STORAGE).
+ * the shared-internal `/Auloud` below API 30 (user-approved; needs WRITE_EXTERNAL_STORAGE),
+ * and the app-specific `/Auloud` from API 30 (D-214).
  * The SD-first preference is dropped: SD cards still work when the user picks
  * them (persistable SAF grant) or when a migrated file path points at one,
  * but the default never prefers removable storage.
@@ -77,22 +79,34 @@ object BooksRootResolver {
     }
 
     /**
-     * Full default: shared-internal `/Auloud`
-     * (`Environment.getExternalStorageDirectory`, the primary shared volume).
-     * Falls back to the app-private files dir only when shared storage is
-     * unavailable (never to the SD card — SD arrives via the picker now).
+     * D-214: the default by API level. Below API 30 it is shared-internal
+     * `/Auloud` (legacy WRITE permission). From API 30 shared storage is
+     * scoped, so it is `/Auloud` under the app-specific external dir (no
+     * permission). Falls back to the app-private files dir when the base is
+     * unavailable. Plain-JVM-testable.
      */
+    fun defaultBooksRootFor(
+        sdkInt: Int,
+        sharedRoot: String?,
+        appExternalFiles: String?,
+        filesDir: String
+    ): String {
+        val base = if (sdkInt < Build.VERSION_CODES.R) sharedRoot else appExternalFiles
+        return internalSharedDefault(if (!base.isNullOrBlank()) base else filesDir)
+    }
+
+    /** The default books root on this device. Never SD-first (SD arrives via the picker). */
     fun defaultBooksRoot(context: Context): String {
         val shared = try {
             Environment.getExternalStorageDirectory()?.absolutePath
         } catch (e: Exception) {
             null
         }
-        val base = if (!shared.isNullOrBlank()) {
-            shared
-        } else {
+        return defaultBooksRootFor(
+            Build.VERSION.SDK_INT,
+            shared,
+            context.getExternalFilesDir(null)?.absolutePath,
             context.filesDir.absolutePath
-        }
-        return internalSharedDefault(base)
+        )
     }
 }
