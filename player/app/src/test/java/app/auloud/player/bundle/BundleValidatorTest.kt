@@ -400,4 +400,26 @@ class BundleValidatorTest {
         assertTrue(!BundleValidator.V1_VERSIONS.contains("2.0"))
         assertTrue(BundleValidator.SUPPORTED_VERSIONS.contains("2.0"))
     }
+
+    @Test
+    fun nonConsecutiveChapterIndex_isRejected() {
+        val dir = fixtureDir("valid-bundle")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        val first = manifest.chapters[0]
+        val bad = manifest.copy(chapters = listOf(first.copy(index = 1), first.copy(index = 3)))
+        val joined = BundleValidator.validate(dir, bad).joinToString("\n")
+        assertTrue("error must name manifest.json, got: $joined", joined.contains("manifest.json"))
+        assertTrue("error must name the index rule, got: $joined", joined.contains("chapter entry 2 has index 3, expected 2"))
+    }
+
+    @Test
+    fun duplicateChapterIndex_isRejected() {
+        val dir = fixtureDir("valid-bundle")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        val first = manifest.chapters[0]
+        val bad = manifest.copy(chapters = listOf(first.copy(index = 2), first.copy(index = 2)))
+        val joined = BundleValidator.validate(dir, bad).joinToString("\n")
+        assertTrue("error must name manifest.json, got: $joined", joined.contains("manifest.json"))
+        assertTrue("error must name the index rule, got: $joined", joined.contains("chapter entry 1 has index 2, expected 1"))
+    }
 }
