@@ -438,15 +438,16 @@ def open_folder(path_str: str, *, opener: Callable[[str], None] | None = None) -
     Calls ``os.startfile`` (or the injected ``opener`` in tests) and
     returns the path. Raises ``ValueError`` shaped
     ``path: open-unsupported: ...`` on non-Windows and
-    ``path: bad-destination: ...`` when missing. Callers put this behind a
+    ``path: bad-destination: ...`` when missing or not a folder (a file would
+    otherwise be launched in its default app). Callers put this behind a
     token-guarded POST (server-side open is a state change).
     """
     text = str(path_str or "").strip()
     if not text:
         raise ValueError("folder: bad-destination: nothing to open")
     target = Path(text)
-    if not target.exists():
-        raise ValueError(f"{text}: bad-destination: folder does not exist")
+    if not target.is_dir():
+        raise ValueError(f"{text}: bad-destination: not an existing folder")
     if opener is not None:
         opener(str(target))
         return str(target)
