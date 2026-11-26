@@ -249,6 +249,13 @@ class RenderService : Service() {
         } catch (_: Exception) {
         }
         powerReceiver = null
+        releaseEngines()
+        serviceScope.cancel()
+        super.onDestroy()
+    }
+
+    /** Frees the engines of the previous graph; callers guarantee no render loop uses them. */
+    private fun releaseEngines() {
         try {
             systemDriver?.shutdown()
         } catch (_: Exception) {
@@ -264,8 +271,6 @@ class RenderService : Service() {
         } catch (_: Exception) {
         }
         kittenEngine = null
-        serviceScope.cancel()
-        super.onDestroy()
     }
 
     /** Explicit start (or re-start) for [bookId]; refuses while another book renders. */
@@ -697,13 +702,14 @@ class RenderService : Service() {
         }
     }
 
-    /** VS3: engine graph for one render run (registry plus globals, released on destroy). */
+    /** VS3: engine graph for one render run (registry plus globals, released on destroy or at the next build). */
     private data class RenderGraph(
         val registry: EngineRegistry,
         val globals: PrefsTtsStore
     )
 
     private fun buildRenderGraph(): RenderGraph? {
+        releaseEngines()
         return try {
             val driver = AndroidSystemTtsDriver(this)
             systemDriver = driver
