@@ -594,6 +594,9 @@ def test_fingerprint_changes_with_emotion_mode() -> None:
     engine = VoicesEngine()
     off = _fingerprint(_cast(), {"kokoro": engine}, chapter, emotion="off")
     speed = _fingerprint(_cast(), {"kokoro": engine}, chapter, emotion="speed")
+    # Render JSON reads back as lists; a fingerprint that differs from its own
+    # JSON round trip never matches a stored one, so the chapter never skips.
+    assert json.loads(json.dumps(off)) == off
     assert off != speed
     off_speed = next(row[4] for row in off["voices"] if row[0] == 1)
     speed_speed = next(row[4] for row in speed["voices"] if row[0] == 1)

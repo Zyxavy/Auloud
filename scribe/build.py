@@ -964,7 +964,7 @@ def _fingerprint(
         "pitch": VOICE_PITCH,
         "emotion": emotion,
         "emotion_modifiers": (
-            {k: (v.speed_mult, v.gain_db) for k, v in parse_emotion_modifiers(cast).items()}
+            {k: [v.speed_mult, v.gain_db] for k, v in parse_emotion_modifiers(cast).items()}
             if isinstance(cast, dict)
             else {}
         ),
