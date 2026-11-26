@@ -41,7 +41,7 @@ class SherpaKittenEngine(
 
     private val lock = Any()
     private var loaded: KittenHandle? = null
-    private var released = false
+    @Volatile private var released = false
 
     override fun voices(): List<TtsVoice> {
         val complete = pack ?: return emptyList()

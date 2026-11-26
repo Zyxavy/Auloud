@@ -59,7 +59,7 @@ class SherpaPiperEngine(
 
     private val lock = Any()
     private val loaded = mutableMapOf<String, PiperHandle>()
-    private var released = false
+    @Volatile private var released = false
 
     override fun voices(): List<TtsVoice> {
         if (released) return emptyList()
