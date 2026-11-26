@@ -15,11 +15,19 @@ import org.junit.Test
  */
 class ChapterTextLoaderTest {
 
-    private class FakeStorage(private val files: Map<String, String>) : BundleStorage {
+    private class FakeStorage(
+        private val files: Map<String, String>,
+        private val sizes: Map<String, Long> = emptyMap()
+    ) : BundleStorage {
+        var readCalls = 0
+            private set
         override fun listBundleDirs(root: String): List<String> = emptyList()
-        override fun readText(path: String): String =
-            files[path] ?: throw java.io.IOException("missing: $path")
+        override fun readText(path: String): String {
+            readCalls++
+            return files[path] ?: throw java.io.IOException("missing: $path")
+        }
         override fun exists(path: String): Boolean = files.containsKey(path)
+        override fun sizeBytes(path: String): Long? = sizes[path]
         override fun audioUri(bundleDir: String, relPath: String): Uri =
             throw UnsupportedOperationException("not used by the loader")
         override fun coverUri(bundleDirPath: String, coverRel: String): String? = null
@@ -184,5 +192,33 @@ class ChapterTextLoaderTest {
         val result = ChapterTextLoader.load(FakeStorage(mapOf("t" to payload)), "t")
         assertTrue("expected success but got: ${result.exceptionOrNull()?.message}", result.isSuccess)
         assertEquals(null, result.getOrThrow().durationMs)
+    }
+
+    @Test
+    fun oversizeTextIsInvalidWithoutRead() = runBlocking {
+        val payload = chapterJson(sentence(1, 0, 7450))
+        val storage = FakeStorage(
+            mapOf("t" to payload),
+            sizes = mapOf("t" to BundleValidator.MAX_TEXT_BYTES + 1L)
+        )
+        val result = ChapterTextLoader.load(storage, "t")
+        assertTrue("wrong type: ${result.exceptionOrNull()}", result.exceptionOrNull() is ChapterTextInvalid)
+        assertEquals(0, storage.readCalls)
+    }
+
+    @Test
+    fun dotDotTextPathIsUnavailable() = runBlocking {
+        val path = "/b/text/../../x.json"
+        val storage = FakeStorage(mapOf(path to chapterJson(sentence(1, 0, 7450))))
+        val result = ChapterTextLoader.load(storage, path)
+        assertTrue("wrong type: ${result.exceptionOrNull()}", result.exceptionOrNull() is ChapterTextInvalid)
+        assertEquals(0, storage.readCalls)
+    }
+
+    @Test
+    fun unknownSizeStillLoads() = runBlocking {
+        val payload = chapterJson(sentence(1, 0, 7450))
+        val result = ChapterTextLoader.load(FakeStorage(mapOf("t" to payload)), "t")
+        assertTrue("expected success but got: ${result.exceptionOrNull()?.message}", result.isSuccess)
     }
 }

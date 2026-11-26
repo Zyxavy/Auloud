@@ -22,7 +22,8 @@ import kotlinx.serialization.json.jsonObject
  * - [ChapterTextInvalid]: malformed JSON or a spec rule broken. Names the
  *   file and every rule violated. Truncated JSON, wrong-type `pages`
  *   (e.g. a string, null entries, non-integer fields) and huge values
- *   all land here, never crash.
+ *   all land here, never crash. Text over [BundleValidator.MAX_TEXT_BYTES]
+ *   and paths with a `..` segment are refused before any read.
  *
  * Parsing runs on `Dispatchers.IO`, never the caller's thread.
  *
@@ -45,9 +46,25 @@ object ChapterTextLoader {
         withContext(Dispatchers.IO) {
             val raw: String
             try {
+                // Traversal is refused before any storage access (manifests are
+                // checked by BundleValidator.safeJoin; direct callers are not).
+                if (textPath.split('/', '\\').any { it == ".." }) {
+                    return@withContext Result.failure(
+                        ChapterTextInvalid("$textPath: text path escapes bundle")
+                    )
+                }
                 if (!storage.exists(textPath)) {
                     return@withContext Result.failure(
                         ChapterTextUnavailable("$textPath: text file not found")
+                    )
+                }
+                val size = storage.sizeBytes(textPath)
+                if (size != null && size > BundleValidator.MAX_TEXT_BYTES) {
+                    return@withContext Result.failure(
+                        ChapterTextInvalid(
+                            "$textPath: text file too large " +
+                                "(exceeds ${BundleValidator.MAX_TEXT_BYTES} bytes)"
+                        )
                     )
                 }
                 raw = storage.readText(textPath)
