@@ -160,6 +160,25 @@ STATE_CHANGING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _HEARTBEAT_S = 15.0
 _TAIL_POLL_S = 0.5
 
+
+def _read_new_lines(path: Path, offset: int) -> tuple[list[bytes], int]:
+    """Complete lines of ``path`` from byte ``offset``, and the offset after them.
+
+    A last line without its newline yet stays unread, so a writer mid-append
+    is never split across two SSE frames.
+    """
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(offset)
+            data = handle.read()
+    except OSError:
+        return [], offset
+    end = data.rfind(b"\n")
+    if end < 0:
+        return [], offset
+    return data[:end].split(b"\n"), offset + end + 1
+
+
 #: Largest single ebook upload the server accepts (streamed to disk in
 #: chunks, so this caps disk use, not RAM; ebooks over this are refused
 #: with 413 ``too-large`` before any draft is queued).
@@ -980,25 +999,30 @@ def create_app(
             # the periodic one keeps idle connections (and Edge) alive.
             yield ": ping\n\n"
             last_heartbeat = asyncio.get_event_loop().time()
-            sent = offset
+            sent = 0  # complete lines read so far; SSE ids are their 1-based numbers
+            pos = 0  # byte offset of the first line not yet read
+
+            def _drain() -> list[str]:
+                nonlocal sent, pos
+                fresh, pos = _read_new_lines(events_path, pos)
+                frames: list[str] = []
+                for raw in fresh:
+                    sent += 1
+                    if sent <= offset:
+                        continue
+                    try:
+                        line = raw.rstrip(b"\r").decode("utf-8")
+                        json.loads(line)
+                    except ValueError:
+                        continue  # blank or invalid line: skipped, but still numbered
+                    frames.append(f"id: {sent}\ndata: {line}\n\n")
+                return frames
+
             while True:
                 if await request.is_disconnected():
                     break
-                try:
-                    text = events_path.read_text(encoding="utf-8")
-                except OSError:
-                    text = ""
-                lines = text.splitlines()
-                while sent < len(lines):
-                    line = lines[sent]
-                    sent += 1
-                    if not line.strip():
-                        continue
-                    try:
-                        json.loads(line)
-                    except ValueError:
-                        continue  # skip torn tail writes; the next poll retries
-                    yield f"id: {sent}\ndata: {line}\n\n"
+                for frame in _drain():
+                    yield frame
                 try:
                     job = manager.get_job(job_id)
                 except (KeyError, ValueError):
@@ -1006,21 +1030,8 @@ def create_app(
                 if job.get("state") in ("done", "failed", "cancelled", "paused", "interrupted"):
                     # One last drain (a done line may have landed mid-poll),
                     # then close so TestClient-style readers terminate.
-                    try:
-                        text = events_path.read_text(encoding="utf-8")
-                    except OSError:
-                        text = ""
-                    lines = text.splitlines()
-                    while sent < len(lines):
-                        line = lines[sent]
-                        sent += 1
-                        if not line.strip():
-                            continue
-                        try:
-                            json.loads(line)
-                        except ValueError:
-                            continue
-                        yield f"id: {sent}\ndata: {line}\n\n"
+                    for frame in _drain():
+                        yield frame
                     break
                 now = asyncio.get_event_loop().time()
                 if now - last_heartbeat >= _HEARTBEAT_S:
