@@ -127,6 +127,13 @@ internal data class SplitRecompute(
 )
 
 /**
+ * RN4 (A14): the spool index is rewritten every this many newly spooled
+ * sentences (plus on cancel, failure and chapter end), so a kill re-renders
+ * at most this many minus one sentences on resume.
+ */
+internal const val SPOOL_PERSIST_EVERY = 25
+
+/**
  * RN4: voice-batched synthesis passes with spool (Slice 10 plan RN4, D-091).
  *
  * Per chapter: pass 1 synthesizes every narrator sentence in sid order,
@@ -142,6 +149,9 @@ internal data class SplitRecompute(
  * INTERRUPTED jobs re-enter here); entries whose PCM exists under the
  * current fingerprint are skipped, a fingerprint mismatch invalidates the
  * chapter spool (stale files deleted best-effort, everything re-renders).
+ * The index is written every [SPOOL_PERSIST_EVERY] new sentences, so PCM
+ * spooled after the last index write is not trusted and re-renders (at
+ * most [SPOOL_PERSIST_EVERY] - 1 sentences per kill).
  * One retry per sentence, then the chapter fails naming chapter plus sid.
  * Cancellation is cooperative between sentences. Engines release between
  * passes only when the roles use distinct instances (two Piper models must
@@ -239,8 +249,11 @@ object SpoolRenderer {
 
         suspend fun persist(): Boolean {
             return try {
-                io.writeText(indexPath, SpoolIndex.render(currentIndex(chapterNumber, voices, entries)))
-                true
+                RenderFinalize.atomicWriteText(
+                    indexPath,
+                    SpoolIndex.render(currentIndex(chapterNumber, voices, entries)),
+                    io
+                ).isSuccess
             } catch (_: Exception) {
                 false
             }
@@ -309,7 +322,7 @@ object SpoolRenderer {
                     peak = SpoolPcm.peakOf(audio.samples)
                 )
                 spooled++
-                if (!persist()) {
+                if (spooled % SPOOL_PERSIST_EVERY == 0 && !persist()) {
                     return ChapterSpoolOutcome.Failed(
                         chapterPos, chapterNumber, sid,
                         "chapter $chapterNumber sentence $sid: " +

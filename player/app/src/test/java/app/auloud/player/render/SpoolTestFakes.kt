@@ -71,6 +71,12 @@ internal class MemSpoolIo : SpoolIo {
         texts[path] = text
     }
 
+    override fun renameTempToTarget(tmpPath: String, targetPath: String): Boolean {
+        val text = texts.remove(tmpPath) ?: return false
+        texts[targetPath] = text
+        return true
+    }
+
     override fun deleteIfExists(path: String) {
         bytes.remove(path)
         texts.remove(path)
