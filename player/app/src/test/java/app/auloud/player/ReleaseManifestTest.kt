@@ -57,4 +57,63 @@ class ReleaseManifestTest {
             assertTrue("expected permission $permission", manifest.contains(permission))
         }
     }
+
+    @Test
+    fun playbackServiceDeclaresMediaPlaybackType() {
+        val manifest = sourceManifest()
+        assertTrue(
+            "PlaybackService needs foregroundServiceType mediaPlayback (API 29+)",
+            manifest.contains("android:foregroundServiceType=\"mediaPlayback\"")
+        )
+        assertTrue(
+            "FOREGROUND_SERVICE_MEDIA_PLAYBACK must ship (API 34+)",
+            manifest.contains("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK")
+        )
+    }
+
+    @Test
+    fun renderServiceDeclaresSpecialUseType() {
+        val manifest = sourceManifest()
+        assertTrue(
+            "RenderService needs foregroundServiceType specialUse (API 34+)",
+            manifest.contains("android:foregroundServiceType=\"specialUse\"")
+        )
+        assertTrue(
+            "FOREGROUND_SERVICE_SPECIAL_USE must ship (API 34+)",
+            manifest.contains("android.permission.FOREGROUND_SERVICE_SPECIAL_USE")
+        )
+        assertTrue(
+            "specialUse needs its PROPERTY_SPECIAL_USE_FGS_SUBTYPE declaration",
+            manifest.contains("android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE")
+        )
+    }
+
+    @Test
+    fun ttsEnginesAreQueryable() {
+        val manifest = sourceManifest()
+        assertTrue("manifest needs a <queries> block (API 30+ package visibility)", manifest.contains("<queries>"))
+        assertTrue(
+            "TTS engines must be queryable on API 30+",
+            manifest.contains("android.intent.action.TTS_SERVICE")
+        )
+    }
+
+    @Test
+    fun notificationPermissionDeclared() {
+        assertTrue(
+            "POST_NOTIFICATIONS must ship (API 33+ runtime permission)",
+            sourceManifest().contains("android.permission.POST_NOTIFICATIONS")
+        )
+    }
+
+    @Test
+    fun legacyStorageCappedAtApi29() {
+        val manifest = sourceManifest()
+        val write = Regex("<uses-permission[^>]*WRITE_EXTERNAL_STORAGE[^>]*>").find(manifest)?.value
+        val read = Regex("<uses-permission[^>]*READ_EXTERNAL_STORAGE[^>]*>").find(manifest)?.value
+        assertTrue("WRITE_EXTERNAL_STORAGE element missing", write != null)
+        assertTrue("READ_EXTERNAL_STORAGE element missing", read != null)
+        assertTrue("WRITE_EXTERNAL_STORAGE must carry maxSdkVersion=29", write!!.contains("android:maxSdkVersion=\"29\""))
+        assertTrue("READ_EXTERNAL_STORAGE must carry maxSdkVersion=32", read!!.contains("android:maxSdkVersion=\"32\""))
+    }
 }
