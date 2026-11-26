@@ -62,9 +62,10 @@
             </intent-filter>
         </service>
         <!-- RN8: foreground render service. API 24: started with plain
-             startService (no startForegroundService, API 26+), and no
-             notification channels (API 26+; the service builds the platform
-             notification directly). specialUse rather than dataSync: the
+             startService (no startForegroundService, API 26+), and the
+             render notification channel is created on API 26+ (API 24 has no
+             channels, so the service builds the platform notification directly).
+             specialUse rather than dataSync: the
              dataSync type has a 6 h per day cap on API 35+ that a long book
              render can exceed. foregroundServiceType is ignored below API 29.
              The WAKE_LOCK permission above (normal, install-time) covers the
