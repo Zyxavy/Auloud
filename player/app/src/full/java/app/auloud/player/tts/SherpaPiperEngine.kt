@@ -57,6 +57,7 @@ class SherpaPiperEngine(
         }
     }.toMap()
 
+    private val lock = Any()
     private val loaded = mutableMapOf<String, PiperHandle>()
     private var released = false
 
@@ -78,22 +79,27 @@ class SherpaPiperEngine(
     ): SynthesizedAudio {
         require(text.isNotBlank()) { "blank text" }
         require(voice.engine == PIPER_NAMESPACE) { "voice ${voice.id} is not a piper voice" }
-        check(!released) { "engine released" }
         val local = voice.id.substringAfter(':')
-        val (packDir, model) = complete[local]
-            ?: throw IllegalArgumentException("unknown piper voice ${voice.id}")
-        val handle = loaded.getOrPut(local) {
-            openHandle(packDir, model)
+        // Lock spans check, load and generate: release() waits out an in-flight JNI generate.
+        val (samples, rate) = synchronized(lock) {
+            check(!released) { "engine released" }
+            val (packDir, model) = complete[local]
+                ?: throw IllegalArgumentException("unknown piper voice ${voice.id}")
+            val handle = loaded.getOrPut(local) {
+                openHandle(packDir, model)
+            }
+            handle.generate(text, clampTtsSpeed(speed))
         }
-        val (samples, rate) = handle.generate(text, clampTtsSpeed(speed))
         return SynthesizedAudio(sampleRateHz = rate, samples = samples)
     }
 
     /** Drop every loaded native instance (idempotent). */
     fun release() {
-        released = true
-        loaded.values.forEach { runCatching { it.release() } }
-        loaded.clear()
+        synchronized(lock) {
+            released = true
+            loaded.values.forEach { runCatching { it.release() } }
+            loaded.clear()
+        }
     }
 
     companion object {
