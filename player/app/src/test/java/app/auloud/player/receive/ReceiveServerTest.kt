@@ -474,6 +474,24 @@ class ReceiveServerTest {
     }
 
     @Test
+    fun correctCodeRefusedAfterCap() {
+        val root = booksRoot()
+        val server = ReceiveServer(0, code, root, storage, library, badCodeDelayMs = 0L)
+        server.start()
+        try {
+            repeat(ReceiveServer.MAX_BAD_GUESSES + 1) {
+                post(server.listeningPort, "000000", null, ByteArray(0))
+            }
+            val body = zipBytes(validEntries())
+            val (status, _) = post(server.listeningPort, code, sha256Hex(body), body)
+            assertEquals(429, status)
+            assertTrue(!java.io.File(root, "wifi-book-1").exists())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
     fun oversizeDeclaredLengthIsDetected() {
         assertTrue(ReceiveServer.oversizeDeclaredLength("${ReceiveServer.MAX_UPLOAD_BYTES + 1}"))
         assertTrue(!ReceiveServer.oversizeDeclaredLength("${ReceiveServer.MAX_UPLOAD_BYTES}"))

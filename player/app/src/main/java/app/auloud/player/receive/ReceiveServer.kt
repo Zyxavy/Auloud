@@ -59,18 +59,20 @@ class ReceiveServer(
                 error = "bundle.zip: not-found: POST /bundle only"
             )
         }
+        // Hard cap so a neighbor cannot guess forever: once MAX_BAD_GUESSES
+        // wrong codes were seen, every request is refused, even the right
+        // code. The cap lasts this server's lifetime; reopening Receive
+        // starts a new server with a new code.
+        if (badGuesses.get() >= MAX_BAD_GUESSES) {
+            return json(
+                Response.Status.TOO_MANY_REQUESTS,
+                ok = false,
+                error = "bundle.zip: too-many-attempts: too many wrong pairing codes"
+            )
+        }
         if (!constantTimeEquals(session.headers["x-pairing-code"], pairingCode)) {
-            // One-second brake on wrong guesses (each connection has its
-            // own thread), plus a hard cap so a neighbor cannot guess
-            // forever: after MAX_BAD_GUESSES the server refuses until it is
-            // restarted (the Receive screen owns its lifetime).
-            if (badGuesses.incrementAndGet() > MAX_BAD_GUESSES) {
-                return json(
-                    Response.Status.TOO_MANY_REQUESTS,
-                    ok = false,
-                    error = "bundle.zip: too-many-attempts: too many wrong pairing codes"
-                )
-            }
+            // One-second brake on wrong guesses (each connection has its own thread).
+            badGuesses.incrementAndGet()
             try {
                 Thread.sleep(badCodeDelayMs)
             } catch (_: InterruptedException) {
@@ -82,7 +84,6 @@ class ReceiveServer(
                 error = "bundle.zip: bad-code: wrong pairing code"
             )
         }
-        badGuesses.set(0)
         if (oversizeDeclaredLength(session.headers["content-length"])) {
             // Refuse a declared oversize upload before NanoHTTPD streams it
             // to a temp file; the pipeline's unpacked cap stays the second
