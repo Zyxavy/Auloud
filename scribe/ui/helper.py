@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from lock import _pid_alive
-from ui.server import BIND_HOST, acquire_ui_lock, find_free_port
+from ui.server import BIND_HOST, MAX_PORT_OFFSET, acquire_ui_lock
 
 #: Environment variable carrying the per-run token (never argv: visible).
 HELPER_ENV_TOKEN = "AULOUD_HELPER_TOKEN"
@@ -68,13 +68,25 @@ def helper_versions() -> dict[str, Any]:
     }
 
 
-def pick_port(preferred: int) -> int:
-    """Resolve the serve port: 0 means OS-assigned, else next-free-up."""
-    if preferred == 0:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-            sock.bind((BIND_HOST, 0))
-            return int(sock.getsockname()[1])
-    return find_free_port(preferred, BIND_HOST)
+def listen_socket(preferred: int) -> socket.socket:
+    """Bind and listen on the serve port: 0 is OS-assigned, else the next free one up.
+
+    Listening before the ready line lets a client that read it connect at once;
+    uvicorn then serves on this same socket, so the port cannot be lost in between.
+    """
+    if not 0 <= preferred <= 65535:
+        raise HelperError(f"{preferred}: bad-port: --port must be 0-65535")
+    ports = [0] if preferred == 0 else range(preferred, min(preferred + MAX_PORT_OFFSET, 65536))
+    for port in ports:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.bind((BIND_HOST, port))
+        except OSError:
+            sock.close()
+            continue
+        sock.listen()
+        return sock
+    raise HelperError(f"{preferred}: bad-port: no free port nearby")
 
 
 def parent_gone(
@@ -159,9 +171,11 @@ def run_helper(
     lock = acquire_ui_lock(folder, cmd="helper")
     handler = logging.FileHandler(logs / "helper.log", encoding="utf-8")
     logging.getLogger().addHandler(handler)
+    sock: socket.socket | None = None
     try:
         app = build_helper_app(folder, token or "")
-        picked = pick_port(port)
+        sock = listen_socket(port)
+        picked = int(sock.getsockname()[1])
         print(format_ready(picked, helper_versions()), flush=True)
         if serve_fn is not None:
             serve_fn(app, BIND_HOST, picked)
@@ -184,8 +198,10 @@ def run_helper(
                 daemon=True,
             )
             watcher.start()
-        server.run()
+        server.run(sockets=[sock])
     finally:
+        if sock is not None:
+            sock.close()
         logging.getLogger().removeHandler(handler)
         handler.close()
         lock.release()

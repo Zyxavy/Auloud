@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import json
 import socket
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -34,8 +36,8 @@ from ui.helper import (
     build_helper_app,
     format_ready,
     helper_versions,
+    listen_socket,
     parent_gone,
-    pick_port,
     run_helper,
     watchdog_once,
 )
@@ -60,6 +62,61 @@ def test_ready_line_format() -> None:
         "versions": {"scribe": "0.1.0", "spec": ["2.0"], "api": 1},
     }
     assert "\n" not in line
+
+
+def test_ready_line_port_is_bound(tmp_path: Path) -> None:
+    """A18: the port accepts connections by the time the ready line is printed."""
+    pytest.importorskip("fastapi")  # run_helper reaches ui.app (ui extra)
+    seen = {}
+
+    def connect_as_client_would(app, host, port):
+        # serve_fn runs right after the ready line: a client that read it must connect.
+        with socket.create_connection((host, port), timeout=5):
+            seen["connected"] = True
+
+    run_helper(
+        workspace=tmp_path,
+        log_dir=None,
+        port=0,
+        parent_pid=None,
+        token="tok",
+        serve_fn=connect_as_client_would,
+    )
+    assert seen == {"connected": True}
+
+
+def test_helper_serves_on_ready_port(tmp_path: Path) -> None:
+    """A18: uvicorn serves on the socket the ready line named (real server, subprocess)."""
+    pytest.importorskip("fastapi")
+    pytest.importorskip("uvicorn")
+    import urllib.request
+
+    scribe_dir = Path(__file__).resolve().parents[1]
+    code = (
+        "import sys; from pathlib import Path; from ui.helper import run_helper; "
+        "run_helper(workspace=Path(sys.argv[1]), log_dir=None, port=0, "
+        "parent_pid=None, token='tok')"
+    )
+    with (tmp_path / "stderr.log").open("w", encoding="utf-8") as errors:
+        proc = subprocess.Popen(
+            [sys.executable, "-c", code, str(tmp_path)],
+            cwd=scribe_dir,
+            stdout=subprocess.PIPE,
+            stderr=errors,
+            text=True,
+        )
+        try:
+            ready = json.loads(proc.stdout.readline())
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{ready['port']}/api/health",
+                headers={"X-Auloud-Token": "tok"},
+            )
+            with urllib.request.urlopen(request, timeout=10) as response:
+                assert response.status == 200
+        finally:
+            proc.kill()
+            proc.wait()
+            proc.stdout.close()
 
 
 def test_helper_versions_keys() -> None:
@@ -107,22 +164,24 @@ def test_host_with_port_passes(tmp_path: Path) -> None:
 
 
 def test_blank_token_refused(tmp_path: Path) -> None:
+    pytest.importorskip("fastapi")  # build_helper_app reaches ui.app (ui extra)
     with pytest.raises(HelperError):
         build_helper_app(tmp_path, "")
     with pytest.raises(HelperError):
         build_helper_app(tmp_path, "  ")
 
 
-def test_pick_port_zero_is_ephemeral() -> None:
-    port = pick_port(0)
-    assert 1 <= port <= 65535
+def test_listen_socket_zero_is_ephemeral() -> None:
+    with listen_socket(0) as sock:
+        assert 1 <= sock.getsockname()[1] <= 65535
 
 
-def test_pick_port_skips_busy() -> None:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        busy = int(sock.getsockname()[1])
-        assert pick_port(busy) != busy
+def test_listen_socket_skips_busy() -> None:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as busy_sock:
+        busy_sock.bind(("127.0.0.1", 0))
+        busy = int(busy_sock.getsockname()[1])
+        with listen_socket(busy) as sock:
+            assert sock.getsockname()[1] != busy
 
 
 def test_parent_gone_predicate() -> None:
@@ -175,6 +234,7 @@ def test_lock_refusal_names_the_holder(tmp_path: Path) -> None:
 
 
 def test_run_helper_leaks_no_log_handlers(tmp_path: Path) -> None:
+    pytest.importorskip("fastapi")  # run_helper reaches ui.app (ui extra)
     import logging
 
     before = len(logging.getLogger().handlers)
@@ -190,6 +250,7 @@ def test_run_helper_leaks_no_log_handlers(tmp_path: Path) -> None:
 
 
 def test_run_helper_uses_serve_fn_and_prints_ready(tmp_path: Path, capsys) -> None:
+    pytest.importorskip("fastapi")  # run_helper reaches ui.app (ui extra)
     seen = {}
 
     def fake_serve(app, host, port):
@@ -212,6 +273,7 @@ def test_run_helper_uses_serve_fn_and_prints_ready(tmp_path: Path, capsys) -> No
 
 
 def test_missing_token_fails_loud(tmp_path: Path) -> None:
+    pytest.importorskip("fastapi")  # run_helper reaches ui.app (ui extra)
     with pytest.raises(HelperError):
         run_helper(
             workspace=tmp_path,

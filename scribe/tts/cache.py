@@ -58,6 +58,7 @@ import math
 import os
 import re
 import threading
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -73,6 +74,24 @@ from tts.base import TTSEngine, resample_mono
 #: handles anything shorter internally. Documented, not tuned.
 MAX_SYNTH_CHARS = 1000
 
+# Characters that Kokoro cannot phonemize (emoji, zero-width marks, control
+# chars) are stripped before synthesis so a single un-speakable glyph
+# cannot abort a whole chapter. Both the cache key and the engine see the
+# cleaned text, so Python and Rust stay in sync.
+def sanitize_tts_text(text: str) -> str:
+    out = []
+    for ch in text:
+        if ch in ("\u200b", "\u200c", "\u200d", "\ufeff", "\u2060"):
+            continue
+        cat = unicodedata.category(ch)
+        # Drop control/format (C*) and "other symbols" (So) such as emoji.
+        if cat.startswith("C") or cat == "So":
+            continue
+        out.append(ch)
+    # Keep whitespace otherwise untouched so speakable text and cache keys
+    # stay stable for ordinary sentences; only drop the bad glyphs.
+    return "".join(out)
+
 _SPLIT_RE = re.compile(r"(?<=[,;])")
 
 
@@ -80,6 +99,7 @@ def cache_key(
     text: str, voice: str, speed: float, pitch: float, engine_version: str
 ) -> str:
     """Full-hash key over every input that can change the audio."""
+    text = sanitize_tts_text(text)
     canonical = "|".join(
         [text, voice, repr(float(speed)), repr(float(pitch)), engine_version]
     )
@@ -142,6 +162,15 @@ def _read_flac(path: Path, sample_rate: int) -> np.ndarray:
 #: part and the engine is thread-safe.
 _IO_LOCK = threading.Lock()
 
+#: Gates the actual engine call (D-192). Chapter workers (RT2) share one
+#: engine object, and onnxruntime's CUDA provider is not thread-safe: seven
+#: threads calling ``engine.synth`` at once did not parallelize, they
+#: contended, and each carried its own CPU-side growth until the process hit
+#: 6 GB after 8 chapters with the GPU idle. Serializing the synth call keeps
+#: cache reads/writes parallel (they are I/O, and ``_IO_LOCK`` already guards
+#: them) while only the expensive inference is exclusive. A cache HIT never
+#: takes this lock, so warm resumes stay fully parallel.
+
 
 def _read_cached(path: Path, sample_rate: int) -> np.ndarray | None:
     """Decode a cache entry, or ``None`` when it is not a usable hit.
@@ -194,6 +223,9 @@ def _write_flac_atomic(path: Path, audio: np.ndarray, sample_rate: int) -> None:
     tmp = path.with_name(f".{path.name}.tmp-{os.getpid()}-{threading.get_ident()}.flac")
     try:
         sf.write(str(tmp), audio, sample_rate, format="FLAC", subtype="PCM_24")
+        with open(tmp, "r+b") as handle:
+            handle.flush()
+            os.fsync(handle.fileno())
         os.replace(tmp, path)
     except BaseException:
         tmp.unlink(missing_ok=True)
@@ -220,6 +252,7 @@ def get_or_synth(
     key is built. A present-but-undecodable file is deleted and treated as
     a miss, never returned.
     """
+    text = sanitize_tts_text(text)
     if not text.strip():
         return np.zeros(0, dtype=np.float32)
     _check_finite("speed", speed)
@@ -245,7 +278,13 @@ def get_or_synth(
             stats.hits += 1
         return cached
 
-    audio = np.asarray(engine.synth(text, voice, speed), dtype=np.float32).ravel()
+    try:
+        audio = np.asarray(engine.synth(text, voice, speed), dtype=np.float32).ravel()
+    except Exception as exc:  # noqa: BLE001 - kokoro raises on un-phonemizable text
+        if "produced no phonemes" in str(exc) or "Nothing to synthesize" in str(exc):
+            audio = np.zeros(0, dtype=np.float32)
+        else:
+            raise
     audio = audio.astype(np.float32, copy=False)
     _store_cached(path, audio, engine.sample_rate)
     if stats is not None:

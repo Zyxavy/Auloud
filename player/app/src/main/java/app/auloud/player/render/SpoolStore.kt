@@ -24,13 +24,11 @@ import kotlinx.serialization.json.putJsonObject
  *
  * API 24 safe: plain strings and bytes, no `java.time`, no Android types.
  */
-interface SpoolIo {
-    fun exists(path: String): Boolean
-    fun readText(path: String): String
+interface SpoolIo : RenderFileIo {
     fun writeBytes(path: String, bytes: ByteArray)
-    fun writeText(path: String, text: String)
-    fun deleteIfExists(path: String)
-    fun listFiles(dir: String, prefix: String, suffix: String): List<String>
+
+    /** Re-declared abstract (the RenderFileIo default is empty): every spool IO must list. */
+    override fun listFiles(dir: String, prefix: String, suffix: String): List<String>
 }
 
 /** Production [SpoolIo] over `java.io.File` (API 24 safe). */
@@ -59,6 +57,9 @@ class JavaFileSpoolIo : SpoolIo {
     override fun writeText(path: String, text: String) {
         writeBytes(path, text.toByteArray(Charsets.UTF_8))
     }
+
+    override fun renameTempToTarget(tmpPath: String, targetPath: String): Boolean =
+        File(tmpPath).renameTo(File(targetPath))
 
     override fun deleteIfExists(path: String) {
         try {

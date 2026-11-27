@@ -69,6 +69,7 @@ import app.auloud.player.tts.bookVoiceVersionOf
 import app.auloud.player.tts.kittenEngineOrNull
 import app.auloud.player.tts.scanAppModelPacks
 import java.io.File
+import kotlin.concurrent.thread
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -191,9 +192,9 @@ fun PartialBookScreen(
     DisposableEffect(book.id) {
         onDispose {
             panelVm.clear()
-            panelSherpaHolder[0]?.release()
+            panelSherpaHolder[0]?.let { engine -> thread(name = "tts-release") { engine.release() } }
             panelSherpaHolder[0] = null
-            panelKittenHolder[0]?.release()
+            panelKittenHolder[0]?.let { engine -> thread(name = "tts-release") { engine.release() } }
             panelKittenHolder[0] = null
         }
     }

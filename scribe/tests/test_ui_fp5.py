@@ -50,6 +50,8 @@ def _auth(token: str) -> dict[str, str]:
 
 
 def test_upload_oversize_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("fastapi")  # ui.app needs the ui extra (skip otherwise)
+    pytest.importorskip("httpx")
     import ui.app as appmod
 
     monkeypatch.setattr(appmod, "MAX_UPLOAD_BYTES", 64)
@@ -73,6 +75,8 @@ def test_upload_oversize_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 def test_upload_same_name_concurrency(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    pytest.importorskip("fastapi")  # ui.app needs the ui extra (skip otherwise)
+    pytest.importorskip("httpx")
     import ui.app as appmod
 
     # Tiny chunks force the multi-chunk streaming loop; full-range bytes

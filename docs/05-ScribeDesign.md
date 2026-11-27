@@ -18,15 +18,25 @@ All flags verified against `scribe <cmd> --help` on Windows 11 (CP10). `<book>` 
 
 There is no `--cast` flag: `draft` writes the draft `cast.yaml` into the work folder and `build` reads your edited copy from there.
 
+`build` accepts `--engine {python,rust}` (default `python`). `rust` fills the same sentence cache through `scribe-orchestrator`, then Python assembles, encodes and validates exactly as usual. The orchestrator binary is located via `SCRIBE_ORCHESTRATOR`, then the packaged path, then a cargo build, and `scribe doctor` reports it.
+
 Typical flow: `draft`, edit `cast.yaml`, `build`, `validate`, copy to the tablet.
 
 ## 2. Pipeline
 
 ```
 EPUB/PDF -> extract -> clean -> split sentences -> detect dialogue -> attribute speakers
-   -> cast.yaml (edit) -> synthesize per sentence -> assemble chapter buffer
-   -> encode CBR MP3 -> write text JSON + manifest -> validate
+   -> cast.yaml (edit) -> [Stage A: prep (phonemize/cache-key, optional workers)]
+   -> [Stage B: inference workers (K sessions, device auto/cpu/cuda)]
+   -> [Stage C: encode pool (ffmpeg, cap 2)] -> [Stage D: ordered assembler]
+   -> write text JSON + manifest -> validate
 ```
+
+Staged render (Option A): prep is skipped by default (phonemize <1% of wall
+time); inference runs K sessions (default 2 on CUDA, 1 on CPU); MP3 encoding
+overlaps synthesis via a 2-process pool; assembly stays single-process and
+in order. Sequential path remains available with `--workers 1` /
+`--inference-workers 1`.
 
 Work folder (`.scribe/<book-id>/`):
 
@@ -110,6 +120,8 @@ overrides:
 
 Voice names above are examples; check the names your installed Kokoro version provides. Speed offsets apply; pitch values are accepted and ignored in v1 (no pitch shifting).
 
+Optional emotion nudges (D-210). `scribe build --emotion {off,speed,speed+gain}` (default `off`) multiplies each dialogue sentence's speed by a small factor derived from its attribution cue (`shouted angrily`, `whispered`). Detection uses the speech verb first, then an adverb on that verb; it never reads the dialogue text. The tag is computed at draft time, stored per sentence in `script.json`, and ignored by the bundle format. Users may override with a top-level `emotion_modifiers:` map or disable a character with `emotion: off`. Untagged lines are byte-identical to a build without the feature.
+
 ## 9. Synthesis
 
 ```python
@@ -136,7 +148,7 @@ scribe/
   cli.py            # typer commands
   extract/          # epub.py, pdf.py, clean.py
   text/             # sentences.py, dialogue.py, speakers.py, cast.py
-  tts/              # base.py, kokoro.py, piper.py, cache.py
+  tts/              # base.py, kokoro.py, piper.py, cache.py, inference.py
   audio/            # assemble.py, encode.py
   bundle/           # writer.py, validate.py, models.py
   tests/

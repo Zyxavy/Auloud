@@ -1,6 +1,8 @@
 package app.auloud.player.ingest
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -35,5 +37,13 @@ class PdfTextTest {
             assertEquals("", book.pageText(1))
             assertTrue(book.pageText(2).isNotBlank())
         }
+    }
+
+    @Test
+    fun oversizePdfIsRefusedBeforeLoad() {
+        assertNull(checkPdfSize(MAX_PDF_BYTES))
+        val refusal = checkPdfSize(MAX_PDF_BYTES + 1)
+        assertNotNull("one byte over the cap must be refused", refusal)
+        assertTrue("must say too large, got: $refusal", refusal!!.contains("too large"))
     }
 }

@@ -39,8 +39,9 @@ class SherpaKittenEngine(
 
     private val pack: KittenPack? = packs.firstNotNullOfOrNull { detectKittenPack(File(it.dirPath)) }
 
+    private val lock = Any()
     private var loaded: KittenHandle? = null
-    private var released = false
+    @Volatile private var released = false
 
     override fun voices(): List<TtsVoice> {
         val complete = pack ?: return emptyList()
@@ -60,21 +61,26 @@ class SherpaKittenEngine(
         speed: Float
     ): SynthesizedAudio {
         require(text.isNotBlank()) { "blank text" }
-        check(!released) { "engine released" }
-        val sid = parseKittenSid(voice)
-            ?: throw IllegalArgumentException("unknown kitten voice ${voice.id}")
-        val complete = pack ?: throw IllegalArgumentException("unknown kitten voice ${voice.id}")
-        require(sid < complete.speakerCount) { "unknown kitten voice ${voice.id}" }
-        val handle = loaded ?: openHandle(complete, numThreads).also { loaded = it }
-        val (samples, rate) = handle.generate(text, sid, clampTtsSpeed(speed))
+        // Lock spans check, load and generate: release() waits out an in-flight JNI generate.
+        val (samples, rate) = synchronized(lock) {
+            check(!released) { "engine released" }
+            val sid = parseKittenSid(voice)
+                ?: throw IllegalArgumentException("unknown kitten voice ${voice.id}")
+            val complete = pack ?: throw IllegalArgumentException("unknown kitten voice ${voice.id}")
+            require(sid < complete.speakerCount) { "unknown kitten voice ${voice.id}" }
+            val handle = loaded ?: openHandle(complete, numThreads).also { loaded = it }
+            handle.generate(text, sid, clampTtsSpeed(speed))
+        }
         return SynthesizedAudio(sampleRateHz = rate, samples = samples)
     }
 
     /** Drop the loaded native instance (idempotent). */
     fun release() {
-        released = true
-        loaded?.let { runCatching { it.release() } }
-        loaded = null
+        synchronized(lock) {
+            released = true
+            loaded?.let { runCatching { it.release() } }
+            loaded = null
+        }
     }
 }
 

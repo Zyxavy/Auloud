@@ -401,4 +401,81 @@ class SpoolRendererTest {
         assertEquals(listOf(0), stopped.job.completedChapters)
         assertEquals(2, stopped.failure.chapterNumber)
     }
+
+    /** Counts index writes (direct or via the temp file) and delegates everything. */
+    private class CountingIo(val inner: MemSpoolIo, private val indexPath: String) : SpoolIo by inner {
+        var indexWrites = 0
+        override fun writeText(path: String, text: String) {
+            if (path.startsWith(indexPath)) indexWrites++
+            inner.writeText(path, text)
+        }
+    }
+
+    /** Stands in for a process kill: an Error skips the renderer's failure persist. */
+    private class SimulatedKill : Error("simulated process kill")
+
+    private fun hundredNarrated() =
+        blockChapter(1, (1..100).map { SPEAKER_NARRATOR to "Sentence $it." })
+
+    private fun sharedVoices(engine: TtsEngine): ResolvedRenderVoices =
+        RenderVoices.resolve(
+            EngineRegistry(listOf(engine)),
+            MemRenderVoiceStore("shared:narr", "shared:dial"),
+            versionOf = { versions[it] }
+        ).getOrThrow()
+
+    @Test
+    fun indexWritesAreThrottled(): Unit = runBlocking {
+        val (_, _, voices) = distinctVoices()
+        val indexPath = SpoolFiles.indexPath(spoolDir, 1)
+        val io = CountingIo(MemSpoolIo(), indexPath)
+        completedOf(SpoolRenderer.renderChapter(0, 1, hundredNarrated(), voices, spoolDir, io))
+        assertTrue("index writes ${io.indexWrites}", io.indexWrites <= 100 / SPOOL_PERSIST_EVERY + 2)
+        assertEquals(100, SpoolIndex.parse(io.inner.texts.getValue(indexPath))!!.sentences.size)
+    }
+
+    @Test
+    fun indexPersistedOnCancel(): Unit = runBlocking {
+        val (_, _, voices) = distinctVoices()
+        val io = MemSpoolIo()
+        var checks = 0
+        val outcome = SpoolRenderer.renderChapter(
+            0, 1, hundredNarrated(), voices, spoolDir, io,
+            shouldCancel = { ++checks > 30 }
+        )
+        assertEquals(ChapterSpoolOutcome.Cancelled(0, 1, 30), outcome)
+        val index = SpoolIndex.parse(io.texts.getValue(SpoolFiles.indexPath(spoolDir, 1)))
+        assertEquals(30, index!!.sentences.size)
+    }
+
+    @Test
+    fun resumeAfterKillRerendersAtMostOnePersistWindow(): Unit = runBlocking {
+        val io = MemSpoolIo()
+        val first = ScriptedSpoolEngine("shared", listOf("shared:narr", "shared:dial"))
+        val killing = object : TtsEngine by first {
+            override suspend fun synthesize(
+                text: String,
+                voice: app.auloud.player.tts.TtsVoice,
+                speed: Float
+            ): app.auloud.player.tts.SynthesizedAudio {
+                if (text == "Sentence 41.") throw SimulatedKill()
+                return first.synthesize(text, voice, speed)
+            }
+        }
+        var killed = false
+        try {
+            SpoolRenderer.renderChapter(0, 1, hundredNarrated(), sharedVoices(killing), spoolDir, io)
+        } catch (_: SimulatedKill) {
+            killed = true
+        }
+        assertTrue(killed)
+        val resumed = ScriptedSpoolEngine("shared", listOf("shared:narr", "shared:dial"))
+        val summary = completedOf(
+            SpoolRenderer.renderChapter(0, 1, hundredNarrated(), sharedVoices(resumed), spoolDir, io)
+        )
+        val firstRun = (1..40).map { "Sentence $it." }.toSet()
+        val reRendered = resumed.calls.count { it.text in firstRun }
+        assertTrue("re-rendered $reRendered sentences", reRendered <= SPOOL_PERSIST_EVERY - 1)
+        assertEquals(100, summary.sentences.size)
+    }
 }

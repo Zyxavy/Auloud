@@ -1,10 +1,19 @@
 package app.auloud.player.ingest
 
 import android.content.Context
+import com.tom_roush.pdfbox.io.MemoryUsageSetting
 import com.tom_roush.pdfbox.pdmodel.PDDocument
 import com.tom_roush.pdfbox.text.PDFTextStripper
 import java.io.Closeable
 import java.io.File
+import java.io.IOException
+
+/** Largest PDF accepted for import (bytes); bigger files are refused before PdfBox loads them. */
+internal const val MAX_PDF_BYTES: Long = 100L * 1024L * 1024L
+
+/** Refusal message when [lengthBytes] is over [MAX_PDF_BYTES], else null. */
+internal fun checkPdfSize(lengthBytes: Long): String? =
+    if (lengthBytes > MAX_PDF_BYTES) "too large: over $MAX_PDF_BYTES bytes" else null
 
 /**
  * PDF1: on-device PDF text layer over PdfBox-Android (text extraction
@@ -52,6 +61,7 @@ internal class PdfBoxBook(
 ) : PdfBook {
 
     private val document: PDDocument = run {
+        checkPdfSize(file.length())?.let { throw IOException(it) }
         if (appContext != null) {
             try {
                 com.tom_roush.pdfbox.android.PDFBoxResourceLoader.init(
@@ -60,7 +70,8 @@ internal class PdfBoxBook(
             } catch (_: Exception) {
             }
         }
-        PDDocument.load(file)
+        // Scratch data goes to temp files, not the heap (1.5 GB device).
+        PDDocument.load(file, MemoryUsageSetting.setupTempFileOnly())
     }
 
     override val pageCount: Int = document.numberOfPages

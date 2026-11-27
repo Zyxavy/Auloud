@@ -490,6 +490,10 @@ object EpubContainerReader {
         }
         // Strip a leading BOM if present so the platform parser accepts it.
         val cleaned = if (text.isNotEmpty() && text[0] == '\uFEFF') text.substring(1) else text
+        // Entity declarations are the XML bomb / external-entity vector; no EPUB container file needs them.
+        if (cleaned.contains("<!ENTITY")) {
+            throw EpubParseException("$fileLabel: invalid XML (entity declarations are not allowed)")
+        }
         try {
             val builder = newDocumentBuilder()
             return builder.parse(InputSource(StringReader(cleaned)))

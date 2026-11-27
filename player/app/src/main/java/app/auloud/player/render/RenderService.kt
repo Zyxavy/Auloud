@@ -1,6 +1,8 @@
 package app.auloud.player.render
 
 import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.content.BroadcastReceiver
@@ -139,6 +141,10 @@ class RenderService : Service() {
     override fun onCreate() {
         super.onCreate()
         Log.i(TAG, "onCreate")
+        if (Build.VERSION.SDK_INT >= 26) {
+            val channel = NotificationChannel(RenderForeground.CHANNEL_ID, "Rendering", NotificationManager.IMPORTANCE_LOW)
+            (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
+        }
         try {
             val power = getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_TAG).apply {
@@ -243,6 +249,13 @@ class RenderService : Service() {
         } catch (_: Exception) {
         }
         powerReceiver = null
+        releaseEngines()
+        serviceScope.cancel()
+        super.onDestroy()
+    }
+
+    /** Frees the engines of the previous graph; callers guarantee no render loop uses them. */
+    private fun releaseEngines() {
         try {
             systemDriver?.shutdown()
         } catch (_: Exception) {
@@ -258,8 +271,6 @@ class RenderService : Service() {
         } catch (_: Exception) {
         }
         kittenEngine = null
-        serviceScope.cancel()
-        super.onDestroy()
     }
 
     /** Explicit start (or re-start) for [bookId]; refuses while another book renders. */
@@ -290,7 +301,10 @@ class RenderService : Service() {
         cancelRequested = false
         autoPaused = false
         pauseReason = null
-        enterForeground(buildNotification("Preparing render", "Starting..."))
+        if (!enterForeground(buildNotification("Preparing render", "Starting..."))) {
+            stopSelf()
+            return
+        }
         Log.i(TAG, "startRender bookId=$bookId chapter=$readingChapter scope=$scopeName rerender=$rerenderMode")
         renderLoop = serviceScope.launch {
             withContext(Dispatchers.IO) {
@@ -325,7 +339,10 @@ class RenderService : Service() {
         pauseRequested = false
         cancelRequested = false
         pauseReason = null
-        enterForeground(buildNotification("Resuming render", "Checking..."))
+        if (!enterForeground(buildNotification("Resuming render", "Checking..."))) {
+            stopSelf()
+            return
+        }
         renderLoop = serviceScope.launch {
             withContext(Dispatchers.IO) {
                 runBook(bookId, 0, SCOPE_WHOLE_BOOK, RenderPlanner.DEFAULT_NEXT_N)
@@ -685,13 +702,14 @@ class RenderService : Service() {
         }
     }
 
-    /** VS3: engine graph for one render run (registry plus globals, released on destroy). */
+    /** VS3: engine graph for one render run (registry plus globals, released on destroy or at the next build). */
     private data class RenderGraph(
         val registry: EngineRegistry,
         val globals: PrefsTtsStore
     )
 
     private fun buildRenderGraph(): RenderGraph? {
+        releaseEngines()
         return try {
             val driver = AndroidSystemTtsDriver(this)
             systemDriver = driver
@@ -1736,8 +1754,7 @@ class RenderService : Service() {
     private fun buildNotification(title: String, text: String): Notification {
         val paused = currentJob?.state == RenderJobState.PAUSED || autoPaused
         val bookId = currentBookId
-        @Suppress("DEPRECATION")
-        val builder = Notification.Builder(this)
+        val builder = newBuilder()
             .setContentTitle(title)
             .setContentText(text)
             .setSmallIcon(R.drawable.ic_launcher)
@@ -1768,26 +1785,20 @@ class RenderService : Service() {
                 pendingAction(ACTION_CANCEL, bookId, REQUEST_CANCEL)
             ).build()
         )
-        if (Build.VERSION.SDK_INT >= 26) {
-            // v3: create the render notification channel here and switch to
-            // Builder(this, CHANNEL_ID); API 24 has no channels.
-        }
         return builder.build()
     }
 
-    /**
-     * Enters the foreground with [notification].
-     *
-     * The `ForegroundServiceType` lint check wants a manifest
-     * `foregroundServiceType` attribute, which is an API 29+ concept the
-     * plan forbids (like `startForegroundService` and notification
-     * channels, it does not exist on the API 24 target). Suppressed at
-     * this single choke point, not at the call sites.
-     */
-    @android.annotation.SuppressLint("ForegroundServiceType")
-    private fun enterForeground(notification: Notification) {
-        startForeground(NOTIFICATION_ID, notification)
-    }
+    /** Channel-bound on API 26+; the plain builder is the API 24 path (no channels). */
+    @Suppress("DEPRECATION")
+    private fun newBuilder(): Notification.Builder =
+        if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, RenderForeground.CHANNEL_ID)
+        else Notification.Builder(this)
+
+    /** Enters the foreground with [notification]; false when the start was refused (caller stops). */
+    private fun enterForeground(notification: Notification): Boolean =
+        RenderForeground.tryStart({ startForeground(NOTIFICATION_ID, notification) }) { e ->
+            Log.w(TAG, "foreground start refused: ${e.message}")
+        }
 
     /**
      * Posts or updates the service notification.
@@ -1823,18 +1834,13 @@ class RenderService : Service() {
 
     private fun notifyDone(title: String, text: String) {
         try {
-            @Suppress("DEPRECATION")
-            val done = Notification.Builder(this)
+            val done = newBuilder()
                 .setContentTitle(title)
                 .setContentText(text)
                 .setSmallIcon(R.drawable.ic_launcher)
                 .setOngoing(false)
                 .setOnlyAlertOnce(true)
                 .build()
-            if (Build.VERSION.SDK_INT >= 26) {
-                // v3: create the render notification channel here and switch
-                // to Builder(this, CHANNEL_ID); API 24 has no channels.
-            }
             postNotification(done)
         } catch (e: Exception) {
             Log.w(TAG, "done notification failed: ${e.message}")

@@ -2,6 +2,7 @@ package app.auloud.player.render
 
 import java.io.IOException
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -373,6 +374,39 @@ class AudioEncoderTest {
         )
         assertTrue("rename must fail, got $result", result.isFailure)
         assertEquals(EncoderFiles.WRITE_RETRIES, io.renameCalls)
+    }
+
+    @Test
+    fun renameFailureKeepsTargetAudio() {
+        val io = MemEncoderFileIo(renameScript = ArrayDeque(listOf(false)))
+        io.files.add("audio/ch001.m4a")
+        io.files.add("audio/ch001.m4a.tmp")
+        val result = EncoderFiles.atomicRename(
+            "audio/ch001.m4a.tmp",
+            "audio/ch001.m4a",
+            io,
+            sleeper = {}
+        )
+        assertTrue("rename must succeed on retry, got $result", result.isSuccess)
+        assertEquals(2, io.renameCalls)
+        assertFalse(io.deleted.contains("audio/ch001.m4a"))
+    }
+
+    @Test
+    fun renameAlwaysFails_keepsOldAudio() {
+        val io = MemEncoderFileIo(renameScript = ArrayDeque(MutableList(40) { false }))
+        io.files.add("audio/ch001.m4a")
+        io.files.add("audio/ch001.m4a.tmp")
+        val result = EncoderFiles.atomicRename(
+            "audio/ch001.m4a.tmp",
+            "audio/ch001.m4a",
+            io,
+            sleeper = {}
+        )
+        assertTrue("rename must fail, got $result", result.isFailure)
+        assertTrue(io.files.contains("audio/ch001.m4a"))
+        assertFalse(io.deleted.contains("audio/ch001.m4a"))
+        assertTrue(io.deleted.contains("audio/ch001.m4a.tmp"))
     }
 
     // Assembly-to-encoder path: streams without holding the chapter.

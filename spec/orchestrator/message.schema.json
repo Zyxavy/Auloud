@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OrchestratorProtocolMessage",
+  "type": "object",
+  "required": ["v", "id", "type"],
+  "properties": {
+    "v": { "type": "integer" },
+    "id": { "type": "string" },
+    "type": { "type": "string" }
+  },
+  "oneOf": [
+    { "$ref": "#/$defs/hello" },
+    { "$ref": "#/$defs/synth_batch" },
+    { "$ref": "#/$defs/shutdown" },
+    { "$ref": "#/$defs/ready" },
+    { "$ref": "#/$defs/batch_done" },
+    { "$ref": "#/$defs/batch_error" }
+  ],
+  "$defs": {
+    "hello": {
+      "properties": { "type": { "const": "hello" } },
+      "required": ["protocol_version"]
+    },
+    "synth_batch": {
+      "properties": { "type": { "const": "synth_batch" } },
+      "required": ["batch_id", "items"]
+    },
+    "shutdown": {
+      "properties": { "type": { "const": "shutdown" } }
+    },
+    "ready": {
+      "properties": { "type": { "const": "ready" } },
+      "required": ["providers", "model_hash", "rss_mb"]
+    },
+    "batch_done": {
+      "properties": { "type": { "const": "batch_done" } },
+      "required": ["batch_id", "results"]
+    },
+    "batch_error": {
+      "properties": { "type": { "const": "batch_error" } },
+      "required": ["batch_id", "kind", "message", "retryable"]
+    }
+  }
+}

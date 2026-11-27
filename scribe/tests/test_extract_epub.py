@@ -225,8 +225,13 @@ def test_drops_include_footnote_strips(tmp_path: Path) -> None:
     assert any("footnote" in d for d in result.drops)
 
 
-def test_normalize_keeps_curly_quotes() -> None:
-    assert normalize_text("  “Hello”   world \n") == "“Hello” world"
+def test_normalize_straightens_curly_quotes() -> None:
+    # D-191: curly quotes map to their ASCII equivalents so the dialogue
+    # detector (which handles both shapes but not a paragraph holding ONLY
+    # curly singles) sees every book the same way. One-for-one, so spans
+    # computed downstream stay aligned.
+    assert normalize_text("  \u201cHello\u201d   world \n") == '"Hello" world'
+    assert normalize_text("\u2018Hello\u2019") == "'Hello'"
     # NFC: e + combining acute becomes é (single code point).
     assert normalize_text("cafe\u0301") == "caf\u00e9"
 

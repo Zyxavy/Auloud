@@ -3,11 +3,18 @@
 
     <!-- Slice 1 WP1: legacy storage + foreground playback on API 24.
          WP3/WP5 refinement (user-approved): WRITE joins READ so first launch
-         can auto-create the shared-internal /Auloud default. -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+         can auto-create the shared-internal /Auloud default. That holds on
+         API 24-29 only; API 30+ uses the app-specific dir (D-214). -->
+    <!-- Legacy storage permissions are capped by maxSdkVersion so that
+         newer APIs never receive them. -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- API 33+ runtime permission, requested without blocking playback (WP3). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Slice 20 TR1 (user-approved, option A): INTERNET for the LAN-only
          Wi-Fi bundle receiver (no cloud; the receiver binds while its
          screen is open and never leaves the local network). Both are
@@ -15,6 +22,17 @@
          No ACCESS_WIFI_STATE: the screen reads the device IP via
          NetworkInterface enumeration, which needs no permission. -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- API 30+ package visibility: TTS engine discovery and the battery
+         optimization settings intent. Ignored below API 30. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <intent>
+            <action android:name="android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS" />
+        </intent>
+    </queries>
 
     <application
         android:label="@string/app_name"
@@ -31,26 +49,35 @@
             </intent-filter>
         </activity>
         <!-- WP6: foreground playback. API 24: started with plain
-             startService (no startForegroundService, API 26+), no
-             foregroundServiceType (API 29+), no notification channels
-             (API 26+; Media3's default provider handles the foreground
-             notification without them). -->
+             startService (no startForegroundService, API 26+), and no
+             notification channels (API 26+; Media3's default provider
+             handles the foreground notification without them).
+             foregroundServiceType is ignored below API 29; API 34+ needs
+             a type and its matching FOREGROUND_SERVICE_* permission. -->
         <service
             android:name=".playback.PlaybackService"
-            android:exported="true">
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback">
             <intent-filter>
                 <action android:name="androidx.media3.session.MediaSessionService" />
             </intent-filter>
         </service>
         <!-- RN8: foreground render service. API 24: started with plain
-             startService (no startForegroundService, API 26+), no
-             foregroundServiceType (API 29+), no notification channels
-             (API 26+; the service builds the platform notification
-             directly). The WAKE_LOCK permission above (normal,
-             install-time) covers the partial wake lock held only while
-             actively rendering. -->
+             startService (no startForegroundService, API 26+), and the
+             render notification channel is created on API 26+ (API 24 has no
+             channels, so the service builds the platform notification directly).
+             specialUse rather than dataSync: the
+             dataSync type has a 6 h per day cap on API 35+ that a long book
+             render can exceed. foregroundServiceType is ignored below API 29.
+             The WAKE_LOCK permission above (normal, install-time) covers the
+             partial wake lock held only while actively rendering. -->
         <service
             android:name=".render.RenderService"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="On-device text-to-speech rendering of a user's own audiobook" />
+        </service>
     </application>
 </manifest>

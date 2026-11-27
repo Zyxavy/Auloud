@@ -93,6 +93,7 @@ APK; it comes from the sideloaded packs in section 4.
 | soundfile | BSD-3 | soundfile 0.14.0 BSD-3-Clause (OSI classifier). The `libsndfile_x64.dll` it bundles is its own native row, LGPL-2.1-or-later, with the COPYING from beside the DLL in the artifact (section 8). | \[x\] |
 | pyrubberband (optional) | ISC | Uses Rubber Band (GPL, commercial option). Not a dependency today: nothing imports it and it is in no lock entry (only two Slice 4 docstrings name it), so the artifact ships nothing for it. Recorded for when pitch shifting lands. | \[ \] |
 | ffmpeg / ffprobe | LGPL or GPL depending on the build | The pinned archive is the GPL build: ffmpeg 9.0.2 GPL-3.0-or-later, its LICENSE copied from the archive into the artifact as a program row (section 8). Run as a separate process, never linked (it carries LAME for MP3). | \[x\] |
+| scribe-orchestrator (Rust, --engine rust) | AGPL-3.0-or-later (crate deps MIT/Apache-2.0/BSD per scribe-rs/deny.toml) | Optional multi-sentence synthesis driver; runs as a separate process and fills the same sentence cache Python reads. cargo deny check is the license gate (advisories, bans, licenses, sources); no new license text ships beyond what the Python helper already carries. Default engine stays python; rust is opt-in until the Task 7 matrix passes. | \[x\] |
 
 ## 4. TTS engines and voices
 

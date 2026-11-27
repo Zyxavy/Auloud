@@ -302,6 +302,7 @@ object BundleValidator {
                 }
             }
         }
+        errors.addAll(validateChapterIndices(manifest))
         errors.addAll(validateAudioFormatAgreement(manifest))
         errors.addAll(validateDeviceFields(manifest))
         errors.addAll(validateRenderStateConsistency(manifest))
@@ -328,6 +329,22 @@ object BundleValidator {
         }
         return emptyList()
     }
+
+    /**
+     * Spec section 7: manifest chapter `index` values are consecutive 1..N in
+     * bundle order (wording matches `scribe/bundle/validate.py`). Duplicates
+     * and gaps both fail here, since each entry must equal its position.
+     */
+    internal fun validateChapterIndices(manifest: Manifest): List<String> =
+        manifest.chapters.mapIndexedNotNull { i, chapter ->
+            val pos = i + 1
+            if (chapter.index == pos) {
+                null
+            } else {
+                "manifest.json: chapter entry $pos has index ${chapter.index}, " +
+                    "expected $pos (indices must be consecutive 1..N in bundle order)"
+            }
+        }
 
     /**
      * IN1: manifest `render_state` must agree with the chapters (spec 2.0

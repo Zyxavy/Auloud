@@ -24,6 +24,7 @@ workspace, models, bundles or logs).
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import time
 from pathlib import Path
@@ -469,6 +470,18 @@ def test_open_folder_mocked_and_missing_record(tmp_path: Path) -> None:
         f"/api/books/{book_id}/open-folder", json={"destination": str(target)}, headers=LOCAL
     )
     assert denied.status_code == 403
+
+
+def test_open_folder_refuses_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from ui.transfer import open_folder
+
+    book = tmp_path / "book.txt"
+    book.write_text("not a folder", encoding="utf-8")
+    started: list[str] = []
+    monkeypatch.setattr(os, "startfile", lambda p: started.append(p), raising=False)
+    with pytest.raises(ValueError, match="bad-destination"):
+        open_folder(str(book))
+    assert started == []
 
 
 # --- frontend -----------------------------------------------------------------

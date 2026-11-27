@@ -109,6 +109,7 @@ import json
 import os
 import re
 import threading
+import math
 import time
 from collections.abc import Callable, Collection, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -144,6 +145,7 @@ from text.cast import (
     read_cast,
     resolve_speaker,
     validate_cast,
+    parse_emotion_modifiers,
 )
 from text.speakers import gender_hint_for
 from tts.base import TTSEngine
@@ -285,6 +287,7 @@ class ChapterOutcome:
     skipped_sentences: int = 0
     wall_s: float = 0.0
     error: str | None = None  # chapter-level failure reason (non-strict)
+    encode_future: Any = None  # async MP3 encode future (Stage C)
 
 
 @dataclass
@@ -346,7 +349,7 @@ def create_engine(
                 return KokoroEngine(model_path, voices_path)
             except (ImportError, FileNotFoundError, ValueError, OSError) as exc:
                 raise BuildError(f"cannot init TTS engine: {exc}") from exc
-    from device import create_engine_with_device
+    from tts.inference import create_engine_with_device
 
     try:
         return create_engine_with_device(models_dir, device=normalized)
@@ -432,6 +435,28 @@ def _resolve_selection(
         selected = parse_range_spec(chapters_spec, total=total, kind="chapters")
         return selected, ""
     return list(range(1, total + 1)), ""
+
+
+def _parse_forced_chapters(force_chapters: Any, total: int) -> set[int]:
+    """Source chapters whose resume-cache read is bypassed (``--force-chapters``).
+
+    Accepts the CLI's comma/range string (validated by
+    :func:`selection.parse_range_spec`, so a bad range raises ``ValueError``
+    with the ``chapters: bad-range: ...`` shape the CLI prints) or an
+    iterable of chapter numbers. ``None``/empty = nothing forced.
+    """
+    if force_chapters is None:
+        return set()
+    if isinstance(force_chapters, str):
+        if not force_chapters.strip():
+            return set()
+        from selection import parse_range_spec
+
+        return set(parse_range_spec(force_chapters, total=total, kind="chapters"))
+    try:
+        return {int(x) for x in force_chapters}
+    except (TypeError, ValueError):
+        return set()
 
 
 def _load_build_stats(work_dir: Path) -> list[dict[str, Any]]:
@@ -586,6 +611,7 @@ def resolve_sentence_voice(
     narrator_voice: str,
     narrator_speed: float,
     narrator_engine: str = NARRATOR_ENGINE,
+    emotion: str = "off",
 ) -> ResolvedVoice:
     """Resolve one script sentence to its final ``(character, voice, speed)``.
 
@@ -599,6 +625,10 @@ def resolve_sentence_voice(
     for why the hint is not threaded through ``script.json``). Total, like
     resolution itself: ``"unknown"`` and any other surface fall through to
     a generic, never raise.
+
+    ``emotion`` is the CLI mode (``off``/``speed``/``speed+gain``). The
+    per-sentence tag is the draft-persisted ``sentence.emotion``; ``off``
+    forces ``NEUTRAL`` (no modulation).
     """
     if sentence.kind != "dialogue":
         return ResolvedVoice(
@@ -618,6 +648,11 @@ def resolve_sentence_voice(
     if not isinstance(number, int) or isinstance(number, bool):
         number = None
     raw = sentence.speaker if isinstance(sentence.speaker, str) else ""
+    # The draft persists the tag on the sentence (script.json); "off" mode
+    # forces NEUTRAL so an untagged or opted-out build is byte-identical.
+    tag = "NEUTRAL"
+    if str(emotion).strip().lower() != "off" and getattr(sentence, "emotion", None):
+        tag = str(sentence.emotion)
     return resolve_speaker(
         cast,
         raw_speaker=raw,
@@ -626,7 +661,9 @@ def resolve_sentence_voice(
         block=block,
         quote=number,
         text=sentence.text,
+        emotion=tag,
     )
+
 
 
 def resolve_chapter(
@@ -636,6 +673,7 @@ def resolve_chapter(
     narrator_voice: str,
     narrator_speed: float,
     narrator_engine: str = NARRATOR_ENGINE,
+    emotion: str = "off",
 ) -> dict[int, ResolvedVoice]:
     """``sid -> ResolvedVoice`` for a chapter, in document order.
 
@@ -653,6 +691,7 @@ def resolve_chapter(
             narrator_voice=narrator_voice,
             narrator_speed=narrator_speed,
             narrator_engine=narrator_engine,
+            emotion=emotion,
         )
     return plan
 
@@ -868,6 +907,8 @@ def _fingerprint(
     cast: dict[str, Any],
     engines: Mapping[str, TTSEngine | None],
     chapter: ChapterFile,
+    *,
+    emotion: str = "off",
 ) -> dict[str, Any]:
     """Render fingerprint for one chapter: everything (besides sentence
     text) that can change its audio or its shipped JSON. The cast half is
@@ -902,6 +943,7 @@ def _fingerprint(
         narrator_engine=(
             _entry_engine(narrator) if isinstance(narrator, dict) else NARRATOR_ENGINE
         ),
+        emotion=emotion,
     )
     by_sid = {s.sid: s for s in chapter.sentences_in_order()}
     voices = [
@@ -920,6 +962,12 @@ def _fingerprint(
     return {
         "voices": voices,
         "pitch": VOICE_PITCH,
+        "emotion": emotion,
+        "emotion_modifiers": (
+            {k: [v.speed_mult, v.gain_db] for k, v in parse_emotion_modifiers(cast).items()}
+            if isinstance(cast, dict)
+            else {}
+        ),
         "engine_versions": {
             name: (engine.engine_version if engine is not None else "unknown")
             for name, engine in engines.items()
@@ -1206,6 +1254,8 @@ def plan_build(
     extra_engines: dict[str, TTSEngine] | None = None,
     models_dir: Path | str = Path("models"),
     device: str = "auto",
+    force_chapters: Any = None,
+    emotion: str = "off",
 ) -> PlanResult:
     """Dry run: cached vs to-render counts plus a time estimate (no audio).
 
@@ -1223,6 +1273,9 @@ def plan_build(
     audio estimate is chars/15 seconds of AUDIO; wall estimate is audio /
     RTF. When no RTF history, wall estimate is unknown (None).
 
+    :param force_chapters: ``--force-chapters`` spec; listed chapters count
+        as to-render regardless of the resume cache (mirrors
+        :func:`run_build`).
     :raises BuildError: bad selection (same shapes as :func:`run_build`).
     """
     from text.cast import read_cast as _read_cast
@@ -1256,6 +1309,8 @@ def plan_build(
         # still correct, estimate may be None).
         engines = {}
 
+    forced_set = _parse_forced_chapters(force_chapters, len(script.chapters))
+
     width = 4 if len(script.chapters) > 999 else 3
     cached_ch = to_render_ch = 0
     cached_sent = to_render_sent = 0
@@ -1269,11 +1324,13 @@ def plan_build(
         fingerprint: dict[str, Any] | None = None
         if engines:
             try:
-                fingerprint = _fingerprint(cast, engines, chapter)
+                fingerprint = _fingerprint(cast, engines, chapter, emotion=emotion)
             except Exception:
                 fingerprint = None
         hit = None
-        if fingerprint is not None:
+        if chapter.chapter in forced_set:
+            hit = None
+        elif fingerprint is not None:
             try:
                 hit = chapter_up_to_date(chapter, json_path, mp3_path, fingerprint)
             except Exception:
@@ -1352,6 +1409,9 @@ def run_build(
     progress_listener: Callable[[dict[str, Any]], None] | None = None,
     stop_event: Any | None = None,
     stop_file: Path | str | None = None,
+    force_chapters: Any = None,
+    orchestration: str = "python",
+    emotion: str = "off",
 ) -> BuildResult:
     """Render ``source`` EPUB or PDF to a validated bundle; return the totals.
 
@@ -1411,6 +1471,15 @@ def run_build(
         :class:`BuildStoppedError`). The file is never created or deleted
         here; the job manager creates it to request a graceful stop and
         removes it before a resume. Checked alongside ``stop_event``.
+    :param force_chapters: ``--force-chapters`` spec (``"5,10"`` or an
+        iterable of source chapter numbers); listed chapters bypass the
+        resume-cache read and re-render, other chapters stay cached. The
+        shared sentence-audio cache is never deleted. ``None`` = normal
+        resume.
+    :param orchestration: ``"python"`` (default) synthesises in this process;
+        ``"rust"`` first fills the sentence cache through the Rust
+        orchestrator (``rust_engine``) for chapters resume would render, then
+        assembles here exactly as usual. Same cache files either way.
     :raises BuildError: missing source, bad cast, bad selection/device,
         work-lock held, chapter failure(s), strict abort, simulated kill.
     :raises BuildStoppedError: cooperative stop (subclass of BuildError).
@@ -1473,6 +1542,9 @@ def run_build(
             stop_event=stop_event,
             wall_start=wall_start,
             stopped_fn=_stopped,
+            force_chapters=force_chapters,
+            orchestration=orchestration,
+            emotion=emotion,
         )
     finally:
         if lock is not None:
@@ -1501,11 +1573,17 @@ def _run_build_locked(
     stop_event: Any | None,
     wall_start: float,
     stopped_fn: Callable[[], bool],
+    force_chapters: Any = None,
+    orchestration: str = "python",
+    emotion: str = "off",
 ) -> BuildResult:
     """Inner build (lock already held); see :func:`run_build`."""
     from progress import FanoutProgress, RichProgressListener, make_event
 
+    _stage_times = {st: 0.0 for st in ("draft", "phonemize", "inference", "assemble", "encode", "cache_read", "cache_write", "synth_total", "total")}
+    _t_draft = time.monotonic()
     script = ensure_script(source, work_root=work_root)
+    _stage_times["draft"] += time.monotonic() - _t_draft
     all_chapters = script.chapters
     work_dir = script.work_dir
     # UI1 device shape check first (invalid names fail even with an
@@ -1523,6 +1601,8 @@ def _run_build_locked(
     is_range = selected != list(range(1, len(all_chapters) + 1))
     selected_set = set(selected)
     render_chapters = [c for c in all_chapters if c.chapter in selected_set]
+    # Force-chapters: bypass the resume-cache read for these source chapters.
+    forced_chapters_set = _parse_forced_chapters(force_chapters, len(all_chapters))
     bundle_id = book_id_for_range(script.sha256, selected) if is_range else script.book_id
 
     cast_path = work_dir / CAST_FILENAME
@@ -1557,6 +1637,57 @@ def _run_build_locked(
         raise BuildError("; ".join(cast_errors))
     voice, speed, narrator_engine = _narrator_entry(cast_path)
 
+    # Task 5: per-stage timing instrumentation.
+    _orig_assemble = None
+    _orig_encode = None
+    _orig_cache_read = None
+    _orig_cache_store = None
+    _orig_synths: dict[int, Any] = {}
+    try:
+        _orig_assemble = assemble_chapter
+        def _timed_assemble(*a, **k):
+            _t = time.monotonic()
+            _r = _orig_assemble(*a, **k)
+            _stage_times["assemble"] += time.monotonic() - _t
+            return _r
+        globals()["assemble_chapter"] = _timed_assemble
+        _orig_encode = encode_assembled_chapter
+        def _timed_encode(*a, **k):
+            _t = time.monotonic()
+            _r = _orig_encode(*a, **k)
+            _stage_times["encode"] += time.monotonic() - _t
+            return _r
+        globals()["encode_assembled_chapter"] = _timed_encode
+        import tts.cache as _cache_mod_stage
+        _orig_cache_read = _cache_mod_stage._read_cached
+        _orig_cache_store = _cache_mod_stage._store_cached
+        def _timed_cache_read(*a, **k):
+            _t = time.monotonic()
+            _r = _orig_cache_read(*a, **k)
+            _stage_times["cache_read"] += time.monotonic() - _t
+            return _r
+        def _timed_cache_store(*a, **k):
+            _t = time.monotonic()
+            _r = _orig_cache_store(*a, **k)
+            _stage_times["cache_write"] += time.monotonic() - _t
+            return _r
+        _cache_mod_stage._read_cached = _timed_cache_read
+        _cache_mod_stage._store_cached = _timed_cache_store
+        for _eng in engines.values():
+            if hasattr(_eng, "synth"):
+                _orig = _eng.synth
+                _orig_synths[id(_eng)] = _orig
+                def _make_synth(_orig):
+                    def _synth(*a, **k):
+                        _t = time.monotonic()
+                        try:
+                            return _orig(*a, **k)
+                        finally:
+                            _stage_times["synth_total"] += time.monotonic() - _t
+                    return _synth
+                _eng.synth = _make_synth(_orig)
+    except Exception:
+        pass
     cache_dir = work_dir / CACHE_DIRNAME
     render_audio = work_dir / RENDER_DIRNAME / "audio"
     render_text = work_dir / RENDER_DIRNAME / "text"
@@ -1722,6 +1853,28 @@ def _run_build_locked(
 
     hook = fail_after if fail_after is not None and fail_after >= 1 else None
 
+    # Stage C encode pool: created before _render_chapter so the closure can
+    # submit as soon as a chapter's sentences are assembled.
+    encode_pool = ThreadPoolExecutor(max_workers=2)
+    chapter_encode_futures: dict[int, Any] = {}
+
+    def _up_to_date(chapter: ChapterFile) -> ChapterFile | None:
+        """The finished chapter on disk when resume can skip it, else ``None``.
+
+        Shared by the Rust-manifest builder and :func:`_render_chapter` so
+        the orchestrator never re-synthesises a chapter resume will skip.
+        """
+        index = chapter.chapter
+        if index in forced_chapters_set:
+            return None
+        stem = f"ch{index:0{width}d}"
+        return chapter_up_to_date(
+            chapter,
+            render_text / f"{stem}.json",
+            render_audio / f"{stem}.mp3",
+            _fingerprint(cast, engines, chapter, emotion=emotion),
+        )
+
     def _render_chapter(chapter: ChapterFile) -> ChapterOutcome:
         """Render one chapter (one unit of work) without touching run state.
 
@@ -1750,9 +1903,10 @@ def _run_build_locked(
             narrator_voice=voice,
             narrator_speed=speed,
             narrator_engine=narrator_engine,
+            emotion=emotion,
         )
-        fingerprint = _fingerprint(cast, engines, chapter)
-        hit = chapter_up_to_date(chapter, json_path, mp3_path, fingerprint)
+        fingerprint = _fingerprint(cast, engines, chapter, emotion=emotion)
+        hit = _up_to_date(chapter)
         if hit is not None:
             return ChapterOutcome(
                 index=index,
@@ -1808,10 +1962,29 @@ def _run_build_locked(
                 _emit_sentence(index, sentence, chapter_stats, hits0, misses0)
                 return audio
 
+            modifiers = parse_emotion_modifiers(cast)
+
+            def _gain_of(sentence: Sentence) -> float:
+                if str(emotion).strip().lower() != "speed+gain":
+                    return 1.0
+                tag = getattr(sentence, "emotion", None)
+                if not isinstance(tag, str) or not tag.strip():
+                    return 1.0
+                mod = modifiers.get(tag.strip().upper())
+                if mod is None:
+                    return 1.0
+                db = float(getattr(mod, "gain_db", 0.0))
+                if db > 3.0:
+                    db = 3.0
+                elif db < -3.0:
+                    db = -3.0
+                return 10.0 ** (db / 20.0)
+
             assembled = assemble_chapter(
                 chapter,
                 _emit_synth,
                 voice_of=lambda sentence: plan[sentence.sid].voice,
+                gain_of=_gain_of,
             )
             loud = apply_loudness_gain(assembled.pcm)
             to_encode = AssembledChapter(
@@ -1821,15 +1994,27 @@ def _run_build_locked(
                 sample_count=assembled.sample_count,
                 sample_rate=assembled.sample_rate,
             )
-            try:
-                encode_assembled_chapter(to_encode, mp3_path, chapter_label=stem)
-            except Exception:
-                mp3_path.unlink(missing_ok=True)
-                raise
             timed_chapter = _with_timings(chapter, assembled.timings, assembled.duration_ms)
             payload = dict(timed_chapter.to_dict())
             payload[RENDER_FINGERPRINT_KEY] = fingerprint
             _write_json(json_path, payload)
+
+            # Stage C: encode asynchronously so MP3 encoding overlaps with
+            # synthesis of later chapters. Cap is enforced by encode_pool.
+            encode_future = None
+            try:
+                def _do_encode() -> None:
+                    try:
+                        encode_assembled_chapter(to_encode, mp3_path, chapter_label=stem)
+                    except Exception:
+                        mp3_path.unlink(missing_ok=True)
+                        raise
+
+                encode_future = encode_pool.submit(_do_encode)
+                chapter_encode_futures[index] = encode_future
+            except Exception:
+                mp3_path.unlink(missing_ok=True)
+                raise
             chapter_wall_s = time.monotonic() - chapter_wall
         except BuildStoppedError:
             # Atomicity: partial chapter output removed so resume
@@ -1874,6 +2059,7 @@ def _run_build_locked(
             sentences=len(timed_chapter.sentences_in_order()),
             skipped_sentences=chapter_skipped,
             wall_s=chapter_wall_s,
+            encode_future=encode_future,
         )
 
     def _fold(outcome: ChapterOutcome) -> None:
@@ -1934,42 +2120,137 @@ def _run_build_locked(
                 f"simulated failure after {hook} chapter(s) (test hook; rerun resumes)"
             )
 
-    rich_ctx = rich_bar if show_progress else None
-    # Enter Rich context manually so events flow even when disabled.
-    if rich_ctx is not None:
-        rich_ctx.__enter__()
-    try:
-        if workers <= 1:
-            # Serial path stays inline on the calling thread, so Ctrl-C and
-            # exception flow at n=1 behave exactly as before the pool.
-            for chapter in render_chapters:
-                _fold(_render_chapter(chapter))
-                _check_hook()
-        else:
-            with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = [
-                    pool.submit(_render_chapter, chapter) for chapter in render_chapters
-                ]
-                try:
-                    for future in as_completed(futures):
-                        _fold(future.result())
-                        _check_hook()
-                except BaseException:
-                    # Stop/strict abort: drop the queued chapters; in-flight
-                    # ones clean up and return at their next sentence boundary
-                    # (the pool's exit waits for them).
-                    for future in futures:
-                        future.cancel()
-                    raise
-    finally:
-        if rich_ctx is not None:
-            rich_ctx.__exit__(None, None, None)
+    # Rust orchestration: the orchestrator fills the sentence cache (the same
+    # files Python reads), so the render loop below finds cache hits and only
+    # assembles, encodes and writes. Chapters resume would skip are left out.
+    if orchestration == "rust":
+        todo = [c for c in render_chapters if _up_to_date(c) is None]
+    else:
+        todo = []
+    if todo:
+        from rust_engine import run_rust_build
 
-    if failed:
-        details = ", ".join(f"chapter {i}: {failure_reasons[i]}" for i in failed)
-        log_lines.append(f"build failed: {len(failed)} chapter(s) failed: {details}")
-        _log_now()
-        raise BuildError(f"{len(failed)} chapter(s) failed, no bundle written: {details}")
+        manifest_chapters = []
+        for chapter in todo:
+            plan = resolve_chapter(
+                cast,
+                chapter,
+                narrator_voice=voice,
+                narrator_speed=speed,
+                narrator_engine=narrator_engine,
+                emotion=emotion,
+            )
+            manifest_chapters.append(
+                {
+                    "index": chapter.chapter,
+                    "title": chapter.title,
+                    "sentences": [
+                        {
+                            "sid": sentence.sid,
+                            "text": sentence.text,
+                            "voice": plan[sentence.sid].voice,
+                            "speed": plan[sentence.sid].speed,
+                        }
+                        for sentence in chapter.sentences_in_order()
+                        if sentence.sid in plan
+                    ],
+                }
+            )
+        try:
+            run_rust_build(
+                book_id=script.book_id,
+                chapters=manifest_chapters,
+                models_dir=str(models_dir),
+                device=normalized_device,
+                work_dir=work_dir,
+                cache_dir=str(cache_dir),
+                workers=workers,
+                batch_size=32,
+                progress_listener=progress_listener,
+            )
+        except Exception as exc:
+            log_lines.append(f"rust orchestration failed: {exc}")
+            _log_now()
+            raise BuildError(f"rust orchestration failed: {exc}") from exc
+
+    # Stage C encode pool: caps concurrent ffmpeg processes at 2. Created
+    # before rendering so _render_chapter can submit as soon as a chapter's
+    # sentences are assembled.
+    try:
+        rich_ctx = rich_bar if show_progress else None
+        # Enter Rich context manually so events flow even when disabled.
+        if rich_ctx is not None:
+            rich_ctx.__enter__()
+        try:
+            if workers <= 1:
+                # Serial path stays inline on the calling thread, so Ctrl-C and
+                # exception flow at n=1 behave exactly as before the pool.
+                for chapter in render_chapters:
+                    _fold(_render_chapter(chapter))
+                    _check_hook()
+            else:
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futures = [
+                        pool.submit(_render_chapter, chapter) for chapter in render_chapters
+                    ]
+                    try:
+                        for future in as_completed(futures):
+                            _fold(future.result())
+                            _check_hook()
+                    except BaseException:
+                        # Stop/strict abort: drop the queued chapters; in-flight
+                        # ones clean up and return at their next sentence boundary
+                        # (the pool's exit waits for them).
+                        for future in futures:
+                            future.cancel()
+                        raise
+        finally:
+            if rich_ctx is not None:
+                rich_ctx.__exit__(None, None, None)
+
+        if failed:
+            details = ", ".join(f"chapter {i}: {failure_reasons[i]}" for i in failed)
+            log_lines.append(f"build failed: {len(failed)} chapter(s) failed: {details}")
+            _log_now()
+            raise BuildError(f"{len(failed)} chapter(s) failed, no bundle written: {details}")
+
+        # Wait for any in-flight MP3 encodes to finish before writing the
+        # bundle (and surface their failures loudly).
+        encode_failures: list[tuple[int, str]] = []
+        for idx, fut in list(chapter_encode_futures.items()):
+            try:
+                fut.result()
+            except Exception as exc:  # noqa: BLE001
+                encode_failures.append((idx, f"{type(exc).__name__}: {exc}"))
+        if encode_failures:
+            details = ", ".join(f"chapter {i}: {r}" for i, r in encode_failures)
+            for idx, _ in encode_failures:
+                stem = f"ch{idx:0{width}d}"
+                (render_audio / f"{stem}.mp3").unlink(missing_ok=True)
+                (render_text / f"{stem}.json").unlink(missing_ok=True)
+            log_lines.append(f"build failed: {len(encode_failures)} chapter(s) FAILED to encode: {details}")
+            _log_now()
+            raise BuildError(f"{len(encode_failures)} chapter(s) failed to encode, no bundle written: {details}")
+    finally:
+        # Restore monkeypatched functions so repeated builds in one process
+        # (e.g. web UI retry) don't stack wrappers.
+        try:
+            if _orig_assemble is not None:
+                globals()["assemble_chapter"] = _orig_assemble
+            if _orig_encode is not None:
+                globals()["encode_assembled_chapter"] = _orig_encode
+            if _orig_cache_read is not None:
+                import tts.cache as _cm
+                _cm._read_cached = _orig_cache_read
+            if _orig_cache_store is not None:
+                import tts.cache as _cm2
+                _cm2._store_cached = _orig_cache_store
+            for _eng, _orig in _orig_synths.items():
+                _eng.synth = _orig
+        except Exception:
+            pass
+        encode_pool.shutdown(wait=True, cancel_futures=True)
+
     ordered_audio = [audio_paths[i] for i in selected]
     ordered_plans = [plans[i] for i in selected]
     # MV8: bundle speakers are the RESOLVED character keys (reuse the exact
@@ -2037,6 +2318,11 @@ def _run_build_locked(
 
     removed = [p.name for p in (*stale_render, *stale_bundle)]
     log_lines.append(f"orphans removed: {', '.join(removed) if removed else 'none'}")
+    _stage_times["total"] = wall_seconds
+    log_lines.append(
+        "stage timings (s): "
+        + ", ".join(f"{k}={v:.2f}" for k, v in _stage_times.items())
+    )
     log_lines.append(
         f"build done: chapters={len(selected)} rendered={rendered} "
         f"skipped={skipped} failed=0 total_audio_ms={total_audio_ms} "

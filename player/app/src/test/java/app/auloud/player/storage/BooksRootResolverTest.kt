@@ -57,4 +57,48 @@ class BooksRootResolverTest {
             BooksRootResolver.internalSharedDefault("/storage/emulated/0/")
         )
     }
+
+    /** D-214: API 24 to 29 keep the shared `/storage/emulated/0/Auloud` default. */
+    @Test
+    fun defaultRoot_api29_keepsSharedAuloud() {
+        assertEquals(
+            "/storage/emulated/0/Auloud",
+            BooksRootResolver.defaultBooksRootFor(
+                29,
+                "/storage/emulated/0",
+                "/storage/emulated/0/Android/data/app.auloud.player/files",
+                "/data/x"
+            )
+        )
+    }
+
+    /** D-214: API 30+ uses the app-specific external dir (no permission needed). */
+    @Test
+    fun defaultRoot_api30_usesAppExternalFiles() {
+        assertEquals(
+            "/storage/emulated/0/Android/data/app.auloud.player/files/Auloud",
+            BooksRootResolver.defaultBooksRootFor(
+                30,
+                "/storage/emulated/0",
+                "/storage/emulated/0/Android/data/app.auloud.player/files",
+                "/data/x"
+            )
+        )
+    }
+
+    @Test
+    fun defaultRoot_api30_noExternal_usesFilesDir() {
+        assertEquals(
+            "/data/x/Auloud",
+            BooksRootResolver.defaultBooksRootFor(30, null, null, "/data/x")
+        )
+    }
+
+    @Test
+    fun defaultRoot_api24_noShared_usesFilesDir() {
+        assertEquals(
+            "/data/x/Auloud",
+            BooksRootResolver.defaultBooksRootFor(24, null, null, "/data/x")
+        )
+    }
 }

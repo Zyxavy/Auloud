@@ -178,6 +178,7 @@ class PlaybackService : MediaSessionService() {
     private var streamBookId: String? = null
     /** Drops late sid callbacks from a stream that was already replaced. */
     private var streamSidGeneration = 0
+    private val streamFailureGate = StreamFailureGate()
     /**
      * ST7-fix: chapter requested through the stream extra while its book
      * loads (fresh Tap-to-Listen races the async load; the jump branch
@@ -789,6 +790,7 @@ class PlaybackService : MediaSessionService() {
                         // and the write cannot interleave with a stop.
                         serviceScope.launch {
                             if (sidGeneration != streamSidGeneration) return@launch
+                            streamFailureGate.onSpoken()
                             val book = streamBookId ?: return@launch
                             StreamSidMonitor.publish(book, streamChapterPos, sid)
                         }
@@ -1122,7 +1124,8 @@ class PlaybackService : MediaSessionService() {
             SkipNoticeMonitor.publish(STREAM_FAILED_MESSAGE)
             val bookId = streamBookId ?: currentBookId
             stopStreamPath(resumeRender = true)
-            if (bookId != null) {
+            // WP12: a stream that keeps failing before speech stops here.
+            if (bookId != null && streamFailureGate.onFailure()) {
                 loadBook(bookId)
             }
         }

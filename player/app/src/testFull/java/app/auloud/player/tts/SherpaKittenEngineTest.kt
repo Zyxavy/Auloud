@@ -1,6 +1,11 @@
 package app.auloud.player.tts
 
 import java.io.File
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.concurrent.thread
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -22,15 +27,19 @@ class FakeKittenHandle(
 
     val calls = mutableListOf<Call>()
     var releases = 0
+    var onGenerate: () -> Unit = {}
+    var onRelease: () -> Unit = {}
 
     override fun generate(text: String, sid: Int, speed: Float): Pair<FloatArray, Int> {
         calls.add(Call(text, sid, speed))
         require(text.isNotBlank()) { "blank text" }
+        onGenerate()
         return FloatArray(240) { 0.3f } to rate
     }
 
     override fun release() {
         releases += 1
+        onRelease()
     }
 }
 
@@ -205,6 +214,58 @@ class SherpaKittenEngineTest {
         val voices = listOf(packDir("k"))
             .kittenEngineOrNull()?.voices().orEmpty()
         assertEquals(8, voices.size)
+    }
+
+    @Test
+    fun releaseWaitsForInFlightGenerate() {
+        val events = Collections.synchronizedList(mutableListOf<String>())
+        val entered = CountDownLatch(1)
+        val gate = CountDownLatch(1)
+        val handle = FakeKittenHandle().apply {
+            onGenerate = {
+                entered.countDown()
+                gate.await(5, TimeUnit.SECONDS)
+                events += "generate-done"
+            }
+            onRelease = { events += "release" }
+        }
+        val engine = SherpaKittenEngine(listOf(packDir("k")), 2) { _, _ -> handle }
+        val voice = TtsVoice(id = "kitten:0", engine = "kitten")
+        val synth = thread { runBlocking { engine.synthesize("Hi.", voice, 1.0f) } }
+        assertTrue(entered.await(5, TimeUnit.SECONDS))
+        val rel = thread { engine.release() }
+        rel.join(300) // release must block behind the in-flight generate
+        gate.countDown()
+        synth.join(5_000)
+        rel.join(5_000)
+        assertEquals(listOf("generate-done", "release"), events)
+    }
+
+    @Test
+    fun concurrentFirstLoadOpensOneHandle() {
+        val opens = AtomicInteger()
+        val engine = SherpaKittenEngine(listOf(packDir("k")), 2) { _, _ ->
+            opens.incrementAndGet()
+            Thread.sleep(100) // widen the window where a second thread could also miss the cache
+            FakeKittenHandle()
+        }
+        val voice = TtsVoice(id = "kitten:0", engine = "kitten")
+        val start = CountDownLatch(1)
+        val failures = Collections.synchronizedList(mutableListOf<Throwable>())
+        val workers = List(2) {
+            thread {
+                start.await(5, TimeUnit.SECONDS)
+                try {
+                    runBlocking { engine.synthesize("Hi.", voice, 1.0f) }
+                } catch (t: Throwable) {
+                    failures += t
+                }
+            }
+        }
+        start.countDown()
+        workers.forEach { it.join(5_000) }
+        assertTrue(failures.isEmpty())
+        assertEquals(1, opens.get())
     }
 
     @Test

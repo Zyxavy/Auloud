@@ -449,6 +449,74 @@ def check_gpu() -> CheckResult:
     return CheckResult(name="gpu", status=PASS, detail=short)
 
 
+def _doctor_resource_detail() -> str:
+    # Detected providers.
+    try:
+        import onnxruntime as _rt  # type: ignore[import-untyped]
+
+        providers = list(_rt.get_available_providers())
+    except Exception:
+        providers = ["CPUExecutionProvider"]
+    # Physical cores.
+    try:
+        from tts.governance import physical_cores as _pc
+
+        cores = _pc()
+    except Exception:
+        import os as _os
+
+        cores = _os.cpu_count() or 1
+    # Free RAM.
+    try:
+        from tts.governance import _available_memory_bytes as _amb
+
+        free_bytes = _amb()
+    except Exception:
+        free_bytes = 8 * 1024 * 1024 * 1024
+    free_mb = free_bytes // (1024 * 1024)
+    # Recommended concurrency: `--workers` (chapters sharing one ORT session).
+    rec_workers = min(8, max(1, cores))
+    return (
+        f"providers={providers}; physical_cores={cores}; "
+        f"free_ram={free_mb} MB; "
+        f"recommended --workers={rec_workers}"
+    )
+
+
+def _check_resources(name: str) -> CheckResult:
+    return CheckResult(name=name, status=PASS, detail=_doctor_resource_detail())
+
+
+def check_workers() -> CheckResult:
+    return _check_resources("workers")
+
+
+def check_orchestrator() -> CheckResult:
+    """Doctor row: is the Rust orchestrator binary there?"""
+    from rust_engine import find_orchestrator_binary
+
+    binary = find_orchestrator_binary()
+    if binary:
+        return CheckResult(name="orchestrator", status=PASS, detail=f"binary: {binary}")
+    return CheckResult(
+        name="orchestrator",
+        status=INFO,
+        detail="not found (set SCRIBE_ORCHESTRATOR or build with cargo); --engine rust unavailable",
+    )
+
+
+def check_resources() -> CheckResult:
+    return _check_resources("resources")
+
+
+def check_memory() -> CheckResult:
+    return _check_resources("memory")
+
+
+def check_concurrency() -> CheckResult:
+    return _check_resources("concurrency")
+
+
 def run_checks(models_dir: Path) -> list[CheckResult]:
     """Run every `doctor` check in display order."""
     return [
@@ -463,6 +531,8 @@ def run_checks(models_dir: Path) -> list[CheckResult]:
         check_pymupdf(),
         check_ui(),
         check_gpu(),
+        check_workers(),
+        check_orchestrator(),
     ]
 
 
@@ -564,6 +634,11 @@ def build(
         "--no-progress",
         help="Disable the rich progress bar.",
     ),
+    engine: str = typer.Option(
+        "python",
+        "--engine",
+        help="Orchestration engine: python (default) or rust.",
+    ),
     chapters: str | None = typer.Option(
         None,
         "--chapters",
@@ -588,6 +663,12 @@ def build(
         help="How many chapters render at once: slow (1), balanced (4), "
         "fast (up to 8; the measured GPU knee). One render owns the machine.",
     ),
+    workers: int | None = typer.Option(
+        None,
+        "--workers",
+        help="Override the --render-speed worker count (e.g. --workers 3). "
+        "Ignored when omitted.",
+    ),
     plan: bool = typer.Option(
         False,
         "--plan",
@@ -607,6 +688,17 @@ def build(
         help="Cross-process stop sentinel (UI4 pause): when the file exists, "
         "the build stops at the next sentence boundary (partial cleaned).",
     ),
+    force_chapters: str | None = typer.Option(
+        None,
+        "--force-chapters",
+        help="Comma list of chapters to re-render (bypass cache reads), "
+        "e.g. --force-chapters 5,10.",
+    ),
+    emotion: str = typer.Option(
+        "off",
+        "--emotion",
+        help="Emotion modulation: off, speed, or speed+gain.",
+    ),
 ) -> None:
     """Render audio chapter by chapter (resumable) and write the bundle."""
     from build import (
@@ -622,11 +714,39 @@ def build(
 
     # Resolved before the plan branch so a typo'd tier fails there too.
     try:
-        workers = workers_for_speed(render_speed)
+        tier_workers = workers_for_speed(render_speed)
     except BuildError as exc:
         typer.echo(f"build failed: {exc}", err=True)
         raise typer.Exit(code=1)
+    workers = workers if workers is not None else tier_workers
 
+    if engine not in ("python", "rust"):
+        typer.echo(f"build failed: engine must be python or rust (got {engine!r})", err=True)
+        raise typer.Exit(code=1)
+    if emotion not in ("off", "speed", "speed+gain"):
+        typer.echo(
+            f"build failed: emotion must be off, speed or speed+gain (got {emotion!r})",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if emotion == "speed+gain":
+        # Task 6 (assembly gain) is deferred: per-voice peak leveling would
+        # partly cancel it. Run speed-only and say so rather than silently
+        # pretending gain happened.
+        typer.echo("emotion: gain is not implemented yet; applying speed only.")
+        emotion = "speed"
+    if engine == "rust":
+        from rust_engine import find_orchestrator_binary
+
+        binary = find_orchestrator_binary()
+        if binary is None:
+            typer.echo(
+                "build failed: --engine rust requires scribe-orchestrator binary. "
+                "Set SCRIBE_ORCHESTRATOR or build with cargo in scribe-rs/.",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        typer.echo(f"using Rust orchestrator: {binary}")
     if plan:
         try:
             preflight = plan_build(
@@ -636,6 +756,8 @@ def build(
                 pages=pages,
                 models_dir=models_dir,
                 device=device,
+                force_chapters=force_chapters,
+                emotion=emotion,
             )
         except (BuildError, DraftError, BundleWriteError, ValueError) as exc:
             typer.echo(f"build failed: {exc}", err=True)
@@ -661,6 +783,9 @@ def build(
             workers=workers,
             progress_listener=jsonl_writer,
             stop_file=stop_file,
+            force_chapters=force_chapters,
+            orchestration=engine,
+            emotion=emotion,
         )
     except (BuildError, DraftError, BundleWriteError, ValueError) as exc:
         typer.echo(f"build failed: {exc}", err=True)
@@ -888,6 +1013,102 @@ def export_timing_vectors(
 
 
 @app.command()
+def bench(
+    devices: str = typer.Option(
+        "cpu",
+        "--devices",
+        help="Comma list of devices to benchmark (cpu,cuda).",
+    ),
+    fixture: Path | None = typer.Option(
+        None,
+        "--fixture",
+        help="Fixture EPUB/PDF to benchmark (default tests/fixtures/bench_chapter.epub).",
+    ),
+    work_root: Path = typer.Option(
+        Path(".scribe"),
+        "--work-root",
+        help="Work folder root.",
+    ),
+    out_dir: Path | None = typer.Option(
+        None,
+        "--out-dir",
+        help="Bundle output dir (default derived).",
+    ),
+    chapters: str | None = typer.Option(
+        None,
+        "--chapters",
+        help="Chapter selection 1-based.",
+    ),
+    report: Path = typer.Option(
+        Path("bench_report.json"),
+        "--report",
+        help="JSON report output path.",
+    ),
+) -> None:
+    """Benchmark render throughput on the given device(s)."""
+    dev_dir = Path(__file__).resolve().parent / "dev"
+    if str(dev_dir) not in sys.path:
+        sys.path.insert(0, str(dev_dir))
+    import bench_render
+
+    argv: list[str] = []
+    if fixture is not None:
+        argv.append(str(fixture))
+    argv += ["--devices", devices, "--work-root", str(work_root), "--report", str(report)]
+    if out_dir is not None:
+        argv += ["--out-dir", str(out_dir)]
+    if chapters is not None:
+        argv += ["--chapters", chapters]
+    try:
+        bench_render.main(argv)
+    except SystemExit as exc:
+        code = exc.code if isinstance(exc.code, int) else 1
+        raise typer.Exit(code=code)
+
+
+@app.command()
+def qc(
+    bundle: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=False,
+        readable=True,
+        help="Bundle directory to quality-check.",
+    ),
+    model: str = typer.Option(
+        "tiny",
+        "--model",
+        help="Whisper model size: tiny or base.",
+    ),
+    threshold: float = typer.Option(
+        0.15,
+        "--threshold",
+        help="WER threshold above which a chapter is flagged.",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Report output path (default: <bundle>/qc_report.json).",
+    ),
+) -> None:
+    """Run Whisper-based quality control and write a JSON report (report-only)."""
+    from qc import QCError, run_qc
+
+    try:
+        result = run_qc(bundle, model=model, threshold=threshold, output_path=output)
+    except QCError as exc:
+        typer.echo(f"qc failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"wrote {result.output_path}")
+    s = result.report.get("summary", {})
+    typer.echo(
+        f"chapters: {s.get('chapters', 0)}  flagged: {s.get('flagged_chapters', 0)}  "
+        f"mean WER: {s.get('mean_wer', 0.0):.3f}"
+    )
+
+
+@app.command()
 def version() -> None:
     """Print the Scribe version."""
     typer.echo(__version__)
@@ -986,6 +1207,110 @@ def helper(
     except HelperError as exc:
         typer.echo(f"helper failed: {exc}", err=True)
         raise typer.Exit(code=1)
+
+
+# Nested `export` subcommands (M4B, ...).
+export_app = typer.Typer(help="Export a bundle to another format.")
+
+
+def _run_export_m4b(
+    bundle: Path,
+    output: Path | None,
+    title: str | None,
+    author: str | None,
+    narrator: str | None,
+) -> None:
+    from export.m4b import M4BError, export_m4b
+
+    try:
+        result = export_m4b(
+            bundle,
+            output=output,
+            title=title,
+            author=author,
+            narrator=narrator,
+        )
+    except M4BError as exc:
+        typer.echo(f"export m4b failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"wrote {result.path} ({result.chapter_count} chapters)")
+
+
+@export_app.command("m4b")
+def export_m4b_subcommand(
+    bundle: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=False,
+        readable=True,
+        help="Bundle directory to export.",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output M4B path (default: <bundle>.m4b next to bundle).",
+    ),
+    title: str | None = typer.Option(None, "--title", help="Override title metadata."),
+    author: str | None = typer.Option(None, "--author", help="Override author metadata."),
+    narrator: str | None = typer.Option(None, "--narrator", help="Override narrator metadata."),
+) -> None:
+    """Export a bundle as an M4B audiobook with chapter markers."""
+    _run_export_m4b(bundle, output, title, author, narrator)
+
+
+def _run_export_audacity(bundle, output) -> None:
+    from export.audacity import AudacityError, export_audacity
+    try:
+        result = export_audacity(bundle, output=output)
+    except AudacityError as exc:
+        typer.echo(f"export audacity failed: {exc}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"wrote {result.path}")
+
+
+@export_app.command("audacity")
+def export_audacity_subcommand(
+    bundle: Path = typer.Argument(..., exists=True, file_okay=False, readable=True, help="Bundle directory to export."),
+    output: Path | None = typer.Option(None, "--output", "-o", help="Output zip path."),
+) -> None:
+    """Export a bundle as Audacity project (zip)."""
+    _run_export_audacity(bundle, output)
+
+
+@app.command("export-audacity")
+def export_audacity_top(
+    bundle: Path = typer.Argument(..., exists=True, file_okay=False, readable=True, help="Bundle directory to export."),
+    output: Path | None = typer.Option(None, "--output", "-o", help="Output zip path."),
+) -> None:
+    """Export a bundle as Audacity project (zip)."""
+    _run_export_audacity(bundle, output)
+
+
+@app.command("export-m4b")
+def export_m4b_top(
+    bundle: Path = typer.Argument(
+        ...,
+        exists=True,
+        file_okay=False,
+        readable=True,
+        help="Bundle directory to export.",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Output M4B path (default: <bundle>.m4b next to bundle).",
+    ),
+    title: str | None = typer.Option(None, "--title", help="Override title metadata."),
+    author: str | None = typer.Option(None, "--author", help="Override author metadata."),
+    narrator: str | None = typer.Option(None, "--narrator", help="Override narrator metadata."),
+) -> None:
+    """Export a bundle as an M4B audiobook with chapter markers."""
+    _run_export_m4b(bundle, output, title, author, narrator)
+
+
+app.add_typer(export_app, name="export")
 
 
 if __name__ == "__main__":

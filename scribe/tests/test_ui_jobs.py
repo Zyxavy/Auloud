@@ -24,6 +24,7 @@ prove Windows detach works (fast, stays in the normal suite).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import shutil
@@ -675,6 +676,96 @@ def test_sse_replay_heartbeat_and_last_event_id(tmp_path: Path) -> None:
     assert resumed.status_code == 200, resumed.text
     assert "id: 1\n" not in resumed.text
     assert "id: 3" in resumed.text
+
+
+def test_sse_tail_reads_incrementally(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A live tail reads only bytes appended since the last poll, not the whole file."""
+    from ui import app as app_mod
+    from ui.app import create_app
+    from ui.jobs import EVENTS_FILENAME, JOB_FILENAME, JobManager, job_dir
+
+    token = "ui4-token"
+    # Constructed before the job exists so the startup scan does not touch it.
+    manager = JobManager(tmp_path, pid_alive_fn=lambda _pid: False)
+    folder = job_dir(tmp_path, "job-tail")
+    folder.mkdir(parents=True)
+    (folder / JOB_FILENAME).write_text(
+        json.dumps({"id": "job-tail", "kind": "build", "state": "running",
+                    "created": "2026-01-01T00:00:00Z", "pid": None}),
+        encoding="utf-8",
+    )
+    events = folder / EVENTS_FILENAME
+    events.write_text(
+        "".join(json.dumps({"event": "sentence", "n": n}) + "\n" for n in range(1, 20001)),
+        encoding="utf-8",
+    )
+    size = events.stat().st_size
+    app = create_app(tmp_path, token=token, job_manager=manager)
+    monkeypatch.setattr(app_mod, "_TAIL_POLL_S", 0.01)
+    reads: list[int] = []
+    real_read = app_mod._read_new_lines
+
+    def _counting(path: Path, offset: int):  # type: ignore[no-untyped-def]
+        lines, new_offset = real_read(path, offset)
+        reads.append(new_offset - offset)
+        return lines, new_offset
+
+    monkeypatch.setattr(app_mod, "_read_new_lines", _counting, raising=False)
+
+    async def _drive() -> bytearray:
+        stop = asyncio.Event()
+        body = bytearray()
+        scope = {
+            "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1",
+            "method": "GET", "scheme": "http", "path": "/api/jobs/job-tail/events",
+            "raw_path": b"/api/jobs/job-tail/events", "root_path": "", "query_string": b"",
+            "headers": [(b"host", b"127.0.0.1:8137"), (b"x-auloud-token", token.encode())],
+            "client": ("127.0.0.1", 50000), "server": ("127.0.0.1", 8137),
+        }
+
+        async def receive() -> dict:
+            await stop.wait()  # the stream stays open until the test disconnects
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict) -> None:
+            if message["type"] == "http.response.body":
+                body.extend(message.get("body", b""))
+
+        task = asyncio.ensure_future(app(scope, receive, send))
+
+        async def until(marker: bytes) -> None:
+            deadline = time.monotonic() + 20.0
+            while marker not in body:
+                assert time.monotonic() < deadline, f"no {marker!r} in stream"
+                await asyncio.sleep(0.01)
+
+        await until(b"id: 20000\n")  # full replay delivered
+        with open(events, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"event": "sentence", "n": 20001}) + "\n")
+        await until(b"id: 20001\ndata: ")  # the appended event arrives live
+        stop.set()
+        await asyncio.wait_for(task, 10.0)
+        return body
+
+    body = asyncio.run(_drive()).decode("utf-8")
+    assert "id: 1\ndata: " in body
+    assert reads, "reader helper was never used"
+    assert reads[0] == size  # first poll replays the whole file
+    assert max(reads[1:]) < 1024, reads[1:5]  # every later poll reads only new bytes
+
+
+def test_read_new_lines_holds_partial_tail(tmp_path: Path) -> None:
+    from ui.app import _read_new_lines
+
+    path = tmp_path / "events.jsonl"
+    path.write_bytes(b'{"a": 1}\r\n{"b": ')  # second line still being written
+    lines, pos = _read_new_lines(path, 0)
+    assert lines == [b'{"a": 1}\r']
+    with open(path, "ab") as handle:
+        handle.write(b'2}\n')
+    lines, pos = _read_new_lines(path, pos)
+    assert lines == [b'{"b": 2}']
+    assert _read_new_lines(path, pos) == ([], pos)
 
 
 def test_job_id_charset_rejected_and_token_guarded(tmp_path: Path) -> None:

@@ -377,8 +377,9 @@ class JavaFileEncoderIo : EncoderFileIo {
  * The muxer writes `<final>.tmp` (e.g. `audio/ch001.m4a.tmp`); only after
  * the codec and muxer stop cleanly does the temp rename to the final
  * path, so readers never see a half-written chapter. The retry loop is the
- * RN3 pattern (20 x 50 ms, delete-target fallback for the Windows
- * `renameTo`-returns-false case). Pure apart from the injected [io].
+ * RN3 pattern (20 x 50 ms). The live target is never deleted: a failed
+ * move keeps the old audio, and only the temp is removed on final failure.
+ * Pure apart from the injected [io].
  */
 object EncoderFiles {
 
@@ -403,7 +404,7 @@ object EncoderFiles {
         return "ch%03d.m4a".format(chapterNumber)
     }
 
-    /** Moves [tmpPath] to [targetPath] with the RN3 retry loop. */
+    /** Moves [tmpPath] to [targetPath] with the RN3 retry loop; never deletes [targetPath]. */
     fun atomicRename(
         tmpPath: String,
         targetPath: String,
@@ -421,7 +422,6 @@ object EncoderFiles {
                 io.deleteIfExists(tmpPath)
                 return Result.success(Unit)
             }
-            if (io.exists(targetPath)) io.deleteIfExists(targetPath)
             attempt++
             if (attempt >= WRITE_RETRIES) {
                 io.deleteIfExists(tmpPath)

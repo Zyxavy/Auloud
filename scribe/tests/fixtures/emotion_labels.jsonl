@@ -1,0 +1,36 @@
+{"clause": "he shouted angrily.", "verb_lemma": "shout", "adverbs": ["angrily"], "expected": "SHOUT", "ref": "pd/1"}
+{"clause": "she whispered softly.", "verb_lemma": "whisper", "adverbs": ["softly"], "expected": "WHISPER", "ref": "pd/2"}
+{"clause": "he said angrily.", "verb_lemma": "say", "adverbs": ["angrily"], "expected": "ANGRY", "ref": "pd/3"}
+{"clause": "she said sadly.", "verb_lemma": "say", "adverbs": ["sadly"], "expected": "SAD", "ref": "pd/4"}
+{"clause": "he said fearfully.", "verb_lemma": "say", "adverbs": ["fearfully"], "expected": "FEARFUL", "ref": "pd/5"}
+{"clause": "she said excitedly.", "verb_lemma": "say", "adverbs": ["excitedly"], "expected": "EXCITED", "ref": "pd/6"}
+{"clause": "he said gently.", "verb_lemma": "say", "adverbs": ["gently"], "expected": "GENTLE", "ref": "pd/7"}
+{"clause": "he yelled furiously.", "verb_lemma": "yell", "adverbs": ["furiously"], "expected": "SHOUT", "ref": "pd/8"}
+{"clause": "she murmured tenderly.", "verb_lemma": "murmur", "adverbs": ["tenderly"], "expected": "WHISPER", "ref": "pd/9"}
+{"clause": "he screamed.", "verb_lemma": "scream", "adverbs": [], "expected": "SHOUT", "ref": "pd/10"}
+{"clause": "she mumbled nervously.", "verb_lemma": "mumble", "adverbs": ["nervously"], "expected": "WHISPER", "ref": "pd/11"}
+{"clause": "he exclaim eagerly.", "verb_lemma": "exclaim", "adverbs": ["eagerly"], "expected": "SHOUT", "ref": "pd/12"}
+{"clause": "she said sorrowfully.", "verb_lemma": "say", "adverbs": ["sorrowfully"], "expected": "SAD", "ref": "pd/13"}
+{"clause": "he said anxiously.", "verb_lemma": "say", "adverbs": ["anxiously"], "expected": "FEARFUL", "ref": "pd/14"}
+{"clause": "she said joyfully.", "verb_lemma": "say", "adverbs": ["joyfully"], "expected": "EXCITED", "ref": "pd/15"}
+{"clause": "he said softly.", "verb_lemma": "say", "adverbs": ["softly"], "expected": "GENTLE", "ref": "pd/16"}
+{"clause": "he cried out.", "verb_lemma": "cry", "adverbs": ["out"], "expected": "SHOUT", "ref": "pd/17"}
+{"clause": "she cried.", "verb_lemma": "cry", "adverbs": [], "expected": "NEUTRAL", "ref": "pd/18"}
+{"clause": "he cried angrily.", "verb_lemma": "cry", "adverbs": ["angrily"], "expected": "ANGRY", "ref": "pd/19"}
+{"clause": "he said, not angrily.", "verb_lemma": "say", "adverbs": ["angrily"], "expected": "NEUTRAL", "ref": "pd/20"}
+{"clause": "she said, not sadly.", "verb_lemma": "say", "adverbs": ["sadly"], "expected": "NEUTRAL", "ref": "pd/21"}
+{"clause": "he left the room.", "verb_lemma": null, "adverbs": [], "expected": "NEUTRAL", "ref": "pd/22"}
+{"clause": "she asked a question.", "verb_lemma": "ask", "adverbs": [], "expected": "NEUTRAL", "ref": "pd/23"}
+{"clause": "he replied.", "verb_lemma": "reply", "adverbs": [], "expected": "NEUTRAL", "ref": "pd/24"}
+{"clause": "she laughed.", "verb_lemma": "laugh", "adverbs": [], "expected": "NEUTRAL", "ref": "pd/25"}
+{"clause": "he shouted softly.", "verb_lemma": "shout", "adverbs": ["softly"], "expected": "SHOUT", "ref": "pd/26"}
+{"clause": "she whispered nervously.", "verb_lemma": "whisper", "adverbs": ["nervously"], "expected": "WHISPER", "ref": "pd/27"}
+{"clause": "he said mournfully.", "verb_lemma": "say", "adverbs": ["mournfully"], "expected": "SAD", "ref": "pd/28"}
+{"clause": "she said furiously.", "verb_lemma": "say", "adverbs": ["furiously"], "expected": "ANGRY", "ref": "pd/29"}
+{"clause": "he said eagerly.", "verb_lemma": "say", "adverbs": ["eagerly"], "expected": "EXCITED", "ref": "pd/30"}
+{"clause": "she said tenderly.", "verb_lemma": "say", "adverbs": ["tenderly"], "expected": "GENTLE", "ref": "pd/31"}
+{"clause": "he murmured sadly.", "verb_lemma": "murmur", "adverbs": ["sadly"], "expected": "WHISPER", "ref": "pd/32"}
+{"clause": "she yelled anxiously.", "verb_lemma": "yell", "adverbs": ["anxiously"], "expected": "SHOUT", "ref": "pd/33"}
+{"clause": "he mumbled joyfully.", "verb_lemma": "mumble", "adverbs": ["joyfully"], "expected": "WHISPER", "ref": "pd/34"}
+{"clause": "she screamed fearfully.", "verb_lemma": "scream", "adverbs": ["fearfully"], "expected": "SHOUT", "ref": "pd/35"}
+{"clause": "he said, not excitedly.", "verb_lemma": "say", "adverbs": ["excitedly"], "expected": "NEUTRAL", "ref": "pd/36"}

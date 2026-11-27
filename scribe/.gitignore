@@ -8,3 +8,5 @@ __pycache__/
 models/
 # SW5 work folders (`scribe draft` writes .scribe/<book-id>/); never commit them.
 .scribe/
+# Task 7 spike A/B audio (rendered from a local book); never commit it.
+experiments/out/
