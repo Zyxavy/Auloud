@@ -41,9 +41,17 @@ abstract class AuloudDatabase : RoomDatabase() {
             }
         }
 
-        fun open(context: Context): AuloudDatabase =
-            Room.databaseBuilder(context, AuloudDatabase::class.java, NAME)
+        private val instance = Once<AuloudDatabase>()
+
+        /**
+         * FU4: one Room instance per process (the main activity and both
+         * services used to each open their own on the same file). Callers
+         * must not close it.
+         */
+        fun open(context: Context): AuloudDatabase = instance.get {
+            Room.databaseBuilder(context.applicationContext, AuloudDatabase::class.java, NAME)
                 .addMigrations(MIGRATION_1_2)
                 .build()
+        }
     }
 }
