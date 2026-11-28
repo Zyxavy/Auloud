@@ -7,6 +7,7 @@ import app.auloud.player.bundle.BundleValidator
 import app.auloud.player.bundle.Manifest
 import app.auloud.player.data.BookEntity
 import app.auloud.player.data.LibraryRepository
+import app.auloud.player.data.ProgressEntity
 import app.auloud.player.data.ProgressRepository
 import app.auloud.player.ingest.IngestPipeline
 import app.auloud.player.ingest.StrayTempSweep
@@ -34,7 +35,8 @@ import kotlinx.coroutines.sync.Mutex
  * [progressFraction] is a Slice 1 approximation: the saved chapter position
  * over the book's total duration, clamped to 0..1 (the ViewModel does not
  * read chapter tables, only [BookEntity.durationMs]). WP7 shows exact
- * chapter progress.
+ * chapter progress. Null for a stream-only save (see [progressFraction]):
+ * the row shows no bar.
  */
 data class BookUiModel(
     val id: String,
@@ -48,7 +50,7 @@ data class BookUiModel(
      */
     val coverPath: String?,
     val durationMs: Long,
-    val progressFraction: Float,
+    val progressFraction: Float?,
     val isMissing: Boolean,
     /**
      * RA7: bundle directory token for this book (file path or SAF
@@ -162,7 +164,7 @@ class LibraryViewModel(
     private val books: StateFlow<List<BookEntity>> by lazy {
         libraryRepository.books().stateIn(scope, SharingStarted.Eagerly, emptyList())
     }
-    private val progressPositions = MutableStateFlow<Map<String, Long>>(emptyMap())
+    private val progressPositions = MutableStateFlow<Map<String, ProgressEntity>>(emptyMap())
     // Scan failures (rewritten by every rescan) plus host notices (folder
     // grants lost, /Auloud creation failed, picker problems) that must
     // survive rescans. Split so a rescan can never wipe a notice; the UI
@@ -588,7 +590,7 @@ class LibraryViewModel(
  */
 private data class BooksPart(
     val books: List<BookEntity>,
-    val positions: Map<String, Long>,
+    val positions: Map<String, ProgressEntity>,
     val errors: List<ImportError>,
     val renderStates: Map<String, String?>,
     val renderJobs: Map<String, RenderJobProgress>,
@@ -620,9 +622,13 @@ internal fun isChapterFileProblem(message: String): Boolean =
 
 /**
  * Maps a saved position to a 0..1 progress fraction. No saved position (or a
- * non-positive total) means 0; positions past the end clamp to 1.
+ * non-positive total) means 0; positions past the end clamp to 1. A stream-only
+ * save (sentence sid, position 0) returns null: the sid cannot map to ms
+ * without the book's sentence count, which the library never reads (no chapter
+ * JSON here), so the bar is hidden instead of showing a false 0%.
  */
-internal fun progressFraction(durationMs: Long, positionMs: Long?): Float {
-    if (positionMs == null || durationMs <= 0L) return 0f
-    return (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+internal fun progressFraction(durationMs: Long, progress: ProgressEntity?): Float? {
+    if (progress != null && progress.sentenceSid != null && progress.positionMs == 0L) return null
+    if (progress == null || durationMs <= 0L) return 0f
+    return (progress.positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
 }

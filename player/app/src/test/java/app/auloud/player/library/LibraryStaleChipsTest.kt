@@ -261,7 +261,8 @@ class LibraryStaleChipsTest {
             sentenceSid: Int?
         ): Result<Unit> = Result.success(Unit)
         override suspend fun load(bookId: String): Result<ProgressEntity?> = Result.success(null)
-        override suspend fun loadAll(): Result<Map<String, Long>> = Result.success(emptyMap())
+        override suspend fun loadAll(): Result<Map<String, ProgressEntity>> =
+            Result.success(emptyMap())
         override suspend fun delete(bookId: String): Result<Unit> = Result.success(Unit)
     }
 }

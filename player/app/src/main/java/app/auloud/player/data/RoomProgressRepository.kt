@@ -31,8 +31,8 @@ class RoomProgressRepository(
     override suspend fun load(bookId: String): Result<ProgressEntity?> =
         runBoundary { progressDao.load(bookId) }
 
-    override suspend fun loadAll(): Result<Map<String, Long>> =
-        runBoundary { progressDao.getAll().associate { it.bookId to it.positionMs } }
+    override suspend fun loadAll(): Result<Map<String, ProgressEntity>> =
+        runBoundary { progressDao.getAll().associateBy { it.bookId } }
 
     override suspend fun delete(bookId: String): Result<Unit> =
         runBoundary { progressDao.deleteById(bookId) }

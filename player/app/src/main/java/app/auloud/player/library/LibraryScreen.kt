@@ -209,8 +209,11 @@ private fun BookRow(
                     color = MaterialTheme.colorScheme.error
                 )
             } else {
-                Spacer(Modifier.height(8.dp))
-                LinearProgressIndicator(progress = { book.progressFraction })
+                // Null for stream-only books (no ms to map): no bar, not 0%.
+                book.progressFraction?.let { fraction ->
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(progress = { fraction })
+                }
             }
         }
         TextButton(onClick = { onDeleteRequest(book) }) {
