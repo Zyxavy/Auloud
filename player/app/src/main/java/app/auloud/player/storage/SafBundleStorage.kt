@@ -135,6 +135,22 @@ class SafBundleStorage(
         }
     }
 
+    /** FP4: document size via the backend; null for a wrong tree, a bad rel, or any failure. */
+    override fun sizeBytes(path: String): Long? {
+        val split = SafPaths.splitToken(path) ?: return null
+        if (split.first != treeUri || split.second.isBlank()) return null
+        val rel = try {
+            SafPaths.sanitizeTreeRel(split.second, "bundle path")
+        } catch (e: IllegalArgumentException) {
+            return null
+        }
+        return try {
+            backend.sizeBytes(rel)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private fun isValidBundleName(name: String): Boolean {
         val n = name.trim().trim('/')
         return n.isNotEmpty() && '/' !in n && n != "." && n != ".."

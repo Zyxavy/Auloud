@@ -28,6 +28,9 @@ interface SafBackend {
 
     /** Document-URI string for [relPath] (for `audioUri` resolution). */
     fun documentUri(relPath: String): String
+
+    /** Byte size of the document at [relPath] (COLUMN_SIZE), null when unknown. Never throws. */
+    fun sizeBytes(relPath: String): Long?
 }
 
 /** One child row: display name plus the directory flag. */

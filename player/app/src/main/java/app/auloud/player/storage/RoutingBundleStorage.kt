@@ -109,12 +109,16 @@ class RoutingBundleStorage(
     }
 
     /**
-     * FP4: byte size routes like [exists]; SAF tokens read as unknown
+     * FP4: byte size routes like [exists]; a SAF failure reads as unknown
      * (null), so the validator falls back to its post-read byte check.
      */
     override fun sizeBytes(path: String): Long? =
         if (SafPaths.isSafPath(path)) {
-            null
+            try {
+                safForTree(SafPaths.treeOf(path)).sizeBytes(path)
+            } catch (_: Exception) {
+                null
+            }
         } else {
             try {
                 fileStorage.sizeBytes(path)

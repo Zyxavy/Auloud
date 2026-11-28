@@ -87,7 +87,7 @@ interface BundleStorage {
 
     /**
      * FP4: byte size of the file at [path], or null when unknown
-     * (missing file, SAF branch, or any failure). Lets import validation
+     * (missing file, or any failure). Lets import validation
      * refuse oversize chapter text BEFORE reading it into memory.
      * Default null so read-only fakes compile untouched.
      *
