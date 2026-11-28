@@ -44,7 +44,8 @@ class ValidatorParityTest {
                 BundleValidator.validate(
                     dir,
                     manifest,
-                    readText = { path -> File(path).takeIf { it.isFile }?.readText() }
+                    readText = { path -> File(path).takeIf { it.isFile }?.readText() },
+                    hashSource = true
                 ).isEmpty()
             },
             { false }

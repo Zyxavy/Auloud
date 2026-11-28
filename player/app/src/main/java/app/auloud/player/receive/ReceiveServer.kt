@@ -28,7 +28,7 @@ import kotlinx.serialization.json.put
  *
  * Status codes use only long-stable values: 200 imported (or a duplicate
  * resend), 400 malformed/unreadable/invalid, 403 wrong pairing code, 409
- * hash mismatch, 411 no Content-Length, 507 books folder under 2x the upload. Every error body is `{"ok":false,"error":"<file: rule:
+ * hash mismatch, 411 no Content-Length, 507 books folder under 2x the upload or app cache under 1x. Every error body is `{"ok":false,"error":"<file: rule:
  * detail>"}` in the codebase's file-and-rule shape.
  *
  * Lifetime: the Receive screen starts the server on open and stops it on
@@ -47,7 +47,11 @@ class ReceiveServer(
     /** Wrong-code brake; tests pass 0 to exercise the cap without waiting. */
     private val badCodeDelayMs: Long = 1000L,
     /** Usable bytes on the books root; tests fake it. */
-    private val freeSpace: (String) -> Long = { File(it).usableSpace }
+    private val freeSpace: (String) -> Long = { File(it).usableSpace },
+    /** App cache dir, the volume uploads spool to; defaults to the books root in tests. */
+    private val cacheDir: String = booksRoot,
+    /** Usable bytes on [cacheDir]; tests fake it. */
+    private val tempFreeSpace: (String) -> Long = { File(it).usableSpace }
 ) : NanoHTTPD(port) {
 
     /** TR1 hardening: wrong pairing codes seen this server lifetime. */
@@ -89,6 +93,13 @@ class ReceiveServer(
                 ok = false,
                 error = "bundle.zip: length-required: send a Content-Length header"
             )
+        if (declared < 0) {
+            return json(
+                Response.Status.BAD_REQUEST,
+                ok = false,
+                error = "bundle.zip: bad-length: Content-Length must not be negative"
+            )
+        }
         if (oversizeDeclaredLength(session.headers["content-length"])) {
             // Refuse a declared oversize upload before NanoHTTPD streams it
             // to a temp file; the pipeline's unpacked cap stays the second
@@ -106,6 +117,14 @@ class ReceiveServer(
                 insufficientStorage,
                 ok = false,
                 error = "bundle.zip: insufficient-storage: books folder needs 2x the upload free"
+            )
+        }
+        // NanoHTTPD spools the upload to its temp file before parseBody.
+        if (tempFreeSpace(cacheDir) < declared) {
+            return json(
+                insufficientStorage,
+                ok = false,
+                error = "bundle.zip: insufficient-storage: app cache needs the upload size free"
             )
         }
         val sha = session.headers["x-sha256"]

@@ -174,6 +174,34 @@ class ReceiveServerTest {
         }
     }
 
+    /** Raw socket POST: HttpURLConnection will not send a negative Content-Length. */
+    private fun rawPost(port: Int, extraHeaders: String): Pair<Int, String> =
+        java.net.Socket("127.0.0.1", port).use { socket ->
+            socket.soTimeout = 5000
+            val head = "POST /bundle HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Pairing-Code: $code\r\n" +
+                "X-Sha256: ${sha256Hex(ByteArray(0))}\r\n$extraHeaders" +
+                "Connection: close\r\n\r\n"
+            socket.getOutputStream().write(head.toByteArray(Charsets.US_ASCII))
+            socket.getOutputStream().flush()
+            val raw = socket.getInputStream().readBytes().toString(Charsets.UTF_8)
+            raw.lineSequence().first().split(" ")[1].toInt() to raw.substringAfter("\r\n\r\n")
+        }
+
+    @Test
+    fun negativeContentLengthIs400() {
+        val root = booksRoot()
+        val server = ReceiveServer(0, code, root, storage, library)
+        server.start()
+        try {
+            val (status, text) = rawPost(server.listeningPort, "Content-Length: -5\r\n")
+            assertEquals(400, status)
+            assertTrue(text.contains("bad-length"))
+            assertTrue(library.imported.isEmpty())
+        } finally {
+            server.stop()
+        }
+    }
+
     @Test
     fun getIs404() {
         val root = booksRoot()
@@ -471,6 +499,24 @@ class ReceiveServerTest {
             val (status, text) = post(server.listeningPort, code, sha256Hex(body), body)
             assertEquals(507, status)
             assertTrue(text.contains("insufficient-storage"))
+            assertTrue(strayTemps(root).isEmpty())
+            assertTrue(library.imported.isEmpty())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun lowTempSpaceIs507() {
+        val root = booksRoot()
+        val body = zipBytes(validEntries())
+        val server = ReceiveServer(0, code, root, storage, library, tempFreeSpace = { 0L })
+        server.start()
+        try {
+            val (status, text) = post(server.listeningPort, code, sha256Hex(body), body)
+            assertEquals(507, status)
+            assertTrue(text.contains("insufficient-storage"))
+            assertTrue(text.contains("app cache"))
             assertTrue(strayTemps(root).isEmpty())
             assertTrue(library.imported.isEmpty())
         } finally {

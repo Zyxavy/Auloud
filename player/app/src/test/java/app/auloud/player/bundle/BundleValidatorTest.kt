@@ -435,13 +435,20 @@ class BundleValidatorTest {
     }
 
     @Test
-    fun sourceFile_missing_isNamed() {
+    fun missingSourceFailsImportValidation() {
         val dir = fixtureDir("shape-srcfile")
         val manifest = BundleParser.parse(dir).getOrThrow()
         assertEquals(
             listOf("source/book.epub: file missing (listed in manifest source)"),
-            BundleValidator.validate(dir, manifest)
+            BundleValidator.validate(dir, manifest, hashSource = true)
         )
+    }
+
+    @Test
+    fun missingSourcePassesRescanValidation() {
+        val dir = fixtureDir("shape-srcfile")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        assertEquals(emptyList<String>(), BundleValidator.validate(dir, manifest))
     }
 
     @Test
@@ -451,7 +458,7 @@ class BundleValidatorTest {
         val bad = manifest.copy(source = SourceInfo(file = "../book.epub", sha256 = null))
         assertEquals(
             listOf("../book.epub: path escapes bundle (listed in manifest source)"),
-            BundleValidator.validate(dir, bad)
+            BundleValidator.validate(dir, bad, hashSource = true)
         )
     }
 

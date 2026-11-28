@@ -194,6 +194,7 @@ class MainActivity : ComponentActivity() {
     private val receiveVmDelegate = lazy {
         ReceiveViewModel(
             booksRoot = BooksRootResolver.defaultBooksRoot(applicationContext),
+            cacheDir = applicationContext.cacheDir.absolutePath,
             storage = routingStorage,
             library = libraryRepository,
             onSettled = {

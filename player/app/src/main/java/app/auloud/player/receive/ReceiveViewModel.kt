@@ -27,6 +27,7 @@ data class ReceiveUiState(
 
 class ReceiveViewModel(
     private val booksRoot: String,
+    private val cacheDir: String = booksRoot,
     private val storage: BundleStorage,
     private val library: LibraryRepository,
     private val onSettled: () -> Unit = {}
@@ -44,6 +45,7 @@ class ReceiveViewModel(
             port = ReceiveServer.RECEIVE_PORT,
             pairingCode = code,
             booksRoot = booksRoot,
+            cacheDir = cacheDir,
             storage = storage,
             library = library,
             onReceiveStarted = { _state.update { it.copy(busy = true) } },

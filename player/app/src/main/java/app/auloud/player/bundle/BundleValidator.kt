@@ -50,10 +50,11 @@ import kotlinx.serialization.json.longOrNull
  * never crash import or playback (enforced by callers in WP5).
  *
  * Spec 7 source section (`SRC-*` rules, wording as in `scribe/bundle/validate.py`):
- * the source path must stay inside the bundle and exist, the sha256 must be
- * 64 hex chars, and with [validate]'s `hashSource` the file is hashed
- * (streamed) and compared. Only one-time import paths set `hashSource`;
- * rescans skip the hash.
+ * the sha256 must be 64 hex chars (every caller). With [validate]'s
+ * `hashSource` (one-time imports only) the source path must also stay inside
+ * the bundle and exist, and the file is hashed (streamed) and compared.
+ * Rescans skip those file checks, so a moved or deleted source never hides a
+ * book that is already imported.
  *
  * API 24 safe: uses `java.io` and `java.security` only.
  *
@@ -744,10 +745,10 @@ object BundleValidator {
     }
 
     /**
-     * Spec 7 source section: the `source.file` path must stay inside the
-     * bundle and exist; the sha256 must be 64 hex chars. With [hashSource]
-     * the file is streamed through [openInput] and compared. Returns named
-     * errors (wording as in `scribe/bundle/validate.py`). Pure given the seams.
+     * Spec 7 source section: the sha256 must be 64 hex chars. With [hashSource]
+     * the `source.file` path must stay inside the bundle and exist, and the
+     * file is streamed through [openInput] and compared. Returns named errors
+     * (wording as in `scribe/bundle/validate.py`). Pure given the seams.
      */
     internal fun validateSource(
         bundleDirPath: String,
@@ -758,14 +759,14 @@ object BundleValidator {
     ): List<String> {
         val source = manifest.source ?: return emptyList()
         val file = source.file ?: return emptyList()
+        val sha = source.sha256
+        if (!hashSource) return sha256ShapeErrors(sha)
         val path = safeJoin(bundleDirPath, file)
             ?: return listOf("$file: path escapes bundle (listed in manifest source)")
         if (!exists(path)) return listOf("$file: file missing (listed in manifest source)")
-        val sha = source.sha256 ?: return emptyList()
-        if (sha.length != 64 || sha.any { it !in "0123456789abcdefABCDEF" }) {
-            return listOf("manifest.json: source sha256 is not a 64-char hex string")
-        }
-        if (!hashSource) return emptyList()
+        if (sha == null) return emptyList()
+        val shape = sha256ShapeErrors(sha)
+        if (shape.isNotEmpty()) return shape
         val digest = try {
             openInput(path)?.use { sha256Hex(it) }
         } catch (_: Exception) {
@@ -778,6 +779,14 @@ object BundleValidator {
             listOf("$file: sha256 mismatch: expected $sha, got $digest")
         }
     }
+
+    /** Spec 7: a present sha256 must be 64 hex chars (checked on every path). */
+    private fun sha256ShapeErrors(sha: String?): List<String> =
+        if (sha == null || (sha.length == 64 && sha.all { it in "0123456789abcdefABCDEF" })) {
+            emptyList()
+        } else {
+            listOf("manifest.json: source sha256 is not a 64-char hex string")
+        }
 
     /** Streamed lowercase hex SHA-256: 8 KB reads, the file is never held whole. */
     internal fun sha256Hex(input: InputStream): String {
