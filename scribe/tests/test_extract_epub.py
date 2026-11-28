@@ -296,3 +296,26 @@ def test_unspeakable_blocks_are_dropped_not_kept(tmp_path: Path) -> None:
     texts = [s.text for b in result.chapters[0].blocks or [] for s in b.sentences]
     assert not [t for t in texts if not any(ch.isalnum() for ch in t)]
     assert any("unspeakable" in d for d in result.drops)
+
+
+def test_oversized_declared_epub_refused_before_parse(tmp_path: Path) -> None:
+    """Declared uncompressed sizes over 1 GiB are refused before ebooklib reads the zip."""
+    import pytest
+
+    from extract.epub import read_spine_documents
+
+    good = _make_mini_epub(tmp_path / "mini.epub")
+    data = bytearray(good.read_bytes())
+    # Central-directory header: signature PK\x01\x02, uncompressed size at +24.
+    offset = data.find(b"PK\x01\x02")
+    assert offset >= 0
+    while offset >= 0:
+        data[offset + 24 : offset + 28] = (0x7FFFFFFF).to_bytes(4, "little")
+        offset = data.find(b"PK\x01\x02", offset + 4)
+    bomb = tmp_path / "bomb.epub"
+    bomb.write_bytes(bytes(data))
+
+    with pytest.raises(ValueError, match="too-large"):
+        read_spine_documents(bomb)
+    with pytest.raises(ValueError, match="too-large"):
+        extract_epub_chapters(bomb)

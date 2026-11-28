@@ -37,6 +37,7 @@ import logging
 import re
 import unicodedata
 import warnings
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,27 @@ from bs4 import BeautifulSoup, NavigableString, Tag, XMLParsedAsHTMLWarning
 from bundle.models import Span
 
 logger = logging.getLogger(__name__)
+
+#: Refuse an EPUB whose declared uncompressed size is over this (zip-bomb guard).
+MAX_EPUB_UNCOMPRESSED_BYTES = 1 << 30
+
+
+def _refuse_zip_bomb(path: Path) -> None:
+    """Raise before ebooklib inflates anything when the declared sizes are too big.
+
+    shortcut: trusts the sizes in the zip central directory, which a crafted
+    archive can understate; upgrade to a bounded inflate if that matters.
+    """
+    try:
+        with zipfile.ZipFile(path) as archive:
+            total = sum(info.file_size for info in archive.infolist())
+    except zipfile.BadZipFile:
+        return  # not a zip: ebooklib reports it, with the reason parity fixtures expect
+    if total > MAX_EPUB_UNCOMPRESSED_BYTES:
+        raise ValueError(
+            f"{path.name}: too-large: EPUB declares {total} bytes uncompressed "
+            f"(limit {MAX_EPUB_UNCOMPRESSED_BYTES})"
+        )
 
 
 def _soup(html: bytes | str) -> BeautifulSoup:
@@ -387,6 +409,7 @@ def read_spine_documents(epub_path: Path) -> SpineReadResult:
     path = Path(epub_path)
     if not path.is_file():
         raise FileNotFoundError(f"EPUB not found: {path}")
+    _refuse_zip_bomb(path)
     book = ebooklib_epub.read_epub(str(path))
     titles = toc_title_map(book)
 

@@ -337,3 +337,87 @@ def test_kokoro_smoke_synthesizes_24khz_non_silent() -> None:
     assert audio.dtype == np.float32
     assert len(audio) > 2_400  # well over a tenth of a second of speech
     assert float(np.max(np.abs(audio))) > 0.01  # genuinely non-silent
+
+
+def test_warm_reads_decode_concurrently(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Warm hits decode in parallel: the decode is not held under _IO_LOCK."""
+    from tts import cache as cache_mod
+
+    engine = FakeEngine()
+    texts = [f"Warm sentence number {i}." for i in range(4)]
+    for text in texts:
+        get_or_synth(engine, text, "af_heart", 1.0, 1.0, tmp_path)
+    engine.calls.clear()  # warm-up synthesized; the measured reads must not
+
+    real_decode = cache_mod._read_flac
+    gauge = threading.Lock()
+    inside = {"now": 0, "peak": 0}
+
+    def slow_decode(path: Path, sample_rate: int) -> np.ndarray:
+        with gauge:
+            inside["now"] += 1
+            inside["peak"] = max(inside["peak"], inside["now"])
+        try:
+            time.sleep(0.2)
+            return real_decode(path, sample_rate)
+        finally:
+            with gauge:
+                inside["now"] -= 1
+
+    monkeypatch.setattr(cache_mod, "_read_flac", slow_decode)
+    results: dict[str, np.ndarray] = {}
+
+    def worker(text: str) -> None:
+        results[text] = get_or_synth(engine, text, "af_heart", 1.0, 1.0, tmp_path)
+
+    threads = [threading.Thread(target=worker, args=(t,)) for t in texts]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert inside["peak"] > 1, inside
+    assert engine.calls == [], "warm hits must not synthesize"
+    assert set(results) == set(texts)
+
+
+def test_read_permission_error_retries_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A transient PermissionError (rename in flight) is retried, not treated as corrupt."""
+    from tts import cache as cache_mod
+
+    engine = FakeEngine()
+    get_or_synth(engine, "Retry me.", "af_heart", 1.0, 1.0, tmp_path)
+    path = cache_path(tmp_path, cache_key("Retry me.", "af_heart", 1.0, 1.0, engine.engine_version))
+    real_decode = cache_mod._read_flac
+    attempts = {"n": 0}
+
+    def flaky(p: Path, sample_rate: int) -> np.ndarray:
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise PermissionError("entry is being replaced")
+        return real_decode(p, sample_rate)
+
+    monkeypatch.setattr(cache_mod, "_read_flac", flaky)
+    audio = cache_mod._read_cached(path, engine.sample_rate)
+    assert audio is not None and audio.size > 0
+    assert attempts["n"] == 2
+    assert path.is_file()
+
+
+def test_persistent_permission_error_is_a_miss_not_a_delete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tts import cache as cache_mod
+
+    engine = FakeEngine()
+    get_or_synth(engine, "Locked entry.", "af_heart", 1.0, 1.0, tmp_path)
+    key = cache_key("Locked entry.", "af_heart", 1.0, 1.0, engine.engine_version)
+    path = cache_path(tmp_path, key)
+
+    def locked(p: Path, sample_rate: int) -> np.ndarray:
+        raise PermissionError("still locked")
+
+    monkeypatch.setattr(cache_mod, "_read_flac", locked)
+    assert cache_mod._read_cached(path, engine.sample_rate) is None
+    assert path.is_file(), "a permission error is not evidence of a torn file"

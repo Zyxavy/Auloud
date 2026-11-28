@@ -58,6 +58,7 @@ import math
 import os
 import re
 import threading
+import time
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
@@ -155,11 +156,11 @@ def _read_flac(path: Path, sample_rate: int) -> np.ndarray:
     return mono
 
 
-#: Serializes cache-file reads and stores. Chapter worker threads (RT2) can
-#: reach the same key at once (identical lines recur across chapters), and on
-#: Windows renaming an entry over one another thread has open fails with a
-#: sharing violation. Synthesis stays outside this lock: it is the expensive
-#: part and the engine is thread-safe.
+#: Serializes the rename of a finished cache entry into place. Chapter worker
+#: threads (RT2) can reach the same key at once and on Windows two renames of
+#: one target fail. Decoding and encoding run outside it, so warm reads stay
+#: parallel; a reader holding an entry open can still make the rename fail,
+#: which _replace_retrying covers.
 _IO_LOCK = threading.Lock()
 
 #: Gates the actual engine call (D-192). Chapter workers (RT2) share one
@@ -172,29 +173,52 @@ _IO_LOCK = threading.Lock()
 #: takes this lock, so warm resumes stay fully parallel.
 
 
+def _unlink_quietly(path: Path) -> None:
+    """Delete a bad entry; a concurrent reader may hold it open (Windows)."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def _read_cached(path: Path, sample_rate: int) -> np.ndarray | None:
     """Decode a cache entry, or ``None`` when it is not a usable hit.
 
+    Decoding runs outside ``_IO_LOCK`` so warm resumes read in parallel. A
+    PermissionError means a rename is in flight (Windows will not replace an
+    open file), so it is retried once and the entry is kept if it still fails.
     A present-but-undecodable file (torn write, foreign bytes, 0-byte) is
     deleted and reported as a miss, never returned.
     """
-    with _IO_LOCK:
-        if not path.is_file():
-            return None
+    if not path.is_file():
+        return None
+    for attempt in range(2):
         try:
             return _read_flac(path, sample_rate)
+        except PermissionError:
+            if attempt == 0:
+                time.sleep(0.05)
         except Exception:
             # Broad catch is deliberate — any decode failure means "not a
             # valid hit".
-            path.unlink(missing_ok=True)
+            _unlink_quietly(path)
             return None
+    return None
 
 
 def _store_cached(path: Path, audio: np.ndarray, sample_rate: int) -> None:
-    """Store one cache entry (serialized with readers and other stores)."""
-    with _IO_LOCK:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _write_flac_atomic(path, audio, sample_rate)
+    """Store one cache entry (encoded outside the lock, renamed under it)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_flac_atomic(path, audio, sample_rate)
+
+
+def _replace_retrying(tmp: Path, path: Path) -> None:
+    """``os.replace``, retried once: Windows refuses while a reader has the target open."""
+    try:
+        os.replace(tmp, path)
+    except PermissionError:
+        time.sleep(0.05)
+        os.replace(tmp, path)
 
 
 def _check_finite(name: str, value: float) -> None:
@@ -215,8 +239,8 @@ def _write_flac_atomic(path: Path, audio: np.ndarray, sample_rate: int) -> None:
     file and re-raises; stale temps from killed builds are ignored.
 
     The temp name carries the thread id as well as the pid so two stores can
-    never share a temp path; the rename itself is serialized with readers by
-    ``_IO_LOCK`` (see :func:`_store_cached`).
+    never share a temp path. Encoding and fsync run unlocked; only the rename
+    holds ``_IO_LOCK`` (see :func:`_replace_retrying`).
     """
     import soundfile as sf
 
@@ -226,7 +250,8 @@ def _write_flac_atomic(path: Path, audio: np.ndarray, sample_rate: int) -> None:
         with open(tmp, "r+b") as handle:
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp, path)
+        with _IO_LOCK:
+            _replace_retrying(tmp, path)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise

@@ -187,12 +187,6 @@ def golden_build(tmp_path_factory):
 
 def test_render_equivalence_to_golden(golden_build, tmp_path):
     facts_golden, result_golden, work_golden, out_golden = golden_build
-    # Store the golden run (overwritten each session because the Kokoro
-    # source generator is stochastic; within-session comparison is warm).
-    (tmp_path / "render_equivalence_golden.json").write_text(
-        json.dumps(facts_golden, indent=2), encoding="utf-8"
-    )
-
     cand_work = tmp_path / "cand-work"
     cand_out = tmp_path / "cand-out"
     facts_cand, result_cand, _ = _collect_facts(
