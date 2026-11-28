@@ -130,7 +130,7 @@ object IngestPipeline {
      * split/tag pass and the self-check pass (default silent, so the
      * write-phase event counts asserted in tests never change).
      * @param readBook container-read seam (default IN3, injectable).
-     * @param readSpine spine-bytes seam (default IN3, injectable).
+     * @param readSpine optional spine-bytes seam; default reads from one shared archive.
      */
     suspend fun importEpub(
         epubFile: File,
@@ -142,7 +142,7 @@ object IngestPipeline {
         onProgress: suspend (ImportProgress) -> Unit = {},
         onPrepareProgress: suspend (ImportProgress) -> Unit = {},
         readBook: (File) -> Result<EpubBook> = EpubContainerReader::read,
-        readSpine: (File, String) -> Result<ByteArray> = EpubContainerReader::readSpineBytes
+        readSpine: ((File, String) -> Result<ByteArray>)? = null
     ): IngestOutcome = withContext(ioDispatcher) {
         val startMs = clock()
         val sha = hashSource(epubFile)
@@ -164,7 +164,11 @@ object IngestPipeline {
                         author = book.author,
                         language = book.language,
                         coverBytes = EpubContainerReader.readCoverBytes(epubFile, book),
-                        structure = EpubStructurePipeline.ingest(epubFile, book, readSpine)
+                        structure = SpineReader(epubFile).use { spines ->
+                            EpubStructurePipeline.ingest(epubFile, book) { file, entry ->
+                                readSpine?.invoke(file, entry) ?: spines.read(entry)
+                            }
+                        }
                     )
                 )
             },

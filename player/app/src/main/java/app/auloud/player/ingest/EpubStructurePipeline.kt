@@ -7,7 +7,7 @@ import java.io.File
  *
  * Contract with IN3: the caller goes through [EpubContainerReader.read]
  * first and passes the accepted [EpubBook] in. Spine bytes are fetched
- * with [EpubContainerReader.readSpineBytes] ONE document at a time;
+ * with [SpineReader] ONE document at a time (one open archive);
  * parsed DOMs are never held across documents (only cleaned blocks
  * accumulate, which the tiny-merge needs). The seam skips DRM and total
  * size re-checks by design (see [EpubContainerReader] KDoc), so this

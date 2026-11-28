@@ -1,6 +1,7 @@
 package app.auloud.player.ingest
 
 import java.io.ByteArrayOutputStream
+import java.io.Closeable
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
@@ -39,7 +40,7 @@ import java.io.StringReader
  * Handoff for IN4: [EpubBook.spine] is the ordered spine-document list.
  * Each [EpubSpineDocument] carries the zip entry path in [EpubSpineDocument.href]
  * plus `isLinear`, `isNav` and `tocTitle`. IN4 reads one document at a
- * time with [readSpineBytes] (never hold all docs), drops nav and
+ * time with [SpineReader] (never hold all docs), drops nav and
  * non-linear items per the ingestion rules, computes `hasImages` from the
  * bytes itself, and falls back to first heading or `Chapter N` when
  * `tocTitle` is null. No HTML parsing happens here (jsoup lands in IN4);
@@ -109,9 +110,15 @@ object EpubContainerReader {
     /**
      * Test seam: same as [read] with explicit caps so JVM tests trigger
      * the oversize paths with small files (no 32 MB fixtures). Production
-     * callers use [read] (fixed caps above).
+     * callers use [read] (fixed caps above). [onSniffBytes] reports the bytes
+     * each cover candidate sniff reads (two per image).
      */
-    internal fun readWithCaps(epubFile: File, maxEntry: Long, maxTotal: Long): Result<EpubBook> {
+    internal fun readWithCaps(
+        epubFile: File,
+        maxEntry: Long,
+        maxTotal: Long,
+        onSniffBytes: (Int) -> Unit = {}
+    ): Result<EpubBook> {
         if (!epubFile.isFile) {
             return Result.failure(
                 IOException("${epubFile.name}: cannot read source file (missing EPUB)")
@@ -142,7 +149,7 @@ object EpubContainerReader {
             )
         }
         try {
-            return readFromZip(epubFile.name, zip, sha, maxEntry, maxTotal)
+            return readFromZip(epubFile.name, zip, sha, maxEntry, maxTotal, onSniffBytes)
         } finally {
             zip.closeQuietly()
         }
@@ -163,42 +170,7 @@ object EpubContainerReader {
         entryName: String,
         maxEntry: Long
     ): Result<ByteArray> {
-        val check = checkEntryName(entryName)
-        if (check != null) {
-            return Result.failure(
-                IOException("${epubFile.name}: entry '$entryName' rejected ($check)")
-            )
-        }
-        val zip: ZipFile
-        try {
-            zip = ZipFile(epubFile)
-        } catch (e: IOException) {
-            return Result.failure(
-                IOException("${epubFile.name}: not a valid ZIP archive (${e.message})", e)
-            )
-        }
-        try {
-            val entry = zip.getEntry(entryName)
-                ?: return Result.failure(
-                    IOException("${epubFile.name}: entry '$entryName' missing in archive")
-                )
-            return try {
-                Result.success(readEntryCapped(zip, entry, maxEntry))
-            } catch (e: OversizeEntryException) {
-                Result.failure(
-                    IOException(
-                        "${epubFile.name}: entry '$entryName' exceeds per-entry limit " +
-                            "(size ${e.size} over $maxEntry bytes)"
-                    )
-                )
-            } catch (e: IOException) {
-                Result.failure(
-                    IOException("${epubFile.name}: entry '$entryName' cannot be read (${e.message})", e)
-                )
-            }
-        } finally {
-            zip.closeQuietly()
-        }
+        return SpineReader(epubFile, maxEntry).use { it.read(entryName) }
     }
 
     /**
@@ -240,7 +212,8 @@ object EpubContainerReader {
         zip: ZipFile,
         sha: String,
         maxEntry: Long,
-        maxTotal: Long
+        maxTotal: Long,
+        onSniffBytes: (Int) -> Unit
     ): Result<EpubBook> {
         val entries = try {
             zip.entries().toList()
@@ -398,7 +371,7 @@ object EpubContainerReader {
                 )
             )
         }
-        val coverEntry = findCoverEntry(zip, opf, opfPath, warnings, maxEntry)
+        val coverEntry = findCoverEntry(zip, opf, opfPath, warnings, onSniffBytes)
         val fallbackTitle = fileName.substringBeforeLast('.').ifBlank { fileName }
         val title = opf.title?.ifBlank { null } ?: fallbackTitle
         return Result.success(
@@ -911,7 +884,7 @@ object EpubContainerReader {
         opf: ParsedOpf,
         opfPath: String,
         warnings: MutableList<String>,
-        maxEntry: Long
+        onSniffBytes: (Int) -> Unit
     ): String? {
         val ordered = ArrayList<ManifestItem>()
         val seen = HashSet<String>()
@@ -933,12 +906,7 @@ object EpubContainerReader {
         for (item in ordered) {
             val entry = zip.getEntry(item.hrefEntry) ?: continue
             if (entry.isDirectory) continue
-            val bytes = try {
-                readEntryCapped(zip, entry, maxEntry)
-            } catch (_: Exception) {
-                continue
-            }
-            if (isJpeg(bytes)) return item.hrefEntry
+            if (sniffJpeg(zip, entry, onSniffBytes)) return item.hrefEntry
         }
         // No JPEG cover is normal (fixtures ship none); stay silent so
         // golden imports keep empty warnings. Only note an OPF problem
@@ -949,11 +917,89 @@ object EpubContainerReader {
         return null
     }
 
+    /** Reads only the first two bytes of [entry]; [onBytes] reports how many were read. */
+    private fun sniffJpeg(zip: ZipFile, entry: ZipEntry, onBytes: (Int) -> Unit): Boolean {
+        return try {
+            zip.getInputStream(entry).use { input ->
+                val head = ByteArray(2)
+                var n = 0
+                while (n < 2) {
+                    val read = input.read(head, n, 2 - n)
+                    if (read <= 0) break
+                    n += read
+                }
+                onBytes(n)
+                n == 2 && isJpeg(head)
+            }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     private fun ZipFile.closeQuietly() {
         try {
             close()
         } catch (_: Exception) {
         }
+    }
+}
+
+/**
+ * Spine reads from one open archive. IN4 reads chapter by chapter, so this
+ * holds one [ZipFile] for the whole pass instead of reopening it (and
+ * re-reading the central directory) per document. The zip opens on the first
+ * read; [close] releases it. [opens] counts opens (test seam).
+ */
+internal class SpineReader(
+    private val epubFile: File,
+    private val maxEntry: Long = EpubContainerReader.MAX_ENTRY_BYTES
+) : Closeable {
+    private var zip: ZipFile? = null
+
+    var opens: Int = 0
+        private set
+
+    /** Reads one entry by zip path; failures name the file and the rule, never throw. */
+    fun read(entryName: String): Result<ByteArray> {
+        val check = EpubContainerReader.checkEntryName(entryName)
+        if (check != null) {
+            return Result.failure(
+                IOException("${epubFile.name}: entry '$entryName' rejected ($check)")
+            )
+        }
+        val archive = zip ?: try {
+            ZipFile(epubFile).also {
+                zip = it
+                opens++
+            }
+        } catch (e: IOException) {
+            return Result.failure(
+                IOException("${epubFile.name}: not a valid ZIP archive (${e.message})", e)
+            )
+        }
+        val entry = archive.getEntry(entryName)
+            ?: return Result.failure(
+                IOException("${epubFile.name}: entry '$entryName' missing in archive")
+            )
+        return try {
+            Result.success(EpubContainerReader.readEntryCapped(archive, entry, maxEntry))
+        } catch (e: EpubContainerReader.OversizeEntryException) {
+            Result.failure(
+                IOException(
+                    "${epubFile.name}: entry '$entryName' exceeds per-entry limit " +
+                        "(size ${e.size} over $maxEntry bytes)"
+                )
+            )
+        } catch (e: IOException) {
+            Result.failure(
+                IOException("${epubFile.name}: entry '$entryName' cannot be read (${e.message})", e)
+            )
+        }
+    }
+
+    override fun close() {
+        runCatching { zip?.close() }
+        zip = null
     }
 }
 

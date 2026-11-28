@@ -509,6 +509,78 @@ class EpubContainerReaderTest {
         assertNull(EpubContainerReader.readCoverBytes(target, book))
     }
 
+    @Test
+    fun coverSniffReadsTwoBytesPerImage() {
+        val target = File(temp.root, "fiftypng.epub")
+        val pages = (1..50).map { "img$it" }
+        val manifest = pages.joinToString("") {
+            "<item id=\"$it\" href=\"$it.png\" media-type=\"image/png\"/>"
+        }
+        val entries = linkedMapOf(
+            "mimetype" to "application/epub+zip".toByteArray(Charsets.UTF_8),
+            "META-INF/container.xml" to containerXml("OEBPS/content.opf"),
+            "OEBPS/content.opf" to (
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                    "<package xmlns=\"http://www.idpf.org/2007/opf\" unique-identifier=\"id\" version=\"3.0\">" +
+                    "<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">" +
+                    "<dc:title>Test Book</dc:title><dc:language>en</dc:language>" +
+                    "<dc:identifier id=\"id\">test-id</dc:identifier></metadata>" +
+                    "<manifest>" +
+                    "<item id=\"ch1\" href=\"ch1.xhtml\" media-type=\"application/xhtml+xml\"/>" +
+                    "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>" +
+                    manifest +
+                    "</manifest>" +
+                    "<spine><itemref idref=\"ch1\"/></spine></package>"
+                ).toByteArray(Charsets.UTF_8),
+            "OEBPS/ch1.xhtml" to chapterXhtml("Chapter One", "Text."),
+            "OEBPS/nav.xhtml" to navXhtml(listOf(Pair("ch1.xhtml", "Chapter One")))
+        )
+        for (page in pages) entries["OEBPS/$page.png"] = pngBytes() + ByteArray(4096)
+        writeZip(target, entries)
+        var sniffed = 0L
+        val book = EpubContainerReader.readWithCaps(
+            target, EpubContainerReader.MAX_ENTRY_BYTES, EpubContainerReader.MAX_TOTAL_BYTES
+        ) { sniffed += it }.getOrThrow()
+        assertNull("PNG-only images are not a cover", book.coverEntry)
+        assertEquals("two bytes per image, got $sniffed", 2L * pages.size, sniffed)
+    }
+
+    @Test
+    fun manyChaptersOpenZipOnce() {
+        val target = File(temp.root, "manychapters.epub")
+        val chapters = (1..40).map { "ch$it" }
+        val manifest = chapters.joinToString("") {
+            "<item id=\"$it\" href=\"$it.xhtml\" media-type=\"application/xhtml+xml\"/>"
+        }
+        val spine = chapters.joinToString("") { "<itemref idref=\"$it\"/>" }
+        val entries = linkedMapOf(
+            "mimetype" to "application/epub+zip".toByteArray(Charsets.UTF_8),
+            "META-INF/container.xml" to containerXml("OEBPS/content.opf"),
+            "OEBPS/content.opf" to (
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                    "<package xmlns=\"http://www.idpf.org/2007/opf\" unique-identifier=\"id\" version=\"3.0\">" +
+                    "<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">" +
+                    "<dc:title>Test Book</dc:title><dc:language>en</dc:language>" +
+                    "<dc:identifier id=\"id\">test-id</dc:identifier></metadata>" +
+                    "<manifest>" +
+                    "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>" +
+                    manifest +
+                    "</manifest>" +
+                    "<spine>$spine</spine></package>"
+                ).toByteArray(Charsets.UTF_8),
+            "OEBPS/nav.xhtml" to navXhtml(chapters.map { Pair("$it.xhtml", "Title $it") })
+        )
+        for (ch in chapters) entries["OEBPS/$ch.xhtml"] = chapterXhtml("Title $ch", "Text of $ch.")
+        writeZip(target, entries)
+        val book = EpubContainerReader.read(target).getOrThrow()
+        SpineReader(target).use { spines ->
+            val structure = EpubStructurePipeline.ingest(target, book) { _, entry -> spines.read(entry) }
+            assertTrue("chapters must come out", structure.chapters.isNotEmpty())
+            assertTrue("no chapter read may fail: ${structure.drops}", structure.drops.none { it.contains("could not read") })
+            assertEquals("one archive open for the whole pass", 1, spines.opens)
+        }
+    }
+
     // ---- Nav exact-stem rule and non-linear flag ----
 
     @Test
