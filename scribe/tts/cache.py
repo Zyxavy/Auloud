@@ -184,15 +184,6 @@ def _read_flac(path: Path, sample_rate: int) -> np.ndarray:
 #: which _replace_entry retries.
 _IO_LOCK = threading.Lock()
 
-#: Gates the actual engine call (D-192). Chapter workers (RT2) share one
-#: engine object, and onnxruntime's CUDA provider is not thread-safe: seven
-#: threads calling ``engine.synth`` at once did not parallelize, they
-#: contended, and each carried its own CPU-side growth until the process hit
-#: 6 GB after 8 chapters with the GPU idle. Serializing the synth call keeps
-#: cache reads/writes parallel (they are I/O, and ``_IO_LOCK`` already guards
-#: them) while only the expensive inference is exclusive. A cache HIT never
-#: takes this lock, so warm resumes stay fully parallel.
-
 #: Retry schedule for a read or rename that Windows refuses while another
 #: thread holds the entry open.
 _RETRY_DELAY_S = 0.05
