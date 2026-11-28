@@ -111,8 +111,9 @@ import re
 import threading
 import math
 import time
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Iterator, Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1391,6 +1392,36 @@ def workers_for_speed(speed: str) -> int:
         ) from None
 
 
+class StageTimes:
+    """Wall-clock seconds per named stage for one build.
+
+    Chapter worker and encode threads add to it through :meth:`timed` or
+    :meth:`add`; the lock keeps concurrent updates from being lost. Each
+    build makes its own instance, so two builds in one process never share
+    totals.
+    """
+
+    def __init__(self, stages: Collection[str]) -> None:
+        self._lock = threading.Lock()
+        self._totals = {name: 0.0 for name in stages}
+
+    @contextmanager
+    def timed(self, stage: str) -> Iterator[None]:
+        started = time.monotonic()
+        try:
+            yield
+        finally:
+            self.add(stage, time.monotonic() - started)
+
+    def add(self, stage: str, seconds: float) -> None:
+        with self._lock:
+            self._totals[stage] += seconds
+
+    def snapshot(self) -> dict[str, float]:
+        with self._lock:
+            return dict(self._totals)
+
+
 def run_build(
     source: Path | str,
     *,
@@ -1580,10 +1611,12 @@ def _run_build_locked(
     """Inner build (lock already held); see :func:`run_build`."""
     from progress import FanoutProgress, RichProgressListener, make_event
 
-    _stage_times = {st: 0.0 for st in ("draft", "phonemize", "inference", "assemble", "encode", "cache_read", "cache_write", "synth_total", "total")}
-    _t_draft = time.monotonic()
-    script = ensure_script(source, work_root=work_root)
-    _stage_times["draft"] += time.monotonic() - _t_draft
+    stage_times = StageTimes(
+        ("draft", "phonemize", "inference", "assemble", "encode",
+         "cache_read", "cache_write", "synth_total", "total")
+    )
+    with stage_times.timed("draft"):
+        script = ensure_script(source, work_root=work_root)
     all_chapters = script.chapters
     work_dir = script.work_dir
     # UI1 device shape check first (invalid names fail even with an
@@ -1637,57 +1670,6 @@ def _run_build_locked(
         raise BuildError("; ".join(cast_errors))
     voice, speed, narrator_engine = _narrator_entry(cast_path)
 
-    # Task 5: per-stage timing instrumentation.
-    _orig_assemble = None
-    _orig_encode = None
-    _orig_cache_read = None
-    _orig_cache_store = None
-    _orig_synths: dict[int, Any] = {}
-    try:
-        _orig_assemble = assemble_chapter
-        def _timed_assemble(*a, **k):
-            _t = time.monotonic()
-            _r = _orig_assemble(*a, **k)
-            _stage_times["assemble"] += time.monotonic() - _t
-            return _r
-        globals()["assemble_chapter"] = _timed_assemble
-        _orig_encode = encode_assembled_chapter
-        def _timed_encode(*a, **k):
-            _t = time.monotonic()
-            _r = _orig_encode(*a, **k)
-            _stage_times["encode"] += time.monotonic() - _t
-            return _r
-        globals()["encode_assembled_chapter"] = _timed_encode
-        import tts.cache as _cache_mod_stage
-        _orig_cache_read = _cache_mod_stage._read_cached
-        _orig_cache_store = _cache_mod_stage._store_cached
-        def _timed_cache_read(*a, **k):
-            _t = time.monotonic()
-            _r = _orig_cache_read(*a, **k)
-            _stage_times["cache_read"] += time.monotonic() - _t
-            return _r
-        def _timed_cache_store(*a, **k):
-            _t = time.monotonic()
-            _r = _orig_cache_store(*a, **k)
-            _stage_times["cache_write"] += time.monotonic() - _t
-            return _r
-        _cache_mod_stage._read_cached = _timed_cache_read
-        _cache_mod_stage._store_cached = _timed_cache_store
-        for _eng in engines.values():
-            if hasattr(_eng, "synth"):
-                _orig = _eng.synth
-                _orig_synths[id(_eng)] = _orig
-                def _make_synth(_orig):
-                    def _synth(*a, **k):
-                        _t = time.monotonic()
-                        try:
-                            return _orig(*a, **k)
-                        finally:
-                            _stage_times["synth_total"] += time.monotonic() - _t
-                    return _synth
-                _eng.synth = _make_synth(_orig)
-    except Exception:
-        pass
     cache_dir = work_dir / CACHE_DIRNAME
     render_audio = work_dir / RENDER_DIRNAME / "audio"
     render_text = work_dir / RENDER_DIRNAME / "text"
@@ -1820,6 +1802,7 @@ def _run_build_locked(
                 VOICE_PITCH,
                 cache_dir,
                 stats=stats,
+                timer=stage_times.timed,
             )
             return np.asarray(audio, dtype=np.float32)
 
@@ -1980,12 +1963,13 @@ def _run_build_locked(
                     db = -3.0
                 return 10.0 ** (db / 20.0)
 
-            assembled = assemble_chapter(
-                chapter,
-                _emit_synth,
-                voice_of=lambda sentence: plan[sentence.sid].voice,
-                gain_of=_gain_of,
-            )
+            with stage_times.timed("assemble"):
+                assembled = assemble_chapter(
+                    chapter,
+                    _emit_synth,
+                    voice_of=lambda sentence: plan[sentence.sid].voice,
+                    gain_of=_gain_of,
+                )
             loud = apply_loudness_gain(assembled.pcm)
             to_encode = AssembledChapter(
                 pcm=loud,
@@ -2005,7 +1989,8 @@ def _run_build_locked(
             try:
                 def _do_encode() -> None:
                     try:
-                        encode_assembled_chapter(to_encode, mp3_path, chapter_label=stem)
+                        with stage_times.timed("encode"):
+                            encode_assembled_chapter(to_encode, mp3_path, chapter_label=stem)
                     except Exception:
                         mp3_path.unlink(missing_ok=True)
                         raise
@@ -2232,23 +2217,6 @@ def _run_build_locked(
             _log_now()
             raise BuildError(f"{len(encode_failures)} chapter(s) failed to encode, no bundle written: {details}")
     finally:
-        # Restore monkeypatched functions so repeated builds in one process
-        # (e.g. web UI retry) don't stack wrappers.
-        try:
-            if _orig_assemble is not None:
-                globals()["assemble_chapter"] = _orig_assemble
-            if _orig_encode is not None:
-                globals()["encode_assembled_chapter"] = _orig_encode
-            if _orig_cache_read is not None:
-                import tts.cache as _cm
-                _cm._read_cached = _orig_cache_read
-            if _orig_cache_store is not None:
-                import tts.cache as _cm2
-                _cm2._store_cached = _orig_cache_store
-            for _eng, _orig in _orig_synths.items():
-                _eng.synth = _orig
-        except Exception:
-            pass
         encode_pool.shutdown(wait=True, cancel_futures=True)
 
     ordered_audio = [audio_paths[i] for i in selected]
@@ -2318,10 +2286,10 @@ def _run_build_locked(
 
     removed = [p.name for p in (*stale_render, *stale_bundle)]
     log_lines.append(f"orphans removed: {', '.join(removed) if removed else 'none'}")
-    _stage_times["total"] = wall_seconds
+    stage_times.add("total", wall_seconds)
     log_lines.append(
         "stage timings (s): "
-        + ", ".join(f"{k}={v:.2f}" for k, v in _stage_times.items())
+        + ", ".join(f"{k}={v:.2f}" for k, v in stage_times.snapshot().items())
     )
     log_lines.append(
         f"build done: chapters={len(selected)} rendered={rendered} "

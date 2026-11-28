@@ -62,6 +62,8 @@ import re
 import threading
 import time
 import unicodedata
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -302,6 +304,11 @@ def _write_flac_atomic(path: Path, audio: np.ndarray, sample_rate: int) -> None:
         _unlink_quietly(tmp)
 
 
+def _untimed(_stage: str) -> AbstractContextManager[None]:
+    """Default stage timer: records nothing."""
+    return nullcontext()
+
+
 def get_or_synth(
     engine: TTSEngine,
     text: str,
@@ -311,6 +318,7 @@ def get_or_synth(
     cache_dir: Path | str,
     *,
     stats: CacheStats | None = None,
+    timer: Callable[[str], AbstractContextManager[object]] = _untimed,
 ) -> np.ndarray:
     """Return sentence audio, synthesizing only on cache miss.
 
@@ -332,7 +340,9 @@ def get_or_synth(
         parts = split_long_sentence(text)
         if len(parts) > 1:
             chunks = [
-                get_or_synth(engine, part, voice, speed, pitch, cache_dir, stats=stats)
+                get_or_synth(
+                    engine, part, voice, speed, pitch, cache_dir, stats=stats, timer=timer
+                )
                 for part in parts
                 if part.strip()
             ]
@@ -342,21 +352,25 @@ def get_or_synth(
 
     key = cache_key(text, voice, speed, pitch, engine.engine_version)
     path = cache_path(cache_dir, key)
-    cached = _read_cached(path, engine.sample_rate)
+    with timer("cache_read"):
+        cached = _read_cached(path, engine.sample_rate)
     if cached is not None:
         if stats is not None:
             stats.hits += 1
         return cached
 
     try:
-        audio = np.asarray(engine.synth(text, voice, speed), dtype=np.float32).ravel()
+        with timer("synth_total"):
+            synthesized = engine.synth(text, voice, speed)
+        audio = np.asarray(synthesized, dtype=np.float32).ravel()
     except Exception as exc:  # noqa: BLE001 - kokoro raises on un-phonemizable text
         if "produced no phonemes" in str(exc) or "Nothing to synthesize" in str(exc):
             audio = np.zeros(0, dtype=np.float32)
         else:
             raise
     audio = audio.astype(np.float32, copy=False)
-    _store_cached(path, audio, engine.sample_rate)
+    with timer("cache_write"):
+        _store_cached(path, audio, engine.sample_rate)
     if stats is not None:
         stats.misses += 1
     return audio

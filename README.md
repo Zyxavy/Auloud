@@ -40,6 +40,18 @@ uv run scribe validate bundles\<book-id>
 uv run scribe ui
 ```
 
+### Running Scribe from source
+
+`uv run scribe` runs the copy of Scribe installed in `scribe/.venv`, which is a non-editable install. After you change files under `scribe/`, that copy is stale until you refresh it. Either run the source tree directly, or refresh the installed copy:
+
+```powershell
+cd scribe
+uv run --no-sync python cli.py build ..\MyBook.epub   # runs the source tree
+uv pip install --python .venv\Scripts\python.exe --reinstall-package auloud-scribe .   # refresh the installed copy
+```
+
+Use `--no-sync` for the source-tree command. Avoid `uv sync --reinstall-package auloud-scribe` in this venv: it also removes packages that are installed but not in `uv.lock`.
+
 ## CLI commands and flags
 
 The main commands are exposed through the `scribe` CLI.
