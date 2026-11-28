@@ -5,6 +5,7 @@ import io.mockk.mockk
 import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -83,6 +84,25 @@ class RoutingBundleStorageTest {
     }
 
     @Test
+    fun sizeBytes_safToken_goesToOwningTree() {
+        safA.sizes = mapOf("$treeA|book1/text/ch001.txt" to 42L)
+
+        assertEquals(42L, routing.sizeBytes("$treeA|book1/text/ch001.txt"))
+        assertEquals(listOf("$treeA|book1/text/ch001.txt"), safA.sizeCalls)
+        assertTrue(file.sizeCalls.isEmpty())
+    }
+
+    @Test
+    fun sizeBytes_safThrowing_degradesToNull() {
+        val throwing = object : BundleStorage by file {
+            override fun sizeBytes(path: String): Long? = throw IOException("lost")
+        }
+        val underTest = RoutingBundleStorage(throwing) { safA }
+
+        assertNull(underTest.sizeBytes("$treeA|book1/text/ch001.txt"))
+    }
+
+    @Test
     fun exists_filePath_delegates() {
         file.existing = setOf("/books/manifest.json")
 
@@ -133,6 +153,8 @@ class RoutingBundleStorageTest {
         val audioCalls = mutableListOf<Pair<String, String>>()
         var existing: Set<String> = emptySet()
         var audioResult: Uri? = null
+        val sizeCalls = mutableListOf<String>()
+        var sizes: Map<String, Long> = emptyMap()
 
         override fun listBundleDirs(root: String): List<String> {
             listedRoots.add(root)
@@ -145,6 +167,11 @@ class RoutingBundleStorageTest {
         }
 
         override fun exists(path: String): Boolean = path in existing
+
+        override fun sizeBytes(path: String): Long? {
+            sizeCalls.add(path)
+            return sizes[path]
+        }
 
         override fun audioUri(bundleDir: String, relPath: String): Uri {
             audioCalls.add(bundleDir to relPath)

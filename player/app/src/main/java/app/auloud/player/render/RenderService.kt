@@ -42,6 +42,7 @@ import app.auloud.player.tts.SystemTtsAdapter
 import app.auloud.player.tts.kittenEngineVersion
 import app.auloud.player.tts.kittenEngineOrNull
 import app.auloud.player.tts.piperEngineVersion
+import app.auloud.player.tts.releaseOffMain
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -249,7 +250,26 @@ class RenderService : Service() {
         } catch (_: Exception) {
         }
         powerReceiver = null
-        releaseEngines()
+        try {
+            systemDriver?.shutdown()
+        } catch (_: Exception) {
+        }
+        systemDriver = null
+        // Sherpa release waits for an in-flight JNI generate, so it leaves the main thread.
+        val sherpa = sherpaEngine
+        val kitten = kittenEngine
+        sherpaEngine = null
+        kittenEngine = null
+        releaseOffMain {
+            try {
+                sherpa?.release()
+            } catch (_: Exception) {
+            }
+            try {
+                kitten?.release()
+            } catch (_: Exception) {
+            }
+        }
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -329,6 +349,11 @@ class RenderService : Service() {
         Log.i(TAG, "userResume")
         val bookId = currentBookId ?: run {
             Log.w(TAG, "userResume with no book")
+            // A foreground start (API 26+) must enter foreground before the service stops.
+            enterForeground(
+                buildNotification("Render not resumed", "Open Auloud and start the render again.")
+            )
+            stopSelf()
             return
         }
         if (renderLoop?.isActive == true) {
@@ -1740,15 +1765,21 @@ class RenderService : Service() {
 
     private fun pausedText(reason: String): String = reason
 
+    /**
+     * Resume is a foreground start on API 26+ (a killed service must enter
+     * foreground, which userResume does). Pause and cancel stay plain starts:
+     * their handlers never enter foreground, so a foreground start there would
+     * time out.
+     */
     private fun pendingAction(action: String, bookId: String?, requestCode: Int): PendingIntent {
         val intent = Intent(this, RenderService::class.java).setAction(action)
         if (bookId != null) intent.putExtra(EXTRA_BOOK_ID, bookId)
-        return PendingIntent.getService(
-            this,
-            requestCode,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        return if (action == ACTION_RESUME && Build.VERSION.SDK_INT >= 26) {
+            PendingIntent.getForegroundService(this, requestCode, intent, flags)
+        } else {
+            PendingIntent.getService(this, requestCode, intent, flags)
+        }
     }
 
     private fun buildNotification(title: String, text: String): Notification {
@@ -1798,6 +1829,10 @@ class RenderService : Service() {
     private fun enterForeground(notification: Notification): Boolean =
         RenderForeground.tryStart({ startForeground(NOTIFICATION_ID, notification) }) { e ->
             Log.w(TAG, "foreground start refused: ${e.message}")
+            notifyError(
+                "Render not started",
+                "Render could not start in the background. Open Auloud and try again."
+            )
         }
 
     /**

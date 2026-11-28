@@ -10,10 +10,10 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use crate::settings::Settings;
 
@@ -138,27 +138,18 @@ fn exe_scripts() -> &'static str {
     "bin"
 }
 
-/// Per-run token (hex of pid, clock, and a counter). Not cryptographic, and
-/// it does not need to be: loopback-only, single run, passed by environment
-/// so it never appears in process lists or logs.
+/// Per-run token: 128 bits, hex. Each half hashes a tag under a fresh
+/// `RandomState` (OS-seeded keys), so no pid or clock input is guessable.
+/// Loopback-only and passed by environment so it never shows in argv or logs.
 pub fn generate_token() -> String {
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let count = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let mut hash = 0xcbf29ce484222325_u64;
-    for word in [
-        std::process::id() as u64,
-        (nanos & 0xffff_ffff_ffff_ffff) as u64,
-        (nanos >> 64) as u64,
-        count,
-    ] {
-        hash ^= word;
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("{hash:016x}{:016x}", hash ^ (nanos as u64))
+    use std::collections::hash_map::RandomState;
+    use std::hash::{BuildHasher, Hasher};
+    let half = |tag: u8| {
+        let mut hasher = RandomState::new().build_hasher();
+        hasher.write_u8(tag);
+        hasher.finish()
+    };
+    format!("{:016x}{:016x}", half(0), half(1))
 }
 
 /// Port from a ready line (`{"ready": true, "port": 8137, ...}`); `None`
@@ -1260,12 +1251,18 @@ mod tests {
     }
 
     #[test]
-    fn tokens_differ_and_read_hex() {
-        let first = generate_token();
-        let second = generate_token();
-        assert_ne!(first, second);
-        assert_eq!(first.len(), 32);
-        assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
+    fn token_is_32_hex_chars() {
+        let token = generate_token();
+        assert_eq!(token.len(), 32);
+        assert!(token.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn tokens_differ_across_calls() {
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..1_000 {
+            assert!(seen.insert(generate_token()), "duplicate token");
+        }
     }
 
     #[test]

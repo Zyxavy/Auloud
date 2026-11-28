@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -53,6 +54,8 @@ from typing import Any, Callable
 
 #: Workspace transfer-record filename (next to ``jobs/``, never committed).
 TRANSFERS_FILENAME = ".scribe-transfers.json"
+
+logger = logging.getLogger(__name__)
 
 #: Copy chunk size (1 MiB; progress updates per chunk).
 _COPY_CHUNK = 1024 * 1024
@@ -358,18 +361,28 @@ def get_transfer_record(workspace: Path | str, book_id: str) -> dict[str, Any] |
     return dict(entry) if isinstance(entry, dict) else None
 
 
+def _save_records(root: Path, records: dict[str, Any]) -> None:
+    """Write every transfer record atomically (tmp + replace); raises OSError."""
+    path = root / TRANSFERS_FILENAME
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(records, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
 def write_transfer_record(
     workspace: Path | str,
     book_id: str,
     record: dict[str, Any],
 ) -> dict[str, Any]:
-    """Persist one book's transfer record (atomic tmp+replace; never raises).
+    """Persist one book's transfer record (atomic tmp+replace).
 
     Record shape: ``{destination, time, bundle_id, bundle_path, verified,
-    bytes_total}``. Returns the stored record.
+    bytes_total}``. Returns the stored record. A write failure is logged and
+    re-raised as ``OSError``, so the caller can fail the job rather than
+    report a transfer whose On-tablet state was never saved.
     """
     root = Path(workspace).resolve()
-    path = root / TRANSFERS_FILENAME
     try:
         current = read_transfers(root)
     except Exception:
@@ -380,22 +393,20 @@ def write_transfer_record(
     stored["time"] = stored.get("time") or _now_iso()
     current[str(book_id)] = stored
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(current, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-        tmp.replace(path)
-    except OSError:
-        pass
+        _save_records(root, current)
+    except OSError as exc:
+        logger.warning("transfer record for %s not saved: %s", book_id, exc)
+        raise
     return stored
 
 
 def delete_transfer_record(workspace: Path | str, book_id: str) -> bool:
-    """Drop one book's transfer record (atomic tmp+replace; never raises).
+    """Drop one book's transfer record (atomic tmp+replace).
 
-    Returns True when a record existed.
+    Returns True when a record existed. A failed write is logged and re-raised
+    as ``OSError``.
     """
     root = Path(workspace).resolve()
-    path = root / TRANSFERS_FILENAME
     try:
         current = read_transfers(root)
     except Exception:
@@ -404,11 +415,10 @@ def delete_transfer_record(workspace: Path | str, book_id: str) -> bool:
         return False
     del current[str(book_id)]
     try:
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(current, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-        tmp.replace(path)
-    except OSError:
-        pass
+        _save_records(root, current)
+    except OSError as exc:
+        logger.warning("transfer record for %s not removed: %s", book_id, exc)
+        raise
     return True
 
 

@@ -54,17 +54,24 @@ Notes:
 from __future__ import annotations
 
 import hashlib
+import io
+import logging
 import math
 import os
 import re
 import threading
+import time
 import unicodedata
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 
 from tts.base import TTSEngine, resample_mono
+
+logger = logging.getLogger(__name__)
 
 #: Sentences longer than this fall back to comma/semicolon splitting.
 #: Why this value: ordinary prose sentences are ~100-300 characters, so
@@ -142,11 +149,22 @@ def split_long_sentence(text: str) -> list[str]:
     return parts
 
 
-def _read_flac(path: Path, sample_rate: int) -> np.ndarray:
+def _open_entry(path: Path) -> bytes:
+    """Read one cache entry's bytes.
+
+    Opened in Python so a Windows sharing violation (a rename in flight) raises
+    OSError here, where it is transient, rather than inside the decoder.
+    """
+    with open(path, "rb") as handle:
+        return handle.read()
+
+
+def _decode_flac(data: bytes, sample_rate: int) -> np.ndarray:
+    """Decode FLAC bytes to mono float32 at ``sample_rate``; raises on bad data."""
     import soundfile as sf
 
-    data, file_rate = sf.read(str(path), dtype="float32", always_2d=False)
-    mono = np.asarray(data, dtype=np.float32)
+    decoded, file_rate = sf.read(io.BytesIO(data), dtype="float32", always_2d=False)
+    mono = np.asarray(decoded, dtype=np.float32)
     if mono.ndim > 1:
         mono = mono.mean(axis=1).astype(np.float32)
     mono = mono.ravel().astype(np.float32, copy=False)
@@ -155,46 +173,88 @@ def _read_flac(path: Path, sample_rate: int) -> np.ndarray:
     return mono
 
 
-#: Serializes cache-file reads and stores. Chapter worker threads (RT2) can
-#: reach the same key at once (identical lines recur across chapters), and on
-#: Windows renaming an entry over one another thread has open fails with a
-#: sharing violation. Synthesis stays outside this lock: it is the expensive
-#: part and the engine is thread-safe.
+def _read_flac(path: Path, sample_rate: int) -> np.ndarray:
+    return _decode_flac(_open_entry(path), sample_rate)
+
+
+#: Serializes the rename of a finished cache entry into place. Chapter worker
+#: threads (RT2) can reach the same key at once and on Windows two renames of
+#: one target fail. Decoding and encoding run outside it, so warm reads stay
+#: parallel; a reader holding an entry open can still make the rename fail,
+#: which _replace_entry retries.
 _IO_LOCK = threading.Lock()
 
-#: Gates the actual engine call (D-192). Chapter workers (RT2) share one
-#: engine object, and onnxruntime's CUDA provider is not thread-safe: seven
-#: threads calling ``engine.synth`` at once did not parallelize, they
-#: contended, and each carried its own CPU-side growth until the process hit
-#: 6 GB after 8 chapters with the GPU idle. Serializing the synth call keeps
-#: cache reads/writes parallel (they are I/O, and ``_IO_LOCK`` already guards
-#: them) while only the expensive inference is exclusive. A cache HIT never
-#: takes this lock, so warm resumes stay fully parallel.
+#: Retry schedule for a read or rename that Windows refuses while another
+#: thread holds the entry open.
+_RETRY_DELAY_S = 0.05
+_REPLACE_ATTEMPTS = 3
+
+
+def _unlink_quietly(path: Path) -> None:
+    """Delete a bad entry; a concurrent reader may hold it open (Windows)."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 def _read_cached(path: Path, sample_rate: int) -> np.ndarray | None:
     """Decode a cache entry, or ``None`` when it is not a usable hit.
 
-    A present-but-undecodable file (torn write, foreign bytes, 0-byte) is
+    Decoding runs outside ``_IO_LOCK`` so warm resumes read in parallel. An
+    OSError while opening the entry is transient (Windows refuses the open
+    during a rename): it is retried once and never deletes the entry. A
+    present-but-undecodable file (torn write, foreign bytes, 0-byte) is
     deleted and reported as a miss, never returned.
     """
-    with _IO_LOCK:
-        if not path.is_file():
-            return None
+    if not path.is_file():
+        return None
+    for attempt in range(2):
         try:
-            return _read_flac(path, sample_rate)
+            data = _open_entry(path)
+        except OSError:
+            if attempt == 0:
+                time.sleep(_RETRY_DELAY_S)
+            continue
+        try:
+            return _decode_flac(data, sample_rate)
         except Exception:
             # Broad catch is deliberate — any decode failure means "not a
-            # valid hit".
-            path.unlink(missing_ok=True)
+            # valid hit" (soundfile raises LibsndfileError, a RuntimeError).
+            _unlink_quietly(path)
             return None
+    return None
 
 
 def _store_cached(path: Path, audio: np.ndarray, sample_rate: int) -> None:
-    """Store one cache entry (serialized with readers and other stores)."""
-    with _IO_LOCK:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        _write_flac_atomic(path, audio, sample_rate)
+    """Store one cache entry (encoded outside the lock, renamed under it)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _write_flac_atomic(path, audio, sample_rate)
+
+
+def _replace_entry(tmp: Path, path: Path) -> bool:
+    """Rename ``tmp`` over ``path``; False when the entry stays locked.
+
+    Each attempt takes ``_IO_LOCK`` on its own, so the backoff sleep runs
+    unlocked. An entry that is still locked after every attempt is not cached;
+    the caller still returns the audio it synthesized.
+    """
+    for attempt in range(1, _REPLACE_ATTEMPTS + 1):
+        try:
+            with _IO_LOCK:
+                os.replace(tmp, path)
+            return True
+        except PermissionError as exc:
+            if attempt == _REPLACE_ATTEMPTS:
+                logger.warning(
+                    "cache entry %s not stored: still locked after %d tries (%s)",
+                    path.name,
+                    attempt,
+                    exc,
+                )
+                return False
+        time.sleep(_RETRY_DELAY_S * attempt)
+    return False
 
 
 def _check_finite(name: str, value: float) -> None:
@@ -211,12 +271,13 @@ def _write_flac_atomic(path: Path, audio: np.ndarray, sample_rate: int) -> None:
     """Write ``audio`` to ``path`` atomically (temp file + rename).
 
     ``os.replace`` within one directory is atomic, so readers only ever
-    see the complete file or nothing. A failed write removes the temp
-    file and re-raises; stale temps from killed builds are ignored.
+    see the complete file or nothing. A failed encode removes the temp file
+    and re-raises. A rename that stays locked drops the entry instead (it is
+    simply not cached) and removes the temp file; the audio is never lost.
 
     The temp name carries the thread id as well as the pid so two stores can
-    never share a temp path; the rename itself is serialized with readers by
-    ``_IO_LOCK`` (see :func:`_store_cached`).
+    never share a temp path. Encoding and fsync run unlocked; only each rename
+    attempt holds ``_IO_LOCK`` (see :func:`_replace_entry`).
     """
     import soundfile as sf
 
@@ -226,10 +287,17 @@ def _write_flac_atomic(path: Path, audio: np.ndarray, sample_rate: int) -> None:
         with open(tmp, "r+b") as handle:
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp, path)
+        stored = _replace_entry(tmp, path)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+    if not stored:
+        _unlink_quietly(tmp)
+
+
+def _untimed(_stage: str) -> AbstractContextManager[None]:
+    """Default stage timer: records nothing."""
+    return nullcontext()
 
 
 def get_or_synth(
@@ -241,6 +309,7 @@ def get_or_synth(
     cache_dir: Path | str,
     *,
     stats: CacheStats | None = None,
+    timer: Callable[[str], AbstractContextManager[object]] = _untimed,
 ) -> np.ndarray:
     """Return sentence audio, synthesizing only on cache miss.
 
@@ -262,7 +331,9 @@ def get_or_synth(
         parts = split_long_sentence(text)
         if len(parts) > 1:
             chunks = [
-                get_or_synth(engine, part, voice, speed, pitch, cache_dir, stats=stats)
+                get_or_synth(
+                    engine, part, voice, speed, pitch, cache_dir, stats=stats, timer=timer
+                )
                 for part in parts
                 if part.strip()
             ]
@@ -272,21 +343,25 @@ def get_or_synth(
 
     key = cache_key(text, voice, speed, pitch, engine.engine_version)
     path = cache_path(cache_dir, key)
-    cached = _read_cached(path, engine.sample_rate)
+    with timer("cache_read"):
+        cached = _read_cached(path, engine.sample_rate)
     if cached is not None:
         if stats is not None:
             stats.hits += 1
         return cached
 
     try:
-        audio = np.asarray(engine.synth(text, voice, speed), dtype=np.float32).ravel()
+        with timer("synth_total"):
+            synthesized = engine.synth(text, voice, speed)
+        audio = np.asarray(synthesized, dtype=np.float32).ravel()
     except Exception as exc:  # noqa: BLE001 - kokoro raises on un-phonemizable text
         if "produced no phonemes" in str(exc) or "Nothing to synthesize" in str(exc):
             audio = np.zeros(0, dtype=np.float32)
         else:
             raise
     audio = audio.astype(np.float32, copy=False)
-    _store_cached(path, audio, engine.sample_rate)
+    with timer("cache_write"):
+        _store_cached(path, audio, engine.sample_rate)
     if stats is not None:
         stats.misses += 1
     return audio

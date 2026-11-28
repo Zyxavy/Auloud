@@ -28,7 +28,7 @@ import kotlinx.serialization.json.put
  *
  * Status codes use only long-stable values: 200 imported (or a duplicate
  * resend), 400 malformed/unreadable/invalid, 403 wrong pairing code, 409
- * hash mismatch. Every error body is `{"ok":false,"error":"<file: rule:
+ * hash mismatch, 411 no Content-Length, 507 books folder under 2x the upload or app cache under 1x. Every error body is `{"ok":false,"error":"<file: rule:
  * detail>"}` in the codebase's file-and-rule shape.
  *
  * Lifetime: the Receive screen starts the server on open and stops it on
@@ -45,7 +45,13 @@ class ReceiveServer(
     private val onReceiveStarted: () -> Unit = {},
     private val onReceiveFinished: (ReceiveOutcome) -> Unit = {},
     /** Wrong-code brake; tests pass 0 to exercise the cap without waiting. */
-    private val badCodeDelayMs: Long = 1000L
+    private val badCodeDelayMs: Long = 1000L,
+    /** Usable bytes on the books root; tests fake it. */
+    private val freeSpace: (String) -> Long = { File(it).usableSpace },
+    /** App cache dir, the volume uploads spool to; defaults to the books root in tests. */
+    private val cacheDir: String = booksRoot,
+    /** Usable bytes on [cacheDir]; tests fake it. */
+    private val tempFreeSpace: (String) -> Long = { File(it).usableSpace }
 ) : NanoHTTPD(port) {
 
     /** TR1 hardening: wrong pairing codes seen this server lifetime. */
@@ -63,16 +69,11 @@ class ReceiveServer(
         // wrong codes were seen, every request is refused, even the right
         // code. The cap lasts this server's lifetime; reopening Receive
         // starts a new server with a new code.
-        if (badGuesses.get() >= MAX_BAD_GUESSES) {
-            return json(
-                Response.Status.TOO_MANY_REQUESTS,
-                ok = false,
-                error = "bundle.zip: too-many-attempts: too many wrong pairing codes"
-            )
-        }
+        if (badGuesses.get() >= MAX_BAD_GUESSES) return tooManyAttempts()
         if (!constantTimeEquals(session.headers["x-pairing-code"], pairingCode)) {
+            // Atomic count: a parallel burst cannot slip past the cap.
+            if (badGuesses.incrementAndGet() > MAX_BAD_GUESSES) return tooManyAttempts()
             // One-second brake on wrong guesses (each connection has its own thread).
-            badGuesses.incrementAndGet()
             try {
                 Thread.sleep(badCodeDelayMs)
             } catch (_: InterruptedException) {
@@ -84,6 +85,21 @@ class ReceiveServer(
                 error = "bundle.zip: bad-code: wrong pairing code"
             )
         }
+        // Chunked uploads carry no length, so they would skip the size and
+        // free-space checks below; refuse them before any body is read.
+        val declared = session.headers["content-length"]?.trim()?.toLongOrNull()
+            ?: return json(
+                Response.Status.LENGTH_REQUIRED,
+                ok = false,
+                error = "bundle.zip: length-required: send a Content-Length header"
+            )
+        if (declared < 0) {
+            return json(
+                Response.Status.BAD_REQUEST,
+                ok = false,
+                error = "bundle.zip: bad-length: Content-Length must not be negative"
+            )
+        }
         if (oversizeDeclaredLength(session.headers["content-length"])) {
             // Refuse a declared oversize upload before NanoHTTPD streams it
             // to a temp file; the pipeline's unpacked cap stays the second
@@ -92,6 +108,23 @@ class ReceiveServer(
                 Response.Status.PAYLOAD_TOO_LARGE,
                 ok = false,
                 error = "bundle.zip: too-large: upload exceeds $MAX_UPLOAD_BYTES bytes"
+            )
+        }
+        // Unpacking needs room on the books root; 2x the upload is the rule
+        // (the zip is compressed, so the unpacked size is unknown up front).
+        if (freeSpace(booksRoot) < 2L * declared) {
+            return json(
+                insufficientStorage,
+                ok = false,
+                error = "bundle.zip: insufficient-storage: books folder needs 2x the upload free"
+            )
+        }
+        // NanoHTTPD spools the upload to its temp file before parseBody.
+        if (tempFreeSpace(cacheDir) < declared) {
+            return json(
+                insufficientStorage,
+                ok = false,
+                error = "bundle.zip: insufficient-storage: app cache needs the upload size free"
             )
         }
         val sha = session.headers["x-sha256"]
@@ -192,8 +225,20 @@ class ReceiveServer(
         }.toString()
     }
 
+    /** NanoHTTPD 2.3.1 has no 507 constant, so the status is spelled out. */
+    private val insufficientStorage: Response.IStatus = object : Response.IStatus {
+        override fun getDescription(): String = "507 Insufficient Storage"
+        override fun getRequestStatus(): Int = 507
+    }
+
+    private fun tooManyAttempts(): Response = json(
+        Response.Status.TOO_MANY_REQUESTS,
+        ok = false,
+        error = "bundle.zip: too-many-attempts: too many wrong pairing codes"
+    )
+
     private fun json(
-        status: Response.Status,
+        status: Response.IStatus,
         ok: Boolean,
         error: String? = null,
         bookId: String? = null,

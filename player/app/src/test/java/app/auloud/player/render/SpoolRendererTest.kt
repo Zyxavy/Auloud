@@ -161,6 +161,12 @@ class SpoolRendererTest {
         assertEquals(0, summary.spooled)
         assertEquals(4, summary.skipped)
         assertTrue(summary.sentences.all { it.skipped })
+        val index = SpoolIndex.parse(io.texts.getValue(SpoolFiles.indexPath(spoolDir, 1)))!!
+        assertEquals(4, index.sentences.size)
+        for (entry in index.sentences) {
+            val pcm = io.bytes.getValue(SpoolFiles.path(spoolDir, entry.file))
+            assertEquals("sid ${entry.sid} samples vs PCM", entry.samples, pcm.size / 2)
+        }
     }
 
     @Test

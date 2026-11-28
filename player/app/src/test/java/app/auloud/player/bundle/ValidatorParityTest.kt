@@ -18,18 +18,11 @@ import org.junit.Test
  */
 class ValidatorParityTest {
 
-    private val knownReason = "known gap: spec section 7 requires source-section checks in the Player; not yet ported (WP13 ruling)"
-
     /**
      * Fixtures where the Player is known to disagree with Scribe. The test
      * fails if one of these starts agreeing, so the list cannot go stale.
      */
-    private val KNOWN_PLAYER_SUBSET: Map<String, String> = mapOf(
-        "bad-source" to knownReason,
-        "shape-src" to knownReason,
-        "shape-srcfile" to knownReason,
-        "shape-srcrange" to knownReason,
-    )
+    private val KNOWN_PLAYER_SUBSET: Map<String, String> = emptyMap()
 
     private fun repoDir(rel: String): File {
         val userDir = File(System.getProperty("user.dir") ?: ".")
@@ -51,7 +44,8 @@ class ValidatorParityTest {
                 BundleValidator.validate(
                     dir,
                     manifest,
-                    readText = { path -> File(path).takeIf { it.isFile }?.readText() }
+                    readText = { path -> File(path).takeIf { it.isFile }?.readText() },
+                    hashSource = true
                 ).isEmpty()
             },
             { false }

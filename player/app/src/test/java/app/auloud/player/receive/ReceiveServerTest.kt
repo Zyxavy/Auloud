@@ -9,6 +9,10 @@ import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.flow.Flow
@@ -97,7 +101,8 @@ class ReceiveServerTest {
         sha: String?,
         body: ByteArray,
         method: String = "POST",
-        multipart: Boolean = true
+        multipart: Boolean = true,
+        chunked: Boolean = false
     ): Pair<Int, String> {
         val connection = URL("http://127.0.0.1:$port/bundle").openConnection()
             as HttpURLConnection
@@ -107,6 +112,7 @@ class ReceiveServerTest {
             if (sha != null) connection.setRequestProperty("X-Sha256", sha)
             if (method == "POST") {
                 connection.doOutput = true
+                if (chunked) connection.setChunkedStreamingMode(0)
                 val payload = if (multipart) {
                     val boundary = "auloud-test-boundary"
                     connection.setRequestProperty(
@@ -163,6 +169,34 @@ class ReceiveServerTest {
             val (status, body) = post(server.listeningPort, "000000", sha256Hex(ByteArray(0)), ByteArray(0))
             assertEquals(403, status)
             assertTrue(body.contains("bad-code"))
+        } finally {
+            server.stop()
+        }
+    }
+
+    /** Raw socket POST: HttpURLConnection will not send a negative Content-Length. */
+    private fun rawPost(port: Int, extraHeaders: String): Pair<Int, String> =
+        java.net.Socket("127.0.0.1", port).use { socket ->
+            socket.soTimeout = 5000
+            val head = "POST /bundle HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Pairing-Code: $code\r\n" +
+                "X-Sha256: ${sha256Hex(ByteArray(0))}\r\n$extraHeaders" +
+                "Connection: close\r\n\r\n"
+            socket.getOutputStream().write(head.toByteArray(Charsets.US_ASCII))
+            socket.getOutputStream().flush()
+            val raw = socket.getInputStream().readBytes().toString(Charsets.UTF_8)
+            raw.lineSequence().first().split(" ")[1].toInt() to raw.substringAfter("\r\n\r\n")
+        }
+
+    @Test
+    fun negativeContentLengthIs400() {
+        val root = booksRoot()
+        val server = ReceiveServer(0, code, root, storage, library)
+        server.start()
+        try {
+            val (status, text) = rawPost(server.listeningPort, "Content-Length: -5\r\n")
+            assertEquals(400, status)
+            assertTrue(text.contains("bad-length"))
+            assertTrue(library.imported.isEmpty())
         } finally {
             server.stop()
         }
@@ -438,6 +472,59 @@ class ReceiveServerTest {
     }
 
     @Test
+    fun chunkedUploadWithoutLengthIs411() {
+        val root = booksRoot()
+        val body = zipBytes(validEntries())
+        val server = ReceiveServer(0, code, root, storage, library)
+        server.start()
+        try {
+            val (status, text) = post(
+                server.listeningPort, code, sha256Hex(body), body, chunked = true
+            )
+            assertEquals(411, status)
+            assertTrue(text.contains("length-required"))
+            assertTrue(library.imported.isEmpty())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun lowFreeSpaceIs507() {
+        val root = booksRoot()
+        val body = zipBytes(validEntries())
+        val server = ReceiveServer(0, code, root, storage, library, freeSpace = { 0L })
+        server.start()
+        try {
+            val (status, text) = post(server.listeningPort, code, sha256Hex(body), body)
+            assertEquals(507, status)
+            assertTrue(text.contains("insufficient-storage"))
+            assertTrue(strayTemps(root).isEmpty())
+            assertTrue(library.imported.isEmpty())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun lowTempSpaceIs507() {
+        val root = booksRoot()
+        val body = zipBytes(validEntries())
+        val server = ReceiveServer(0, code, root, storage, library, tempFreeSpace = { 0L })
+        server.start()
+        try {
+            val (status, text) = post(server.listeningPort, code, sha256Hex(body), body)
+            assertEquals(507, status)
+            assertTrue(text.contains("insufficient-storage"))
+            assertTrue(text.contains("app cache"))
+            assertTrue(strayTemps(root).isEmpty())
+            assertTrue(library.imported.isEmpty())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
     fun unsafeChapterTextPathIsRejected() {
         val root = booksRoot()
         val entries = validEntries().toMutableMap()
@@ -469,6 +556,32 @@ class ReceiveServerTest {
             }
             assertEquals(429, last)
         } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun parallelWrongGuessesNeverExceedCap() {
+        val root = booksRoot()
+        // A zero brake lets the requests serialize (the race never shows), so
+        // this test keeps them overlapping with a 200 ms brake.
+        val server = ReceiveServer(0, code, root, storage, library, badCodeDelayMs = 200L)
+        server.start()
+        val pool = Executors.newFixedThreadPool(50)
+        try {
+            val go = CountDownLatch(1)
+            val futures = (1..50).map {
+                pool.submit(Callable {
+                    go.await()
+                    post(server.listeningPort, "000000", null, ByteArray(0)).first
+                })
+            }
+            go.countDown()
+            val statuses = futures.map { it.get(30, TimeUnit.SECONDS) }
+            assertEquals(ReceiveServer.MAX_BAD_GUESSES, statuses.count { it == 403 })
+            assertEquals(50 - ReceiveServer.MAX_BAD_GUESSES, statuses.count { it == 429 })
+        } finally {
+            pool.shutdownNow()
             server.stop()
         }
     }

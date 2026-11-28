@@ -513,3 +513,101 @@ def test_frontend_static_offline_and_transfer_components() -> None:
         "Bundles are read from",
     ):
         assert needle in text, needle
+
+
+def _fail_record_writes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the transfer-record tmp write fail, like a read-only workspace."""
+    import pathlib
+
+    real_write_text = pathlib.Path.write_text
+
+    def _write_text(self: Path, *args: object, **kwargs: object) -> object:
+        if self.name == ".scribe-transfers.tmp":
+            raise OSError("simulated read-only workspace")
+        return real_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "write_text", _write_text)
+
+
+def test_record_write_and_delete_failures_are_reported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    from ui.transfer import delete_transfer_record, write_transfer_record
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    write_transfer_record(ws, "b1", {"bundle_id": "x", "verified": True})
+    _fail_record_writes(monkeypatch)
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(OSError, match="read-only"):
+            write_transfer_record(ws, "b2", {"bundle_id": "y", "verified": True})
+        with pytest.raises(OSError, match="read-only"):
+            delete_transfer_record(ws, "b1")
+    assert "transfer record" in caplog.text
+
+
+def test_record_write_failure_fails_transfer_job(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ui.transfer import get_transfer_record
+
+    ws, book_id = _make_valid_transfer_book(tmp_path)
+    client, token = _api_client(ws)
+    headers = _auth(token)
+    dest = tmp_path / "usb-record"
+    dest.mkdir()
+    _fail_record_writes(monkeypatch)
+    resp = client.post(
+        f"/api/books/{book_id}/transfer", json={"destination": str(dest)}, headers=headers
+    )
+    assert resp.status_code == 202, resp.text
+    final = _wait_job(client, resp.json()["job_id"], headers, {"failed"})
+    assert final["error"]["rule"] == "record-failed", final
+    assert "read-only" in final["error"]["message"], final
+    assert get_transfer_record(ws, book_id) is None
+
+
+def test_slow_destination_check_does_not_block_health(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import asyncio
+    import pathlib
+
+    httpx = pytest.importorskip("httpx")
+    ws, book_id = _make_book_with_bundle(tmp_path)
+    client, token = _api_client(ws)
+    real_exists = pathlib.Path.exists
+
+    def slow_exists(self: Path) -> bool:
+        # Stand-in for an unreachable UNC or drive anchor that stalls.
+        if self.anchor and str(self) == self.anchor:
+            time.sleep(1.0)
+        return real_exists(self)
+
+    monkeypatch.setattr(pathlib.Path, "exists", slow_exists)
+    dest = str(tmp_path / "usb-slow")
+
+    async def run() -> tuple[object, bool]:
+        transport = httpx.ASGITransport(app=client.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://127.0.0.1:8137") as http:
+            post = asyncio.ensure_future(
+                http.post(
+                    f"/api/books/{book_id}/transfer",
+                    json={"destination": dest},
+                    headers=_auth(token),
+                )
+            )
+            started = time.monotonic()
+            await asyncio.sleep(0.1)
+            # A blocking handler holds the loop for the whole slow check, so
+            # this 0.1 s sleep returns late.
+            lag = time.monotonic() - started
+            health = await http.get("/api/health", headers=LOCAL)
+            await post
+        return health, lag
+
+    health, lag = asyncio.run(run())
+    assert health.status_code == 200
+    assert lag < 0.5, f"event loop was blocked for {lag:.2f}s by the destination check"

@@ -1958,7 +1958,7 @@ def create_app(
                 status_code=500,
             )
         try:
-            _validate_dest(destination)
+            await asyncio.to_thread(_validate_dest, destination)
         except ValueError as exc:
             return JSONResponse(
                 _split_shaped(str(exc), "dest", "bad-destination"), status_code=400
@@ -2030,7 +2030,9 @@ def create_app(
                 _split_shaped(str(exc), bundle_rel, "path-traversal"), status_code=400
             )
         try:
-            job = manager.create_transfer(
+            # Runs the destination check again on a worker thread (see _validate_dest).
+            job = await asyncio.to_thread(
+                manager.create_transfer,
                 book_id,
                 bundle_rel,
                 destination,
@@ -2075,7 +2077,7 @@ def create_app(
             try:
                 from .transfer import get_transfer_record as _get_record
 
-                record = _get_record(root, book_id)
+                record = await asyncio.to_thread(_get_record, root, book_id)
             except Exception:
                 record = None
             destination = (
@@ -2106,8 +2108,8 @@ def create_app(
         try:
             from .transfer import open_folder as _open_folder_fn
 
-            opened = _open_folder_fn(
-                destination, opener=fn if callable(fn) else None
+            opened = await asyncio.to_thread(
+                _open_folder_fn, destination, opener=fn if callable(fn) else None
             )
         except ValueError as exc:
             text = str(exc)

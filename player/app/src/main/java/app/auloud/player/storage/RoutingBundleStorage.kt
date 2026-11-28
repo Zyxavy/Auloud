@@ -1,6 +1,7 @@
 package app.auloud.player.storage
 
 import android.net.Uri
+import java.io.InputStream
 
 /**
  * WP3/WP5 refinement: one [BundleStorage] that routes file paths to
@@ -108,13 +109,21 @@ class RoutingBundleStorage(
         fileStorage.deleteRecursively(path)
     }
 
+    /** Streams file paths; SAF paths report null (imports never target picked trees). */
+    override fun openInput(path: String): InputStream? =
+        if (SafPaths.isSafPath(path)) null else fileStorage.openInput(path)
+
     /**
-     * FP4: byte size routes like [exists]; SAF tokens read as unknown
+     * FP4: byte size routes like [exists]; a SAF failure reads as unknown
      * (null), so the validator falls back to its post-read byte check.
      */
     override fun sizeBytes(path: String): Long? =
         if (SafPaths.isSafPath(path)) {
-            null
+            try {
+                safForTree(SafPaths.treeOf(path)).sizeBytes(path)
+            } catch (_: Exception) {
+                null
+            }
         } else {
             try {
                 fileStorage.sizeBytes(path)

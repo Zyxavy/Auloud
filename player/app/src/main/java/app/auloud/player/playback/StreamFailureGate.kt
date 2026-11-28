@@ -19,6 +19,11 @@ class StreamFailureGate(private val maxInARow: Int = 2) {
         return inARow < maxInARow
     }
 
+    /** A user-initiated start is a fresh attempt, so the count starts over. */
+    fun reset() {
+        inARow = 0
+    }
+
     /** A sentence was spoken: the stream is healthy, so the count resets. */
     fun onSpoken() {
         inARow = 0

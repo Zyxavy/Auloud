@@ -130,11 +130,17 @@ class ProgressRepositoryTest {
     }
 
     @Test
-    fun loadAll_mapsEveryPositionByBookId() = runBlocking {
+    fun loadAll_mapsEveryRowByBookId_keepingSentenceSid() = runBlocking {
         repo.save("book-1", 1, 1_000L).getOrThrow()
-        repo.save("book-2", 3, 2_000L).getOrThrow()
+        repo.save("book-2", 3, 0L, sentenceSid = 7).getOrThrow()
 
-        assertEquals(mapOf("book-1" to 1_000L, "book-2" to 2_000L), repo.loadAll().getOrThrow())
+        val all = repo.loadAll().getOrThrow()
+
+        assertEquals(setOf("book-1", "book-2"), all.keys)
+        assertEquals(1_000L, all.getValue("book-1").positionMs)
+        assertNull(all.getValue("book-1").sentenceSid)
+        assertEquals(0L, all.getValue("book-2").positionMs)
+        assertEquals(7, all.getValue("book-2").sentenceSid)
     }
 
     @Test

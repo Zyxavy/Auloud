@@ -270,7 +270,7 @@ class LibraryViewModelTest {
         vm.uiState.test {
             val state = awaitItem()
             assertEquals(1, state.books.size)
-            assertEquals(0.25f, state.books[0].progressFraction, 0.0001f)
+            assertEquals(0.25f, state.books[0].progressFraction!!, 0.0001f)
         }
     }
 
@@ -283,7 +283,38 @@ class LibraryViewModelTest {
         val vm = viewModel()
 
         vm.uiState.test {
-            assertEquals(0f, awaitItem().books.single().progressFraction, 0f)
+            assertEquals(0f, awaitItem().books.single().progressFraction!!, 0f)
+        }
+    }
+
+    @Test
+    fun progressFraction_streamOnlySave_isNullNotZero() = runBlocking {
+        storage.dirs = listOf(novelDir)
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting()
+        // Stream saves write position 0 plus a sentence sid: no ms to map, so no bar.
+        progressRepo.positions["book-1"] = ProgressEntity("book-1", 0, 0L, 0L, sentenceSid = 12)
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            val state = awaitItem()
+            assertEquals(1, state.books.size)
+            assertNull(state.books[0].progressFraction)
+        }
+    }
+
+    @Test
+    fun progressFraction_renderedZeroPosition_staysZero() = runBlocking {
+        storage.dirs = listOf(novelDir)
+        storage.texts = validTexts(manifestJson())
+        storage.existing = validExisting()
+        progressRepo.positions["book-1"] = ProgressEntity("book-1", 0, 0L, 0L, sentenceSid = null)
+
+        val vm = viewModel()
+
+        vm.uiState.test {
+            assertEquals(0f, awaitItem().books.single().progressFraction!!, 0f)
         }
     }
 
@@ -734,9 +765,9 @@ class LibraryViewModelTest {
             val state = awaitItem()
             assertEquals(3, state.books.size)
             val byId = state.books.associateBy { it.id }
-            assertEquals(0.25f, byId["book-1"]!!.progressFraction, 0.0001f)
-            assertEquals(0.1f, byId["book-2"]!!.progressFraction, 0.0001f)
-            assertEquals(0f, byId["book-3"]!!.progressFraction, 0f)
+            assertEquals(0.25f, byId["book-1"]!!.progressFraction!!, 0.0001f)
+            assertEquals(0.1f, byId["book-2"]!!.progressFraction!!, 0.0001f)
+            assertEquals(0f, byId["book-3"]!!.progressFraction!!, 0f)
         }
         // FP2: one map query per books emission, never one load per book.
         assertEquals(0, progressRepo.loadCalls)
@@ -1121,9 +1152,9 @@ class LibraryViewModelTest {
             return Result.success(positions[bookId])
         }
 
-        override suspend fun loadAll(): Result<Map<String, Long>> {
+        override suspend fun loadAll(): Result<Map<String, ProgressEntity>> {
             loadAllCalls += 1
-            return Result.success(positions.mapValues { it.value.positionMs })
+            return Result.success(positions.toMap())
         }
 
         override suspend fun delete(bookId: String): Result<Unit> {

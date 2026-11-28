@@ -302,7 +302,9 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    override fun onGetSession(info: MediaSession.ControllerInfo) = session
+    // FU5: refuse untrusted apps here. The platform token (lock screen, Bluetooth) does not come through here, but the legacy placeholder (media buttons, legacy binds) does, and is allowed in allowController.
+    override fun onGetSession(info: MediaSession.ControllerInfo): MediaSession? =
+        session?.takeIf { allowController(info.packageName, packageName, info.isTrusted) }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // WP9: log EVERY start at entry -- a system restart after a
@@ -321,6 +323,8 @@ class PlaybackService : MediaSessionService() {
             return super.onStartCommand(intent, flags, startId)
         }
         if (bookId != null) {
+            // Only user starts reset the gate; the automatic reload path does not come through here.
+            streamFailureGate.reset()
             if (bookId != currentBookId) {
                 Log.i(TAG, "onStartCommand loading bookId=$bookId")
                 loadBook(bookId)

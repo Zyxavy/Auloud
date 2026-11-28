@@ -8,6 +8,7 @@ import io.mockk.unmockkStatic
 import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -142,6 +143,31 @@ class SafBundleStorageTest {
     }
 
     @Test
+    fun sizeBytes_returnsBackendSize() {
+        backend.sizes = mapOf("book1/text/ch001.txt" to 1234L)
+
+        assertEquals(1234L, storage.sizeBytes("$tree|book1/text/ch001.txt"))
+    }
+
+    @Test
+    fun sizeBytes_missingWrongTreeOrEscape_null() {
+        backend.sizes = mapOf("book1/text/ch001.txt" to 5L, "evil.txt" to 5L)
+
+        assertNull(storage.sizeBytes("$tree|book1/text/missing.txt"))
+        assertNull(storage.sizeBytes("$tree%2FBooks|book1/text/ch001.txt"))
+        assertNull(storage.sizeBytes("$tree|book1/../../evil.txt"))
+        assertNull(storage.sizeBytes("/storage/emulated/0/Auloud/book1/text/ch001.txt"))
+    }
+
+    @Test
+    fun sizeBytes_backendFailure_null() {
+        backend.sizes = mapOf("book1/text/ch001.txt" to 5L)
+        backend.sizeFailure = IOException("permission lost")
+
+        assertNull(storage.sizeBytes("$tree|book1/text/ch001.txt"))
+    }
+
+    @Test
     fun coverUri_returnsBackendDocumentUri() {
         backend.files = setOf("book1/cover.jpg")
 
@@ -176,6 +202,8 @@ class SafBundleStorageTest {
         var files: Set<String> = emptySet()
         var texts: Map<String, String> = emptyMap()
         var listFailure: IOException? = null
+        var sizes: Map<String, Long> = emptyMap()
+        var sizeFailure: IOException? = null
 
         override fun children(parentRel: String): List<SafChild> {
             listFailure?.let { throw it }
@@ -187,6 +215,11 @@ class SafBundleStorageTest {
 
         override fun readText(relPath: String): String =
             texts[relPath] ?: throw IOException("$relPath: cannot open document")
+
+        override fun sizeBytes(relPath: String): Long? {
+            sizeFailure?.let { throw it }
+            return sizes[relPath]
+        }
 
         override fun documentUri(relPath: String): String =
             "doc://primary:Auloud/$relPath"

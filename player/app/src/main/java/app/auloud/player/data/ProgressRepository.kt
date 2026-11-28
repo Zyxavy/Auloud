@@ -29,11 +29,12 @@ interface ProgressRepository {
     suspend fun load(bookId: String): Result<ProgressEntity?>
 
     /**
-     * FP2: every saved `positionMs` keyed by book id, in one query. The
-     * library screen maps one books emission with one call instead of one
-     * load per book.
+     * FP2: every saved row keyed by book id, in one query. The library
+     * screen maps one books emission with one call instead of one load per
+     * book. Rows carry [ProgressEntity.sentenceSid] so stream-only books
+     * (sid, no ms) can be told apart from ms positions.
      */
-    suspend fun loadAll(): Result<Map<String, Long>>
+    suspend fun loadAll(): Result<Map<String, ProgressEntity>>
 
     /**
      * IN8: removes the saved position for [bookId]. Deleting a missing

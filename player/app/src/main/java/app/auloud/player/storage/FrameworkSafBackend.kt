@@ -127,6 +127,21 @@ class FrameworkSafBackend(
     override fun documentUri(relPath: String): String =
         docUriFor(relPath).toString()
 
+    override fun sizeBytes(relPath: String): Long? {
+        if (relPath.isBlank()) return null
+        return try {
+            resolver.query(
+                docUriFor(relPath),
+                arrayOf(DocumentsContract.Document.COLUMN_SIZE),
+                null, null, null
+            )?.use { c ->
+                if (c.moveToFirst() && !c.isNull(0)) c.getLong(0).takeIf { it >= 0 } else null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     companion object {
         /** Log tag (`Auloud*`, <= 23 chars for API 24). */
         const val TAG = "AuloudStorage"

@@ -15,6 +15,13 @@ windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Securit
 [dev-dependencies]
 # (none yet)
 
+# Test double for worker.py, used by tests/happy_run.rs only.
+[[bin]]
+name = "fake-worker"
+path = "tests/support/fake_worker.rs"
+test = false
+doc = false
+
 [lib]
 name = "scribe_orchestrator"
 path = "src/lib.rs"

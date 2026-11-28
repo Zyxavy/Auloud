@@ -58,7 +58,7 @@ Default 32 sentences per frame (tunable). One round trip per batch, never per se
 
 ## 6. Error semantics
 
-A `batch_error` stops the run with a non-zero exit and leaves the cache intact; the cache is the resume state, so re-running the build synthesises only what is still missing. There is no automatic retry or worker respawn. A worker that cannot load its engine exits non-zero before answering `ready`, so a broken model folder fails the build instead of reporting success.
+A `batch_error` stops the run with a non-zero exit and leaves the cache intact; the cache is the resume state, so re-running the build synthesises only what is still missing. A worker that does not answer `hello` within 300 s, or a batch within 600 s, is killed and the run fails naming it. The first failing worker also stops the others before their next batch. There is no automatic retry or worker respawn. A worker that cannot load its engine exits non-zero before answering `ready`, so a broken model folder fails the build instead of reporting success.
 
 ## 7. Manifest
 

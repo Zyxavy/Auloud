@@ -129,6 +129,25 @@ class LibraryRepositoryTest {
     }
 
     @Test
+    fun importBundle_coverWithDotDot_storesNull() = runBlocking {
+        storage = FakeBundleStorage(
+            existing = setOf("$bundleDir/manifest.json", "$bundleDir/../secret.jpg")
+        )
+        repo = RoomLibraryRepository(dao, storage, now = { clockMs })
+
+        val book = repo.importBundle(bundleDir, manifest(cover = "../secret.jpg")).getOrThrow()
+
+        assertNull(book.coverPath)
+    }
+
+    @Test
+    fun importBundle_absoluteCover_storesNull() = runBlocking {
+        val book = repo.importBundle(bundleDir, manifest(cover = "/cover.jpg")).getOrThrow()
+
+        assertNull(book.coverPath)
+    }
+
+    @Test
     fun importBundle_missingManifest_failsInvalidBundle() = runBlocking {
         storage = FakeBundleStorage(existing = emptySet())
         repo = RoomLibraryRepository(dao, storage, now = { clockMs })

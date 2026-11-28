@@ -110,7 +110,7 @@ class BundleValidatorTest {
             assertTrue("fixture missing: ${dir.path}", dir.isDirectory)
             val manifest = BundleParser.parse(dir).getOrThrow()
             val viaFile = BundleValidator.validate(dir, manifest)
-            val present = manifest.chapters.map { it.audio }
+            val present = (manifest.chapters.map { it.audio } + listOfNotNull(manifest.source?.file))
                 .filter { File(dir, it).isFile }
                 .map { dir.path.trimEnd('/') + "/" + it.trimStart('/') }
                 .toSet()
@@ -421,5 +421,115 @@ class BundleValidatorTest {
         val joined = BundleValidator.validate(dir, bad).joinToString("\n")
         assertTrue("error must name manifest.json, got: $joined", joined.contains("manifest.json"))
         assertTrue("error must name the index rule, got: $joined", joined.contains("chapter entry 1 has index 2, expected 1"))
+    }
+
+    @Test
+    fun sourceSha_notHex_isNamed() {
+        val dir = fixtureDir("valid-bundle")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        val bad = manifest.copy(source = SourceInfo(file = "source/book.epub", sha256 = "not-hex"))
+        assertEquals(
+            listOf("manifest.json: source sha256 is not a 64-char hex string"),
+            BundleValidator.validate(dir, bad)
+        )
+    }
+
+    @Test
+    fun missingSourceFailsImportValidation() {
+        val dir = fixtureDir("shape-srcfile")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        assertEquals(
+            listOf("source/book.epub: file missing (listed in manifest source)"),
+            BundleValidator.validate(dir, manifest, hashSource = true)
+        )
+    }
+
+    @Test
+    fun missingSourcePassesRescanValidation() {
+        val dir = fixtureDir("shape-srcfile")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        assertEquals(emptyList<String>(), BundleValidator.validate(dir, manifest))
+    }
+
+    @Test
+    fun sourceFile_escapingBundle_isNamed() {
+        val dir = fixtureDir("valid-bundle")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        val bad = manifest.copy(source = SourceInfo(file = "../book.epub", sha256 = null))
+        assertEquals(
+            listOf("../book.epub: path escapes bundle (listed in manifest source)"),
+            BundleValidator.validate(dir, bad, hashSource = true)
+        )
+    }
+
+    @Test
+    fun chapterSourceIndex_zero_isNamedForManifestAndChapterFile() {
+        val dir = fixtureDir("shape-src")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        val joined = BundleValidator.validate(dir, manifest, readText = { File(it).takeIf { f -> f.isFile }?.readText() })
+            .joinToString("\n")
+        assertTrue("chapter file must name the mismatch, got: $joined",
+            joined.contains("source_index mismatch: manifest entry has None, chapter file has 0 (both present or both absent)"))
+        assertTrue("chapter file must name the 1-based rule, got: $joined",
+            joined.contains("invalid source_index 0 (need 1-based source chapter)"))
+    }
+
+    @Test
+    fun sourceIndexRange_duplicateMissingAndOrder_areNamed() {
+        val dir = fixtureDir("shape-srcrange")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        val joined = BundleValidator.validate(dir, manifest).joinToString("\n")
+        assertTrue("must name duplicates, got: $joined", joined.contains("duplicate source_index values [1, 2, 2] (need unique 1-based source chapters)"))
+        assertTrue("must name the missing entry, got: $joined", joined.contains("manifest.json: chapter 2 missing source_index (range bundles need source_index on every chapter)"))
+        assertTrue("must name order, got: $joined", joined.contains("source_index 1 out of order (previous 2; need strictly increasing in bundle order)"))
+        assertTrue("must name order, got: $joined", joined.contains("source_index 2 out of order (previous 2; need strictly increasing in bundle order)"))
+    }
+
+    @Test
+    fun sourceHash_offByDefault_soRescansSkipIt() {
+        val dir = fixtureDir("valid-bundle")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        val bad = manifest.copy(source = SourceInfo(file = "source/book.epub", sha256 = "0".repeat(64)))
+        assertEquals(emptyList<String>(), BundleValidator.validate(dir, bad))
+    }
+
+    @Test
+    fun sourceHash_mismatch_whenEnabled() {
+        val dir = fixtureDir("valid-bundle")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        val zeros = "0".repeat(64)
+        val bad = manifest.copy(source = SourceInfo(file = "source/book.epub", sha256 = zeros))
+        assertEquals(
+            listOf(
+                "source/book.epub: sha256 mismatch: expected $zeros, " +
+                    "got e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            ),
+            BundleValidator.validate(dir, bad, hashSource = true)
+        )
+    }
+
+    @Test
+    fun sourceHash_matches_whenEnabled() {
+        val dir = fixtureDir("valid-bundle")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        assertEquals(emptyList<String>(), BundleValidator.validate(dir, manifest, hashSource = true))
+    }
+
+    @Test
+    fun sourceHash_unreadable_isNamed() {
+        val dir = fixtureDir("valid-bundle")
+        val manifest = BundleParser.parse(dir).getOrThrow()
+        assertEquals(
+            listOf("source/book.epub: cannot read for sha256 check"),
+            BundleValidator.validate(dir.path, manifest, hashSource = true, openInput = { null })
+        )
+    }
+
+    @Test
+    fun sha256Hex_streamsKnownVector() {
+        assertEquals(
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad",
+            BundleValidator.sha256Hex("abc".byteInputStream())
+        )
     }
 }

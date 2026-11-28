@@ -1,8 +1,9 @@
 // Process supervision: Windows Job Objects with KILL_ON_JOB_CLOSE.
 // Ensures no orphaned Python/ffmpeg processes survive the orchestrator's death.
+// Children inherit the job, so the orchestrator joins it once, before it spawns any.
 
 use std::io;
-use tracing::info;
+use tracing::{info, warn};
 
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
@@ -12,6 +13,8 @@ use windows_sys::Win32::System::JobObjects::{
     SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
     JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
+#[cfg(windows)]
+use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
 /// A Job Object that kills all assigned processes when closed.
 pub struct JobObject {
@@ -49,28 +52,19 @@ impl JobObject {
         Ok(Self {})
     }
 
+    /// Adds this process to the job. Done before spawning, so children inherit it.
     #[cfg(windows)]
-    pub fn assign(&self, pid: u32) -> io::Result<()> {
+    pub fn assign_current_process(&self) -> io::Result<()> {
         unsafe {
-            let proc = windows_sys::Win32::System::Threading::OpenProcess(
-                0x0100 | 0x0001, // PROCESS_SET_QUOTA | PROCESS_TERMINATE
-                0,
-                pid,
-            );
-            if proc.is_null() {
+            if AssignProcessToJobObject(self.handle, GetCurrentProcess()) == 0 {
                 return Err(io::Error::last_os_error());
             }
-            let ok = AssignProcessToJobObject(self.handle, proc);
-            CloseHandle(proc);
-            if ok == 0 {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(())
         }
+        Ok(())
     }
 
     #[cfg(not(windows))]
-    pub fn assign(&self, _pid: u32) -> io::Result<()> {
+    pub fn assign_current_process(&self) -> io::Result<()> {
         Ok(())
     }
 }
@@ -88,24 +82,18 @@ impl Drop for JobObject {
     fn drop(&mut self) {}
 }
 
-/// Supervisor managing worker processes.
+/// Supervisor managing worker processes. Keep it alive for the whole run.
 pub struct Supervisor {
-    job: JobObject,
+    _job: JobObject,
 }
 
 impl Supervisor {
+    /// Creates the job and joins it. Call before spawning children.
     pub fn new() -> io::Result<Self> {
         let job = JobObject::new()?;
-        Ok(Self { job })
-    }
-
-    pub fn assign_process(&self, pid: u32) -> io::Result<()> {
-        self.job.assign(pid)
-    }
-}
-
-impl Default for Supervisor {
-    fn default() -> Self {
-        Self::new().expect("failed to create supervisor")
+        if let Err(e) = job.assign_current_process() {
+            warn!("orchestrator is not in its Job Object, workers may outlive it: {e}");
+        }
+        Ok(Self { _job: job })
     }
 }

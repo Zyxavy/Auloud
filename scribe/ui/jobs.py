@@ -1057,6 +1057,7 @@ class JobManager:
         import shutil
 
         from .transfer import (
+            TRANSFERS_FILENAME,
             copy_bundle_with_hashes,
             verify_transfer,
             write_transfer_record,
@@ -1281,26 +1282,44 @@ class JobManager:
                 current["bytes_total"] = total_bytes
             except OSError:
                 pass
-            record = write_transfer_record(
-                self.workspace,
-                book_id,
-                {
-                    "destination": str(job.get("destination") or ""),
-                    "dest_bundle": str(dest_bundle),
-                    "bundle_path": bundle_rel,
-                    "bundle_id": str(job.get("bundle_id") or ""),
-                    "verified": True,
-                    "bytes_total": current.get("bytes_total"),
-                    "job_id": job_id,
-                },
-            )
-            current["verification"] = {
-                "ok": True,
-                "errors": [],
-                "destination": record.get("destination"),
-                "time": record.get("time"),
-            }
-            self._finish_done(current, folder, None)
+            try:
+                record = write_transfer_record(
+                    self.workspace,
+                    book_id,
+                    {
+                        "destination": str(job.get("destination") or ""),
+                        "dest_bundle": str(dest_bundle),
+                        "bundle_path": bundle_rel,
+                        "bundle_id": str(job.get("bundle_id") or ""),
+                        "verified": True,
+                        "bytes_total": current.get("bytes_total"),
+                        "job_id": job_id,
+                    },
+                )
+            except OSError as exc:
+                # The copy verified, but without the record the On-tablet chip
+                # can never light: fail the job so the reason is visible.
+                self._finish_failed(
+                    current,
+                    folder,
+                    exit_code=-1,
+                    error={
+                        "file": TRANSFERS_FILENAME,
+                        "rule": "record-failed",
+                        "message": (
+                            f"{book_id}: record-failed: copy verified but the "
+                            f"transfer record was not saved: {exc}"
+                        ),
+                    },
+                )
+            else:
+                current["verification"] = {
+                    "ok": True,
+                    "errors": [],
+                    "destination": record.get("destination"),
+                    "time": record.get("time"),
+                }
+                self._finish_done(current, folder, None)
         else:
             # Record the failed outcome too (chip still requires verified).
             try:

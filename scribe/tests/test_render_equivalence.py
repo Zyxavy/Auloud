@@ -43,7 +43,6 @@ from tts.kokoro import resolve_model_paths
 from build import _narrator_entry
 
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "bench_chapter.epub"
-GOLDEN = Path(__file__).resolve().parent / "fixtures" / "render_equivalence_golden.json"
 MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
 VOICE_PITCH = 1.0
 try:
@@ -188,10 +187,6 @@ def golden_build(tmp_path_factory):
 
 def test_render_equivalence_to_golden(golden_build, tmp_path):
     facts_golden, result_golden, work_golden, out_golden = golden_build
-    # Store the golden run (overwritten each session because the Kokoro
-    # source generator is stochastic; within-session comparison is warm).
-    GOLDEN.write_text(json.dumps(facts_golden, indent=2), encoding="utf-8")
-
     cand_work = tmp_path / "cand-work"
     cand_out = tmp_path / "cand-out"
     facts_cand, result_cand, _ = _collect_facts(

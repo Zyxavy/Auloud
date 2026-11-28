@@ -16,7 +16,8 @@ import cli
 
 RUNNER = CliRunner()
 FIXTURE = Path(__file__).resolve().parent / "fixtures" / "bench_chapter.epub"
-MODELS_DIR = Path(__file__).resolve().parent.parent / "models"
+SCRIBE_DIR = Path(__file__).resolve().parent.parent
+MODELS_DIR = SCRIBE_DIR / "models"
 
 
 def _has_ffmpeg() -> bool:
@@ -28,7 +29,18 @@ def _has_models() -> bool:
 
 
 @pytest.mark.skipif(not _has_ffmpeg() or not _has_models(), reason="missing ffmpeg or models")
-def test_bench_runs_and_reports_metrics(tmp_path: Path) -> None:
+def test_bench_runs_and_reports_metrics(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # bench_render patches onnxruntime for the whole process on import and writes ORT
+    # profiles under a cwd-relative prefix. Undo the patch after this test and send the
+    # profiles to tmp_path, so later tests do not leave bench_ort_profile_*.json in scribe/.
+    # (Not chdir: the engine loads models from "models" relative to the cwd.)
+    import onnxruntime
+
+    monkeypatch.setattr(onnxruntime, "InferenceSession", onnxruntime.InferenceSession)
+    monkeypatch.syspath_prepend(str(SCRIBE_DIR / "dev"))
+    import bench_render
+
+    monkeypatch.setattr(bench_render, "ORT_PROFILE_PREFIX", str(tmp_path / "bench_ort_profile"))
     out_dir = tmp_path / "bench-out"
     report = tmp_path / "bench_report.json"
     result = RUNNER.invoke(

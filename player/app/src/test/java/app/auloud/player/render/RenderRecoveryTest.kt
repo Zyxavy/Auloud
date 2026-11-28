@@ -104,7 +104,6 @@ class RenderRecoveryTest {
           "title": "Unrendered",
           "type": "epub",
           "render_state": "none",
-          "source": {"file": "source/book.epub", "sha256": "abc"},
           "voices": {
             "narrator": {"engine": "system", "voice": "default", "speed": 1.0, "pitch": 1.0},
             "dialogue": {"engine": "system", "voice": "default", "speed": 1.0, "pitch": 1.0}
@@ -389,6 +388,17 @@ class RenderRecoveryTest {
 
         assertEquals(listOf("$spoolDir/ch001-s002-deadbeef.pcm"), deleted)
         assertTrue(spool.files.containsKey("$spoolDir/ch001-s001-${fp.fileTag()}.pcm"))
+    }
+
+    @Test
+    fun spool_leftoverIndexTmp_deleted() {
+        val spool = FakeSpool()
+        spool.texts["$spoolDir/ch003-index.json.tmp"] = "torn-index"
+
+        val deleted = RenderRecovery.sweepOrphanSpool(spoolDir, spool)
+
+        assertEquals(listOf("$spoolDir/ch003-index.json.tmp"), deleted)
+        assertTrue(spool.texts.isEmpty())
     }
 
     @Test

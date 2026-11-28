@@ -322,8 +322,9 @@ object RenderRecovery {
     /**
      * Sweeps orphan spool PCM: files no chapter index lists, plus whole
      * chapters whose index is missing or unparseable (a kill between the
-     * PCM write and the index write). Chapters with a valid index keep
-     * exactly their listed files. Fingerprint-stale spool is NOT swept
+     * PCM write and the index write), and torn `chNNN-index.json.tmp` files.
+     * Chapters with a valid index keep exactly their listed files.
+     * Fingerprint-stale spool is NOT swept
      * here: the renderer invalidates it per chapter at render time (RN4).
      * Best-effort and never throwing; returns deleted paths sorted.
      */
@@ -362,6 +363,12 @@ object RenderRecovery {
                     }
                 }
             }
+            val tmpIndexes = try {
+                io.listFiles(spoolDir, "ch", "-index.json.tmp")
+            } catch (_: Exception) {
+                emptyList()
+            }
+            for (tmp in tmpIndexes) deleteQuiet(io, tmp, deleted)
             val allPcm = try {
                 io.listFiles(spoolDir, "ch", ".pcm")
             } catch (_: Exception) {

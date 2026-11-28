@@ -78,6 +78,8 @@ class IngestPipelineTest {
 
         override fun exists(path: String): Boolean = files.containsKey(path)
 
+        override fun openInput(path: String): java.io.InputStream? = files[path]?.inputStream()
+
         override fun audioUri(bundleDir: String, relPath: String): Uri =
             throw UnsupportedOperationException("not used by the pipeline")
 
@@ -602,7 +604,7 @@ class IngestPipelineTest {
             ): Result<Unit> = Result.success(Unit)
             override suspend fun load(bookId: String): Result<ProgressEntity?> =
                 Result.success(null)
-            override suspend fun loadAll(): Result<Map<String, Long>> =
+            override suspend fun loadAll(): Result<Map<String, ProgressEntity>> =
                 Result.success(emptyMap())
             override suspend fun delete(bookId: String): Result<Unit> =
                 Result.success(Unit)

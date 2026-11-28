@@ -1,15 +1,21 @@
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{BufReader, Read, Write};
-use std::path::Path;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::io::{BufReader, Write};
+use std::path::{Path, PathBuf};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::str::FromStr;
-use std::sync::mpsc;
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::{self, Receiver};
+use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
 use scribe_orchestrator::protocol::*;
 use scribe_orchestrator::supervisor::Supervisor;
+use scribe_orchestrator::{
+    encode_frame, next_frame, run_worker, spawn_frame_reader, Frame, WorkerLink, BATCH_TIMEOUT,
+    STARTUP_TIMEOUT,
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "scribe-orchestrator", version)]
@@ -103,7 +109,12 @@ fn fail(kind: &str, message: &str) -> ! {
 fn main() {
     let args = Args::parse();
     let filter = EnvFilter::from_str(&args.log_level).unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    // stdout carries the JSON protocol; tracing must never write there.
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_ansi(false)
+        .with_env_filter(filter)
+        .init();
 
     let manifest_str = match std::fs::read_to_string(&args.manifest) {
         Ok(s) => s,
@@ -117,7 +128,8 @@ fn main() {
         fail("protocol_version", &format!("unsupported manifest version: {}", manifest.v));
     }
 
-    let supervisor = match Supervisor::new() {
+    // Joins the Job Object before any worker is spawned; dropping it kills them.
+    let _supervisor = match Supervisor::new() {
         Ok(s) => s,
         Err(e) => fail("supervisor", &format!("failed to create supervisor: {e}")),
     };
@@ -126,8 +138,8 @@ fn main() {
     let worker_count = args.workers.min(manifest.workers).max(1);
     let batch_size = args.batch_size.min(manifest.batch_size).max(1);
 
-    let mut children = spawn_workers(&args, &manifest, worker_count, &supervisor);
-    let mut io = handshake(&mut children, worker_count);
+    let mut children = spawn_workers(&args, &manifest, worker_count);
+    let io = handshake(&mut children, worker_count);
 
     emit_state("running");
 
@@ -155,8 +167,10 @@ fn main() {
     let total_sentences: u64 = manifest.chapters.iter().map(|c| c.sentences.len() as u64).sum();
 
     let (tx, rx) = mpsc::channel::<(u64, u64, u64)>(); // done, audio_ms, hits
+    // Set by the first failing worker; the others stop before their next batch.
+    let stop = Arc::new(AtomicBool::new(false));
     let mut threads = Vec::new();
-    for (widx, (stdin, reader)) in io.drain(..).enumerate() {
+    for (widx, ((stdin, frames), mut child)) in io.into_iter().zip(children).enumerate() {
         let mine: Vec<(usize, String, Vec<BatchItem>)> = batches
             .iter()
             .skip(widx)
@@ -164,7 +178,17 @@ fn main() {
             .cloned()
             .collect();
         let tx = tx.clone();
-        threads.push(std::thread::spawn(move || run_worker(stdin, reader, mine, tx)));
+        let stop = Arc::clone(&stop);
+        threads.push(std::thread::spawn(move || {
+            let link = WorkerLink { index: widx, stdin, frames, timeout: BATCH_TIMEOUT };
+            let result = run_worker(link, mine, &stop, &tx);
+            // A failed or hung worker is killed; a finished one has been sent Shutdown.
+            if result.is_err() {
+                let _ = child.kill();
+            }
+            let _ = child.wait();
+            result
+        }));
     }
     drop(tx);
 
@@ -197,10 +221,6 @@ fn main() {
         }
     }
 
-    for mut child in children {
-        let _ = child.wait();
-    }
-
     if let Some(e) = worker_error {
         fail("worker", &e);
     }
@@ -217,24 +237,33 @@ fn main() {
             })
             .collect(),
     };
-    let results_path = args
-        .results
-        .clone()
-        .unwrap_or_else(|| format!("{}/results.json", args.manifest));
-    match std::fs::write(&results_path, serde_json::to_string_pretty(&results).unwrap()) {
-        Ok(_) => tracing::info!("results written to {results_path}"),
-        Err(e) => tracing::warn!("failed to write results: {e}"),
+    let results_path = match &args.results {
+        Some(path) => PathBuf::from(path),
+        None => default_results_path(&args.manifest),
+    };
+    if let Err(e) = write_results(&results_path, &results) {
+        fail(
+            "results",
+            &format!("failed to write results to {}: {e}", results_path.display()),
+        );
     }
-
+    tracing::info!("results written to {}", results_path.display());
     emit_state("done");
+    // Dropping the last job handle would kill this process (a job member) during teardown; let process exit close it.
+    std::mem::forget(_supervisor);
 }
 
-fn spawn_workers(
-    args: &Args,
-    manifest: &Manifest,
-    worker_count: usize,
-    supervisor: &Supervisor,
-) -> Vec<Child> {
+/// `results.json` next to the manifest, so a run without `--results` leaves its output beside its input.
+fn default_results_path(manifest: &str) -> PathBuf {
+    Path::new(manifest).with_file_name("results.json")
+}
+
+fn write_results(path: &Path, results: &ResultsFile) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(results).map_err(std::io::Error::other)?;
+    std::fs::write(path, json)
+}
+
+fn spawn_workers(args: &Args, manifest: &Manifest, worker_count: usize) -> Vec<Child> {
     let worker_dir = Path::new(&args.worker_dir);
     let script = worker_dir.join("worker.py");
     if !script.is_file() {
@@ -261,7 +290,6 @@ fn spawn_workers(
         }
         match cmd.spawn() {
             Ok(child) => {
-                let _ = supervisor.assign_process(child.id());
                 children.push(child);
                 tracing::info!("spawned worker {i}");
             }
@@ -271,7 +299,7 @@ fn spawn_workers(
     children
 }
 
-fn handshake(children: &mut [Child], worker_count: usize) -> Vec<(ChildStdin, BufReader<ChildStdout>)> {
+fn handshake(children: &mut [Child], worker_count: usize) -> Vec<(ChildStdin, Receiver<Frame>)> {
     let mut io = Vec::new();
     for (i, child) in children.iter_mut().enumerate() {
         let mut stdin = match child.stdin.take() {
@@ -282,7 +310,6 @@ fn handshake(children: &mut [Child], worker_count: usize) -> Vec<(ChildStdin, Bu
             Some(s) => s,
             None => fail("handshake", &format!("worker {i} has no stdout")),
         };
-        let mut reader = BufReader::new(stdout);
         let hello = Envelope {
             v: PROTOCOL_VERSION,
             id: format!("hello-{i}"),
@@ -292,76 +319,48 @@ fn handshake(children: &mut [Child], worker_count: usize) -> Vec<(ChildStdin, Bu
             fail("handshake", &format!("worker {i} write failed: {e}"));
         }
         let _ = stdin.flush();
-        match read_frame_sync(&mut reader) {
+        let frames = spawn_frame_reader(BufReader::new(stdout));
+        match next_frame(i, &frames, STARTUP_TIMEOUT) {
             Ok(Envelope { body: MessageBody::Ready { providers, .. }, .. }) => {
                 tracing::info!("worker {} ready ({} workers): {:?}", i, worker_count, providers);
             }
-            Ok(_) => fail("handshake", &format!("worker {i} sent an unexpected reply")),
-            Err(e) => fail("handshake", &format!("worker {i} handshake failed: {e}")),
+            Ok(_) => {
+                child.kill().ok();
+                fail("handshake", &format!("worker {i} sent an unexpected reply"));
+            }
+            Err(e) => {
+                child.kill().ok();
+                fail("handshake", &e);
+            }
         }
-        io.push((stdin, reader));
+        io.push((stdin, frames));
     }
     io
 }
 
-/// Run one worker to the end of its share: `(chapter, results)` per batch.
-fn run_worker(
-    mut stdin: ChildStdin,
-    mut reader: BufReader<ChildStdout>,
-    work: Vec<(usize, String, Vec<BatchItem>)>,
-    tx: mpsc::Sender<(u64, u64, u64)>,
-) -> Result<Vec<(usize, Vec<ResultItem>)>, String> {
-    let mut finished = Vec::new();
-    for (chapter, batch_id, items) in work {
-        let batch = Envelope {
-            v: PROTOCOL_VERSION,
-            id: batch_id.clone(),
-            body: MessageBody::SynthBatch { batch_id, items },
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_results_path_sits_next_to_the_manifest() {
+        let nested = default_results_path("work/build_manifest.json");
+        assert_eq!(nested, Path::new("work").join("results.json"));
+        assert_eq!(
+            default_results_path("build_manifest.json"),
+            Path::new("results.json")
+        );
+    }
+
+    #[test]
+    fn results_write_failure_is_reported() {
+        let missing = std::env::temp_dir()
+            .join(format!("no-such-dir-{}", std::process::id()))
+            .join("results.json");
+        let results = ResultsFile {
+            book_id: "b".to_string(),
+            chapters: Vec::new(),
         };
-        stdin
-            .write_all(&encode_frame(&batch))
-            .map_err(|e| format!("write failed: {e}"))?;
-        let _ = stdin.flush();
-        match read_frame_sync(&mut reader)? {
-            Envelope { body: MessageBody::BatchDone { results, .. }, .. } => {
-                let done = results.len() as u64;
-                let audio_ms = results.iter().map(|r| r.duration_ms).sum();
-                let hits = results.iter().filter(|r| r.cache_hit).count() as u64;
-                finished.push((chapter, results));
-                let _ = tx.send((done, audio_ms, hits));
-            }
-            Envelope { body: MessageBody::BatchError { message, .. }, .. } => {
-                return Err(message)
-            }
-            _ => return Err("unexpected reply from worker".into()),
-        }
+        assert!(write_results(&missing, &results).is_err());
     }
-    let shutdown = Envelope {
-        v: PROTOCOL_VERSION,
-        id: "shutdown".to_string(),
-        body: MessageBody::Shutdown,
-    };
-    let _ = stdin.write_all(&encode_frame(&shutdown));
-    let _ = stdin.flush();
-    Ok(finished)
-}
-
-fn encode_frame(env: &Envelope) -> Vec<u8> {
-    let json = serde_json::to_vec(env).unwrap();
-    let mut frame = Vec::with_capacity(4 + json.len());
-    frame.extend_from_slice(&(json.len() as u32).to_le_bytes());
-    frame.extend_from_slice(&json);
-    frame
-}
-
-fn read_frame_sync(reader: &mut BufReader<ChildStdout>) -> Result<Envelope, String> {
-    let mut hdr = [0u8; 4];
-    reader.read_exact(&mut hdr).map_err(|e| e.to_string())?;
-    let n = u32::from_le_bytes(hdr) as usize;
-    if n == 0 || n > 16 * 1024 * 1024 {
-        return Err(format!("bad frame size {n}"));
-    }
-    let mut buf = vec![0u8; n];
-    reader.read_exact(&mut buf).map_err(|e| e.to_string())?;
-    serde_json::from_slice(&buf).map_err(|e| e.to_string())
 }

@@ -428,7 +428,7 @@ object EncoderFiles {
                 return Result.failure(
                     IOException(
                         "$targetPath: cannot move temp file into place " +
-                            "(finished audio kept nowhere)"
+                            "(old audio kept)"
                     )
                 )
             }

@@ -56,7 +56,7 @@ class RoomLibraryRepository(
             // document URI string (both loadable via Coil). Null stays null;
             // a bad cover (missing file, bundle escape) also stores null
             // rather than failing the import.
-            val coverRel = manifest.cover?.takeIf { it.isNotBlank() }
+            val coverRel = manifest.cover?.takeIf { it.isNotBlank() && isBundleRelative(it) }
             val coverPath = if (coverRel == null) {
                 null
             } else {
@@ -149,5 +149,9 @@ class RoomLibraryRepository(
 
     private companion object {
         const val MANIFEST_FILE = "manifest.json"
+
+        /** A pushed manifest is untrusted: an absolute or `..` cover is no cover. */
+        fun isBundleRelative(rel: String): Boolean =
+            !rel.startsWith("/") && ".." !in rel.split("/")
     }
 }

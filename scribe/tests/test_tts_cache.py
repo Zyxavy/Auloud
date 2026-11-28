@@ -337,3 +337,131 @@ def test_kokoro_smoke_synthesizes_24khz_non_silent() -> None:
     assert audio.dtype == np.float32
     assert len(audio) > 2_400  # well over a tenth of a second of speech
     assert float(np.max(np.abs(audio))) > 0.01  # genuinely non-silent
+
+
+def test_warm_reads_decode_concurrently(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Warm hits decode in parallel: the decode is not held under _IO_LOCK."""
+    from tts import cache as cache_mod
+
+    engine = FakeEngine()
+    texts = [f"Warm sentence number {i}." for i in range(4)]
+    for text in texts:
+        get_or_synth(engine, text, "af_heart", 1.0, 1.0, tmp_path)
+    engine.calls.clear()  # warm-up synthesized; the measured reads must not
+
+    real_decode = cache_mod._decode_flac
+    gauge = threading.Lock()
+    inside = {"now": 0, "peak": 0}
+
+    def slow_decode(data: bytes, sample_rate: int) -> np.ndarray:
+        with gauge:
+            inside["now"] += 1
+            inside["peak"] = max(inside["peak"], inside["now"])
+        try:
+            time.sleep(0.2)
+            return real_decode(data, sample_rate)
+        finally:
+            with gauge:
+                inside["now"] -= 1
+
+    monkeypatch.setattr(cache_mod, "_decode_flac", slow_decode)
+    results: dict[str, np.ndarray] = {}
+
+    def worker(text: str) -> None:
+        results[text] = get_or_synth(engine, text, "af_heart", 1.0, 1.0, tmp_path)
+
+    threads = [threading.Thread(target=worker, args=(t,)) for t in texts]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert inside["peak"] > 1, inside
+    assert engine.calls == [], "warm hits must not synthesize"
+    assert set(results) == set(texts)
+
+
+def _entry_path(tmp_path: Path, text: str) -> Path:
+    engine = FakeEngine()
+    return cache_path(tmp_path, cache_key(text, "af_heart", 1.0, 1.0, engine.engine_version))
+
+
+def test_open_permission_error_retries_once_and_keeps_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A PermissionError while opening (rename in flight) is retried, never deleted."""
+    from tts import cache as cache_mod
+
+    engine = FakeEngine()
+    get_or_synth(engine, "Retry me.", "af_heart", 1.0, 1.0, tmp_path)
+    path = _entry_path(tmp_path, "Retry me.")
+    real_open = cache_mod._open_entry
+    attempts = {"n": 0}
+
+    def flaky(p: Path) -> bytes:
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise PermissionError("entry is being replaced")
+        return real_open(p)
+
+    monkeypatch.setattr(cache_mod, "_open_entry", flaky)
+    audio = cache_mod._read_cached(path, engine.sample_rate)
+    assert audio is not None and audio.size > 0
+    assert attempts["n"] == 2
+    assert path.is_file()
+
+
+def test_locked_open_is_a_miss_and_never_deletes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tts import cache as cache_mod
+
+    engine = FakeEngine()
+    get_or_synth(engine, "Locked entry.", "af_heart", 1.0, 1.0, tmp_path)
+    path = _entry_path(tmp_path, "Locked entry.")
+    attempts = {"n": 0}
+
+    def locked(p: Path) -> bytes:
+        attempts["n"] += 1
+        raise PermissionError("still locked")
+
+    monkeypatch.setattr(cache_mod, "_open_entry", locked)
+    assert cache_mod._read_cached(path, engine.sample_rate) is None
+    assert attempts["n"] == 2
+    assert path.is_file(), "a locked open is not evidence of a torn file"
+
+
+def test_undecodable_entry_is_deleted(tmp_path: Path) -> None:
+    """Real corruption (opens fine, will not decode) is still deleted as a miss."""
+    from tts import cache as cache_mod
+
+    engine = FakeEngine()
+    path = _entry_path(tmp_path, "Torn entry.")
+    path.write_bytes(b"not a flac stream")
+    assert cache_mod._read_cached(path, engine.sample_rate) is None
+    assert not path.exists()
+
+
+def test_locked_rename_never_loses_audio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A rename that stays locked drops the entry, not the render."""
+    import logging
+
+    from tts import cache as cache_mod
+
+    engine = FakeEngine()
+    attempts = {"n": 0}
+
+    def locked(src: object, dst: object) -> None:
+        attempts["n"] += 1
+        raise PermissionError("entry held open")
+
+    monkeypatch.setattr(cache_mod.os, "replace", locked)
+    text = "Locked store."
+    with caplog.at_level(logging.WARNING):
+        audio = get_or_synth(engine, text, "af_heart", 1.0, 1.0, tmp_path)
+    assert audio.size == len(text) * 10
+    assert attempts["n"] == cache_mod._REPLACE_ATTEMPTS
+    assert list(tmp_path.glob(".*tmp*")) == []
+    assert _cached_files(tmp_path) == []
+    assert "not stored" in caplog.text
