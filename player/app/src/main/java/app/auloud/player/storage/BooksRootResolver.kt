@@ -25,9 +25,6 @@ object BooksRootResolver {
 
     const val BOOKS_DIR_NAME = "Auloud"
 
-    /** Root of the pre-API-30 shared default: /storage/emulated/0/Auloud. */
-    private const val LEGACY_SHARED_ROOT = "/storage/emulated/0"
-
     /**
      * Legacy WP3 resolution: removable SD root wins when present (non-blank),
      * otherwise [internalRoot]. Either way the result is `<base>/Auloud`.
@@ -115,17 +112,21 @@ object BooksRootResolver {
 
     /**
      * FU3 (#32): true when a saved watch folder is the pre-API-30 shared
-     * /Auloud default. From API 30 scoped storage cannot read it without a
-     * SAF grant, so the library shows a notice and the user adds it again
-     * (no files are moved). Plain-JVM-testable.
-     * shortcut: hardcodes the primary user's shared root instead of
-     * Environment.getExternalStorageDirectory(); upgrade if a secondary user
-     * profile ever needs this notice.
+     * /Auloud default under [sharedRoot] (the shared storage root; null or
+     * blank means no shared root, so false). From API 30 scoped storage cannot
+     * read it without a SAF grant, so the library shows a notice and the user
+     * adds it again (no files are moved). Plain-JVM-testable.
      */
-    fun legacySharedFolderNeedsPick(sdkInt: Int, saved: WatchFolder, appDefault: String): Boolean {
+    fun legacySharedFolderNeedsPick(
+        sdkInt: Int,
+        saved: WatchFolder,
+        appDefault: String,
+        sharedRoot: String?
+    ): Boolean {
         if (sdkInt < Build.VERSION_CODES.R) return false
+        if (sharedRoot.isNullOrBlank()) return false
         if (saved !is WatchFolder.FilePath) return false
         if (WatchFolders.sameFilePath(saved.path, appDefault)) return false
-        return WatchFolders.sameFilePath(saved.path, internalSharedDefault(LEGACY_SHARED_ROOT))
+        return WatchFolders.sameFilePath(saved.path, internalSharedDefault(sharedRoot))
     }
 }

@@ -114,7 +114,8 @@ class BooksRootResolverTest {
             BooksRootResolver.legacySharedFolderNeedsPick(
                 29,
                 WatchFolder.FilePath("/storage/emulated/0/Auloud"),
-                "/storage/emulated/0/Android/data/app.auloud.player/files/Auloud"
+                "/storage/emulated/0/Android/data/app.auloud.player/files/Auloud",
+                "/storage/emulated/0"
             )
         )
     }
@@ -125,7 +126,8 @@ class BooksRootResolverTest {
             BooksRootResolver.legacySharedFolderNeedsPick(
                 30,
                 WatchFolder.FilePath("/storage/emulated/0/Auloud/"),
-                "/storage/emulated/0/Android/data/app.auloud.player/files/Auloud"
+                "/storage/emulated/0/Android/data/app.auloud.player/files/Auloud",
+                "/storage/emulated/0"
             )
         )
     }
@@ -137,7 +139,8 @@ class BooksRootResolverTest {
             BooksRootResolver.legacySharedFolderNeedsPick(
                 30,
                 WatchFolder.FilePath(appDefault),
-                appDefault
+                appDefault,
+                "/storage/emulated/0"
             )
         )
     }
@@ -150,7 +153,21 @@ class BooksRootResolverTest {
                 WatchFolder.TreeUri(
                     "content://com.android.externalstorage.documents/tree/primary%3AAuloud"
                 ),
-                "/storage/emulated/0/Android/data/app.auloud.player/files/Auloud"
+                "/storage/emulated/0/Android/data/app.auloud.player/files/Auloud",
+                "/storage/emulated/0"
+            )
+        )
+    }
+
+    /** The shared root comes from the caller, not a hardcoded path. */
+    @Test
+    fun legacySharedFolderNeedsPick_api30_otherSharedRoot_true() {
+        assertTrue(
+            BooksRootResolver.legacySharedFolderNeedsPick(
+                30,
+                WatchFolder.FilePath("/storage/emulated/10/Auloud"),
+                "/storage/emulated/10/Android/data/app.auloud.player/files/Auloud",
+                "/storage/emulated/10"
             )
         )
     }

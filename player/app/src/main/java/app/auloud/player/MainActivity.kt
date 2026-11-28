@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.provider.OpenableColumns
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -424,8 +425,15 @@ class MainActivity : ComponentActivity() {
             return
         }
         val appDefault = BooksRootResolver.defaultBooksRoot(applicationContext)
+        val sharedRoot = try {
+            Environment.getExternalStorageDirectory()?.absolutePath
+        } catch (e: Exception) {
+            null
+        }
         val legacy = folders.any {
-            BooksRootResolver.legacySharedFolderNeedsPick(Build.VERSION.SDK_INT, it, appDefault)
+            BooksRootResolver.legacySharedFolderNeedsPick(
+                Build.VERSION.SDK_INT, it, appDefault, sharedRoot
+            )
         }
         if (legacy) {
             notice(
