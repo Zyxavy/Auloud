@@ -1,5 +1,6 @@
 //! Test double for scribe/worker.py: speaks the orchestrator protocol on stdin/stdout.
-//! Built only for tests/happy_run.rs; it ignores the worker.py path and flags it is given.
+//! Built only for the scribe-orchestrator tests; it ignores the worker.py path and flags it is given.
+//! FAKE_WORKER_MODE=exit_mid_batch makes it exit on the first synth_batch without replying.
 use serde_json::{json, Value};
 use std::io::{self, ErrorKind, Read, Write};
 
@@ -29,6 +30,7 @@ fn main() -> io::Result<()> {
     let mut input = stdin.lock();
     let stdout = io::stdout();
     let mut out = stdout.lock();
+    let exit_mid_batch = std::env::var("FAKE_WORKER_MODE").as_deref() == Ok("exit_mid_batch");
     while let Some(frame) = read_frame(&mut input)? {
         let id = frame["id"].as_str().unwrap_or_default().to_string();
         match frame["type"].as_str() {
@@ -37,6 +39,7 @@ fn main() -> io::Result<()> {
                 &json!({"v": 1, "id": id, "type": "ready", "providers": ["CPUExecutionProvider"],
                         "model_hash": "fake", "rss_mb": 0}),
             )?,
+            Some("synth_batch") if exit_mid_batch => return Ok(()),
             Some("synth_batch") => {
                 let results: Vec<Value> = frame["items"]
                     .as_array()
