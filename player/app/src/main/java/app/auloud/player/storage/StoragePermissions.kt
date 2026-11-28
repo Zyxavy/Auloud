@@ -6,7 +6,7 @@ import android.os.Build
 /**
  * WP3/WP5 refinement, D-214: below API 30 the shared-internal `/Auloud`
  * needs `WRITE_EXTERNAL_STORAGE` alongside `READ_EXTERNAL_STORAGE`
- * (user-approved), requested together on Android 6+. From API 30 the default
+ * (user-approved), requested together below API 30 only. From API 30 the default
  * lives in the app-specific dir and no storage permission is requested. API
  * 33+ adds POST_NOTIFICATIONS to the launch request; it never gates storage.
  * `allGranted` keeps the check in one pure place for plain-JVM tests

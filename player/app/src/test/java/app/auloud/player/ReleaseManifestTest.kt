@@ -58,12 +58,20 @@ class ReleaseManifestTest {
         }
     }
 
+    /** The `<service ...>` start tag whose android:name is [name] (quoted, so no prefix matches). */
+    private fun serviceTag(manifest: String, name: String): String =
+        Regex("<service\\b[^>]*>").findAll(manifest)
+            .map { it.value }
+            .firstOrNull { it.contains("android:name=\"$name\"") }
+            ?: throw AssertionError("no <service> element named $name")
+
     @Test
-    fun playbackServiceDeclaresMediaPlaybackType() {
+    fun playbackServiceElementHasMediaPlaybackType() {
         val manifest = sourceManifest()
         assertTrue(
             "PlaybackService needs foregroundServiceType mediaPlayback (API 29+)",
-            manifest.contains("android:foregroundServiceType=\"mediaPlayback\"")
+            serviceTag(manifest, ".playback.PlaybackService")
+                .contains("android:foregroundServiceType=\"mediaPlayback\"")
         )
         assertTrue(
             "FOREGROUND_SERVICE_MEDIA_PLAYBACK must ship (API 34+)",
@@ -72,11 +80,12 @@ class ReleaseManifestTest {
     }
 
     @Test
-    fun renderServiceDeclaresSpecialUseType() {
+    fun renderServiceElementHasSpecialUseType() {
         val manifest = sourceManifest()
         assertTrue(
             "RenderService needs foregroundServiceType specialUse (API 34+)",
-            manifest.contains("android:foregroundServiceType=\"specialUse\"")
+            serviceTag(manifest, ".render.RenderService")
+                .contains("android:foregroundServiceType=\"specialUse\"")
         )
         assertTrue(
             "FOREGROUND_SERVICE_SPECIAL_USE must ship (API 34+)",
@@ -85,6 +94,16 @@ class ReleaseManifestTest {
         assertTrue(
             "specialUse needs its PROPERTY_SPECIAL_USE_FGS_SUBTYPE declaration",
             manifest.contains("android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE")
+        )
+    }
+
+    @Test
+    fun batterySettingsIntentIsQueryable() {
+        val queries = Regex("<queries>.*?</queries>", RegexOption.DOT_MATCHES_ALL)
+            .find(sourceManifest())?.value.orEmpty()
+        assertTrue(
+            "IGNORE_BATTERY_OPTIMIZATION_SETTINGS must be in a <queries> block (API 30+ package visibility)",
+            queries.contains("android.settings.IGNORE_BATTERY_OPTIMIZATION_SETTINGS")
         )
     }
 

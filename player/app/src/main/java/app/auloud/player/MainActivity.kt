@@ -75,9 +75,13 @@ class MainActivity : ComponentActivity() {
     private val storagePermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
-        val granted = StoragePermissions.allGranted(Build.VERSION.SDK_INT) {
+        onStoragePermissionResult(StoragePermissions.allGranted(Build.VERSION.SDK_INT) {
             grants[it] == true || checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED
-        }
+        })
+    }
+
+    /** Shared by the launch request and the library retry button. */
+    private fun onStoragePermissionResult(granted: Boolean) {
         Log.i(TAG, "storage granted=$granted")
         if (granted) {
             ensureDefaultFolder()
@@ -404,10 +408,14 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** False for an empty request (API 30-32 need no storage permission). */
+    private fun storagePermissionPending(): Boolean =
+        StoragePermissions.toRequest(Build.VERSION.SDK_INT)
+            .any { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+
     private fun requestStoragePermissionIfNeeded() {
-        val request = StoragePermissions.toRequest(Build.VERSION.SDK_INT)
-        if (request.any { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }) {
-            storagePermissions.launch(request)
+        if (storagePermissionPending()) {
+            storagePermissions.launch(StoragePermissions.toRequest(Build.VERSION.SDK_INT))
         }
     }
 
@@ -663,7 +671,13 @@ class MainActivity : ComponentActivity() {
                     }
                 },
                 requestPermission = {
-                    storagePermissions.launch(StoragePermissions.toRequest(Build.VERSION.SDK_INT))
+                    // Nothing pending (granted in Settings since the last prompt): a
+                    // launch would not call back, so report the grant directly.
+                    if (storagePermissionPending()) {
+                        storagePermissions.launch(StoragePermissions.toRequest(Build.VERSION.SDK_INT))
+                    } else {
+                        onStoragePermissionResult(true)
+                    }
                 },
                 // RN9: render job progress for the library chips
                 // (`render-job.json` per book; best effort, never throws).

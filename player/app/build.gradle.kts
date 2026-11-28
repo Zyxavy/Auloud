@@ -186,15 +186,17 @@ dependencies {
 // full must carry the sherpa files plus its notices (GPL text, source
 // offer, NOTICE assets). App-level prose mentions (own class names, help
 // text, Scribe-side license rows) are not library code: entry names and
-// the com/k2fsa + onnxruntime + espeak-ng-data dex markers below are what
-// prove the native libs ship. Uses only the JDK zip API (no dependency).
+// the com/k2fsa + onnxruntime dex markers below are what prove the native
+// libs ship. espeak-ng-data is not a dex marker: core's own pack-folder
+// constants (tts/KittenPack.kt, tts/ModelPacks.kt) carry that string.
+// Uses only the JDK zip API (no dependency).
 tasks.register("licenseScan") {
     group = "verification"
     description = "VC1: fail when core ships sherpa/onnxruntime/espeak files or markers, or full lacks its notices."
     doLast {
         val outputs = layout.buildDirectory.dir("outputs").get().asFile
         val fileMarkers = listOf("sherpa", "onnx", "espeak")
-        val dexMarkers = listOf("com/k2fsa", "onnxruntime", "espeak-ng-data")
+        val dexMarkers = listOf("com/k2fsa", "onnxruntime")
         val fullAssets = listOf("assets/gpl-3.0.txt", "assets/SOURCE_OFFER.txt", "assets/NOTICE.txt")
         fun archives(flavor: String): List<File> {
             val roots = listOf(outputs.resolve("apk/$flavor"), outputs.resolve("bundle/$flavor"))
