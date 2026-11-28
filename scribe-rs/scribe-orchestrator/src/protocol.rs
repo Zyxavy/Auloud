@@ -46,6 +46,26 @@ pub struct ResultItem {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn spec_fixtures_parse_as_protocol_frames() {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../spec/orchestrator");
+        let mut parsed = 0;
+        for entry in std::fs::read_dir(&dir).expect("spec/orchestrator") {
+            let path = entry.expect("dir entry").path();
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if !name.ends_with(".json") || name.ends_with(".schema.json") {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("read fixture");
+            let env: Envelope =
+                serde_json::from_str(&text).unwrap_or_else(|e| panic!("{name}: {e}"));
+            assert_eq!(env.v, PROTOCOL_VERSION, "{name}");
+            parsed += 1;
+        }
+        assert!(parsed >= 5, "only {parsed} fixtures found");
+    }
 
     #[test]
     fn roundtrip_hello() {

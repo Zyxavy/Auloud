@@ -2,7 +2,7 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{BufReader, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::str::FromStr;
 use std::sync::atomic::AtomicBool;
@@ -128,7 +128,8 @@ fn main() {
         fail("protocol_version", &format!("unsupported manifest version: {}", manifest.v));
     }
 
-    let supervisor = match Supervisor::new() {
+    // Joins the Job Object before any worker is spawned; dropping it kills them.
+    let _supervisor = match Supervisor::new() {
         Ok(s) => s,
         Err(e) => fail("supervisor", &format!("failed to create supervisor: {e}")),
     };
@@ -137,7 +138,7 @@ fn main() {
     let worker_count = args.workers.min(manifest.workers).max(1);
     let batch_size = args.batch_size.min(manifest.batch_size).max(1);
 
-    let mut children = spawn_workers(&args, &manifest, worker_count, &supervisor);
+    let mut children = spawn_workers(&args, &manifest, worker_count);
     let io = handshake(&mut children, worker_count);
 
     emit_state("running");
@@ -236,24 +237,31 @@ fn main() {
             })
             .collect(),
     };
-    let results_path = args
-        .results
-        .clone()
-        .unwrap_or_else(|| format!("{}/results.json", args.manifest));
-    match std::fs::write(&results_path, serde_json::to_string_pretty(&results).unwrap()) {
-        Ok(_) => tracing::info!("results written to {results_path}"),
-        Err(e) => tracing::warn!("failed to write results: {e}"),
+    let results_path = match &args.results {
+        Some(path) => PathBuf::from(path),
+        None => default_results_path(&args.manifest),
+    };
+    if let Err(e) = write_results(&results_path, &results) {
+        fail(
+            "results",
+            &format!("failed to write results to {}: {e}", results_path.display()),
+        );
     }
-
+    tracing::info!("results written to {}", results_path.display());
     emit_state("done");
 }
 
-fn spawn_workers(
-    args: &Args,
-    manifest: &Manifest,
-    worker_count: usize,
-    supervisor: &Supervisor,
-) -> Vec<Child> {
+/// `results.json` next to the manifest, so a run without `--results` leaves its output beside its input.
+fn default_results_path(manifest: &str) -> PathBuf {
+    Path::new(manifest).with_file_name("results.json")
+}
+
+fn write_results(path: &Path, results: &ResultsFile) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(results).map_err(std::io::Error::other)?;
+    std::fs::write(path, json)
+}
+
+fn spawn_workers(args: &Args, manifest: &Manifest, worker_count: usize) -> Vec<Child> {
     let worker_dir = Path::new(&args.worker_dir);
     let script = worker_dir.join("worker.py");
     if !script.is_file() {
@@ -280,7 +288,6 @@ fn spawn_workers(
         }
         match cmd.spawn() {
             Ok(child) => {
-                let _ = supervisor.assign_process(child.id());
                 children.push(child);
                 tracing::info!("spawned worker {i}");
             }
@@ -327,4 +334,31 @@ fn handshake(children: &mut [Child], worker_count: usize) -> Vec<(ChildStdin, Re
         io.push((stdin, frames));
     }
     io
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_results_path_sits_next_to_the_manifest() {
+        let nested = default_results_path("work/build_manifest.json");
+        assert_eq!(nested, Path::new("work").join("results.json"));
+        assert_eq!(
+            default_results_path("build_manifest.json"),
+            Path::new("results.json")
+        );
+    }
+
+    #[test]
+    fn results_write_failure_is_reported() {
+        let missing = std::env::temp_dir()
+            .join(format!("no-such-dir-{}", std::process::id()))
+            .join("results.json");
+        let results = ResultsFile {
+            book_id: "b".to_string(),
+            chapters: Vec::new(),
+        };
+        assert!(write_results(&missing, &results).is_err());
+    }
 }

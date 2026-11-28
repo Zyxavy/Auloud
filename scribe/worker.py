@@ -87,12 +87,10 @@ def _providers():
 
 
 def _classify(frame):
-    if "protocol_version" in frame:
-        return "hello"
-    if "batch_id" in frame:
-        return "synth_batch"
-    if frame.get("type") == "shutdown":
-        return "shutdown"
+    """Kind of an orchestrator-to-worker frame, from its ``type`` field."""
+    kind = frame.get("type")
+    if kind in ("hello", "synth_batch", "shutdown"):
+        return kind
     return "unknown"
 
 
