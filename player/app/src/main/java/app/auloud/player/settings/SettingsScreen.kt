@@ -22,7 +22,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlin.concurrent.thread
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -59,6 +58,7 @@ import app.auloud.player.tts.VoiceAuditionScreen
 import app.auloud.player.tts.VoiceAuditionViewModel
 import app.auloud.player.tts.detectKittenPack
 import app.auloud.player.tts.kittenEngineOrNull
+import app.auloud.player.tts.releaseOffMain
 import java.io.File
 
 /**
@@ -574,9 +574,9 @@ private fun VoiceAuditionHost(
     DisposableEffect(viewModel) {
         onDispose {
             viewModel.clear()
-            sherpaHolder[0]?.let { engine -> thread(name = "tts-release") { engine.release() } }
+            sherpaHolder[0]?.let { engine -> releaseOffMain { engine.release() } }
             sherpaHolder[0] = null
-            kittenHolder[0]?.let { engine -> thread(name = "tts-release") { engine.release() } }
+            kittenHolder[0]?.let { engine -> releaseOffMain { engine.release() } }
             kittenHolder[0] = null
         }
     }

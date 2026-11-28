@@ -392,6 +392,17 @@ class RenderRecoveryTest {
     }
 
     @Test
+    fun spool_leftoverIndexTmp_deleted() {
+        val spool = FakeSpool()
+        spool.texts["$spoolDir/ch003-index.json.tmp"] = "torn-index"
+
+        val deleted = RenderRecovery.sweepOrphanSpool(spoolDir, spool)
+
+        assertEquals(listOf("$spoolDir/ch003-index.json.tmp"), deleted)
+        assertTrue(spool.texts.isEmpty())
+    }
+
+    @Test
     fun spool_corruptIndex_deletesIndexAndPcm() {
         val spool = FakeSpool()
         spool.texts["$spoolDir/ch002-index.json"] = "not-json{{{"

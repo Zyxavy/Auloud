@@ -42,6 +42,7 @@ import app.auloud.player.tts.SystemTtsAdapter
 import app.auloud.player.tts.kittenEngineVersion
 import app.auloud.player.tts.kittenEngineOrNull
 import app.auloud.player.tts.piperEngineVersion
+import app.auloud.player.tts.releaseOffMain
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -249,7 +250,26 @@ class RenderService : Service() {
         } catch (_: Exception) {
         }
         powerReceiver = null
-        releaseEngines()
+        try {
+            systemDriver?.shutdown()
+        } catch (_: Exception) {
+        }
+        systemDriver = null
+        // Sherpa release waits for an in-flight JNI generate, so it leaves the main thread.
+        val sherpa = sherpaEngine
+        val kitten = kittenEngine
+        sherpaEngine = null
+        kittenEngine = null
+        releaseOffMain {
+            try {
+                sherpa?.release()
+            } catch (_: Exception) {
+            }
+            try {
+                kitten?.release()
+            } catch (_: Exception) {
+            }
+        }
         serviceScope.cancel()
         super.onDestroy()
     }
@@ -1798,6 +1818,10 @@ class RenderService : Service() {
     private fun enterForeground(notification: Notification): Boolean =
         RenderForeground.tryStart({ startForeground(NOTIFICATION_ID, notification) }) { e ->
             Log.w(TAG, "foreground start refused: ${e.message}")
+            notifyError(
+                "Render not started",
+                "Render could not start in the background. Open Auloud and try again."
+            )
         }
 
     /**

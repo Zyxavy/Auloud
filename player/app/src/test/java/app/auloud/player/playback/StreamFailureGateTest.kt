@@ -25,6 +25,14 @@ class StreamFailureGateTest {
     }
 
     @Test
+    fun reset_clearsCountForUserStart() {
+        val gate = StreamFailureGate()
+        assertTrue(gate.onFailure())
+        gate.reset()
+        assertTrue(gate.onFailure())
+    }
+
+    @Test
     fun onSpoken_resetsSoNextFailureAllowsReload() {
         val gate = StreamFailureGate()
         assertTrue(gate.onFailure())
