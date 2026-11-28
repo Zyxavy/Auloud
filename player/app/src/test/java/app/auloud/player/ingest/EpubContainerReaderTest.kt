@@ -581,6 +581,59 @@ class EpubContainerReaderTest {
         }
     }
 
+    @Test
+    fun oversizeFirstJpegFallsBackToNextCover() {
+        val target = File(temp.root, "oversizejpeg.epub")
+        writeZip(
+            target,
+            linkedMapOf(
+                "mimetype" to "application/epub+zip".toByteArray(Charsets.UTF_8),
+                "META-INF/container.xml" to containerXml("OEBPS/content.opf"),
+                "OEBPS/content.opf" to (
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>" +
+                        "<package xmlns=\"http://www.idpf.org/2007/opf\" unique-identifier=\"id\" version=\"3.0\">" +
+                        "<metadata xmlns:dc=\"http://purl.org/dc/elements/1.1/\">" +
+                        "<dc:title>Test Book</dc:title><dc:language>en</dc:language>" +
+                        "<dc:identifier id=\"id\">test-id</dc:identifier></metadata>" +
+                        "<manifest>" +
+                        "<item id=\"ch1\" href=\"ch1.xhtml\" media-type=\"application/xhtml+xml\"/>" +
+                        "<item id=\"nav\" href=\"nav.xhtml\" media-type=\"application/xhtml+xml\" properties=\"nav\"/>" +
+                        "<item id=\"big\" href=\"big.jpg\" media-type=\"image/jpeg\" properties=\"cover-image\"/>" +
+                        "<item id=\"ok\" href=\"ok.jpg\" media-type=\"image/jpeg\"/>" +
+                        "</manifest>" +
+                        "<spine><itemref idref=\"ch1\"/></spine></package>"
+                    ).toByteArray(Charsets.UTF_8),
+                "OEBPS/ch1.xhtml" to chapterXhtml("Chapter One", "Text."),
+                "OEBPS/nav.xhtml" to navXhtml(listOf(Pair("ch1.xhtml", "Chapter One"))),
+                "OEBPS/big.jpg" to (jpegBytes() + ByteArray(5000)),
+                "OEBPS/ok.jpg" to jpegBytes()
+            )
+        )
+        lieAboutUncompressedSize(target, "OEBPS/big.jpg", 10)
+        val book = EpubContainerReader.readWithCaps(
+            target, 2000L, EpubContainerReader.MAX_TOTAL_BYTES
+        ).getOrThrow()
+        assertEquals("oversize JPEG must not hide the next valid cover", "OEBPS/ok.jpg", book.coverEntry)
+    }
+
+    /** Rewrites the central-directory uncompressed size of [entryName] (malformed-zip fixture). */
+    private fun lieAboutUncompressedSize(target: File, entryName: String, declared: Int) {
+        val bytes = target.readBytes()
+        val name = entryName.toByteArray(Charsets.UTF_8)
+        for (i in 0..bytes.size - 46) {
+            val isCentralHeader = bytes[i] == 0x50.toByte() && bytes[i + 1] == 0x4B.toByte() &&
+                bytes[i + 2] == 0x01.toByte() && bytes[i + 3] == 0x02.toByte()
+            if (!isCentralHeader) continue
+            val nameLength = (bytes[i + 28].toInt() and 0xFF) or ((bytes[i + 29].toInt() and 0xFF) shl 8)
+            if (nameLength == name.size && bytes.copyOfRange(i + 46, i + 46 + nameLength).contentEquals(name)) {
+                for (k in 0 until 4) bytes[i + 24 + k] = (declared shr (8 * k)).toByte()
+                target.writeBytes(bytes)
+                return
+            }
+        }
+        error("no central header for " + entryName)
+    }
+
     // ---- Nav exact-stem rule and non-linear flag ----
 
     @Test

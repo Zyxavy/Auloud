@@ -371,7 +371,7 @@ object EpubContainerReader {
                 )
             )
         }
-        val coverEntry = findCoverEntry(zip, opf, opfPath, warnings, onSniffBytes)
+        val coverEntry = findCoverEntry(zip, opf, opfPath, warnings, maxEntry, onSniffBytes)
         val fallbackTitle = fileName.substringBeforeLast('.').ifBlank { fileName }
         val title = opf.title?.ifBlank { null } ?: fallbackTitle
         return Result.success(
@@ -884,6 +884,7 @@ object EpubContainerReader {
         opf: ParsedOpf,
         opfPath: String,
         warnings: MutableList<String>,
+        maxEntry: Long,
         onSniffBytes: (Int) -> Unit
     ): String? {
         val ordered = ArrayList<ManifestItem>()
@@ -906,7 +907,7 @@ object EpubContainerReader {
         for (item in ordered) {
             val entry = zip.getEntry(item.hrefEntry) ?: continue
             if (entry.isDirectory) continue
-            if (sniffJpeg(zip, entry, onSniffBytes)) return item.hrefEntry
+            if (sniffJpeg(zip, entry, onSniffBytes) && fitsCap(zip, entry, maxEntry)) return item.hrefEntry
         }
         // No JPEG cover is normal (fixtures ship none); stay silent so
         // golden imports keep empty warnings. Only note an OPF problem
@@ -931,6 +932,16 @@ object EpubContainerReader {
                 onBytes(n)
                 n == 2 && isJpeg(head)
             }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** A sniffed JPEG counts only if it reads within the cap (the rule [readCoverBytes] applies). */
+    private fun fitsCap(zip: ZipFile, entry: ZipEntry, maxEntry: Long): Boolean {
+        return try {
+            readEntryCapped(zip, entry, maxEntry)
+            true
         } catch (_: Exception) {
             false
         }
