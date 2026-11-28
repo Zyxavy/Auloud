@@ -249,6 +249,8 @@ fn main() {
     }
     tracing::info!("results written to {}", results_path.display());
     emit_state("done");
+    // Dropping the last job handle would kill this process (a job member) during teardown; let process exit close it.
+    std::mem::forget(_supervisor);
 }
 
 /// `results.json` next to the manifest, so a run without `--results` leaves its output beside its input.
