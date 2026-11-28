@@ -54,6 +54,8 @@ Notes:
 from __future__ import annotations
 
 import hashlib
+import io
+import logging
 import math
 import os
 import re
@@ -66,6 +68,8 @@ from pathlib import Path
 import numpy as np
 
 from tts.base import TTSEngine, resample_mono
+
+logger = logging.getLogger(__name__)
 
 #: Sentences longer than this fall back to comma/semicolon splitting.
 #: Why this value: ordinary prose sentences are ~100-300 characters, so
@@ -143,11 +147,22 @@ def split_long_sentence(text: str) -> list[str]:
     return parts
 
 
-def _read_flac(path: Path, sample_rate: int) -> np.ndarray:
+def _open_entry(path: Path) -> bytes:
+    """Read one cache entry's bytes.
+
+    Opened in Python so a Windows sharing violation (a rename in flight) raises
+    OSError here, where it is transient, rather than inside the decoder.
+    """
+    with open(path, "rb") as handle:
+        return handle.read()
+
+
+def _decode_flac(data: bytes, sample_rate: int) -> np.ndarray:
+    """Decode FLAC bytes to mono float32 at ``sample_rate``; raises on bad data."""
     import soundfile as sf
 
-    data, file_rate = sf.read(str(path), dtype="float32", always_2d=False)
-    mono = np.asarray(data, dtype=np.float32)
+    decoded, file_rate = sf.read(io.BytesIO(data), dtype="float32", always_2d=False)
+    mono = np.asarray(decoded, dtype=np.float32)
     if mono.ndim > 1:
         mono = mono.mean(axis=1).astype(np.float32)
     mono = mono.ravel().astype(np.float32, copy=False)
@@ -156,11 +171,15 @@ def _read_flac(path: Path, sample_rate: int) -> np.ndarray:
     return mono
 
 
+def _read_flac(path: Path, sample_rate: int) -> np.ndarray:
+    return _decode_flac(_open_entry(path), sample_rate)
+
+
 #: Serializes the rename of a finished cache entry into place. Chapter worker
 #: threads (RT2) can reach the same key at once and on Windows two renames of
 #: one target fail. Decoding and encoding run outside it, so warm reads stay
 #: parallel; a reader holding an entry open can still make the rename fail,
-#: which _replace_retrying covers.
+#: which _replace_entry retries.
 _IO_LOCK = threading.Lock()
 
 #: Gates the actual engine call (D-192). Chapter workers (RT2) share one
@@ -171,6 +190,11 @@ _IO_LOCK = threading.Lock()
 #: cache reads/writes parallel (they are I/O, and ``_IO_LOCK`` already guards
 #: them) while only the expensive inference is exclusive. A cache HIT never
 #: takes this lock, so warm resumes stay fully parallel.
+
+#: Retry schedule for a read or rename that Windows refuses while another
+#: thread holds the entry open.
+_RETRY_DELAY_S = 0.05
+_REPLACE_ATTEMPTS = 3
 
 
 def _unlink_quietly(path: Path) -> None:
@@ -184,23 +208,26 @@ def _unlink_quietly(path: Path) -> None:
 def _read_cached(path: Path, sample_rate: int) -> np.ndarray | None:
     """Decode a cache entry, or ``None`` when it is not a usable hit.
 
-    Decoding runs outside ``_IO_LOCK`` so warm resumes read in parallel. A
-    PermissionError means a rename is in flight (Windows will not replace an
-    open file), so it is retried once and the entry is kept if it still fails.
-    A present-but-undecodable file (torn write, foreign bytes, 0-byte) is
+    Decoding runs outside ``_IO_LOCK`` so warm resumes read in parallel. An
+    OSError while opening the entry is transient (Windows refuses the open
+    during a rename): it is retried once and never deletes the entry. A
+    present-but-undecodable file (torn write, foreign bytes, 0-byte) is
     deleted and reported as a miss, never returned.
     """
     if not path.is_file():
         return None
     for attempt in range(2):
         try:
-            return _read_flac(path, sample_rate)
-        except PermissionError:
+            data = _open_entry(path)
+        except OSError:
             if attempt == 0:
-                time.sleep(0.05)
+                time.sleep(_RETRY_DELAY_S)
+            continue
+        try:
+            return _decode_flac(data, sample_rate)
         except Exception:
             # Broad catch is deliberate — any decode failure means "not a
-            # valid hit".
+            # valid hit" (soundfile raises LibsndfileError, a RuntimeError).
             _unlink_quietly(path)
             return None
     return None
@@ -212,13 +239,29 @@ def _store_cached(path: Path, audio: np.ndarray, sample_rate: int) -> None:
     _write_flac_atomic(path, audio, sample_rate)
 
 
-def _replace_retrying(tmp: Path, path: Path) -> None:
-    """``os.replace``, retried once: Windows refuses while a reader has the target open."""
-    try:
-        os.replace(tmp, path)
-    except PermissionError:
-        time.sleep(0.05)
-        os.replace(tmp, path)
+def _replace_entry(tmp: Path, path: Path) -> bool:
+    """Rename ``tmp`` over ``path``; False when the entry stays locked.
+
+    Each attempt takes ``_IO_LOCK`` on its own, so the backoff sleep runs
+    unlocked. An entry that is still locked after every attempt is not cached;
+    the caller still returns the audio it synthesized.
+    """
+    for attempt in range(1, _REPLACE_ATTEMPTS + 1):
+        try:
+            with _IO_LOCK:
+                os.replace(tmp, path)
+            return True
+        except PermissionError as exc:
+            if attempt == _REPLACE_ATTEMPTS:
+                logger.warning(
+                    "cache entry %s not stored: still locked after %d tries (%s)",
+                    path.name,
+                    attempt,
+                    exc,
+                )
+                return False
+        time.sleep(_RETRY_DELAY_S * attempt)
+    return False
 
 
 def _check_finite(name: str, value: float) -> None:
@@ -235,12 +278,13 @@ def _write_flac_atomic(path: Path, audio: np.ndarray, sample_rate: int) -> None:
     """Write ``audio`` to ``path`` atomically (temp file + rename).
 
     ``os.replace`` within one directory is atomic, so readers only ever
-    see the complete file or nothing. A failed write removes the temp
-    file and re-raises; stale temps from killed builds are ignored.
+    see the complete file or nothing. A failed encode removes the temp file
+    and re-raises. A rename that stays locked drops the entry instead (it is
+    simply not cached) and removes the temp file; the audio is never lost.
 
     The temp name carries the thread id as well as the pid so two stores can
-    never share a temp path. Encoding and fsync run unlocked; only the rename
-    holds ``_IO_LOCK`` (see :func:`_replace_retrying`).
+    never share a temp path. Encoding and fsync run unlocked; only each rename
+    attempt holds ``_IO_LOCK`` (see :func:`_replace_entry`).
     """
     import soundfile as sf
 
@@ -250,11 +294,12 @@ def _write_flac_atomic(path: Path, audio: np.ndarray, sample_rate: int) -> None:
         with open(tmp, "r+b") as handle:
             handle.flush()
             os.fsync(handle.fileno())
-        with _IO_LOCK:
-            _replace_retrying(tmp, path)
+        stored = _replace_entry(tmp, path)
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+    if not stored:
+        _unlink_quietly(tmp)
 
 
 def get_or_synth(
