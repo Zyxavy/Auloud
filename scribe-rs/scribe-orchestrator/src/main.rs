@@ -103,7 +103,12 @@ fn fail(kind: &str, message: &str) -> ! {
 fn main() {
     let args = Args::parse();
     let filter = EnvFilter::from_str(&args.log_level).unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    // stdout carries the JSON protocol; tracing must never write there.
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_ansi(false)
+        .with_env_filter(filter)
+        .init();
 
     let manifest_str = match std::fs::read_to_string(&args.manifest) {
         Ok(s) => s,
