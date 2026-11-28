@@ -248,6 +248,7 @@ class MainActivity : ComponentActivity() {
         )[LibraryViewModel::class.java]
         ensureDefaultFolder()
         pruneLostGrants()
+        noticeLegacySharedFolder()
         refreshFolderState()
         requestStoragePermissionIfNeeded()
         setContent {
@@ -407,6 +408,29 @@ class MainActivity : ComponentActivity() {
             notice(
                 label,
                 "$label: folder permission was lost — please re-add it in Settings."
+            )
+        }
+    }
+
+    /**
+     * FU3 (#32): a saved pre-API-30 shared /Auloud cannot be read from API 30
+     * on, so say once per launch that the user must add it again in Settings.
+     */
+    private fun noticeLegacySharedFolder() {
+        val folders = try {
+            watchFolderStore.getWatchFolders()
+        } catch (e: Exception) {
+            Log.w(TAG, "watch folders unreadable: ${e.message}")
+            return
+        }
+        val appDefault = BooksRootResolver.defaultBooksRoot(applicationContext)
+        val legacy = folders.any {
+            BooksRootResolver.legacySharedFolderNeedsPick(Build.VERSION.SDK_INT, it, appDefault)
+        }
+        if (legacy) {
+            notice(
+                "Book folders",
+                "Your Auloud folder moved on Android 11+. Add it again in Settings (Add folder) to keep your books."
             )
         }
     }

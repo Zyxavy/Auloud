@@ -1,6 +1,8 @@
 package app.auloud.player.storage
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** WP3: the books-folder default is SD-first, internal fallback (pure function). */
@@ -99,6 +101,57 @@ class BooksRootResolverTest {
         assertEquals(
             "/data/x/Auloud",
             BooksRootResolver.defaultBooksRootFor(24, null, null, "/data/x")
+        )
+    }
+
+    /**
+     * FU3 (#32): API 30+ cannot read the old shared `/storage/emulated/0/Auloud`
+     * without a SAF grant, so a saved copy of it needs the user to pick again.
+     */
+    @Test
+    fun legacySharedFolderNeedsPick_api29_false() {
+        assertFalse(
+            BooksRootResolver.legacySharedFolderNeedsPick(
+                29,
+                WatchFolder.FilePath("/storage/emulated/0/Auloud"),
+                "/storage/emulated/0/Android/data/app.auloud.player/files/Auloud"
+            )
+        )
+    }
+
+    @Test
+    fun legacySharedFolderNeedsPick_api30_sharedPath_true() {
+        assertTrue(
+            BooksRootResolver.legacySharedFolderNeedsPick(
+                30,
+                WatchFolder.FilePath("/storage/emulated/0/Auloud/"),
+                "/storage/emulated/0/Android/data/app.auloud.player/files/Auloud"
+            )
+        )
+    }
+
+    @Test
+    fun legacySharedFolderNeedsPick_api30_appDefault_false() {
+        val appDefault = "/storage/emulated/0/Android/data/app.auloud.player/files/Auloud"
+        assertFalse(
+            BooksRootResolver.legacySharedFolderNeedsPick(
+                30,
+                WatchFolder.FilePath(appDefault),
+                appDefault
+            )
+        )
+    }
+
+    @Test
+    fun legacySharedFolderNeedsPick_api30_safEntry_false() {
+        assertFalse(
+            BooksRootResolver.legacySharedFolderNeedsPick(
+                30,
+                WatchFolder.TreeUri(
+                    "content://com.android.externalstorage.documents/tree/primary%3AAuloud"
+                ),
+                "/storage/emulated/0/Android/data/app.auloud.player/files/Auloud"
+            )
         )
     }
 }
