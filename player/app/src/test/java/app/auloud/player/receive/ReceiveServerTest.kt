@@ -101,7 +101,8 @@ class ReceiveServerTest {
         sha: String?,
         body: ByteArray,
         method: String = "POST",
-        multipart: Boolean = true
+        multipart: Boolean = true,
+        chunked: Boolean = false
     ): Pair<Int, String> {
         val connection = URL("http://127.0.0.1:$port/bundle").openConnection()
             as HttpURLConnection
@@ -111,6 +112,7 @@ class ReceiveServerTest {
             if (sha != null) connection.setRequestProperty("X-Sha256", sha)
             if (method == "POST") {
                 connection.doOutput = true
+                if (chunked) connection.setChunkedStreamingMode(0)
                 val payload = if (multipart) {
                     val boundary = "auloud-test-boundary"
                     connection.setRequestProperty(
@@ -436,6 +438,41 @@ class ReceiveServerTest {
             val backups = java.io.File(root).listFiles()
                 ?.filter { it.name.startsWith(ReceivePipeline.BACKUP_PREFIX) } ?: emptyList()
             assertTrue(backups.isEmpty())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun chunkedUploadWithoutLengthIs411() {
+        val root = booksRoot()
+        val body = zipBytes(validEntries())
+        val server = ReceiveServer(0, code, root, storage, library)
+        server.start()
+        try {
+            val (status, text) = post(
+                server.listeningPort, code, sha256Hex(body), body, chunked = true
+            )
+            assertEquals(411, status)
+            assertTrue(text.contains("length-required"))
+            assertTrue(library.imported.isEmpty())
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun lowFreeSpaceIs507() {
+        val root = booksRoot()
+        val body = zipBytes(validEntries())
+        val server = ReceiveServer(0, code, root, storage, library, freeSpace = { 0L })
+        server.start()
+        try {
+            val (status, text) = post(server.listeningPort, code, sha256Hex(body), body)
+            assertEquals(507, status)
+            assertTrue(text.contains("insufficient-storage"))
+            assertTrue(strayTemps(root).isEmpty())
+            assertTrue(library.imported.isEmpty())
         } finally {
             server.stop()
         }
