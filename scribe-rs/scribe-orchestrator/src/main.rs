@@ -1,15 +1,21 @@
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::io::{BufReader, Read, Write};
+use std::io::{BufReader, Write};
 use std::path::Path;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, Stdio};
 use std::str::FromStr;
-use std::sync::mpsc;
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::{self, Receiver};
+use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 
 use scribe_orchestrator::protocol::*;
 use scribe_orchestrator::supervisor::Supervisor;
+use scribe_orchestrator::{
+    encode_frame, next_frame, run_worker, spawn_frame_reader, Frame, WorkerLink, BATCH_TIMEOUT,
+    STARTUP_TIMEOUT,
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "scribe-orchestrator", version)]
@@ -132,7 +138,7 @@ fn main() {
     let batch_size = args.batch_size.min(manifest.batch_size).max(1);
 
     let mut children = spawn_workers(&args, &manifest, worker_count, &supervisor);
-    let mut io = handshake(&mut children, worker_count);
+    let io = handshake(&mut children, worker_count);
 
     emit_state("running");
 
@@ -160,8 +166,10 @@ fn main() {
     let total_sentences: u64 = manifest.chapters.iter().map(|c| c.sentences.len() as u64).sum();
 
     let (tx, rx) = mpsc::channel::<(u64, u64, u64)>(); // done, audio_ms, hits
+    // Set by the first failing worker; the others stop before their next batch.
+    let stop = Arc::new(AtomicBool::new(false));
     let mut threads = Vec::new();
-    for (widx, (stdin, reader)) in io.drain(..).enumerate() {
+    for (widx, ((stdin, frames), mut child)) in io.into_iter().zip(children).enumerate() {
         let mine: Vec<(usize, String, Vec<BatchItem>)> = batches
             .iter()
             .skip(widx)
@@ -169,7 +177,17 @@ fn main() {
             .cloned()
             .collect();
         let tx = tx.clone();
-        threads.push(std::thread::spawn(move || run_worker(stdin, reader, mine, tx)));
+        let stop = Arc::clone(&stop);
+        threads.push(std::thread::spawn(move || {
+            let link = WorkerLink { index: widx, stdin, frames, timeout: BATCH_TIMEOUT };
+            let result = run_worker(link, mine, &stop, &tx);
+            // A failed or hung worker is killed; a finished one has been sent Shutdown.
+            if result.is_err() {
+                let _ = child.kill();
+            }
+            let _ = child.wait();
+            result
+        }));
     }
     drop(tx);
 
@@ -200,10 +218,6 @@ fn main() {
             Ok(Err(e)) => worker_error = worker_error.or(Some(e)),
             Err(_) => worker_error = worker_error.or(Some("worker thread panicked".into())),
         }
-    }
-
-    for mut child in children {
-        let _ = child.wait();
     }
 
     if let Some(e) = worker_error {
@@ -276,7 +290,7 @@ fn spawn_workers(
     children
 }
 
-fn handshake(children: &mut [Child], worker_count: usize) -> Vec<(ChildStdin, BufReader<ChildStdout>)> {
+fn handshake(children: &mut [Child], worker_count: usize) -> Vec<(ChildStdin, Receiver<Frame>)> {
     let mut io = Vec::new();
     for (i, child) in children.iter_mut().enumerate() {
         let mut stdin = match child.stdin.take() {
@@ -287,7 +301,6 @@ fn handshake(children: &mut [Child], worker_count: usize) -> Vec<(ChildStdin, Bu
             Some(s) => s,
             None => fail("handshake", &format!("worker {i} has no stdout")),
         };
-        let mut reader = BufReader::new(stdout);
         let hello = Envelope {
             v: PROTOCOL_VERSION,
             id: format!("hello-{i}"),
@@ -297,76 +310,21 @@ fn handshake(children: &mut [Child], worker_count: usize) -> Vec<(ChildStdin, Bu
             fail("handshake", &format!("worker {i} write failed: {e}"));
         }
         let _ = stdin.flush();
-        match read_frame_sync(&mut reader) {
+        let frames = spawn_frame_reader(BufReader::new(stdout));
+        match next_frame(i, &frames, STARTUP_TIMEOUT) {
             Ok(Envelope { body: MessageBody::Ready { providers, .. }, .. }) => {
                 tracing::info!("worker {} ready ({} workers): {:?}", i, worker_count, providers);
             }
-            Ok(_) => fail("handshake", &format!("worker {i} sent an unexpected reply")),
-            Err(e) => fail("handshake", &format!("worker {i} handshake failed: {e}")),
+            Ok(_) => {
+                child.kill().ok();
+                fail("handshake", &format!("worker {i} sent an unexpected reply"));
+            }
+            Err(e) => {
+                child.kill().ok();
+                fail("handshake", &e);
+            }
         }
-        io.push((stdin, reader));
+        io.push((stdin, frames));
     }
     io
-}
-
-/// Run one worker to the end of its share: `(chapter, results)` per batch.
-fn run_worker(
-    mut stdin: ChildStdin,
-    mut reader: BufReader<ChildStdout>,
-    work: Vec<(usize, String, Vec<BatchItem>)>,
-    tx: mpsc::Sender<(u64, u64, u64)>,
-) -> Result<Vec<(usize, Vec<ResultItem>)>, String> {
-    let mut finished = Vec::new();
-    for (chapter, batch_id, items) in work {
-        let batch = Envelope {
-            v: PROTOCOL_VERSION,
-            id: batch_id.clone(),
-            body: MessageBody::SynthBatch { batch_id, items },
-        };
-        stdin
-            .write_all(&encode_frame(&batch))
-            .map_err(|e| format!("write failed: {e}"))?;
-        let _ = stdin.flush();
-        match read_frame_sync(&mut reader)? {
-            Envelope { body: MessageBody::BatchDone { results, .. }, .. } => {
-                let done = results.len() as u64;
-                let audio_ms = results.iter().map(|r| r.duration_ms).sum();
-                let hits = results.iter().filter(|r| r.cache_hit).count() as u64;
-                finished.push((chapter, results));
-                let _ = tx.send((done, audio_ms, hits));
-            }
-            Envelope { body: MessageBody::BatchError { message, .. }, .. } => {
-                return Err(message)
-            }
-            _ => return Err("unexpected reply from worker".into()),
-        }
-    }
-    let shutdown = Envelope {
-        v: PROTOCOL_VERSION,
-        id: "shutdown".to_string(),
-        body: MessageBody::Shutdown,
-    };
-    let _ = stdin.write_all(&encode_frame(&shutdown));
-    let _ = stdin.flush();
-    Ok(finished)
-}
-
-fn encode_frame(env: &Envelope) -> Vec<u8> {
-    let json = serde_json::to_vec(env).unwrap();
-    let mut frame = Vec::with_capacity(4 + json.len());
-    frame.extend_from_slice(&(json.len() as u32).to_le_bytes());
-    frame.extend_from_slice(&json);
-    frame
-}
-
-fn read_frame_sync(reader: &mut BufReader<ChildStdout>) -> Result<Envelope, String> {
-    let mut hdr = [0u8; 4];
-    reader.read_exact(&mut hdr).map_err(|e| e.to_string())?;
-    let n = u32::from_le_bytes(hdr) as usize;
-    if n == 0 || n > 16 * 1024 * 1024 {
-        return Err(format!("bad frame size {n}"));
-    }
-    let mut buf = vec![0u8; n];
-    reader.read_exact(&mut buf).map_err(|e| e.to_string())?;
-    serde_json::from_slice(&buf).map_err(|e| e.to_string())
 }
