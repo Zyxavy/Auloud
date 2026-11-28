@@ -302,7 +302,9 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    override fun onGetSession(info: MediaSession.ControllerInfo) = session
+    // FU5: refuse untrusted apps here; the platform token (lock screen, Bluetooth) is not routed through this.
+    override fun onGetSession(info: MediaSession.ControllerInfo): MediaSession? =
+        session?.takeIf { allowController(info.packageName, packageName, info.isTrusted) }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // WP9: log EVERY start at entry -- a system restart after a
