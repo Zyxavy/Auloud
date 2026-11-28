@@ -207,7 +207,7 @@ class ChapterTextLoaderTest {
     }
 
     @Test
-    fun dotDotTextPathIsUnavailable() = runBlocking {
+    fun dotDotTextPathIsInvalid() = runBlocking {
         val path = "/b/text/../../x.json"
         val storage = FakeStorage(mapOf(path to chapterJson(sentence(1, 0, 7450))))
         val result = ChapterTextLoader.load(storage, path)

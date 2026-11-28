@@ -10,6 +10,7 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawing
@@ -251,88 +252,90 @@ class MainActivity : ComponentActivity() {
         requestStoragePermissionIfNeeded()
         setContent {
             MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-                    val state by libraryViewModel.uiState.collectAsState()
-                    val importState by importViewModel.state.collectAsState()
-                    // WP8: settings sits above the library/player switch and
-                    // returns via Back. WP3/WP5 refinement: Settings also
-                    // hosts the watch-folder list (add via picker, remove).
-                    var showSettings by remember { mutableStateOf(false) }
-                    // Slice 20 TR1: Receive screen above the library (below
-                    // settings/import); leaving it stops the receiver.
-                    var showReceive by remember { mutableStateOf(false) }
-                    // RA0 throwaway: spike screen above everything, deleted
-                    // with the spike once the RA0 decision is logged.
-                    var showSpike by remember { mutableStateOf(false) }
-                    // Hoisted activity state (see folderState): narrow reads
-                    // keep recompositions cheap on the Tab E.
-                    val watchFolders by folderState
-                    // WP7: two-screen switch, no navigation library. A row tap
-                    // sets selectedBookId (WP5 hook); the player screen takes
-                    // over, back clears the selection. The service session
-                    // survives the switch, so return reconnects to the spot.
-                    val selectedBook = state.books.firstOrNull { it.id == state.selectedBookId }
-                    // CP8: the spike screen is debug-only; the second conjunct
-                    // is a constant false in release, so R8 drops the path.
-                    // IN8: the import screen sits above everything while an
-                    // import runs or its result is showing.
-                    if (importState != ImportUiState.Idle) {
-                        ImportScreen(
-                            state = importState,
-                            onCancel = importViewModel::cancel,
-                            onDismiss = ::dismissImport
-                        )
-                    } else if (showSpike && BuildConfig.DEBUG) {
-                        ReaderPreviewScreen(onBack = { showSpike = false })
-                    } else if (showSettings) {
-                        SettingsScreen(
-                            onBack = { showSettings = false },
-                            folders = watchFolders,
-                            onAddFolder = ::launchFolderPicker,
-                            onRemoveFolder = ::removeWatchFolder,
-                            onOpenSpike = { showSpike = true }
-                        )
-                    } else if (showReceive) {
-                        val receiveState by receiveViewModel.state.collectAsState()
-                        ReceiveScreen(
-                            state = receiveState,
-                            onOpen = receiveViewModel::start,
-                            onStop = receiveViewModel::stop,
-                            onRetry = receiveViewModel::start,
-                            onBack = {
-                                receiveViewModel.stop()
-                                showReceive = false
-                            }
-                        )
-                    } else if (state.selectedBookId != null && selectedBook != null) {
-                        // RA7: one book screen across all modes (Listen shows
-                        // the Slice 1 player, Read/ReadListen the reader).
-                        // IN9: unrendered books show the read-only screen
-                        // (progress repo supplies the sid position).
-                        // RN9: partial books show the render hub (panel plus
-                        // per-chapter reader/player routing); renders and
-                        // deletes rescan so the library chips follow.
-                        BookScreen(
-                            book = selectedBook,
-                            storage = routingStorage,
-                            onBack = libraryViewModel::clearSelection,
-                            progress = progressRepository,
-                            onBookChanged = libraryViewModel::rescan
-                        )
-                    } else {
-                        LibraryScreen(
-                            state = state,
-                            onRescan = libraryViewModel::rescan,
-                            onRetryPermission = libraryViewModel::onRetryPermission,
-                            onBookSelected = libraryViewModel::onBookSelected,
-                            onOpenSettings = {
-                                refreshFolderState()
-                                showSettings = true
-                            },
-                            onImportEpub = ::launchEpubPicker,
-                            onReceiveWifi = { showReceive = true },
-                            onDeleteBook = libraryViewModel::deleteBook
-                        )
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    Box(modifier = Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+                        val state by libraryViewModel.uiState.collectAsState()
+                        val importState by importViewModel.state.collectAsState()
+                        // WP8: settings sits above the library/player switch and
+                        // returns via Back. WP3/WP5 refinement: Settings also
+                        // hosts the watch-folder list (add via picker, remove).
+                        var showSettings by remember { mutableStateOf(false) }
+                        // Slice 20 TR1: Receive screen above the library (below
+                        // settings/import); leaving it stops the receiver.
+                        var showReceive by remember { mutableStateOf(false) }
+                        // RA0 throwaway: spike screen above everything, deleted
+                        // with the spike once the RA0 decision is logged.
+                        var showSpike by remember { mutableStateOf(false) }
+                        // Hoisted activity state (see folderState): narrow reads
+                        // keep recompositions cheap on the Tab E.
+                        val watchFolders by folderState
+                        // WP7: two-screen switch, no navigation library. A row tap
+                        // sets selectedBookId (WP5 hook); the player screen takes
+                        // over, back clears the selection. The service session
+                        // survives the switch, so return reconnects to the spot.
+                        val selectedBook = state.books.firstOrNull { it.id == state.selectedBookId }
+                        // CP8: the spike screen is debug-only; the second conjunct
+                        // is a constant false in release, so R8 drops the path.
+                        // IN8: the import screen sits above everything while an
+                        // import runs or its result is showing.
+                        if (importState != ImportUiState.Idle) {
+                            ImportScreen(
+                                state = importState,
+                                onCancel = importViewModel::cancel,
+                                onDismiss = ::dismissImport
+                            )
+                        } else if (showSpike && BuildConfig.DEBUG) {
+                            ReaderPreviewScreen(onBack = { showSpike = false })
+                        } else if (showSettings) {
+                            SettingsScreen(
+                                onBack = { showSettings = false },
+                                folders = watchFolders,
+                                onAddFolder = ::launchFolderPicker,
+                                onRemoveFolder = ::removeWatchFolder,
+                                onOpenSpike = { showSpike = true }
+                            )
+                        } else if (showReceive) {
+                            val receiveState by receiveViewModel.state.collectAsState()
+                            ReceiveScreen(
+                                state = receiveState,
+                                onOpen = receiveViewModel::start,
+                                onStop = receiveViewModel::stop,
+                                onRetry = receiveViewModel::start,
+                                onBack = {
+                                    receiveViewModel.stop()
+                                    showReceive = false
+                                }
+                            )
+                        } else if (state.selectedBookId != null && selectedBook != null) {
+                            // RA7: one book screen across all modes (Listen shows
+                            // the Slice 1 player, Read/ReadListen the reader).
+                            // IN9: unrendered books show the read-only screen
+                            // (progress repo supplies the sid position).
+                            // RN9: partial books show the render hub (panel plus
+                            // per-chapter reader/player routing); renders and
+                            // deletes rescan so the library chips follow.
+                            BookScreen(
+                                book = selectedBook,
+                                storage = routingStorage,
+                                onBack = libraryViewModel::clearSelection,
+                                progress = progressRepository,
+                                onBookChanged = libraryViewModel::rescan
+                            )
+                        } else {
+                            LibraryScreen(
+                                state = state,
+                                onRescan = libraryViewModel::rescan,
+                                onRetryPermission = libraryViewModel::onRetryPermission,
+                                onBookSelected = libraryViewModel::onBookSelected,
+                                onOpenSettings = {
+                                    refreshFolderState()
+                                    showSettings = true
+                                },
+                                onImportEpub = ::launchEpubPicker,
+                                onReceiveWifi = { showReceive = true },
+                                onDeleteBook = libraryViewModel::deleteBook
+                            )
+                        }
                     }
                 }
             }

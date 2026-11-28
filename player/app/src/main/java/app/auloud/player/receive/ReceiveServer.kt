@@ -63,16 +63,11 @@ class ReceiveServer(
         // wrong codes were seen, every request is refused, even the right
         // code. The cap lasts this server's lifetime; reopening Receive
         // starts a new server with a new code.
-        if (badGuesses.get() >= MAX_BAD_GUESSES) {
-            return json(
-                Response.Status.TOO_MANY_REQUESTS,
-                ok = false,
-                error = "bundle.zip: too-many-attempts: too many wrong pairing codes"
-            )
-        }
+        if (badGuesses.get() >= MAX_BAD_GUESSES) return tooManyAttempts()
         if (!constantTimeEquals(session.headers["x-pairing-code"], pairingCode)) {
+            // Atomic count: a parallel burst cannot slip past the cap.
+            if (badGuesses.incrementAndGet() > MAX_BAD_GUESSES) return tooManyAttempts()
             // One-second brake on wrong guesses (each connection has its own thread).
-            badGuesses.incrementAndGet()
             try {
                 Thread.sleep(badCodeDelayMs)
             } catch (_: InterruptedException) {
@@ -191,6 +186,12 @@ class ReceiveServer(
             if (duplicate) put("duplicate", true)
         }.toString()
     }
+
+    private fun tooManyAttempts(): Response = json(
+        Response.Status.TOO_MANY_REQUESTS,
+        ok = false,
+        error = "bundle.zip: too-many-attempts: too many wrong pairing codes"
+    )
 
     private fun json(
         status: Response.Status,

@@ -9,6 +9,10 @@ import java.io.ByteArrayOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.concurrent.Callable
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.coroutines.flow.Flow
@@ -469,6 +473,32 @@ class ReceiveServerTest {
             }
             assertEquals(429, last)
         } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun parallelWrongGuessesNeverExceedCap() {
+        val root = booksRoot()
+        // A zero brake lets the requests serialize (the race never shows), so
+        // this test keeps them overlapping with a 200 ms brake.
+        val server = ReceiveServer(0, code, root, storage, library, badCodeDelayMs = 200L)
+        server.start()
+        val pool = Executors.newFixedThreadPool(50)
+        try {
+            val go = CountDownLatch(1)
+            val futures = (1..50).map {
+                pool.submit(Callable {
+                    go.await()
+                    post(server.listeningPort, "000000", null, ByteArray(0)).first
+                })
+            }
+            go.countDown()
+            val statuses = futures.map { it.get(30, TimeUnit.SECONDS) }
+            assertEquals(ReceiveServer.MAX_BAD_GUESSES, statuses.count { it == 403 })
+            assertEquals(50 - ReceiveServer.MAX_BAD_GUESSES, statuses.count { it == 429 })
+        } finally {
+            pool.shutdownNow()
             server.stop()
         }
     }
