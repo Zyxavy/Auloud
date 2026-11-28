@@ -302,7 +302,7 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    // FU5: refuse untrusted apps here; the platform token (lock screen, Bluetooth) is not routed through this.
+    // FU5: refuse untrusted apps here. The platform token (lock screen, Bluetooth) does not come through here, but the legacy placeholder (media buttons, legacy binds) does, and is allowed in allowController.
     override fun onGetSession(info: MediaSession.ControllerInfo): MediaSession? =
         session?.takeIf { allowController(info.packageName, packageName, info.isTrusted) }
 

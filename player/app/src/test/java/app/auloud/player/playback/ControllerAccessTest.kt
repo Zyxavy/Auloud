@@ -26,4 +26,9 @@ class ControllerAccessTest {
     fun untrustedOtherPackage_isRefused() {
         assertFalse(allowController("com.example.other", own, isTrusted = false))
     }
+
+    @Test
+    fun legacyPlaceholderAllowed() {
+        assertTrue(allowController("android.media.session.MediaController", own, isTrusted = false))
+    }
 }

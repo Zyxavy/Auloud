@@ -6,4 +6,7 @@ package app.auloud.player.playback
  * Bluetooth) pass; any other app is refused at connect time.
  */
 fun allowController(controllerPackage: String, ownPackage: String, isTrusted: Boolean): Boolean =
-    controllerPackage == ownPackage || isTrusted
+    controllerPackage == ownPackage || controllerPackage == LEGACY_CONTROLLER_PACKAGE || isTrusted
+
+/** Media3 placeholder for media-button and legacy binds; it carries no caller identity. */
+const val LEGACY_CONTROLLER_PACKAGE = "android.media.session.MediaController"
