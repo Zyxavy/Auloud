@@ -1,6 +1,9 @@
 package app.auloud.player.bundle
 
 import java.io.File
+import java.io.InputStream
+import java.security.DigestInputStream
+import java.security.MessageDigest
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -46,7 +49,13 @@ import kotlinx.serialization.json.longOrNull
  * An empty list means valid. A bad chapter must be skipped with a message,
  * never crash import or playback (enforced by callers in WP5).
  *
- * API 24 safe: uses `java.io.File` only.
+ * Spec 7 source section (`SRC-*` rules, wording as in `scribe/bundle/validate.py`):
+ * the source path must stay inside the bundle and exist, the sha256 must be
+ * 64 hex chars, and with [validate]'s `hashSource` the file is hashed
+ * (streamed) and compared. Only one-time import paths set `hashSource`;
+ * rescans skip the hash.
+ *
+ * API 24 safe: uses `java.io` and `java.security` only.
  *
  * The audio-existence check is a seam so callers that must not touch files
  * (WP5 `LibraryViewModel`, which sees storage only through `BundleStorage`)
@@ -95,7 +104,8 @@ object BundleValidator {
         manifest: Manifest,
         readText: ((String) -> String?)? = null,
         textSize: ((String) -> Long?)? = null,
-        onChapter: ((chapterIndex: Int) -> Unit)? = null
+        onChapter: ((chapterIndex: Int) -> Unit)? = null,
+        hashSource: Boolean = false
     ): List<String> =
         validate(
             bundleDir.path,
@@ -103,7 +113,8 @@ object BundleValidator {
             { File(it).isFile },
             readText,
             textSize ?: { File(it).takeIf { f -> f.isFile }?.length() },
-            onChapter
+            onChapter,
+            hashSource
         )
 
     fun validate(
@@ -125,7 +136,14 @@ object BundleValidator {
          * lambda, never suspending: fires once per chapter entry as it
          * is checked.
          */
-        onChapter: ((chapterIndex: Int) -> Unit)? = null
+        onChapter: ((chapterIndex: Int) -> Unit)? = null,
+        /**
+         * Spec 7: also compare the source file's sha256 (one streamed read via
+         * [openInput]). Off by default so rescans never re-hash a book; the
+         * one-time import paths pass true.
+         */
+        hashSource: Boolean = false,
+        openInput: (String) -> InputStream? = { File(it).takeIf { f -> f.isFile }?.inputStream() }
     ): List<String> {
         val errors = mutableListOf<String>()
         if (manifest.specVersion.isBlank()) {
@@ -231,6 +249,9 @@ object BundleValidator {
                     )
                 }
             }
+            chapter.sourceIndex?.takeIf { it < 1 }?.let {
+                errors.add("manifest.json: $label has invalid source_index $it (need 1-based source chapter)")
+            }
             errors.addAll(validateChapterFingerprint(manifest, chapter))
             if (hasAudio && (manifest.specVersion in V1_VERSIONS || hasDuration)) {
                 val audioPath = safeJoin(bundleDirPath, chapter.audio)
@@ -303,9 +324,11 @@ object BundleValidator {
             }
         }
         errors.addAll(validateChapterIndices(manifest))
+        errors.addAll(validateSourceIndices(manifest))
         errors.addAll(validateAudioFormatAgreement(manifest))
         errors.addAll(validateDeviceFields(manifest))
         errors.addAll(validateRenderStateConsistency(manifest))
+        errors.addAll(validateSource(bundleDirPath, manifest, exists, hashSource, openInput))
         return errors
     }
 
@@ -622,6 +645,20 @@ object BundleValidator {
     ): List<String> {
         val problems = mutableListOf<String>()
         val path = entry.text
+        chapter.sourceIndex?.takeIf { it < 1 }?.let {
+            problems.add("$path: invalid source_index $it (need 1-based source chapter)")
+        }
+        if ((entry.sourceIndex == null) != (chapter.sourceIndex == null)) {
+            problems.add(
+                "$path: source_index mismatch: manifest entry has ${entry.sourceIndex ?: "None"}, " +
+                    "chapter file has ${chapter.sourceIndex ?: "None"} (both present or both absent)"
+            )
+        } else if (chapter.sourceIndex != entry.sourceIndex) {
+            problems.add(
+                "$path: source_index ${chapter.sourceIndex} does not match " +
+                    "manifest entry source_index ${entry.sourceIndex}"
+            )
+        }
         if (manifest.specVersion == "2.0" && chapter.specVersion != "2.0") {
             problems.add(
                 "$path: spec_version \"${chapter.specVersion}\" does not match " +
@@ -666,6 +703,92 @@ object BundleValidator {
             }
         }
         return problems
+    }
+
+    /**
+     * Spec 1.2 range rules (wording as in `scribe/bundle/validate.py`): when
+     * any entry carries `source_index`, every entry must carry one, and the
+     * values must be unique and strictly increasing in bundle order. Full
+     * builds omit the field entirely. Pure.
+     */
+    internal fun validateSourceIndices(manifest: Manifest): List<String> {
+        val indices = manifest.chapters.map { it.sourceIndex }
+        if (indices.all { it == null }) return emptyList()
+        val errors = mutableListOf<String>()
+        for (chapter in manifest.chapters) {
+            if (chapter.sourceIndex == null) {
+                errors.add(
+                    "manifest.json: chapter ${chapter.index} missing source_index " +
+                        "(range bundles need source_index on every chapter)"
+                )
+            }
+        }
+        val present = indices.filterNotNull()
+        if (present.toSet().size != present.size) {
+            errors.add(
+                "manifest.json: duplicate source_index values ${present.sorted()} " +
+                    "(need unique 1-based source chapters)"
+            )
+        }
+        var prev: Int? = null
+        for (value in present) {
+            if (prev != null && value <= prev) {
+                errors.add(
+                    "manifest.json: source_index $value out of order " +
+                        "(previous $prev; need strictly increasing in bundle order)"
+                )
+            }
+            prev = value
+        }
+        return errors
+    }
+
+    /**
+     * Spec 7 source section: the `source.file` path must stay inside the
+     * bundle and exist; the sha256 must be 64 hex chars. With [hashSource]
+     * the file is streamed through [openInput] and compared. Returns named
+     * errors (wording as in `scribe/bundle/validate.py`). Pure given the seams.
+     */
+    internal fun validateSource(
+        bundleDirPath: String,
+        manifest: Manifest,
+        exists: (String) -> Boolean,
+        hashSource: Boolean,
+        openInput: (String) -> InputStream?
+    ): List<String> {
+        val source = manifest.source ?: return emptyList()
+        val file = source.file ?: return emptyList()
+        val path = safeJoin(bundleDirPath, file)
+            ?: return listOf("$file: path escapes bundle (listed in manifest source)")
+        if (!exists(path)) return listOf("$file: file missing (listed in manifest source)")
+        val sha = source.sha256 ?: return emptyList()
+        if (sha.length != 64 || sha.any { it !in "0123456789abcdefABCDEF" }) {
+            return listOf("manifest.json: source sha256 is not a 64-char hex string")
+        }
+        if (!hashSource) return emptyList()
+        val digest = try {
+            openInput(path)?.use { sha256Hex(it) }
+        } catch (_: Exception) {
+            null
+        }
+        if (digest == null) return listOf("$file: cannot read for sha256 check")
+        return if (digest.equals(sha, ignoreCase = true)) {
+            emptyList()
+        } else {
+            listOf("$file: sha256 mismatch: expected $sha, got $digest")
+        }
+    }
+
+    /** Streamed lowercase hex SHA-256: 8 KB reads, the file is never held whole. */
+    internal fun sha256Hex(input: InputStream): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        DigestInputStream(input, digest).use { stream ->
+            val buffer = ByteArray(8192)
+            while (stream.read(buffer) >= 0) {
+                // Reading through the DigestInputStream feeds the digest.
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     private fun joinPath(dir: String, rel: String): String =

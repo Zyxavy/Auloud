@@ -64,7 +64,10 @@ data class ChapterInfo(
     @SerialName("duration_ms")
     val durationMs: Long? = null,
     @SerialName("render_fingerprint")
-    val renderFingerprint: JsonElement? = null
+    val renderFingerprint: JsonElement? = null,
+    /** Range bundles (spec 1.2): 1-based source chapter, absent for full builds. */
+    @SerialName("source_index")
+    val sourceIndex: Int? = null
 )
 
 @Serializable

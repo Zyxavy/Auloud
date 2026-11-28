@@ -577,7 +577,9 @@ object IngestPipeline {
                 storage::exists,
                 storage::readText,
                 storage::sizeBytes,
-                onChapter = { order.add(it) }
+                onChapter = { order.add(it) },
+                hashSource = true,
+                openInput = storage::openInput
             )
             val titles = manifest.chapters.associate { it.index to it.title }
             for ((pos, index) in order.withIndex()) {

@@ -75,7 +75,10 @@ data class ChapterText(
     @SerialName("duration_ms")
     val durationMs: Long? = null,
     val blocks: List<Block>,
-    val pages: List<PageMark>? = null
+    val pages: List<PageMark>? = null,
+    /** Range bundles (spec 1.2): 1-based source chapter, absent for full builds. */
+    @SerialName("source_index")
+    val sourceIndex: Int? = null
 ) {
     /** All sentences in document order (block order, then sid order). */
     fun sentencesInOrder(): List<Sentence> = blocks.flatMap { it.sentences }

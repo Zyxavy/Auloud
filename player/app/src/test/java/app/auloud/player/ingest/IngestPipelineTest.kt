@@ -78,6 +78,8 @@ class IngestPipelineTest {
 
         override fun exists(path: String): Boolean = files.containsKey(path)
 
+        override fun openInput(path: String): java.io.InputStream? = files[path]?.inputStream()
+
         override fun audioUri(bundleDir: String, relPath: String): Uri =
             throw UnsupportedOperationException("not used by the pipeline")
 

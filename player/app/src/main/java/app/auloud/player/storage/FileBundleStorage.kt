@@ -3,6 +3,7 @@ package app.auloud.player.storage
 import android.net.Uri
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 
 /**
  * WP3: path-based [BundleStorage] using `java.io.File` internally.
@@ -39,6 +40,13 @@ class FileBundleStorage : BundleStorage {
     }
 
     override fun exists(path: String): Boolean = File(path).exists()
+
+    /** Streamed read for the source sha256 check; null when missing or unreadable. Never throws. */
+    override fun openInput(path: String): InputStream? = try {
+        File(path).takeIf { it.isFile }?.inputStream()
+    } catch (_: Exception) {
+        null
+    }
 
     /** FP4: file length, null when not a file (missing or unreadable). Never throws. */
     override fun sizeBytes(path: String): Long? = try {

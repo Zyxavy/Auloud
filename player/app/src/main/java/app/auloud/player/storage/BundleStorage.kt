@@ -2,6 +2,7 @@ package app.auloud.player.storage
 
 import android.net.Uri
 import java.io.IOException
+import java.io.InputStream
 
 /**
  * WP3: file access for book bundles. WP3/WP5 refinement: file paths route to
@@ -94,6 +95,16 @@ interface BundleStorage {
      * API 24 safe: plain strings, no `java.time`, no `java.nio.file`.
      */
     fun sizeBytes(path: String): Long? = null
+
+    /**
+     * Opens [path] for a streamed read (the source sha256 check on one-time
+     * imports reads it in 8 KB pieces). Null when the storage cannot stream
+     * the file, which the validator reports as unreadable. Default null so
+     * read-only fakes compile untouched.
+     *
+     * API 24 safe: java.io streams only.
+     */
+    fun openInput(path: String): InputStream? = null
 
     /**
      * IN8: immediate `.tmp-*` import-residue folders under [root] (a sudden

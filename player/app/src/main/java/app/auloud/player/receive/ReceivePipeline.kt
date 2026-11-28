@@ -125,10 +125,12 @@ object ReceivePipeline {
         // CP4: the receive path must run the same text checks as import, so a
         // pushed bundle with bad chapter JSON is refused here instead of
         // failing later at open. The bundle is on disk under the file root.
+        // One-time import: also checks the source sha256 (spec 7, streamed).
         val problems = BundleValidator.validate(
             bundleDir,
             manifest,
-            readText = { path -> File(path).takeIf { it.isFile }?.readText() }
+            readText = { path -> File(path).takeIf { it.isFile }?.readText() },
+            hashSource = true
         )
         if (problems.isNotEmpty()) {
             storage.deleteRecursively(tempDir.path)

@@ -104,7 +104,6 @@ class RenderRecoveryTest {
           "title": "Unrendered",
           "type": "epub",
           "render_state": "none",
-          "source": {"file": "source/book.epub", "sha256": "abc"},
           "voices": {
             "narrator": {"engine": "system", "voice": "default", "speed": 1.0, "pitch": 1.0},
             "dialogue": {"engine": "system", "voice": "default", "speed": 1.0, "pitch": 1.0}
